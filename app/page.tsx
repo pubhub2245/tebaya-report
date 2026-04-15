@@ -32,10 +32,10 @@ export default function Page() {
   const [copied, setCopied] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
 
-  // Load draft from localStorage
+  // Load draft from sessionStorage
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = sessionStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed?.form) setForm({ ...initialForm(), ...parsed.form });
@@ -48,7 +48,7 @@ export default function Page() {
   // Persist draft
   useEffect(() => {
     if (!loaded) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ form, step }));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ form, step }));
   }, [form, step, loaded]);
 
   // Fetch cumulative sales
@@ -134,7 +134,7 @@ export default function Page() {
         .single();
       if (error) throw error;
       setSavedId(data.id);
-      localStorage.removeItem(STORAGE_KEY);
+      sessionStorage.removeItem(STORAGE_KEY);
     } catch (e: any) {
       alert("保存に失敗しました: " + (e?.message || e));
     } finally {
@@ -144,7 +144,7 @@ export default function Page() {
 
   const resetAll = () => {
     if (!confirm("入力内容をクリアして最初から始めますか？")) return;
-    localStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(STORAGE_KEY);
     setForm(initialForm());
     setStep(1);
     setLineText("");
