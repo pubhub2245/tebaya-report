@@ -42,6 +42,7 @@ export type FormState = {
     gyoza: number;
     potato: number;
     tornado: number;
+    negishio: number;
   };
   expenses: ExpenseRow[];
   handover: string;
@@ -56,7 +57,7 @@ export const initialForm = (): FormState => ({
   register_ok: true,
   register_diff: 0,
   labor: DEFAULT_DAILY_PAY,
-  remaining: { tebasaki: 0, gyoza: 0, potato: 0, tornado: 0 },
+  remaining: { tebasaki: 0, gyoza: 0, potato: 0, tornado: 0, negishio: 0 },
   expenses: [],
   handover: "",
 });

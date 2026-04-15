@@ -161,6 +161,7 @@ export default function Page() {
           remaining_gyoza: form.remaining.gyoza,
           remaining_potato: form.remaining.potato,
           remaining_tornado: form.remaining.tornado,
+          remaining_negishio: form.remaining.negishio,
           expenses: form.expenses,
           handover: form.handover,
           line_text: text,
@@ -566,6 +567,7 @@ function Step4({
   const items: { key: keyof FormState["remaining"]; label: string }[] = [
     { key: "tebasaki", label: "手羽先" },
     { key: "gyoza", label: "手羽餃子" },
+    { key: "negishio", label: "ねぎ塩" },
     { key: "potato", label: "ポテト" },
     { key: "tornado", label: "トルネードポテト" },
   ];
@@ -869,7 +871,7 @@ function Step7({
         <Row k="レジ合計" v={`${yen(registerTotal)}（${form.register_ok ? "OK" : "差異あり"}）`} />
         <Row
           k="在庫残"
-          v={`手羽${form.remaining.tebasaki} / 餃子${form.remaining.gyoza} / ポテト${form.remaining.potato} / トルネード${form.remaining.tornado}`}
+          v={`手羽${form.remaining.tebasaki} / 餃子${form.remaining.gyoza} / ねぎ塩${form.remaining.negishio} / ポテト${form.remaining.potato} / トルネード${form.remaining.tornado}`}
         />
         <Row k="経費件数" v={`${form.expenses.length}件（${yen(expensesTotal)}）`} />
       </div>

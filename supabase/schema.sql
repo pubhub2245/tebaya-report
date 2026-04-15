@@ -17,6 +17,7 @@ create table if not exists daily_reports (
   remaining_gyoza integer not null default 0,
   remaining_potato integer not null default 0,
   remaining_tornado integer not null default 0,
+  remaining_negishio integer not null default 0,
   expenses jsonb not null default '[]'::jsonb,
   handover text,
   line_text text
@@ -29,6 +30,8 @@ alter table daily_reports
   add column if not exists register_diff integer not null default 0;
 alter table daily_reports
   add column if not exists labor integer not null default 10000;
+alter table daily_reports
+  add column if not exists remaining_negishio integer not null default 0;
 
 create table if not exists expenses (
   id uuid primary key default gen_random_uuid(),

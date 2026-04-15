@@ -64,6 +64,7 @@ export function generateLineText(f: FormState, cumulative: number): string {
     "手羽先.手羽餃子残り本数",
     `・手羽 ×${f.remaining.tebasaki}`,
     `・手羽ギョーザ ×${f.remaining.gyoza}`,
+    `・ねぎ塩 ×${f.remaining.negishio}`,
     `・ポテト ×${f.remaining.potato}`,
     `・トルネードポテト ×${f.remaining.tornado}`,
   ];
