@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { yen, slashDate } from "@/lib/format";
+import { laborFor } from "@/lib/formState";
 
 type Report = {
   id: string;
@@ -12,6 +13,7 @@ type Report = {
   staff_name: string;
   sales_amount: number;
   register_diff: number | null;
+  labor: number | null;
   expenses: { description: string; amount: number }[] | null;
 };
 
@@ -23,12 +25,14 @@ type Alert = {
   amount2: number;
 };
 
-const calcProfit = (sales: number) => {
+const calcProfit = (sales: number, labor: number) => {
   const food = Math.round(sales * 0.25);
-  const labor = 10000;
   const rent = Math.round(sales * 0.1);
   return sales - (food + labor + rent);
 };
+
+const reportLabor = (r: Pick<Report, "labor" | "staff_name">) =>
+  r.labor ?? laborFor(r.staff_name);
 
 export default function AdminPage() {
   const [reports, setReports] = useState<Report[]>([]);
@@ -66,7 +70,7 @@ export default function AdminPage() {
           supabase
             .from("daily_reports")
             .select(
-              "id, date, location, staff_name, sales_amount, register_diff, expenses"
+              "id, date, location, staff_name, sales_amount, register_diff, labor, expenses"
             )
             .order("date", { ascending: false })
             .limit(30),
@@ -128,7 +132,7 @@ export default function AdminPage() {
       0
     );
     const profit = inMonth.reduce(
-      (s, r) => s + calcProfit(r.sales_amount || 0),
+      (s, r) => s + calcProfit(r.sales_amount || 0, reportLabor(r)),
       0
     );
     const takeHome = inMonth.reduce((s, r) => {
@@ -236,7 +240,7 @@ export default function AdminPage() {
             </thead>
             <tbody>
               {reports.map((r) => {
-                const profit = calcProfit(r.sales_amount || 0);
+                const profit = calcProfit(r.sales_amount || 0, reportLabor(r));
                 const expTotal = (r.expenses || []).reduce(
                   (s, e) => s + (e.amount || 0),
                   0

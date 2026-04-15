@@ -7,6 +7,7 @@ import {
   FormState,
   initialForm,
   STORAGE_KEY,
+  laborFor,
 } from "@/lib/formState";
 import { generateLineText } from "@/lib/lineText";
 
@@ -155,6 +156,7 @@ export default function Page() {
           register_total: registerTotal,
           register_ok: form.register_ok,
           register_diff: form.register_diff || 0,
+          labor: form.labor || 10000,
           remaining_tebasaki: form.remaining.tebasaki,
           remaining_gyoza: form.remaining.gyoza,
           remaining_potato: form.remaining.potato,
@@ -354,7 +356,11 @@ function Step1({
         <select
           className="field"
           value={form.staff_name}
-          onChange={(e) => update("staff_name", e.target.value)}
+          onChange={(e) => {
+            const v = e.target.value;
+            update("staff_name", v);
+            update("labor", laborFor(v));
+          }}
         >
           <option value="">選択してください</option>
           {STAFF_OPTIONS.map((name) => (
@@ -363,6 +369,24 @@ function Step1({
             </option>
           ))}
         </select>
+      </div>
+      <div>
+        <label className="label">日当（自動）</label>
+        <div className="relative">
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-500 text-lg">
+            ¥
+          </span>
+          <input
+            type="number"
+            inputMode="numeric"
+            className="field pl-8 text-right"
+            value={form.labor || ""}
+            onChange={(e) =>
+              update("labor", parseInt(e.target.value || "0", 10))
+            }
+            placeholder="10000"
+          />
+        </div>
       </div>
     </section>
   );
@@ -809,7 +833,7 @@ function Step7({
 }) {
   const sales = form.sales_amount || 0;
   const food = Math.round(sales * 0.25);
-  const labor = 10000;
+  const labor = form.labor || 10000;
   const rent = Math.round(sales * 0.1);
   const costTotal = food + labor + rent;
   const profit = sales - costTotal;

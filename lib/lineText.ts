@@ -6,7 +6,7 @@ const SEP = "━━━━━━━━━━━━━━";
 export function generateLineText(f: FormState, cumulative: number): string {
   const sales = f.sales_amount || 0;
   const food = Math.round(sales * 0.25);
-  const labor = 10000;
+  const labor = f.labor || 10000;
   const rent = Math.round(sales * 0.1);
   const expensesTotal = f.expenses.reduce((s, e) => s + (e.amount || 0), 0);
   const costTotal = food + labor + rent;

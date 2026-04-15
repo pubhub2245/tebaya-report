@@ -12,6 +12,7 @@ create table if not exists daily_reports (
   register_total integer not null default 0,
   register_ok boolean not null default true,
   register_diff integer not null default 0,
+  labor integer not null default 10000,
   remaining_tebasaki integer not null default 0,
   remaining_gyoza integer not null default 0,
   remaining_potato integer not null default 0,
@@ -26,6 +27,8 @@ create index if not exists daily_reports_date_idx on daily_reports (date desc);
 -- Migration for existing installs:
 alter table daily_reports
   add column if not exists register_diff integer not null default 0;
+alter table daily_reports
+  add column if not exists labor integer not null default 10000;
 
 create table if not exists expenses (
   id uuid primary key default gen_random_uuid(),
