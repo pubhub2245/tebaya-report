@@ -772,7 +772,7 @@ function Step7({
   const food = Math.round(sales * 0.25);
   const labor = 10000;
   const rent = Math.round(sales * 0.1);
-  const costTotal = food + labor + rent + expensesTotal;
+  const costTotal = food + labor + rent;
   const profit = sales - costTotal;
 
   return (

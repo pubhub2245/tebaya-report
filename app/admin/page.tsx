@@ -23,15 +23,11 @@ type Alert = {
   amount2: number;
 };
 
-const calcProfit = (sales: number, expenses: Report["expenses"]) => {
+const calcProfit = (sales: number) => {
   const food = Math.round(sales * 0.25);
   const labor = 10000;
   const rent = Math.round(sales * 0.1);
-  const expTotal = (expenses || []).reduce(
-    (s, e) => s + (e.amount || 0),
-    0
-  );
-  return sales - (food + labor + rent + expTotal);
+  return sales - (food + labor + rent);
 };
 
 export default function AdminPage() {
@@ -132,7 +128,7 @@ export default function AdminPage() {
       0
     );
     const profit = inMonth.reduce(
-      (s, r) => s + calcProfit(r.sales_amount || 0, r.expenses),
+      (s, r) => s + calcProfit(r.sales_amount || 0),
       0
     );
     const takeHome = inMonth.reduce((s, r) => {
@@ -240,7 +236,7 @@ export default function AdminPage() {
             </thead>
             <tbody>
               {reports.map((r) => {
-                const profit = calcProfit(r.sales_amount || 0, r.expenses);
+                const profit = calcProfit(r.sales_amount || 0);
                 const expTotal = (r.expenses || []).reduce(
                   (s, e) => s + (e.amount || 0),
                   0

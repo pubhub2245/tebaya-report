@@ -9,7 +9,7 @@ export function generateLineText(f: FormState, cumulative: number): string {
   const labor = 10000;
   const rent = Math.round(sales * 0.1);
   const expensesTotal = f.expenses.reduce((s, e) => s + (e.amount || 0), 0);
-  const costTotal = food + labor + rent + expensesTotal;
+  const costTotal = food + labor + rent;
   const profit = sales - costTotal;
 
   const coins: [string, number, number][] = [
