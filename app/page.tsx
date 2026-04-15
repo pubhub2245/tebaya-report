@@ -64,10 +64,23 @@ export default function Page() {
     setLoaded(true);
   }, []);
 
-  // Persist draft
+  // Persist draft (strip heavy data URLs to avoid quota errors)
   useEffect(() => {
     if (!loaded) return;
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ form, step }));
+    try {
+      const slim = {
+        ...form,
+        expenses: form.expenses.map((e) => ({
+          ...e,
+          receipt_image_url: e.receipt_image_url?.startsWith("data:")
+            ? null
+            : e.receipt_image_url ?? null,
+        })),
+      };
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ form: slim, step }));
+    } catch (err) {
+      console.warn("sessionStorage persist failed", err);
+    }
   }, [form, step, loaded]);
 
   // Fetch cumulative sales
@@ -599,30 +612,56 @@ function Step5({
       form.expenses.map((e, idx) => (idx === i ? { ...e, ...patch } : e))
     );
 
-  const fileToDataUrl = (file: File) =>
+  const resizeImage = (file: File, maxDim = 1600, quality = 0.8) =>
     new Promise<string>((resolve, reject) => {
       const fr = new FileReader();
-      fr.onload = () => resolve(fr.result as string);
-      fr.onerror = reject;
+      fr.onerror = () => reject(new Error("読み込みに失敗しました"));
+      fr.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("画像の解析に失敗しました"));
+        img.onload = () => {
+          try {
+            const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+            const w = Math.round(img.width * scale);
+            const h = Math.round(img.height * scale);
+            const canvas = document.createElement("canvas");
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return reject(new Error("canvas未対応"));
+            ctx.drawImage(img, 0, 0, w, h);
+            resolve(canvas.toDataURL("image/jpeg", quality));
+          } catch (err) {
+            reject(err);
+          }
+        };
+        img.src = fr.result as string;
+      };
       fr.readAsDataURL(file);
     });
 
   const handlePhoto = async (i: number, file: File) => {
+    if (file.size > 20 * 1024 * 1024) {
+      alert("画像サイズが大きすぎます（20MB以下にしてください）");
+      return;
+    }
     try {
       setOcrIdx(i);
-      const dataUrl = await fileToDataUrl(file);
+      const dataUrl = await resizeImage(file);
       updateExpense(i, { receipt_image_url: dataUrl });
       const res = await fetch("/api/ocr", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          image: dataUrl,
-          mediaType: file.type || "image/jpeg",
-        }),
+        body: JSON.stringify({ image: dataUrl, mediaType: "image/jpeg" }),
       });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`OCR失敗 (${res.status}) ${text}`);
+      }
       const json = await res.json();
       if (json?.amount) updateExpense(i, { amount: json.amount });
     } catch (e: any) {
+      console.error("handlePhoto error", e);
       alert("読み取り失敗: " + (e?.message || e));
     } finally {
       setOcrIdx(null);
