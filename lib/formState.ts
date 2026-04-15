@@ -21,6 +21,7 @@ export type FormState = {
     b10000: number;
   };
   register_ok: boolean;
+  register_diff: number;
   remaining: {
     tebasaki: number;
     gyoza: number;
@@ -38,6 +39,7 @@ export const initialForm = (): FormState => ({
   sales_amount: 0,
   coins: { c10: 0, c50: 0, c100: 0, c500: 0, b1000: 0, b5000: 0, b10000: 0 },
   register_ok: true,
+  register_diff: 0,
   remaining: { tebasaki: 0, gyoza: 0, potato: 0, tornado: 0 },
   expenses: [],
   handover: "",

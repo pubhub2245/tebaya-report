@@ -141,6 +141,7 @@ export default function Page() {
           cumulative_sales: cumulative,
           register_total: registerTotal,
           register_ok: form.register_ok,
+          register_diff: form.register_diff || 0,
           remaining_tebasaki: form.remaining.tebasaki,
           remaining_gyoza: form.remaining.gyoza,
           remaining_potato: form.remaining.potato,
@@ -448,7 +449,10 @@ function Step3({
       <div className="grid grid-cols-2 gap-2">
         <button
           type="button"
-          onClick={() => update("register_ok", true)}
+          onClick={() => {
+            update("register_ok", true);
+            update("register_diff", 0);
+          }}
           className={`rounded-xl py-3 font-bold border-2 ${
             form.register_ok
               ? "bg-green-600 text-white border-green-600"
@@ -469,6 +473,28 @@ function Step3({
           ! 差異あり
         </button>
       </div>
+      {!form.register_ok && (
+        <div>
+          <label className="label">
+            差異金額（不足の場合はマイナスで入力）
+          </label>
+          <div className="relative">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-500 text-lg">
+              ¥
+            </span>
+            <input
+              type="number"
+              inputMode="numeric"
+              className="field pl-8 text-right"
+              placeholder="例：-500"
+              value={form.register_diff || ""}
+              onChange={(e) =>
+                update("register_diff", parseInt(e.target.value || "0", 10))
+              }
+            />
+          </div>
+        </div>
+      )}
     </section>
   );
 }

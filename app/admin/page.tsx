@@ -11,7 +11,16 @@ type Report = {
   location: string;
   staff_name: string;
   sales_amount: number;
+  register_diff: number | null;
   expenses: { description: string; amount: number }[] | null;
+};
+
+type Alert = {
+  staff: string;
+  date1: string;
+  amount1: number;
+  date2: string;
+  amount2: number;
 };
 
 const calcProfit = (sales: number, expenses: Report["expenses"]) => {
@@ -27,6 +36,7 @@ const calcProfit = (sales: number, expenses: Report["expenses"]) => {
 
 export default function AdminPage() {
   const [reports, setReports] = useState<Report[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -56,15 +66,49 @@ export default function AdminPage() {
   useEffect(() => {
     (async () => {
       try {
-        const { data, error } = await supabase
-          .from("daily_reports")
-          .select(
-            "id, date, location, staff_name, sales_amount, expenses"
-          )
-          .order("date", { ascending: false })
-          .limit(30);
-        if (error) throw error;
-        setReports((data as Report[]) || []);
+        const [recentRes, allRes] = await Promise.all([
+          supabase
+            .from("daily_reports")
+            .select(
+              "id, date, location, staff_name, sales_amount, register_diff, expenses"
+            )
+            .order("date", { ascending: false })
+            .limit(30),
+          supabase
+            .from("daily_reports")
+            .select("date, staff_name, register_diff")
+            .order("date", { ascending: true }),
+        ]);
+        if (recentRes.error) throw recentRes.error;
+        if (allRes.error) throw allRes.error;
+        setReports((recentRes.data as Report[]) || []);
+
+        const byStaff = new Map<
+          string,
+          { date: string; register_diff: number | null }[]
+        >();
+        ((allRes.data as any[]) || []).forEach((r) => {
+          const arr = byStaff.get(r.staff_name) || [];
+          arr.push({ date: r.date, register_diff: r.register_diff });
+          byStaff.set(r.staff_name, arr);
+        });
+        const found: Alert[] = [];
+        byStaff.forEach((rows, staff) => {
+          for (let i = 0; i < rows.length - 1; i++) {
+            const a = rows[i];
+            const b = rows[i + 1];
+            if ((a.register_diff ?? 0) < 0 && (b.register_diff ?? 0) < 0) {
+              found.push({
+                staff,
+                date1: a.date,
+                amount1: a.register_diff as number,
+                date2: b.date,
+                amount2: b.register_diff as number,
+              });
+            }
+          }
+        });
+        setAlerts(found);
       } catch (e: any) {
         setError(e?.message || String(e));
       } finally {
@@ -102,6 +146,32 @@ export default function AdminPage() {
           日報フォームへ
         </Link>
       </header>
+
+      {alerts.length > 0 && (
+        <section className="space-y-3">
+          {alerts.map((a, i) => {
+            const total = a.amount1 + a.amount2;
+            return (
+              <div
+                key={i}
+                className="border-2 border-red-400 bg-red-50 rounded-xl p-4 text-red-800"
+              >
+                <div className="font-bold text-lg mb-1">
+                  ⚠️ {a.staff}：2回連続レジマイナス
+                </div>
+                <div className="text-sm">
+                  {slashDate(a.date1)}：{a.amount1.toLocaleString("ja-JP")}円
+                  {" / "}
+                  {slashDate(a.date2)}：{a.amount2.toLocaleString("ja-JP")}円
+                </div>
+                <div className="mt-2 font-bold">
+                  補填金額：{Math.abs(total).toLocaleString("ja-JP")}円
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      )}
 
       <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="card">
@@ -142,6 +212,7 @@ export default function AdminPage() {
                 <th className="py-2 pr-3">担当</th>
                 <th className="py-2 pr-3 text-right">売上</th>
                 <th className="py-2 pr-3 text-right">粗利</th>
+                <th className="py-2 pr-3 text-right">レジ差異</th>
                 <th className="py-2 text-right">操作</th>
               </tr>
             </thead>
@@ -165,6 +236,15 @@ export default function AdminPage() {
                       }`}
                     >
                       {yen(profit)}
+                    </td>
+                    <td className="py-2 pr-3 text-right font-mono">
+                      {(r.register_diff ?? 0) === 0 ? (
+                        <span className="text-stone-400">－</span>
+                      ) : (
+                        <span className="text-red-600">
+                          {yen(r.register_diff ?? 0)}
+                        </span>
+                      )}
                     </td>
                     <td className="py-2 text-right">
                       <button
