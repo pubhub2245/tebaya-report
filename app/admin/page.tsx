@@ -135,7 +135,20 @@ export default function AdminPage() {
       (s, r) => s + calcProfit(r.sales_amount || 0, r.expenses),
       0
     );
-    return { sales, profit, count: inMonth.length, label: `${y}年${m + 1}月` };
+    const takeHome = inMonth.reduce((s, r) => {
+      const expTotal = (r.expenses || []).reduce(
+        (e, x) => e + (x.amount || 0),
+        0
+      );
+      return s + ((r.sales_amount || 0) - expTotal);
+    }, 0);
+    return {
+      sales,
+      profit,
+      takeHome,
+      count: inMonth.length,
+      label: `${y}年${m + 1}月`,
+    };
   }, [reports]);
 
   return (
@@ -173,7 +186,7 @@ export default function AdminPage() {
         </section>
       )}
 
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="card">
           <div className="text-xs text-stone-500">{monthStats.label} 売上合計</div>
           <div className="text-2xl font-bold text-brand-dark">
@@ -188,6 +201,14 @@ export default function AdminPage() {
             }`}
           >
             {yen(monthStats.profit)}
+          </div>
+        </div>
+        <div className="card">
+          <div className="text-xs text-stone-500">
+            {monthStats.label} 持ち帰り金額合計
+          </div>
+          <div className="text-2xl font-bold text-orange-600">
+            {yen(monthStats.takeHome)}
           </div>
         </div>
         <div className="card">
@@ -212,6 +233,7 @@ export default function AdminPage() {
                 <th className="py-2 pr-3">担当</th>
                 <th className="py-2 pr-3 text-right">売上</th>
                 <th className="py-2 pr-3 text-right">粗利</th>
+                <th className="py-2 pr-3 text-right">持ち帰り</th>
                 <th className="py-2 pr-3 text-right">レジ差異</th>
                 <th className="py-2 text-right">操作</th>
               </tr>
@@ -219,6 +241,11 @@ export default function AdminPage() {
             <tbody>
               {reports.map((r) => {
                 const profit = calcProfit(r.sales_amount || 0, r.expenses);
+                const expTotal = (r.expenses || []).reduce(
+                  (s, e) => s + (e.amount || 0),
+                  0
+                );
+                const takeHome = (r.sales_amount || 0) - expTotal;
                 return (
                   <tr
                     key={r.id}
@@ -236,6 +263,9 @@ export default function AdminPage() {
                       }`}
                     >
                       {yen(profit)}
+                    </td>
+                    <td className="py-2 pr-3 text-right font-mono text-orange-600">
+                      {yen(takeHome)}
                     </td>
                     <td className="py-2 pr-3 text-right font-mono">
                       {(r.register_diff ?? 0) === 0 ? (
