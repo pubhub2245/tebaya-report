@@ -29,6 +29,29 @@ export default function AdminPage() {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDelete = async (r: Report) => {
+    if (
+      !confirm(
+        `この日報を削除しますか？\n${slashDate(r.date)} / ${r.location} / ${r.staff_name}`
+      )
+    )
+      return;
+    setDeletingId(r.id);
+    try {
+      const { error } = await supabase
+        .from("daily_reports")
+        .delete()
+        .eq("id", r.id);
+      if (error) throw error;
+      setReports((prev) => prev.filter((x) => x.id !== r.id));
+    } catch (e: any) {
+      alert("削除に失敗しました: " + (e?.message || e));
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -118,7 +141,8 @@ export default function AdminPage() {
                 <th className="py-2 pr-3">場所</th>
                 <th className="py-2 pr-3">担当</th>
                 <th className="py-2 pr-3 text-right">売上</th>
-                <th className="py-2 text-right">粗利</th>
+                <th className="py-2 pr-3 text-right">粗利</th>
+                <th className="py-2 text-right">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -136,11 +160,20 @@ export default function AdminPage() {
                       {yen(r.sales_amount || 0)}
                     </td>
                     <td
-                      className={`py-2 text-right font-mono ${
+                      className={`py-2 pr-3 text-right font-mono ${
                         profit >= 0 ? "" : "text-red-600"
                       }`}
                     >
                       {yen(profit)}
+                    </td>
+                    <td className="py-2 text-right">
+                      <button
+                        onClick={() => handleDelete(r)}
+                        disabled={deletingId === r.id}
+                        className="text-red-600 hover:text-red-700 border border-red-300 rounded px-2 py-1 hover:bg-red-50 disabled:opacity-40"
+                      >
+                        {deletingId === r.id ? "削除中…" : "削除"}
+                      </button>
                     </td>
                   </tr>
                 );
