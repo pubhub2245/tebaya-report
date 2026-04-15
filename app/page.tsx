@@ -12,6 +12,23 @@ import { generateLineText } from "@/lib/lineText";
 
 const TOTAL_STEPS = 7;
 
+const LOCATION_OPTIONS = [
+  "ながやま 鷹尾店",
+  "ながやま 若葉店",
+  "ながやま 三股店",
+  "ながやま 都北店",
+  "ながやま 山田店",
+  "ながやま 志比田店",
+  "マンガ倉庫",
+  "PASIO高城店",
+  "PASIO早鈴店",
+  "ニクルの朝市",
+  "まるまる朝市",
+  "BIG OPUS",
+  "Aコープ木花",
+  "イオンモール",
+];
+
 const COINS: { key: keyof FormState["coins"]; label: string; value: number }[] = [
   { key: "c10", label: "10円", value: 10 },
   { key: "c50", label: "50円", value: 50 },
@@ -135,6 +152,7 @@ export default function Page() {
       if (error) throw error;
       setSavedId(data.id);
       sessionStorage.removeItem(STORAGE_KEY);
+      setStep(8);
     } catch (e: any) {
       alert("保存に失敗しました: " + (e?.message || e));
     } finally {
@@ -143,7 +161,7 @@ export default function Page() {
   };
 
   const resetAll = () => {
-    if (!confirm("入力内容をクリアして最初から始めますか？")) return;
+    if (!savedId && !confirm("入力内容をクリアして最初から始めますか？")) return;
     sessionStorage.removeItem(STORAGE_KEY);
     setForm(initialForm());
     setStep(1);
@@ -152,6 +170,21 @@ export default function Page() {
   };
 
   if (!loaded) return null;
+
+  if (step === 8) {
+    return (
+      <main className="max-w-md mx-auto px-4 py-5 min-h-screen flex items-center justify-center">
+        <section className="card text-center space-y-4 w-full">
+          <div className="text-4xl">✅</div>
+          <h2 className="text-xl font-bold">日報を送信しました！</h2>
+          <p className="text-stone-600">お疲れさまでした</p>
+          <button onClick={resetAll} className="btn-primary w-full">
+            新しい日報を入力する
+          </button>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="max-w-md mx-auto px-4 py-5 pb-32">
@@ -252,6 +285,11 @@ function Step1({
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
 }) {
+  const isPreset = LOCATION_OPTIONS.includes(form.location);
+  const [isOther, setIsOther] = useState(
+    !isPreset && form.location.length > 0
+  );
+  const selectValue = isOther ? "__other__" : isPreset ? form.location : "";
   return (
     <section className="card space-y-4">
       <h2 className="text-lg font-bold">基本情報</h2>
@@ -266,12 +304,36 @@ function Step1({
       </div>
       <div>
         <label className="label">出店場所</label>
-        <input
+        <select
           className="field"
-          placeholder="例：ながやま鷹尾"
-          value={form.location}
-          onChange={(e) => update("location", e.target.value)}
-        />
+          value={selectValue}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "__other__") {
+              setIsOther(true);
+              update("location", "");
+            } else {
+              setIsOther(false);
+              update("location", v);
+            }
+          }}
+        >
+          <option value="">選択してください</option>
+          {LOCATION_OPTIONS.map((loc) => (
+            <option key={loc} value={loc}>
+              {loc}
+            </option>
+          ))}
+          <option value="__other__">その他（自由入力）</option>
+        </select>
+        {isOther && (
+          <input
+            className="field mt-2"
+            placeholder="出店場所を入力"
+            value={form.location}
+            onChange={(e) => update("location", e.target.value)}
+          />
+        )}
       </div>
       <div>
         <label className="label">担当者名</label>
