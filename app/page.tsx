@@ -29,6 +29,8 @@ const LOCATION_OPTIONS = [
   "イオンモール",
 ];
 
+const STAFF_OPTIONS = ["イデ", "じゅん", "かずき", "なぎさ"];
+
 const COINS: { key: keyof FormState["coins"]; label: string; value: number }[] = [
   { key: "c10", label: "10円", value: 10 },
   { key: "c50", label: "50円", value: 50 },
@@ -335,12 +337,18 @@ function Step1({
       </div>
       <div>
         <label className="label">担当者名</label>
-        <input
+        <select
           className="field"
-          placeholder="例：かずき"
           value={form.staff_name}
           onChange={(e) => update("staff_name", e.target.value)}
-        />
+        >
+          <option value="">選択してください</option>
+          {STAFF_OPTIONS.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
       </div>
     </section>
   );
