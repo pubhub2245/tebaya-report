@@ -88,13 +88,15 @@ export default function InterimPage() {
 
   const buildLineText = () => {
     if (!selectedLoc) return "";
+    const sign = difference > 0 ? "+" : difference < 0 ? "-" : "";
+    const diffStr = `${sign}¥${Math.abs(difference).toLocaleString("ja-JP")}`;
     return [
       `店舗名：${selectedLoc.name}`,
       `ランク：${selectedLoc.rank}`,
       `◾️${reportHour}時中間報告`,
       `現在：${yen(currentSales)}`,
       `目安：${yen(targetAtHour)}`,
-      `差額：${yen(difference)}`,
+      `差額：${diffStr}`,
     ].join("\n");
   };
 

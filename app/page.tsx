@@ -208,7 +208,15 @@ export default function Page() {
   return (
     <main className="max-w-md mx-auto px-4 py-5 pb-32">
       <header className="mb-4">
-        <h1 className="text-xl font-bold text-brand-dark">手羽屋 営業後日報</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-bold text-brand-dark">手羽屋 営業後日報</h1>
+          <a
+            href="/interim"
+            className="text-xs text-brand-dark underline whitespace-nowrap"
+          >
+            中間報告はこちら →
+          </a>
+        </div>
         <div className="mt-3">
           <div className="flex justify-between text-xs text-stone-600 mb-1">
             <span>STEP {step} / {TOTAL_STEPS}</span>
