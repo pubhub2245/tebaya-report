@@ -192,11 +192,14 @@ export default function AdminPage() {
       <header className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-2xl font-bold text-brand-dark">管理者ページ</h1>
         <div className="flex gap-2">
+          <Link href="/" className="btn-secondary text-sm">
+            🏠 トップ
+          </Link>
+          <Link href="/report" className="btn-secondary text-sm">
+            日報へ
+          </Link>
           <Link href="/interim" className="btn-secondary text-sm">
             中間報告へ
-          </Link>
-          <Link href="/" className="btn-secondary text-sm">
-            日報フォームへ
           </Link>
         </div>
       </header>

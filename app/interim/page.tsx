@@ -152,11 +152,24 @@ export default function InterimPage() {
 
   return (
     <main className="max-w-md mx-auto px-4 py-5 pb-32">
-      <header className="mb-4 flex justify-between items-center">
-        <h1 className="text-xl font-bold text-brand-dark">中間報告</h1>
-        <Link href="/" className="text-xs text-stone-500 underline">
-          日報へ
-        </Link>
+      <header className="mb-4">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-700 font-bold text-sm px-3 py-2"
+          >
+            🏠 トップ
+          </Link>
+          <Link
+            href="/report"
+            className="inline-flex items-center gap-1 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-bold text-base px-3 py-2"
+          >
+            📋 日報へ
+          </Link>
+        </div>
+        <h1 className="text-xl font-bold text-brand-dark text-center">
+          中間報告
+        </h1>
       </header>
 
       <div className="mb-4">
