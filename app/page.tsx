@@ -285,11 +285,9 @@ function Step1({
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
 }) {
-  const isPreset = LOCATION_OPTIONS.includes(form.location);
   const [isOther, setIsOther] = useState(
-    !isPreset && form.location.length > 0
+    form.location.length > 0 && !LOCATION_OPTIONS.includes(form.location)
   );
-  const selectValue = isOther ? "__other__" : isPreset ? form.location : "";
   return (
     <section className="card space-y-4">
       <h2 className="text-lg font-bold">基本情報</h2>
@@ -306,7 +304,7 @@ function Step1({
         <label className="label">出店場所</label>
         <select
           className="field"
-          value={selectValue}
+          value={isOther ? "__other__" : form.location}
           onChange={(e) => {
             const v = e.target.value;
             if (v === "__other__") {
