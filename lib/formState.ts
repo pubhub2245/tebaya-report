@@ -7,8 +7,12 @@ export const STAFF_DAILY_PAY: Record<string, number> = {
   なぎさ: 10000,
 };
 export const DEFAULT_DAILY_PAY = 10000;
-export const laborFor = (staff: string) =>
-  STAFF_DAILY_PAY[staff] ?? DEFAULT_DAILY_PAY;
+export const OTHER_DAILY_PAY = 8500;
+export const laborFor = (staff: string, isOther = false) => {
+  if (STAFF_DAILY_PAY[staff] != null) return STAFF_DAILY_PAY[staff];
+  if (isOther) return OTHER_DAILY_PAY;
+  return DEFAULT_DAILY_PAY;
+};
 
 export type ExpenseRow = {
   description: string;

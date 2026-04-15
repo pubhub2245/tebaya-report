@@ -306,6 +306,9 @@ function Step1({
   const [isOther, setIsOther] = useState(
     form.location.length > 0 && !LOCATION_OPTIONS.includes(form.location)
   );
+  const [isStaffOther, setIsStaffOther] = useState(
+    form.staff_name.length > 0 && !STAFF_OPTIONS.includes(form.staff_name)
+  );
   return (
     <section className="card space-y-4">
       <h2 className="text-lg font-bold">基本情報</h2>
@@ -355,11 +358,18 @@ function Step1({
         <label className="label">担当者名</label>
         <select
           className="field"
-          value={form.staff_name}
+          value={isStaffOther ? "__other__" : form.staff_name}
           onChange={(e) => {
             const v = e.target.value;
-            update("staff_name", v);
-            update("labor", laborFor(v));
+            if (v === "__other__") {
+              setIsStaffOther(true);
+              update("staff_name", "");
+              update("labor", laborFor("", true));
+            } else {
+              setIsStaffOther(false);
+              update("staff_name", v);
+              update("labor", laborFor(v));
+            }
           }}
         >
           <option value="">選択してください</option>
@@ -368,7 +378,16 @@ function Step1({
               {name}
             </option>
           ))}
+          <option value="__other__">その他（手入力）</option>
         </select>
+        {isStaffOther && (
+          <input
+            className="field mt-2"
+            placeholder="担当者名を入力"
+            value={form.staff_name}
+            onChange={(e) => update("staff_name", e.target.value)}
+          />
+        )}
       </div>
       <div>
         <label className="label">日当（自動）</label>
