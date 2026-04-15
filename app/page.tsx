@@ -8,6 +8,7 @@ import {
   initialForm,
   STORAGE_KEY,
   laborFor,
+  STAFF_OPTIONS,
 } from "@/lib/formState";
 import { generateLineText } from "@/lib/lineText";
 
@@ -30,7 +31,6 @@ const LOCATION_OPTIONS = [
   "イオンモール",
 ];
 
-const STAFF_OPTIONS = ["イデ", "じゅん", "かずき", "なぎさ"];
 
 const COINS: { key: keyof FormState["coins"]; label: string; value: number }[] = [
   { key: "c10", label: "10円", value: 10 },

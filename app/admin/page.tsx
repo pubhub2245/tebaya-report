@@ -25,6 +25,19 @@ type Alert = {
   amount2: number;
 };
 
+type Interim = {
+  id: string;
+  created_at: string;
+  location: string;
+  rank: string;
+  staff_name: string;
+  report_hour: number;
+  current_sales: number;
+  target_at_hour: number;
+  difference: number;
+  achievement_rate: number;
+};
+
 const calcProfit = (sales: number, labor: number) => {
   const food = Math.round(sales * 0.25);
   const rent = Math.round(sales * 0.1);
@@ -40,6 +53,29 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [interims, setInterims] = useState<Interim[]>([]);
+  const [interimRange, setInterimRange] = useState<"today" | "week">("today");
+
+  useEffect(() => {
+    (async () => {
+      const now = new Date();
+      const since = new Date(now);
+      if (interimRange === "today") {
+        since.setHours(0, 0, 0, 0);
+      } else {
+        since.setDate(since.getDate() - 7);
+        since.setHours(0, 0, 0, 0);
+      }
+      const { data, error } = await supabase
+        .from("interim_reports")
+        .select(
+          "id, created_at, location, rank, staff_name, report_hour, current_sales, target_at_hour, difference, achievement_rate"
+        )
+        .gte("created_at", since.toISOString())
+        .order("created_at", { ascending: false });
+      if (!error) setInterims((data as Interim[]) || []);
+    })();
+  }, [interimRange]);
 
   const handleDelete = async (r: Report) => {
     if (
@@ -153,11 +189,16 @@ export default function AdminPage() {
 
   return (
     <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-2xl font-bold text-brand-dark">管理者ページ</h1>
-        <Link href="/" className="btn-secondary text-sm">
-          日報フォームへ
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/interim" className="btn-secondary text-sm">
+            中間報告へ
+          </Link>
+          <Link href="/" className="btn-secondary text-sm">
+            日報フォームへ
+          </Link>
+        </div>
       </header>
 
       {alerts.length > 0 && (
@@ -215,6 +256,91 @@ export default function AdminPage() {
           <div className="text-xs text-stone-500">{monthStats.label} 日報件数</div>
           <div className="text-2xl font-bold">{monthStats.count}件</div>
         </div>
+      </section>
+
+      <section className="card overflow-x-auto">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h2 className="text-lg font-bold">中間報告</h2>
+          <div className="flex gap-1">
+            <button
+              onClick={() => setInterimRange("today")}
+              className={`text-xs px-3 py-1 rounded border ${
+                interimRange === "today"
+                  ? "bg-brand text-white border-brand"
+                  : "bg-white text-stone-600 border-stone-300"
+              }`}
+            >
+              今日
+            </button>
+            <button
+              onClick={() => setInterimRange("week")}
+              className={`text-xs px-3 py-1 rounded border ${
+                interimRange === "week"
+                  ? "bg-brand text-white border-brand"
+                  : "bg-white text-stone-600 border-stone-300"
+              }`}
+            >
+              直近7日
+            </button>
+          </div>
+        </div>
+        {interims.length === 0 ? (
+          <p className="text-sm text-stone-500">
+            {interimRange === "today"
+              ? "今日の中間報告はまだありません"
+              : "直近7日間の中間報告はありません"}
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left border-b border-stone-200">
+                <th className="py-2 pr-3">日時</th>
+                <th className="py-2 pr-3">店舗</th>
+                <th className="py-2 pr-3">担当</th>
+                <th className="py-2 pr-3 text-right">時刻</th>
+                <th className="py-2 pr-3 text-right">売上</th>
+                <th className="py-2 pr-3 text-right">目安</th>
+                <th className="py-2 pr-3 text-right">差額</th>
+                <th className="py-2 text-right">達成率</th>
+              </tr>
+            </thead>
+            <tbody>
+              {interims.map((r) => {
+                const d = new Date(r.created_at);
+                const dStr = `${d.getMonth() + 1}/${d.getDate()} ${String(
+                  d.getHours()
+                ).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+                return (
+                  <tr
+                    key={r.id}
+                    className="border-b border-stone-100 last:border-b-0"
+                  >
+                    <td className="py-2 pr-3">{dStr}</td>
+                    <td className="py-2 pr-3">{r.location}</td>
+                    <td className="py-2 pr-3">{r.staff_name}</td>
+                    <td className="py-2 pr-3 text-right">{r.report_hour}時</td>
+                    <td className="py-2 pr-3 text-right font-mono">
+                      {yen(r.current_sales)}
+                    </td>
+                    <td className="py-2 pr-3 text-right font-mono text-stone-500">
+                      {yen(r.target_at_hour)}
+                    </td>
+                    <td
+                      className={`py-2 pr-3 text-right font-mono font-semibold ${
+                        r.difference >= 0 ? "text-green-600" : "text-red-600"
+                      }`}
+                    >
+                      {yen(r.difference)}
+                    </td>
+                    <td className="py-2 text-right font-mono">
+                      {r.achievement_rate}%
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </section>
 
       <section className="card overflow-x-auto">

@@ -1,5 +1,7 @@
 import { todayStr } from "./format";
 
+export const STAFF_OPTIONS = ["イデ", "じゅん", "かずき", "なぎさ"];
+
 export const STAFF_DAILY_PAY: Record<string, number> = {
   イデ: 9000,
   じゅん: 10000,
