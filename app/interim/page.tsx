@@ -7,7 +7,7 @@ import { yen } from "@/lib/format";
 import { STAFF_OPTIONS } from "@/lib/formState";
 
 type Location = {
-  id: string;
+  id: string | number;
   name: string;
   rank: string;
   target: number;
@@ -62,7 +62,7 @@ export default function InterimPage() {
   }, []);
 
   const selectedLoc = useMemo(
-    () => locations.find((l) => l.id === locId) || null,
+    () => locations.find((l) => String(l.id) === locId) || null,
     [locations, locId]
   );
 
@@ -226,7 +226,7 @@ export default function InterimPage() {
           >
             <option value="">選択してください</option>
             {locations.map((l) => (
-              <option key={l.id} value={l.id}>
+              <option key={String(l.id)} value={String(l.id)}>
                 {l.name}
               </option>
             ))}
