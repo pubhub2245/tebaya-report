@@ -69,7 +69,7 @@ export function generateLineText(f: FormState, cumulative: number): string {
   ];
 
   if (expLines) {
-    parts.push(SEP, "建替経費", expLines);
+    parts.push(SEP, "立替経費", expLines);
   }
 
   if (f.handover && f.handover.trim()) {

@@ -166,7 +166,7 @@ export default function Page() {
                 "売上",
                 "レジ確認",
                 "在庫残り",
-                "建替経費",
+                "立替経費",
                 "引き継ぎ",
                 "確認・生成",
               ][step - 1]}
@@ -537,7 +537,7 @@ function Step5({
 
   return (
     <section className="card space-y-3">
-      <h2 className="text-lg font-bold">建替経費</h2>
+      <h2 className="text-lg font-bold">立替経費</h2>
       {form.expenses.length === 0 && (
         <p className="text-sm text-stone-500">
           経費がなければそのまま「次へ」でOK
@@ -703,7 +703,7 @@ function Step7({
         <Row k="原価概算 Food (25%)" v={yen(food)} />
         <Row k="日当 Labor" v={yen(labor)} />
         <Row k="場代 Rent (10%)" v={yen(rent)} />
-        <Row k="建替経費" v={yen(expensesTotal)} />
+        <Row k="立替経費" v={yen(expensesTotal)} />
         <Row k="経費合計" v={yen(costTotal)} />
         <div className="flex justify-between border-t pt-2 mt-2">
           <span className="font-bold">粗利</span>
