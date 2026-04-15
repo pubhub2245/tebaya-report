@@ -1,0 +1,46 @@
+import { todayStr } from "./format";
+
+export type ExpenseRow = {
+  description: string;
+  amount: number;
+  receipt_image_url?: string | null;
+};
+
+export type FormState = {
+  date: string;
+  location: string;
+  staff_name: string;
+  sales_amount: number;
+  coins: {
+    c10: number;
+    c50: number;
+    c100: number;
+    c500: number;
+    b1000: number;
+    b5000: number;
+    b10000: number;
+  };
+  register_ok: boolean;
+  remaining: {
+    tebasaki: number;
+    gyoza: number;
+    potato: number;
+    tornado: number;
+  };
+  expenses: ExpenseRow[];
+  handover: string;
+};
+
+export const initialForm = (): FormState => ({
+  date: todayStr(),
+  location: "",
+  staff_name: "",
+  sales_amount: 0,
+  coins: { c10: 0, c50: 0, c100: 0, c500: 0, b1000: 0, b5000: 0, b10000: 0 },
+  register_ok: true,
+  remaining: { tebasaki: 0, gyoza: 0, potato: 0, tornado: 0 },
+  expenses: [],
+  handover: "",
+});
+
+export const STORAGE_KEY = "tebasaya-report-draft-v1";
