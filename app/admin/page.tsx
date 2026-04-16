@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { yen, slashDate } from "@/lib/format";
 import { laborFor } from "@/lib/formState";
+import MonthlyDashboard from "@/app/components/MonthlyDashboard";
 
 type Report = {
   id: string;
@@ -203,6 +204,8 @@ export default function AdminPage() {
           </Link>
         </div>
       </header>
+
+      <MonthlyDashboard />
 
       {alerts.length > 0 && (
         <section className="space-y-3">

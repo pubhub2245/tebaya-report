@@ -1,13 +1,18 @@
 import Link from "next/link";
+import MonthlySummary from "./components/MonthlySummary";
 
 export default function MenuPage() {
   return (
     <main className="max-w-md mx-auto px-4 py-8 min-h-screen flex flex-col">
-      <header className="mb-8 text-center">
+      <header className="mb-6 text-center">
         <h1 className="text-2xl font-bold text-brand-dark">
           手羽屋 業務システム
         </h1>
       </header>
+
+      <section className="mb-6">
+        <MonthlySummary />
+      </section>
 
       <section className="space-y-4 flex-1">
         <Link
