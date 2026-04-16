@@ -7,6 +7,7 @@ import { yen, slashDate } from "@/lib/format";
 import { laborFor } from "@/lib/formState";
 import MonthlyDashboard from "@/app/components/MonthlyDashboard";
 import TaskAdminDashboard from "@/app/components/TaskAdminDashboard";
+import AdminGate from "@/app/components/AdminGate";
 
 type Report = {
   id: string;
@@ -190,6 +191,7 @@ export default function AdminPage() {
   }, [reports]);
 
   return (
+    <AdminGate>
     <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
       <header className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-2xl font-bold text-brand-dark">管理者ページ</h1>
@@ -431,5 +433,6 @@ export default function AdminPage() {
         )}
       </section>
     </main>
+    </AdminGate>
   );
 }

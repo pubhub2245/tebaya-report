@@ -12,6 +12,7 @@ import {
   sortTasks,
   todayLocal,
 } from "@/lib/tasks";
+import TaskEditModal from "./TaskEditModal";
 
 export default function TaskAdminDashboard() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -19,6 +20,7 @@ export default function TaskAdminDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [editing, setEditing] = useState<Task | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -86,7 +88,7 @@ export default function TaskAdminDashboard() {
   }, [tasks]);
 
   const handleDelete = async (t: Task) => {
-    if (!confirm(`削除しますか？\n「${t.title}」`)) return;
+    if (!confirm("本当に削除しますか？この操作は取り消せません")) return;
     setDeletingId(t.id);
     try {
       const { error } = await supabase.from("tasks").delete().eq("id", t.id);
@@ -230,13 +232,21 @@ export default function TaskAdminDashboard() {
                               )}
                             </div>
                           </div>
-                          <button
-                            onClick={() => handleDelete(t)}
-                            disabled={deletingId === t.id}
-                            className="text-xs text-red-600 border border-red-300 rounded px-2 py-1 hover:bg-red-50 disabled:opacity-40"
-                          >
-                            {deletingId === t.id ? "削除中" : "削除"}
-                          </button>
+                          <div className="flex gap-1 shrink-0">
+                            <button
+                              onClick={() => setEditing(t)}
+                              className="text-xs text-blue-600 border border-blue-300 rounded px-2 py-1 hover:bg-blue-50"
+                            >
+                              編集
+                            </button>
+                            <button
+                              onClick={() => handleDelete(t)}
+                              disabled={deletingId === t.id}
+                              className="text-xs text-red-600 border border-red-300 rounded px-2 py-1 hover:bg-red-50 disabled:opacity-40"
+                            >
+                              {deletingId === t.id ? "削除中" : "削除"}
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
@@ -247,6 +257,12 @@ export default function TaskAdminDashboard() {
           </div>
         )}
       </div>
+
+      <TaskEditModal
+        task={editing}
+        onClose={() => setEditing(null)}
+        onSaved={load}
+      />
     </section>
   );
 }
