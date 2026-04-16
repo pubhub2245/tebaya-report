@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { yen, slashDate } from "@/lib/format";
 import { laborFor } from "@/lib/formState";
 import MonthlyDashboard from "@/app/components/MonthlyDashboard";
+import TaskAdminDashboard from "@/app/components/TaskAdminDashboard";
 
 type Report = {
   id: string;
@@ -202,10 +203,15 @@ export default function AdminPage() {
           <Link href="/interim" className="btn-secondary text-sm">
             中間報告へ
           </Link>
+          <Link href="/tasks" className="btn-secondary text-sm">
+            タスクへ
+          </Link>
         </div>
       </header>
 
       <MonthlyDashboard />
+
+      <TaskAdminDashboard />
 
       {alerts.length > 0 && (
         <section className="space-y-3">
