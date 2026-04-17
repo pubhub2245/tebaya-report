@@ -79,7 +79,7 @@ export default function InterimPage() {
   const canNext = () => {
     if (step === 1) return staff.trim().length > 0;
     if (step === 2) return !!selectedLoc;
-    if (step === 3) return currentSales > 0 && !!selectedLoc;
+    if (step === 3) return currentSales >= 0 && !!selectedLoc;
     return true;
   };
 
@@ -286,10 +286,12 @@ export default function InterimPage() {
                 type="number"
                 inputMode="numeric"
                 className="field pl-8 text-right text-2xl font-bold"
-                value={currentSales || ""}
-                onChange={(e) =>
-                  setCurrentSales(parseInt(e.target.value || "0", 10))
-                }
+                value={currentSales}
+                min={0}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value || "0", 10);
+                  setCurrentSales(v < 0 ? 0 : v);
+                }}
                 placeholder="0"
               />
             </div>
