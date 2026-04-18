@@ -14,26 +14,57 @@ type Location = {
   is_active: boolean;
 };
 
-const HOUR_PCT: Record<number, number> = {
-  11: 1.1,
-  13: 16.5,
-  15: 28.6,
-  17: 47.9,
-  19: 83.2,
-  20: 100,
-};
-const HOURS = [11, 13, 15, 17, 19, 20];
+const WEATHER_OPTIONS = [
+  { value: "sunny", label: "☀️晴れ" },
+  { value: "cloudy", label: "☁️曇り" },
+  { value: "rainy", label: "🌧️雨" },
+  { value: "windy", label: "🌬️強風" },
+];
 
-function detectHour(d: Date): number {
-  const t = d.getHours() * 60 + d.getMinutes();
-  if (t >= 10 * 60 && t <= 12 * 60) return 11;
-  if (t >= 12 * 60 + 1 && t <= 14 * 60) return 13;
-  if (t >= 14 * 60 + 1 && t <= 16 * 60) return 15;
-  if (t >= 16 * 60 + 1 && t <= 18 * 60) return 17;
-  if (t >= 18 * 60 + 1 && t <= 20 * 60) return 19;
-  if (t >= 20 * 60 + 1 && t <= 22 * 60) return 20;
-  return 11;
+function generateTimeOptions() {
+  const opts: string[] = [];
+  for (let h = 8; h <= 23; h++) {
+    opts.push(`${String(h).padStart(2, "0")}:00`);
+    if (h < 23) opts.push(`${String(h).padStart(2, "0")}:30`);
+  }
+  return opts;
 }
+const TIME_OPTIONS = generateTimeOptions();
+
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function nowTimeStr(): string {
+  const d = new Date();
+  const h = d.getHours();
+  const m = d.getMinutes();
+  // snap to nearest 30min
+  const snapped = m < 15 ? 0 : m < 45 ? 30 : 60;
+  const adjH = snapped === 60 ? h + 1 : h;
+  const adjM = snapped === 60 ? 0 : snapped;
+  return `${String(adjH).padStart(2, "0")}:${String(adjM).padStart(2, "0")}`;
+}
+
+function calcTargetAtTime(
+  target: number,
+  openTime: string,
+  closeTime: string,
+  reportTime: string
+): number {
+  const openMin = timeToMinutes(openTime);
+  const closeMin = timeToMinutes(closeTime);
+  const reportMin = timeToMinutes(reportTime);
+  const totalMinutes = closeMin - openMin;
+  if (totalMinutes <= 0) return 0;
+  const elapsed = Math.max(0, Math.min(reportMin - openMin, totalMinutes));
+  const ratio = elapsed / totalMinutes;
+  // ratio^1.3 to reflect sales concentration in later hours
+  return Math.round(target * Math.pow(ratio, 1.3));
+}
+
+const TOTAL_STEPS = 5;
 
 export default function InterimPage() {
   const [step, setStep] = useState(1);
@@ -41,8 +72,11 @@ export default function InterimPage() {
   const [isStaffOther, setIsStaffOther] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
   const [locId, setLocId] = useState<string>("");
+  const [weather, setWeather] = useState<string[]>([]);
+  const [openTime, setOpenTime] = useState("10:00");
+  const [closeTime, setCloseTime] = useState("19:00");
   const [currentSales, setCurrentSales] = useState(0);
-  const [reportHour, setReportHour] = useState<number>(detectHour(new Date()));
+  const [reportTime, setReportTime] = useState<string>(nowTimeStr());
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [lineText, setLineText] = useState("");
@@ -66,9 +100,8 @@ export default function InterimPage() {
     [locations, locId]
   );
 
-  const pct = HOUR_PCT[reportHour] ?? 0;
   const targetAtHour = selectedLoc
-    ? Math.round((selectedLoc.target * pct) / 100)
+    ? calcTargetAtTime(selectedLoc.target, openTime, closeTime, reportTime)
     : 0;
   const difference = currentSales - targetAtHour;
   const achievementRate =
@@ -76,24 +109,59 @@ export default function InterimPage() {
       ? Math.round((currentSales / targetAtHour) * 1000) / 10
       : 0;
 
+  const weatherDisplay = weather
+    .map((w) => WEATHER_OPTIONS.find((o) => o.value === w)?.label || w)
+    .join(" ");
+
+  // Generate valid report time options (between open and close)
+  const reportTimeOptions = useMemo(() => {
+    const openMin = timeToMinutes(openTime);
+    const closeMin = timeToMinutes(closeTime);
+    return TIME_OPTIONS.filter((t) => {
+      const m = timeToMinutes(t);
+      return m >= openMin && m <= closeMin;
+    });
+  }, [openTime, closeTime]);
+
+  // Adjust reportTime if it's outside the valid range
+  useEffect(() => {
+    const openMin = timeToMinutes(openTime);
+    const closeMin = timeToMinutes(closeTime);
+    const reportMin = timeToMinutes(reportTime);
+    if (reportMin < openMin) setReportTime(openTime);
+    else if (reportMin > closeMin) setReportTime(closeTime);
+  }, [openTime, closeTime]);
+
   const canNext = () => {
     if (step === 1) return staff.trim().length > 0;
     if (step === 2) return !!selectedLoc;
-    if (step === 3) return currentSales >= 0 && !!selectedLoc;
+    if (step === 3) return weather.length > 0;
+    if (step === 4) return currentSales >= 0 && !!selectedLoc;
     return true;
   };
 
-  const goNext = () => setStep((s) => Math.min(4, s + 1));
+  const goNext = () => setStep((s) => Math.min(TOTAL_STEPS, s + 1));
   const goPrev = () => setStep((s) => Math.max(1, s - 1));
+
+  const toggleWeather = (val: string) => {
+    setWeather((prev) =>
+      prev.includes(val) ? prev.filter((w) => w !== val) : [...prev, val]
+    );
+  };
+
+  const reportHourNum = parseInt(reportTime.split(":")[0], 10);
 
   const buildLineText = () => {
     if (!selectedLoc) return "";
     const sign = difference > 0 ? "+" : difference < 0 ? "-" : "";
     const diffStr = `${sign}¥${Math.abs(difference).toLocaleString("ja-JP")}`;
     return [
-      `店舗名：${selectedLoc.name}`,
-      `ランク：${selectedLoc.rank}`,
-      `◾️${reportHour}時中間報告`,
+      `【店舗名】${selectedLoc.name}`,
+      `【ランク】${selectedLoc.rank}（目標${yen(selectedLoc.target)}）`,
+      `【営業時間】${openTime}〜${closeTime}`,
+      `【天気】${weatherDisplay}`,
+      ``,
+      `◾️${reportTime} 中間報告`,
       `現在：${yen(currentSales)}`,
       `目安：${yen(targetAtHour)}`,
       `差額：${diffStr}`,
@@ -112,11 +180,14 @@ export default function InterimPage() {
           rank: selectedLoc.rank,
           target: selectedLoc.target,
           staff_name: staff,
-          report_hour: reportHour,
+          report_hour: reportHourNum,
           current_sales: currentSales,
           target_at_hour: targetAtHour,
           difference,
           achievement_rate: achievementRate,
+          weather: weatherDisplay,
+          open_time: openTime,
+          close_time: closeTime,
         })
         .select("id")
         .single();
@@ -143,8 +214,11 @@ export default function InterimPage() {
     setStaff("");
     setIsStaffOther(false);
     setLocId("");
+    setWeather([]);
+    setOpenTime("10:00");
+    setCloseTime("19:00");
     setCurrentSales(0);
-    setReportHour(detectHour(new Date()));
+    setReportTime(nowTimeStr());
     setSavedId(null);
     setLineText("");
     setError(null);
@@ -174,15 +248,15 @@ export default function InterimPage() {
 
       <div className="mb-4">
         <div className="flex justify-between text-xs text-stone-600 mb-1">
-          <span>STEP {step} / 4</span>
+          <span>STEP {step} / {TOTAL_STEPS}</span>
           <span>
-            {["担当者", "店舗", "売上入力", "送信"][step - 1]}
+            {["担当者", "店舗", "天気・営業時間", "売上入力", "送信"][step - 1]}
           </span>
         </div>
         <div className="h-2 bg-stone-200 rounded-full overflow-hidden">
           <div
             className="h-full bg-brand transition-all"
-            style={{ width: `${(step / 4) * 100}%` }}
+            style={{ width: `${(step / TOTAL_STEPS) * 100}%` }}
           />
         </div>
       </div>
@@ -259,19 +333,84 @@ export default function InterimPage() {
         </section>
       )}
 
-      {step === 3 && selectedLoc && (
+      {step === 3 && (
+        <section className="card space-y-4">
+          <h2 className="text-lg font-bold">天気・営業時間</h2>
+
+          <div>
+            <label className="label">天気（タップで選択・複数OK）</label>
+            <div className="grid grid-cols-2 gap-2">
+              {WEATHER_OPTIONS.map((opt) => {
+                const active = weather.includes(opt.value);
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => toggleWeather(opt.value)}
+                    className={`rounded-xl py-3 text-base font-bold border-2 transition active:scale-95 ${
+                      active
+                        ? "bg-brand text-white border-brand"
+                        : "bg-white text-stone-700 border-stone-300"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <label className="label">開店時刻</label>
+            <select
+              className="field text-lg"
+              value={openTime}
+              onChange={(e) => setOpenTime(e.target.value)}
+            >
+              {TIME_OPTIONS.map((t) => (
+                <option key={`open-${t}`} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="label">閉店予定時刻</label>
+            <select
+              className="field text-lg"
+              value={closeTime}
+              onChange={(e) => setCloseTime(e.target.value)}
+            >
+              {TIME_OPTIONS.filter(
+                (t) => timeToMinutes(t) > timeToMinutes(openTime)
+              ).map((t) => (
+                <option key={`close-${t}`} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="bg-stone-50 rounded-xl p-3 text-sm text-stone-600">
+            営業時間：{openTime}〜{closeTime}
+          </div>
+        </section>
+      )}
+
+      {step === 4 && selectedLoc && (
         <section className="card space-y-3">
           <h2 className="text-lg font-bold">現在売上</h2>
           <div>
-            <label className="label">報告時間</label>
+            <label className="label">報告時刻</label>
             <select
               className="field"
-              value={reportHour}
-              onChange={(e) => setReportHour(parseInt(e.target.value, 10))}
+              value={reportTime}
+              onChange={(e) => setReportTime(e.target.value)}
             >
-              {HOURS.map((h) => (
-                <option key={h} value={h}>
-                  {h}時（目標の{HOUR_PCT[h]}%）
+              {reportTimeOptions.map((t) => (
+                <option key={t} value={t}>
+                  {t}
                 </option>
               ))}
             </select>
@@ -298,7 +437,7 @@ export default function InterimPage() {
           </div>
           <div className="bg-stone-50 rounded-xl p-3 space-y-1 text-sm">
             <div className="flex justify-between">
-              <span className="text-stone-500">目安（{reportHour}時）</span>
+              <span className="text-stone-500">目安（{reportTime}）</span>
               <span className="font-semibold">{yen(targetAtHour)}</span>
             </div>
             <div className="flex justify-between">
@@ -319,7 +458,7 @@ export default function InterimPage() {
         </section>
       )}
 
-      {step === 4 && selectedLoc && (
+      {step === 5 && selectedLoc && (
         <section className="space-y-4">
           <div className="card space-y-2 text-sm">
             <div className="flex justify-between">
@@ -332,10 +471,18 @@ export default function InterimPage() {
             </div>
             <div className="flex justify-between">
               <span className="text-stone-500">ランク</span>
-              <span className="font-semibold">{selectedLoc.rank}</span>
+              <span className="font-semibold">{selectedLoc.rank}（目標{yen(selectedLoc.target)}）</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-stone-500">{reportHour}時 現在</span>
+              <span className="text-stone-500">営業時間</span>
+              <span className="font-semibold">{openTime}〜{closeTime}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-stone-500">天気</span>
+              <span className="font-semibold">{weatherDisplay}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-stone-500">{reportTime} 現在</span>
               <span className="font-semibold">{yen(currentSales)}</span>
             </div>
             <div className="flex justify-between">
@@ -367,7 +514,7 @@ export default function InterimPage() {
               <textarea
                 readOnly
                 value={lineText}
-                className="field font-mono text-sm min-h-[180px]"
+                className="field font-mono text-sm min-h-[200px]"
               />
               <button onClick={handleCopy} className="btn-primary w-full">
                 {copied ? "コピー済み ✓" : "LINEテキストをコピー"}
@@ -390,7 +537,7 @@ export default function InterimPage() {
             >
               戻る
             </button>
-            {step < 4 && (
+            {step < TOTAL_STEPS && (
               <button
                 onClick={goNext}
                 disabled={!canNext()}
