@@ -81,7 +81,7 @@ export default function InterimPage() {
   const [locId, setLocId] = useState<string>("");
   const [weather, setWeather] = useState<string[]>([]);
   const [openTime, setOpenTime] = useState("10:00");
-  const CLOSE_TIME_FIXED = "19:00";
+  const [closeTime, setCloseTime] = useState("19:00");
   const [currentSales, setCurrentSales] = useState(0);
   const [reportTime, setReportTime] = useState<string>(nowTimeStr());
   const [saving, setSaving] = useState(false);
@@ -108,6 +108,15 @@ export default function InterimPage() {
     () => locations.find((l) => String(l.id) === locId) || null,
     [locations, locId]
   );
+
+  // Auto-set closeTime to openTime + 9 hours when openTime changes
+  const updateCloseTimeFromOpen = (newOpen: string) => {
+    const openMin = timeToMinutes(newOpen);
+    const closeMin = Math.min(openMin + 9 * 60, 23 * 60); // cap at 23:00
+    const h = Math.floor(closeMin / 60);
+    const m = closeMin % 60;
+    setCloseTime(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+  };
 
   // Fetch achievement rates when location changes
   useEffect(() => {
@@ -158,8 +167,8 @@ export default function InterimPage() {
       return Math.round(selectedLoc.target * match.rate);
     }
     // Fallback to power curve
-    return calcTargetAtTime(selectedLoc.target, openTime, CLOSE_TIME_FIXED, reportTime);
-  }, [selectedLoc, reportTime, achRates, openTime]);
+    return calcTargetAtTime(selectedLoc.target, openTime, closeTime, reportTime);
+  }, [selectedLoc, reportTime, achRates, openTime, closeTime]);
   const difference = currentSales - targetAtHour;
   const achievementRate =
     targetAtHour > 0
@@ -170,29 +179,40 @@ export default function InterimPage() {
     .map((w) => WEATHER_OPTIONS.find((o) => o.value === w)?.label || w)
     .join(" ");
 
-  // Generate valid report time options (between open and 19:00)
+  // Generate valid report time options (between open and close)
   const reportTimeOptions = useMemo(() => {
     const openMin = timeToMinutes(openTime);
-    const closeMin = timeToMinutes(CLOSE_TIME_FIXED);
+    const closeMin = timeToMinutes(closeTime);
     return TIME_OPTIONS.filter((t) => {
       const m = timeToMinutes(t);
       return m >= openMin && m <= closeMin;
     });
-  }, [openTime]);
+  }, [openTime, closeTime]);
 
   // Adjust reportTime if it's outside the valid range
   useEffect(() => {
     const openMin = timeToMinutes(openTime);
-    const closeMin = timeToMinutes(CLOSE_TIME_FIXED);
+    const closeMin = timeToMinutes(closeTime);
     const reportMin = timeToMinutes(reportTime);
     if (reportMin < openMin) setReportTime(openTime);
-    else if (reportMin > closeMin) setReportTime(CLOSE_TIME_FIXED);
-  }, [openTime]);
+    else if (reportMin > closeMin) setReportTime(closeTime);
+  }, [openTime, closeTime]);
+
+  //営業時間の計算（表示用）
+  const operatingHours = useMemo(() => {
+    const diff = timeToMinutes(closeTime) - timeToMinutes(openTime);
+    if (diff <= 0) return "";
+    const h = Math.floor(diff / 60);
+    const m = diff % 60;
+    return m > 0 ? `${h}時間${m}分` : `${h}時間`;
+  }, [openTime, closeTime]);
+
+  const isCloseTimeValid = timeToMinutes(closeTime) > timeToMinutes(openTime);
 
   const canNext = () => {
     if (step === 1) return staff.trim().length > 0;
     if (step === 2) return !!selectedLoc;
-    if (step === 3) return weather.length > 0;
+    if (step === 3) return weather.length > 0 && isCloseTimeValid;
     if (step === 4) return currentSales >= 0 && !!selectedLoc;
     return true;
   };
@@ -215,7 +235,7 @@ export default function InterimPage() {
     return [
       `【店舗名】${selectedLoc.name}`,
       `【ランク】${selectedLoc.rank}（目標${yen(selectedLoc.target)}）`,
-      `【開店】${openTime}`,
+      `【営業時間】${openTime}〜${closeTime}（${operatingHours}営業）`,
       `【天気】${weatherDisplay}`,
       ``,
       `◾️${reportTime} 中間報告`,
@@ -244,6 +264,7 @@ export default function InterimPage() {
           achievement_rate: achievementRate,
           weather: weatherDisplay,
           open_time: openTime,
+          close_time: closeTime,
         })
         .select("id")
         .single();
@@ -272,6 +293,7 @@ export default function InterimPage() {
     setLocId("");
     setWeather([]);
     setOpenTime("10:00");
+    setCloseTime("19:00");
     setCurrentSales(0);
     setReportTime(nowTimeStr());
     setSavedId(null);
@@ -305,7 +327,7 @@ export default function InterimPage() {
         <div className="flex justify-between text-xs text-stone-600 mb-1">
           <span>STEP {step} / {TOTAL_STEPS}</span>
           <span>
-            {["担当者", "店舗", "天気・開店時刻", "売上入力", "送信"][step - 1]}
+            {["担当者", "店舗", "天気・営業時間", "売上入力", "送信"][step - 1]}
           </span>
         </div>
         <div className="h-2 bg-stone-200 rounded-full overflow-hidden">
@@ -390,7 +412,7 @@ export default function InterimPage() {
 
       {step === 3 && (
         <section className="card space-y-4">
-          <h2 className="text-lg font-bold">天気・開店時刻</h2>
+          <h2 className="text-lg font-bold">天気・営業時間</h2>
 
           <div>
             <label className="label">天気（タップで選択・複数OK）</label>
@@ -420,7 +442,10 @@ export default function InterimPage() {
             <select
               className="field text-lg"
               value={openTime}
-              onChange={(e) => setOpenTime(e.target.value)}
+              onChange={(e) => {
+                setOpenTime(e.target.value);
+                updateCloseTimeFromOpen(e.target.value);
+              }}
             >
               {TIME_OPTIONS.map((t) => (
                 <option key={`open-${t}`} value={t}>
@@ -429,6 +454,34 @@ export default function InterimPage() {
               ))}
             </select>
           </div>
+
+          <div>
+            <label className="label">閉店予定時刻</label>
+            <select
+              className="field text-lg"
+              value={closeTime}
+              onChange={(e) => setCloseTime(e.target.value)}
+            >
+              {TIME_OPTIONS.filter(
+                (t) => timeToMinutes(t) > timeToMinutes(openTime)
+              ).map((t) => (
+                <option key={`close-${t}`} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            {!isCloseTimeValid && (
+              <p className="text-sm text-red-600 mt-1">
+                閉店時刻は開店時刻より後にしてください
+              </p>
+            )}
+          </div>
+
+          {isCloseTimeValid && (
+            <div className="bg-stone-50 rounded-xl p-3 text-sm text-stone-600">
+              営業時間：{openTime}〜{closeTime}（{operatingHours}営業）
+            </div>
+          )}
         </section>
       )}
 
@@ -513,8 +566,8 @@ export default function InterimPage() {
               <span className="font-semibold">{selectedLoc.rank}（目標{yen(selectedLoc.target)}）</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-stone-500">開店時刻</span>
-              <span className="font-semibold">{openTime}</span>
+              <span className="text-stone-500">営業時間</span>
+              <span className="font-semibold">{openTime}〜{closeTime}（{operatingHours}）</span>
             </div>
             <div className="flex justify-between">
               <span className="text-stone-500">天気</span>
