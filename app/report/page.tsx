@@ -266,6 +266,7 @@ export default function Page() {
       {step === 5 && (
         <Step5
           form={form}
+          setForm={setForm}
           update={update}
           expensesTotal={expensesTotal}
         />
@@ -646,10 +647,12 @@ function Step4({
 /* ---------- STEP 5 ---------- */
 function Step5({
   form,
+  setForm,
   update,
   expensesTotal,
 }: {
   form: FormState;
+  setForm: React.Dispatch<React.SetStateAction<FormState>>;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
   expensesTotal: number;
 }) {
@@ -672,6 +675,13 @@ function Step5({
       "expenses",
       form.expenses.map((e, idx) => (idx === i ? { ...e, ...patch } : e))
     );
+
+  // Functional update version to avoid stale closure issues during async OCR
+  const updateExpenseSafe = (i: number, patch: Partial<FormState["expenses"][0]>) =>
+    setForm((f) => ({
+      ...f,
+      expenses: f.expenses.map((e, idx) => (idx === i ? { ...e, ...patch } : e)),
+    }));
 
   const resizeImage = (file: File, maxDim = 1600, quality = 0.8) =>
     new Promise<string>((resolve, reject) => {
@@ -709,7 +719,7 @@ function Step5({
     try {
       setOcrIdx(i);
       const dataUrl = await resizeImage(file);
-      updateExpense(i, { receipt_image_url: dataUrl });
+      updateExpenseSafe(i, { receipt_image_url: dataUrl });
       const res = await fetch("/api/ocr", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -720,7 +730,33 @@ function Step5({
         throw new Error(`OCR失敗 (${res.status}) ${text}`);
       }
       const json = await res.json();
-      if (json?.amount) updateExpense(i, { amount: json.amount });
+
+      if (json?.items && Array.isArray(json.items) && json.items.length > 0) {
+        // Items-based OCR: fill current expense + add new ones for extra items
+        setForm((f) => {
+          const newExpenses = [...f.expenses];
+          // First item goes into the current expense slot (index i)
+          const first = json.items[0];
+          newExpenses[i] = {
+            ...newExpenses[i],
+            description: first.name || "",
+            amount: first.amount || 0,
+          };
+          // Additional items: insert after index i
+          for (let k = 1; k < json.items.length; k++) {
+            const item = json.items[k];
+            newExpenses.splice(i + k, 0, {
+              description: item.name || "",
+              amount: item.amount || 0,
+              receipt_image_url: null,
+            });
+          }
+          return { ...f, expenses: newExpenses };
+        });
+      } else if (json?.amount) {
+        // Fallback: total amount only
+        updateExpenseSafe(i, { amount: json.amount });
+      }
     } catch (e: any) {
       console.error("handlePhoto error", e);
       alert("読み取り失敗: " + (e?.message || e));

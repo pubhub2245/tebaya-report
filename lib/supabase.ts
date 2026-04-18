@@ -21,10 +21,16 @@ export type DailyReport = {
   cumulative_sales: number;
   register_total: number;
   register_ok: boolean;
+  register_diff: number;
+  labor: number;
+  weather?: string | null;
+  open_time?: string | null;
+  close_time?: string | null;
   remaining_tebasaki: number;
   remaining_gyoza: number;
   remaining_potato: number;
   remaining_tornado: number;
+  remaining_negishio: number;
   expenses: Expense[];
   handover: string;
   line_text: string;
