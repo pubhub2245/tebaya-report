@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/calculate-achievement-rates",
+      "schedule": "0 19 * * *"
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import { yen, slashDate } from "@/lib/format";
 import { laborFor } from "@/lib/formState";
 import MonthlyDashboard from "@/app/components/MonthlyDashboard";
 import TaskAdminDashboard from "@/app/components/TaskAdminDashboard";
+import AchievementRateDashboard from "@/app/components/AchievementRateDashboard";
 import AdminGate from "@/app/components/AdminGate";
 
 type Report = {
@@ -214,6 +215,8 @@ export default function AdminPage() {
       <MonthlyDashboard />
 
       <TaskAdminDashboard />
+
+      <AchievementRateDashboard />
 
       {alerts.length > 0 && (
         <section className="space-y-3">

@@ -47,6 +47,7 @@ function nowTimeStr(): string {
   return `${String(adjH).padStart(2, "0")}:${String(adjM).padStart(2, "0")}`;
 }
 
+// Fallback: power-curve calculation when no achievement rate data
 function calcTargetAtTime(
   target: number,
   openTime: string,
@@ -60,9 +61,15 @@ function calcTargetAtTime(
   if (totalMinutes <= 0) return 0;
   const elapsed = Math.max(0, Math.min(reportMin - openMin, totalMinutes));
   const ratio = elapsed / totalMinutes;
-  // ratio^1.3 to reflect sales concentration in later hours
   return Math.round(target * Math.pow(ratio, 1.3));
 }
+
+type AchievementRate = {
+  hour: number;
+  rate: number;
+  sample_count: number;
+  is_global: boolean;
+};
 
 const TOTAL_STEPS = 5;
 
@@ -82,6 +89,8 @@ export default function InterimPage() {
   const [lineText, setLineText] = useState("");
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [achRates, setAchRates] = useState<AchievementRate[]>([]);
+  const [achSampleCount, setAchSampleCount] = useState<number | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -100,9 +109,57 @@ export default function InterimPage() {
     [locations, locId]
   );
 
-  const targetAtHour = selectedLoc
-    ? calcTargetAtTime(selectedLoc.target, openTime, closeTime, reportTime)
-    : 0;
+  // Fetch achievement rates when location changes
+  useEffect(() => {
+    if (!locId) {
+      setAchRates([]);
+      setAchSampleCount(null);
+      return;
+    }
+    const today = new Date();
+    const dow = today.getDay();
+    const dayType = dow === 0 || dow === 6 ? "weekend" : "weekday";
+
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/achievement-rates?location_id=${locId}&day_type=${dayType}`
+        );
+        if (!res.ok) return;
+        const json = await res.json();
+        if (json.rates) {
+          setAchRates(json.rates);
+          const withData = json.rates.filter(
+            (r: AchievementRate) => r.rate !== null && !r.is_global
+          );
+          if (withData.length > 0) {
+            const avg = Math.round(
+              withData.reduce(
+                (s: number, r: AchievementRate) => s + r.sample_count,
+                0
+              ) / withData.length
+            );
+            setAchSampleCount(avg);
+          } else {
+            setAchSampleCount(null);
+          }
+        }
+      } catch {}
+    })();
+  }, [locId]);
+
+  // Calculate target using achievement rates if available, fallback to power curve
+  const targetAtHour = useMemo(() => {
+    if (!selectedLoc) return 0;
+    const reportHourNum = parseInt(reportTime.split(":")[0], 10);
+    // Try to find matching achievement rate
+    const match = achRates.find((r) => r.hour === reportHourNum);
+    if (match && match.rate !== null) {
+      return Math.round(selectedLoc.target * match.rate);
+    }
+    // Fallback to power curve
+    return calcTargetAtTime(selectedLoc.target, openTime, closeTime, reportTime);
+  }, [selectedLoc, reportTime, achRates, openTime, closeTime]);
   const difference = currentSales - targetAtHour;
   const achievementRate =
     targetAtHour > 0
@@ -454,6 +511,11 @@ export default function InterimPage() {
               <span className="text-stone-500">達成率</span>
               <span className="font-semibold">{achievementRate}%</span>
             </div>
+            {achSampleCount !== null && achSampleCount > 0 && (
+              <div className="text-[11px] text-stone-400 text-right mt-1">
+                （過去{achSampleCount}件の実績から算出）
+              </div>
+            )}
           </div>
         </section>
       )}
