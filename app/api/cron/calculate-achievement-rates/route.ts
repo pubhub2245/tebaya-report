@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { normalizeLocationName } from "@/lib/locationMatcher";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -51,15 +52,24 @@ export async function GET(req: NextRequest) {
       .select("id, name");
     if (locErr) throw locErr;
 
+    // locations テーブルから正規化名 → id のマッピングを構築
     const locMap = new Map<string, string>();
-    (locs || []).forEach((l: any) => locMap.set(l.name, String(l.id)));
+    (locs || []).forEach((l: any) => locMap.set(normalizeLocationName(l.name), String(l.id)));
 
-    // Build daily sales lookup: "date|location" -> sales_amount
+    // Build daily sales lookup: "date|normalizedLocation" -> sales_amount
+    // 正規化した店舗名をキーにすることで表記揺れを吸収
     const dailyLookup = new Map<string, number>();
     (dailies || []).forEach((d: any) => {
-      const key = `${d.date}|${d.location}`;
+      const key = `${d.date}|${normalizeLocationName(d.location)}`;
       dailyLookup.set(key, d.sales_amount);
     });
+
+    // ログ: 店舗名のユニーク値一覧（デバッグ用）
+    const dailyLocations = [...new Set((dailies || []).map((d: any) => d.location))];
+    const interimLocations = [...new Set((interims || []).map((ir: any) => ir.location))];
+    console.log("[到達率計算] daily_reports の店舗名:", dailyLocations);
+    console.log("[到達率計算] interim_reports の店舗名:", interimLocations);
+    console.log("[到達率計算] locations テーブルの店舗名:", (locs || []).map((l: any) => l.name));
 
     // 4. Calculate rates for each interim report
     type RateEntry = {
@@ -70,16 +80,23 @@ export async function GET(req: NextRequest) {
     };
 
     const entries: RateEntry[] = [];
+    let matchedCount = 0;
+    let unmatchedLocations = new Set<string>();
 
     (interims || []).forEach((ir: any) => {
       const dateStr = ir.created_at.slice(0, 10);
-      const key = `${dateStr}|${ir.location}`;
+      const normalizedLoc = normalizeLocationName(ir.location);
+      const key = `${dateStr}|${normalizedLoc}`;
       const finalSales = dailyLookup.get(key);
-      if (!finalSales || finalSales <= 0) return;
+      if (!finalSales || finalSales <= 0) {
+        unmatchedLocations.add(ir.location);
+        return;
+      }
       if (!ir.current_sales || ir.current_sales <= 0) return;
 
+      matchedCount++;
       const rate = Math.min(1, ir.current_sales / finalSales);
-      const locationId = locMap.get(ir.location);
+      const locationId = locMap.get(normalizedLoc);
       if (!locationId) return;
 
       entries.push({
@@ -153,6 +170,10 @@ export async function GET(req: NextRequest) {
       ratesUpdated = upsertRows.length;
     }
 
+    // ログ: マッチング結果
+    console.log(`[到達率計算] マッチしたペア数: ${matchedCount}`);
+    console.log(`[到達率計算] マッチしなかった中間報告の店舗名:`, [...unmatchedLocations]);
+
     // 9. Log the calculation
     const { error: logErr } = await supabase
       .from("achievement_rate_calculations")
@@ -161,7 +182,7 @@ export async function GET(req: NextRequest) {
         data_count: entries.length,
         rates_updated: ratesUpdated,
         triggered_by: triggeredBy,
-        notes: `Processed ${(interims || []).length} interim reports, ${entries.length} matched with daily sales, updated ${ratesUpdated} rates`,
+        notes: `Processed ${(interims || []).length} interim reports, ${matchedCount} matched with daily sales (normalized), updated ${ratesUpdated} rates`,
       });
     if (logErr) console.error("Log insert error:", logErr);
 
@@ -170,6 +191,8 @@ export async function GET(req: NextRequest) {
       data_count: entries.length,
       rates_updated: ratesUpdated,
       total_interims: (interims || []).length,
+      matched_count: matchedCount,
+      unmatched_locations: [...unmatchedLocations],
     });
   } catch (err: any) {
     console.error("Achievement rate calc error:", err);
