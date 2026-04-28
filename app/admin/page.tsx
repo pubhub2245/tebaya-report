@@ -61,6 +61,10 @@ export default function AdminPage() {
   const [interimRange, setInterimRange] = useState<"today" | "week">("today");
   const [notifyingWeather, setNotifyingWeather] = useState(false);
   const [weatherResult, setWeatherResult] = useState<string | null>(null);
+  const [reminding, setReminding] = useState(false);
+  const [reminderResult, setReminderResult] = useState<string | null>(null);
+  const [remindingYesterday, setRemindingYesterday] = useState(false);
+  const [yesterdayResult, setYesterdayResult] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -227,6 +231,59 @@ export default function AdminPage() {
     }
   };
 
+  const handleRemindTonight = async () => {
+    if (!confirm("未提出スタッフへのリマインダーをLINEグループに送信しますか？"))
+      return;
+    setReminding(true);
+    setReminderResult(null);
+    try {
+      const cronSecret = process.env.NEXT_PUBLIC_CRON_SECRET;
+      const res = await fetch("/api/cron/remind-daily-reports", {
+        headers: cronSecret ? { Authorization: `Bearer ${cronSecret}` } : {},
+      });
+      const data = await res.json();
+      if (data.success) {
+        setReminderResult(
+          data.missing_count > 0
+            ? `✅ 送信完了！ 未提出：${data.missing_count}件`
+            : `✅ ${data.message || "全員提出済みです"}`,
+        );
+      } else {
+        setReminderResult(`❌ ${data.error || data.message || "送信失敗"}`);
+      }
+    } catch (e: any) {
+      setReminderResult(`❌ 通信エラー: ${e?.message || e}`);
+    } finally {
+      setReminding(false);
+    }
+  };
+
+  const handleRemindYesterday = async () => {
+    if (!confirm("昨日の日報未提出一覧をLINEグループに送信しますか？")) return;
+    setRemindingYesterday(true);
+    setYesterdayResult(null);
+    try {
+      const cronSecret = process.env.NEXT_PUBLIC_CRON_SECRET;
+      const res = await fetch("/api/cron/remind-daily-reports?mode=yesterday", {
+        headers: cronSecret ? { Authorization: `Bearer ${cronSecret}` } : {},
+      });
+      const data = await res.json();
+      if (data.success) {
+        setYesterdayResult(
+          data.missing_count > 0
+            ? `✅ 送信完了！ 未提出：${data.missing_count}件 / 全${data.total}件`
+            : `✅ ${data.message || "全員提出済みです"}`,
+        );
+      } else {
+        setYesterdayResult(`❌ ${data.error || data.message || "送信失敗"}`);
+      }
+    } catch (e: any) {
+      setYesterdayResult(`❌ 通信エラー: ${e?.message || e}`);
+    } finally {
+      setRemindingYesterday(false);
+    }
+  };
+
   return (
     <AdminGate>
     <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
@@ -279,6 +336,52 @@ export default function AdminPage() {
             }`}
           >
             {weatherResult}
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-xl font-bold text-brand-dark">📋 日報リマインダー</h2>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={handleRemindTonight}
+            disabled={reminding}
+            className="flex-1 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-sm px-4 py-3 rounded-xl shadow-md disabled:opacity-50 transition-colors"
+          >
+            {reminding
+              ? "⏰ チェック中…"
+              : "⏰ 本日の未提出を通知"}
+          </button>
+          <button
+            onClick={handleRemindYesterday}
+            disabled={remindingYesterday}
+            className="flex-1 bg-stone-600 hover:bg-stone-700 active:bg-stone-800 text-white font-bold text-sm px-4 py-3 rounded-xl shadow-md disabled:opacity-50 transition-colors"
+          >
+            {remindingYesterday
+              ? "📋 チェック中…"
+              : "📋 昨日の未提出を通知"}
+          </button>
+        </div>
+        {reminderResult && (
+          <div
+            className={`card text-sm font-semibold ${
+              reminderResult.startsWith("✅")
+                ? "bg-green-50 text-green-700 border border-green-200"
+                : "bg-red-50 text-red-700 border border-red-200"
+            }`}
+          >
+            {reminderResult}
+          </div>
+        )}
+        {yesterdayResult && (
+          <div
+            className={`card text-sm font-semibold ${
+              yesterdayResult.startsWith("✅")
+                ? "bg-green-50 text-green-700 border border-green-200"
+                : "bg-red-50 text-red-700 border border-red-200"
+            }`}
+          >
+            {yesterdayResult}
           </div>
         )}
       </section>
