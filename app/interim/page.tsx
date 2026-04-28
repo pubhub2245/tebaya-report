@@ -594,24 +594,74 @@ export default function InterimPage() {
           </div>
 
           {!savedId ? (
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="btn-primary w-full"
-            >
-              {saving ? "保存中…" : "保存して報告テキスト生成"}
-            </button>
-          ) : (
-            <div className="card space-y-3">
-              <textarea
-                readOnly
-                value={lineText}
-                className="field font-mono text-sm min-h-[200px]"
-              />
-              <button onClick={handleCopy} className="btn-primary w-full">
-                {copied ? "コピー済み ✓" : "LINEテキストをコピー"}
+            <>
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center text-sm text-green-800">
+                <p className="font-bold">
+                  ✅ 内容を確認して、下のボタンを押してください
+                </p>
+                <p className="text-xs mt-1 text-green-600">
+                  ※ 提出後にLINEコピー用のテキストが表示されます
+                </p>
+              </div>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="w-full font-bold text-lg px-6 py-4 rounded-xl shadow-md transition-colors text-white disabled:opacity-50"
+                style={{ background: "#059669" }}
+              >
+                {saving ? "提出中…" : "📤 中間報告を提出"}
               </button>
-              <button onClick={reset} className="btn-secondary w-full">
+            </>
+          ) : (
+            <div className="space-y-4">
+              <div className="card text-center space-y-2">
+                <div className="text-4xl">✨</div>
+                <h2 className="text-lg font-bold text-brand-dark">
+                  中間報告を提出しました！
+                </h2>
+                <p className="text-stone-500 text-sm">お疲れ様です</p>
+                <div className="bg-stone-50 rounded-xl p-3 space-y-1 text-sm text-left">
+                  <div className="flex justify-between">
+                    <span className="text-stone-500">📊 現在売上</span>
+                    <span className="font-bold text-brand-dark">
+                      {yen(currentSales)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-stone-500">🎯 達成率</span>
+                    <span className="font-bold">{achievementRate}%</span>
+                  </div>
+                </div>
+              </div>
+              <div className="card space-y-3">
+                <p className="text-sm text-stone-600 text-center">
+                  下のボタンを押してLINEグループに貼り付けてください
+                </p>
+                <textarea
+                  readOnly
+                  value={lineText}
+                  className="field font-mono text-sm min-h-[200px]"
+                />
+                <button
+                  onClick={handleCopy}
+                  className="w-full font-bold text-base px-6 py-4 rounded-xl shadow-md transition-colors text-white"
+                  style={{ background: "#06C755" }}
+                >
+                  {copied
+                    ? "✅ コピーしました！"
+                    : "📋 LINEに送る用のテキストをコピー"}
+                </button>
+              </div>
+              <a
+                href="/"
+                className="block w-full text-center btn-secondary py-3"
+              >
+                🏠 トップページに戻る
+              </a>
+              <button
+                onClick={reset}
+                className="w-full text-sm text-stone-500 underline"
+              >
                 新しい中間報告を入力
               </button>
             </div>

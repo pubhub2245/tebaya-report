@@ -191,13 +191,66 @@ export default function Page() {
   if (!loaded) return null;
 
   if (step === 8) {
+    const sales = form.sales_amount || 0;
+    // 目標は shifts から取れないため売上のみ表示
+    if (!lineText) {
+      const text = generateLineText(form, cumulative);
+      setLineText(text);
+    }
     return (
       <main className="max-w-md mx-auto px-4 py-5 min-h-screen flex items-center justify-center">
-        <section className="card text-center space-y-4 w-full">
-          <div className="text-4xl">✅</div>
-          <h2 className="text-xl font-bold">日報を送信しました！</h2>
-          <p className="text-stone-600">お疲れさまでした</p>
-          <button onClick={resetAll} className="btn-primary w-full">
+        <section className="w-full space-y-4">
+          <div className="card text-center space-y-3">
+            <div className="text-5xl">✨</div>
+            <h2 className="text-xl font-bold text-brand-dark">
+              お疲れ様でした！
+            </h2>
+            <p className="text-lg font-bold">日報を提出しました 🍗</p>
+            <p className="text-stone-500 text-sm">今日の業務は完了です</p>
+            <div className="bg-stone-50 rounded-xl p-4 space-y-2 text-left">
+              <div className="flex justify-between text-sm">
+                <span className="text-stone-500">📊 今日の売上</span>
+                <span className="font-bold text-brand-dark">
+                  {yen(sales)}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-stone-500">📈 累計売上</span>
+                <span className="font-bold">{yen(cumulative)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="card space-y-3">
+            <p className="text-sm text-stone-600 text-center">
+              下のボタンを押してLINEグループに貼り付けてください
+            </p>
+            <textarea
+              readOnly
+              value={lineText}
+              className="field font-mono text-sm min-h-[200px]"
+            />
+            <button
+              onClick={handleCopy}
+              className="w-full font-bold text-base px-6 py-4 rounded-xl shadow-md transition-colors text-white"
+              style={{ background: "#06C755" }}
+            >
+              {copied
+                ? "✅ コピーしました！"
+                : "📋 LINEに送る用のテキストをコピー"}
+            </button>
+          </div>
+
+          <a
+            href="/"
+            className="block w-full text-center btn-secondary py-3"
+          >
+            🏠 トップページに戻る
+          </a>
+          <button
+            onClick={resetAll}
+            className="w-full text-sm text-stone-500 underline"
+          >
             新しい日報を入力する
           </button>
         </section>
@@ -278,14 +331,8 @@ export default function Page() {
           cumulative={cumulative}
           registerTotal={registerTotal}
           expensesTotal={expensesTotal}
-          lineText={lineText}
-          onGenerate={handleGenerate}
-          onCopy={handleCopy}
-          copied={copied}
           onSave={handleSave}
           saving={saving}
-          savedId={savedId}
-          onReset={resetAll}
         />
       )}
 
@@ -882,27 +929,15 @@ function Step7({
   cumulative,
   registerTotal,
   expensesTotal,
-  lineText,
-  onGenerate,
-  onCopy,
-  copied,
   onSave,
   saving,
-  savedId,
-  onReset,
 }: {
   form: FormState;
   cumulative: number;
   registerTotal: number;
   expensesTotal: number;
-  lineText: string;
-  onGenerate: () => void;
-  onCopy: () => void;
-  copied: boolean;
   onSave: () => void;
   saving: boolean;
-  savedId: string | null;
-  onReset: () => void;
 }) {
   const sales = form.sales_amount || 0;
   const food = Math.round(sales * 0.25);
@@ -947,36 +982,21 @@ function Step7({
         </div>
       </div>
 
-      <button onClick={onGenerate} className="btn-primary w-full">
-        LINE用テキストを生成
-      </button>
+      <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center text-sm text-green-800">
+        <p className="font-bold">✅ 入力内容を確認して、下のボタンを押してください</p>
+        <p className="text-xs mt-1 text-green-600">
+          ※ 提出後にLINEコピー用のテキストが表示されます
+        </p>
+      </div>
 
-      {lineText && (
-        <div className="card space-y-3">
-          <textarea
-            readOnly
-            value={lineText}
-            className="field font-mono text-sm min-h-[260px]"
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={onCopy} className="btn-secondary">
-              {copied ? "コピー済み ✓" : "コピー"}
-            </button>
-            <button
-              onClick={onSave}
-              disabled={saving || !!savedId}
-              className="btn-primary"
-            >
-              {savedId ? "保存済み ✓" : saving ? "保存中…" : "Supabaseに保存"}
-            </button>
-          </div>
-          {savedId && (
-            <button onClick={onReset} className="btn-secondary w-full">
-              新しい日報を入力
-            </button>
-          )}
-        </div>
-      )}
+      <button
+        onClick={onSave}
+        disabled={saving}
+        className="w-full font-bold text-lg px-6 py-4 rounded-xl shadow-md transition-colors text-white disabled:opacity-50"
+        style={{ background: "#059669" }}
+      >
+        {saving ? "提出中…" : "📤 日報を提出（今日の業務完了）"}
+      </button>
     </section>
   );
 }
