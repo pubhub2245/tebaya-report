@@ -285,10 +285,11 @@ export default function InstagramShiftsPage() {
                   style={{
                     ...style,
                     borderRadius: 6,
-                    padding: "2px 1px",
+                    padding: "3px 2px",
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "center",
+                    justifyContent: "flex-start",
                     boxShadow: dayShifts.length > 0
                       ? "0 2px 4px rgba(0,0,0,0.06)"
                       : "none",
@@ -315,17 +316,19 @@ export default function InstagramShiftsPage() {
                   {dayShifts.length > 0 && (
                     <div
                       style={{
-                        fontSize: 7,
+                        fontSize: dayShifts.length > 2 ? 8 : 10,
                         fontWeight: 700,
-                        lineHeight: 1.3,
+                        lineHeight: 1.2,
                         textAlign: "center",
                         color: isWhiteBg ? "#D85A30" : "#fff",
+                        wordBreak: "break-word",
+                        width: "100%",
                       }}
                     >
                       {hasSpecial && "🎉"}
                       {!hasSpecial && hasHighRank && "★"}
                       {dayShifts.map((s, si) => (
-                        <div key={si} style={{ lineHeight: 1.2 }}>
+                        <div key={si} style={{ lineHeight: 1.15 }}>
                           {shortLocationName(
                             (s.locations as any)?.name || "",
                           )}
@@ -404,7 +407,7 @@ export default function InstagramShiftsPage() {
             borderRadius: 20,
           }}
         >
-          📍 都城市中心 / 鹿児島市内&nbsp;&nbsp;|&nbsp;&nbsp;@tebaya_official
+          📍 都城市内&nbsp;&nbsp;|&nbsp;&nbsp;@tebaya_official
         </span>
       </div>
     </div>

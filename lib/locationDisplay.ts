@@ -1,36 +1,36 @@
 /**
- * 店舗名の短縮表示マッピング
+ * 店舗名の表示マッピング
  * Instagram投稿モードなど、スペースが限られる表示で使用
  */
 
-const SHORT_NAME_MAP: Record<string, string> = {
-  "ながやま 鷹尾店": "鷹尾",
-  "ながやま 若葉店": "若葉",
-  "ながやま 三股店": "三股",
-  "ながやま 都北店": "都北",
-  "ながやま 山田店": "山田",
-  "ながやま 志比田店": "志比田",
-  マンガ倉庫: "マンガ",
-  "PASIO 高城店": "高城",
-  "PASIO 早鈴店": "早鈴",
-  PASIO高城店: "高城",
-  PASIO早鈴店: "早鈴",
-  ニクルの朝市: "ニクル",
-  まるまる朝市: "まるまる",
-  "BIG OPUS": "OPUS",
-  "Aコープ 木花": "木花",
-  Aコープ木花: "木花",
-  イオンモール: "イオン",
+const DISPLAY_NAME_MAP: Record<string, string> = {
+  "ながやま 鷹尾店": "ながやま鷹尾",
+  "ながやま 若葉店": "ながやま若葉",
+  "ながやま 三股店": "ながやま三股",
+  "ながやま 都北店": "ながやま都北",
+  "ながやま 山田店": "ながやま山田",
+  "ながやま 志比田店": "ながやま志比田",
+  マンガ倉庫: "マンガ倉庫",
+  "PASIO 高城店": "PASIO高城",
+  "PASIO 早鈴店": "PASIO早鈴",
+  PASIO高城店: "PASIO高城",
+  PASIO早鈴店: "PASIO早鈴",
+  ニクルの朝市: "ニクルの朝市",
+  まるまる朝市: "まるまる朝市",
+  "BIG OPUS": "BIG OPUS",
+  "Aコープ 木花": "Aコープ木花",
+  Aコープ木花: "Aコープ木花",
+  イオンモール: "イオンモール",
 };
 
-/** 店舗フルネームから短縮名を返す。マッピングにない場合は先頭4文字 */
+/** 店舗フルネームから表示用の名前を返す */
 export function shortLocationName(fullName: string): string {
-  if (SHORT_NAME_MAP[fullName]) return SHORT_NAME_MAP[fullName];
-  // 「ながやま ○○店」パターンの自動短縮
+  if (DISPLAY_NAME_MAP[fullName]) return DISPLAY_NAME_MAP[fullName];
+  // 「ながやま ○○店」パターンの自動変換
   const m = fullName.match(/ながやま\s*(.+?)店?$/);
-  if (m) return m[1];
-  // フォールバック：先頭4文字
-  return fullName.slice(0, 4);
+  if (m) return `ながやま${m[1]}`;
+  // スペース・「店」を除去して返す
+  return fullName.replace(/\s+/g, "").replace(/店$/, "");
 }
 
 /** 特別出店（イベント系）かどうか判定 */
