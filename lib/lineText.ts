@@ -110,7 +110,7 @@ function generateCleanupSection(f: FormState): string {
       .map(([name, status]) => `・${name}（${status}：${statusLabel[status as string]}）`);
 
     if (warnings.length > 0) {
-      lines.push("", "⚠️ 要補充");
+      lines.push("", "🛒 買い出しが必要な品");
       lines.push(...warnings);
     }
   }

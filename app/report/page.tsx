@@ -126,10 +126,16 @@ export default function Page() {
   const goNext = () => setStep((s) => Math.min(TOTAL_STEPS, s + 1));
   const goPrev = () => setStep((s) => Math.max(1, s - 1));
 
+  const allTasksCompleted = Object.values(form.cleanup_tasks).every((v) => v);
+  const remainingTasks = Object.entries(form.cleanup_tasks)
+    .filter(([, v]) => !v)
+    .map(([name]) => name);
+
   const canNext = () => {
     if (step === 1)
       return form.date && form.location.trim() && form.staff_name.trim();
     if (step === 2) return form.sales_amount > 0;
+    if (step === 7) return allTasksCompleted;
     return true;
   };
 
@@ -363,7 +369,7 @@ export default function Page() {
         />
       )}
       {step === 6 && <Step6 form={form} update={update} />}
-      {step === 7 && <StepCleanup form={form} update={update} />}
+      {step === 7 && <StepCleanup form={form} update={update} remainingTasks={remainingTasks} />}
       {step === 8 && (
         <Step7
           form={form}
@@ -1069,9 +1075,11 @@ function Step7({
 function StepCleanup({
   form,
   update,
+  remainingTasks,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
+  remainingTasks: string[];
 }) {
   const statusOptions: { value: InventoryStatus; label: string; color: string; bg: string }[] = [
     { value: "○", label: "○", color: "text-white", bg: "bg-green-500" },
@@ -1099,7 +1107,7 @@ function StepCleanup({
                     : "bg-white text-stone-700 border-stone-300"
                 }`}
               >
-                {n}番隊でやった
+                {n}番隊
               </button>
             ))}
           </div>
@@ -1148,6 +1156,9 @@ function StepCleanup({
       {/* 作業確認 */}
       <div className="card space-y-3">
         <h3 className="font-bold">🔧 作業確認</h3>
+        <p className="text-xs text-stone-500">
+          ※ 全7項目をチェックしてから次へ進めます
+        </p>
         <div className="space-y-2">
           {CLEANUP_TASK_ITEMS.map((task) => (
             <label
@@ -1169,6 +1180,11 @@ function StepCleanup({
             </label>
           ))}
         </div>
+        {remainingTasks.length > 0 && (
+          <p className="text-xs text-red-500">
+            残り：{remainingTasks.join("、")}
+          </p>
+        )}
       </div>
     </section>
   );
