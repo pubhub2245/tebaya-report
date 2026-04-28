@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { shortLocationName, isSpecialEvent } from "@/lib/locationDisplay";
+import { isWeekendOrHoliday } from "@/lib/japaneseHolidays";
 import AdminGate from "@/app/components/AdminGate";
 
 // TODO: 将来追加予定の機能
@@ -91,30 +92,47 @@ export default function InstagramShiftsPage() {
   const dateStr = (day: number) =>
     `${monthStr}-${String(day).padStart(2, "0")}`;
 
-  /** セルの背景スタイルを決定 */
-  const cellStyle = (dayShifts: Shift[]): React.CSSProperties => {
+  /** セルの背景スタイルを決定（ピンク:特別出店 > 黄色:土日祝 > 白:平日） */
+  const cellStyle = (
+    dayShifts: Shift[],
+    dateString: string,
+  ): { style: React.CSSProperties; hasSpecial: boolean } => {
     if (dayShifts.length === 0)
-      return { background: "rgba(255,255,255,0.4)" };
+      return {
+        style: { background: "rgba(255,255,255,0.4)" },
+        hasSpecial: false,
+      };
 
-    const hasHighRank = dayShifts.some(
-      (s) => s.rank === "A" || s.rank === "B",
-    );
     const hasSpecial = dayShifts.some((s) => {
       const name = (s.locations as any)?.name || "";
       return isSpecialEvent(name);
     });
 
+    // ピンク優先（特別出店）
     if (hasSpecial)
       return {
-        background: "linear-gradient(135deg, #FF6B6B 0%, #FF3D7F 100%)",
-        color: "#fff",
+        style: {
+          background: "linear-gradient(135deg, #FF6B6B 0%, #FF3D7F 100%)",
+          color: "#fff",
+        },
+        hasSpecial: true,
       };
-    if (hasHighRank)
+
+    // 黄色（土日祝）
+    if (isWeekendOrHoliday(dateString))
       return {
-        background: "linear-gradient(135deg, #FFD93D 0%, #FF9A3C 100%)",
-        color: "#fff",
+        style: {
+          background: "linear-gradient(135deg, #FFD93D 0%, #FF9A3C 100%)",
+          color: "#fff",
+        },
+        hasSpecial: false,
       };
-    return { background: "#fff", color: "#D85A30" };
+
+    // 白（平日通常）
+    return {
+      style: { background: "#fff", color: "#D85A30" },
+      hasSpecial: false,
+    };
   };
 
   const igContent = (
@@ -269,21 +287,14 @@ export default function InstagramShiftsPage() {
               }
               const ds = dateStr(day);
               const dayShifts = shiftsByDate.get(ds) || [];
-              const style = cellStyle(dayShifts);
-              const isWhiteBg = !style.color || style.color !== "#fff";
-
-              const hasHighRank = dayShifts.some(
-                (s) => s.rank === "A" || s.rank === "B",
-              );
-              const hasSpecial = dayShifts.some((s) =>
-                isSpecialEvent((s.locations as any)?.name || ""),
-              );
+              const { style: cellSt, hasSpecial } = cellStyle(dayShifts, ds);
+              const isWhiteBg = !cellSt.color || cellSt.color !== "#fff";
 
               return (
                 <div
                   key={di}
                   style={{
-                    ...style,
+                    ...cellSt,
                     borderRadius: 6,
                     padding: "3px 2px",
                     display: "flex",
@@ -326,7 +337,6 @@ export default function InstagramShiftsPage() {
                       }}
                     >
                       {hasSpecial && "🎉"}
-                      {!hasSpecial && hasHighRank && "★"}
                       {dayShifts.map((s, si) => (
                         <div key={si} style={{ lineHeight: 1.15 }}>
                           {shortLocationName(
@@ -369,7 +379,7 @@ export default function InstagramShiftsPage() {
               marginRight: 3,
             }}
           />
-          ★ 人気店舗
+          土日祝日
         </span>
         <span>
           <span
