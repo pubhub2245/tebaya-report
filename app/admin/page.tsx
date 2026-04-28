@@ -248,6 +248,13 @@ export default function AdminPage() {
         </div>
       </header>
 
+      <Link
+        href="/admin/shifts"
+        className="block w-full bg-brand hover:bg-brand-dark text-white font-bold text-base px-6 py-4 rounded-xl shadow-md text-center transition-colors"
+      >
+        🗓️ シフト管理ページへ
+      </Link>
+
       <MonthlyDashboard />
 
       <TaskAdminDashboard />
