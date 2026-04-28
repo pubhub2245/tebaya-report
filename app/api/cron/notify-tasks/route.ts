@@ -1,0 +1,144 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { sendLineGroupMessage } from "@/lib/line/sendMessage";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+);
+
+/** 日本時間の「今日」をYYYY-MM-DD形式で返す */
+function todayJST(): string {
+  const now = new Date();
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return jst.toISOString().slice(0, 10);
+}
+
+/** 日付を1日進める */
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+const PRIORITY_LABEL: Record<string, string> = {
+  high: "高",
+  normal: "中",
+  low: "低",
+};
+
+export async function GET(req: NextRequest) {
+  // 認証チェック
+  const authHeader = req.headers.get("authorization");
+  const cronSecret = process.env.CRON_SECRET;
+
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const today = todayJST();
+  const tomorrow = addDays(today, 1);
+  const errors: string[] = [];
+  let reminderCount = 0;
+  let overdueCount = 0;
+
+  try {
+    // ── リマインダー通知（期限が明日のタスク）──
+    const { data: reminderTasks, error: remErr } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("status", "pending")
+      .eq("due_date", tomorrow)
+      .eq("line_notified_reminder", false);
+
+    if (remErr) {
+      errors.push(`リマインダー取得エラー: ${remErr.message}`);
+    } else if (reminderTasks && reminderTasks.length > 0) {
+      const lines = reminderTasks.map(
+        (t) =>
+          `・${t.title}（${t.assignee || "未割当"} / 優先度:${PRIORITY_LABEL[t.priority] || t.priority}）`,
+      );
+      const message = [
+        "📋 【タスクリマインダー】",
+        `明日（${tomorrow}）が期限のタスクが ${reminderTasks.length}件 あります：`,
+        "",
+        ...lines,
+        "",
+        "期限内に完了させましょう！",
+      ].join("\n");
+
+      const sent = await sendLineGroupMessage(message);
+      if (sent) {
+        // 通知済みフラグを更新
+        const ids = reminderTasks.map((t) => t.id);
+        await supabase
+          .from("tasks")
+          .update({ line_notified_reminder: true })
+          .in("id", ids);
+        reminderCount = reminderTasks.length;
+      } else {
+        errors.push("リマインダーLINE送信失敗");
+      }
+    }
+
+    // ── 期限超過通知（期限が今日より前で未完了）──
+    const { data: overdueTasks, error: ovErr } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("status", "pending")
+      .lt("due_date", today)
+      .eq("line_notified_overdue", false);
+
+    if (ovErr) {
+      errors.push(`期限超過取得エラー: ${ovErr.message}`);
+    } else if (overdueTasks && overdueTasks.length > 0) {
+      const lines = overdueTasks.map((t) => {
+        const daysOver = Math.round(
+          (new Date(today + "T00:00:00").getTime() -
+            new Date(t.due_date + "T00:00:00").getTime()) /
+            (24 * 3600 * 1000),
+        );
+        return `・${t.title}（${t.assignee || "未割当"} / ${daysOver}日超過 / 優先度:${PRIORITY_LABEL[t.priority] || t.priority}）`;
+      });
+      const message = [
+        "🚨 【期限超過タスク】",
+        `期限を過ぎた未完了タスクが ${overdueTasks.length}件 あります：`,
+        "",
+        ...lines,
+        "",
+        "至急対応をお願いします！",
+      ].join("\n");
+
+      const sent = await sendLineGroupMessage(message);
+      if (sent) {
+        const ids = overdueTasks.map((t) => t.id);
+        await supabase
+          .from("tasks")
+          .update({ line_notified_overdue: true })
+          .in("id", ids);
+        overdueCount = overdueTasks.length;
+      } else {
+        errors.push("期限超過LINE送信失敗");
+      }
+    }
+
+    return NextResponse.json({
+      success: errors.length === 0,
+      reminder_count: reminderCount,
+      overdue_count: overdueCount,
+      today,
+      tomorrow,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (e: any) {
+    console.error("[notify-tasks] エラー:", e);
+    return NextResponse.json(
+      { success: false, error: e?.message || String(e) },
+      { status: 500 },
+    );
+  }
+}

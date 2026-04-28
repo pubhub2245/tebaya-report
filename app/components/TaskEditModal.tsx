@@ -110,6 +110,11 @@ export default function TaskEditModal({ task, onClose, onSaved }: Props) {
       } else if (status === "pending" && task.status === "completed") {
         patch.completed_at = null;
       }
+      // 期限変更 or 未完了に戻した場合 → 通知フラグをリセット
+      if (dueDate !== task.due_date || (status === "pending" && task.status === "completed")) {
+        patch.line_notified_reminder = false;
+        patch.line_notified_overdue = false;
+      }
       const { error } = await supabase
         .from("tasks")
         .update(patch)

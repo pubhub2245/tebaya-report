@@ -13,6 +13,7 @@ export type Task = {
   line_notified_created: boolean;
   line_notified_reminder: boolean;
   line_notified_completed: boolean;
+  line_notified_overdue: boolean;
 };
 
 export type DueTone = "overdue" | "today" | "soon" | "week" | "later" | "none";

@@ -67,8 +67,13 @@ export default function TasksPage() {
     setBusyId(task.id);
     const patch =
       next === "completed"
-        ? { status: "completed", completed_at: new Date().toISOString() }
-        : { status: "pending", completed_at: null };
+        ? { status: "completed" as const, completed_at: new Date().toISOString() }
+        : {
+            status: "pending" as const,
+            completed_at: null,
+            line_notified_reminder: false,
+            line_notified_overdue: false,
+          };
     setTasks((prev) =>
       prev.map((t) => (t.id === task.id ? { ...t, ...(patch as any) } : t))
     );

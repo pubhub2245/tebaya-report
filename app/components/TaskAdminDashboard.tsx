@@ -21,6 +21,8 @@ export default function TaskAdminDashboard() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<Task | null>(null);
+  const [notifying, setNotifying] = useState(false);
+  const [notifyResult, setNotifyResult] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -101,6 +103,32 @@ export default function TaskAdminDashboard() {
     }
   };
 
+  const handleManualNotify = async () => {
+    setNotifying(true);
+    setNotifyResult(null);
+    try {
+      const res = await fetch("/api/cron/notify-tasks", {
+        headers: {
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_CRON_SECRET || ""}`,
+        },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNotifyResult(
+          `通知完了！ リマインダー: ${data.reminder_count}件 / 期限超過: ${data.overdue_count}件`,
+        );
+      } else {
+        setNotifyResult(
+          `エラー: ${data.errors?.join(", ") || data.error || "不明なエラー"}`,
+        );
+      }
+    } catch (e: any) {
+      setNotifyResult(`通信エラー: ${e?.message || String(e)}`);
+    } finally {
+      setNotifying(false);
+    }
+  };
+
   const toggleExpand = (name: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -151,6 +179,30 @@ export default function TaskAdminDashboard() {
           </ul>
         </div>
       )}
+
+      <div className="card">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-bold text-brand-dark">LINE通知</h3>
+          <button
+            onClick={handleManualNotify}
+            disabled={notifying}
+            className="text-sm bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2 rounded-lg disabled:opacity-50 transition-colors"
+          >
+            {notifying ? "送信中…" : "タスク期限を今すぐチェックして通知"}
+          </button>
+        </div>
+        {notifyResult && (
+          <p
+            className={`text-sm p-2 rounded ${
+              notifyResult.startsWith("通知完了")
+                ? "bg-green-50 text-green-700"
+                : "bg-red-50 text-red-700"
+            }`}
+          >
+            {notifyResult}
+          </p>
+        )}
+      </div>
 
       <div className="card">
         <h3 className="font-bold text-brand-dark mb-3">担当者別</h3>
