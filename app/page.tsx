@@ -41,6 +41,13 @@ export default function MenuPage() {
           <span className="text-2xl">✅</span>
           <span>タスク管理</span>
         </Link>
+        <Link
+          href="/shifts"
+          className="flex items-center justify-center gap-3 w-full h-20 rounded-2xl bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-bold text-xl shadow-md transition"
+        >
+          <span className="text-2xl">📅</span>
+          <span>自分のシフトを確認</span>
+        </Link>
       </section>
 
       <footer className="mt-8 text-center">
