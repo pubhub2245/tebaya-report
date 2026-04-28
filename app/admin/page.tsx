@@ -59,6 +59,8 @@ export default function AdminPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [interims, setInterims] = useState<Interim[]>([]);
   const [interimRange, setInterimRange] = useState<"today" | "week">("today");
+  const [notifyingWeather, setNotifyingWeather] = useState(false);
+  const [weatherResult, setWeatherResult] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -191,6 +193,40 @@ export default function AdminPage() {
     };
   }, [reports]);
 
+  const handleWeatherNotify = async () => {
+    if (
+      !confirm(
+        "翌日の天気予報をLINEグループに送信しますか？"
+      )
+    )
+      return;
+    setNotifyingWeather(true);
+    setWeatherResult(null);
+    try {
+      const cronSecret = process.env.NEXT_PUBLIC_CRON_SECRET;
+      const response = await fetch("/api/cron/notify-weather", {
+        headers: cronSecret ? { Authorization: `Bearer ${cronSecret}` } : {},
+      });
+      const data = await response.json();
+      if (data.skipped) {
+        setWeatherResult(`✅ ${data.message}`);
+      } else if (data.success) {
+        const f = data.forecast;
+        setWeatherResult(
+          `✅ 通知完了！ ${f.weather} / ${f.tempMin}℃〜${f.tempMax}℃ / 風速最大${f.windSpeedMax}m/s`
+        );
+      } else {
+        setWeatherResult(
+          `❌ エラー: ${data.error || "不明"}${data.details ? `\n詳細: ${data.details}` : ""}`
+        );
+      }
+    } catch (e: any) {
+      setWeatherResult(`❌ 通信エラー: ${e?.message || String(e)}`);
+    } finally {
+      setNotifyingWeather(false);
+    }
+  };
+
   return (
     <AdminGate>
     <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
@@ -215,6 +251,30 @@ export default function AdminPage() {
       <MonthlyDashboard />
 
       <TaskAdminDashboard />
+
+      <section className="space-y-3">
+        <h2 className="text-xl font-bold text-brand-dark">🌤️ 天気予報通知</h2>
+        <button
+          onClick={handleWeatherNotify}
+          disabled={notifyingWeather}
+          className="w-full bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white font-bold text-base px-6 py-4 rounded-xl shadow-md disabled:opacity-50 transition-colors"
+        >
+          {notifyingWeather
+            ? "🌤️ 取得中…"
+            : "🌤️ 翌日の天気予報を今すぐ通知"}
+        </button>
+        {weatherResult && (
+          <div
+            className={`card text-sm font-semibold ${
+              weatherResult.startsWith("✅")
+                ? "bg-green-50 text-green-700 border border-green-200"
+                : "bg-red-50 text-red-700 border border-red-200"
+            }`}
+          >
+            {weatherResult}
+          </div>
+        )}
+      </section>
 
       <AchievementRateDashboard />
 
