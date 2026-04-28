@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 const SS_KEY = "admin-auth";
-const REQUIRED = process.env.NEXT_PUBLIC_ADMIN_PASSWORD;
+const REQUIRED = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "tebaya2026";
 
 export default function AdminGate({ children }: { children: React.ReactNode }) {
   const [authed, setAuthed] = useState(false);

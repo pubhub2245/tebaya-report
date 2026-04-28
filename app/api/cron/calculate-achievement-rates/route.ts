@@ -53,8 +53,8 @@ export async function GET(req: NextRequest) {
     if (locErr) throw locErr;
 
     // locations テーブルから正規化名 → id のマッピングを構築
-    const locMap = new Map<string, string>();
-    (locs || []).forEach((l: any) => locMap.set(normalizeLocationName(l.name), String(l.id)));
+    const locMap = new Map<string, number>();
+    (locs || []).forEach((l: any) => locMap.set(normalizeLocationName(l.name), Number(l.id)));
 
     // Build daily sales lookup: "date|normalizedLocation" -> sales_amount
     // 正規化した店舗名をキーにすることで表記揺れを吸収
@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
 
     // 4. Calculate rates for each interim report
     type RateEntry = {
-      locationId: string;
+      locationId: number;
       dayType: "weekday" | "weekend";
       hour: number;
       rate: number;
@@ -82,6 +82,7 @@ export async function GET(req: NextRequest) {
     const entries: RateEntry[] = [];
     let matchedCount = 0;
     let unmatchedLocations = new Set<string>();
+    let noLocationIdCount = 0;
 
     (interims || []).forEach((ir: any) => {
       const dateStr = ir.created_at.slice(0, 10);
@@ -97,7 +98,11 @@ export async function GET(req: NextRequest) {
       matchedCount++;
       const rate = Math.min(1, ir.current_sales / finalSales);
       const locationId = locMap.get(normalizedLoc);
-      if (!locationId) return;
+      if (locationId === undefined) {
+        noLocationIdCount++;
+        console.log(`[到達率計算] location_id未発見: "${ir.location}" (正規化: "${normalizedLoc}")`);
+        return;
+      }
 
       entries.push({
         locationId,
@@ -107,11 +112,13 @@ export async function GET(req: NextRequest) {
       });
     });
 
+    console.log(`[到達率計算] entries数: ${entries.length}, マッチ数: ${matchedCount}, locationId未発見: ${noLocationIdCount}`);
+
     // 5. Group by location × dayType × hour
     type GroupKey = string;
     const groups = new Map<
       GroupKey,
-      { locationId: string; dayType: string; hour: number; rates: number[] }
+      { locationId: number; dayType: string; hour: number; rates: number[] }
     >();
 
     entries.forEach((e) => {
@@ -140,41 +147,63 @@ export async function GET(req: NextRequest) {
     const now = new Date().toISOString();
     const upsertRows: any[] = [];
 
-    groups.forEach((g) => {
-      if (g.rates.length >= 3) {
-        const avg =
-          g.rates.reduce((s, r) => s + r, 0) / g.rates.length;
-        upsertRows.push({
-          location_id: g.locationId,
-          day_type: g.dayType,
-          hour: g.hour,
-          rate: Math.round(avg * 10000) / 10000,
-          sample_count: g.rates.length,
-          is_global: false,
-          calculated_at: now,
-        });
-      }
-      // If < 3 samples, global fallback is used automatically at read time
+    groups.forEach((g, key) => {
+      const avg =
+        g.rates.reduce((s, r) => s + r, 0) / g.rates.length;
+      console.log(`[到達率計算] グループ ${key}: samples=${g.rates.length}, avg=${Math.round(avg * 10000) / 10000}`);
+      upsertRows.push({
+        location_id: g.locationId,
+        day_type: g.dayType,
+        hour: g.hour,
+        rate: Math.round(avg * 10000) / 10000,
+        sample_count: g.rates.length,
+        is_global: false,
+        calculated_at: now,
+      });
     });
 
     // 8. Upsert to achievement_rates
     let ratesUpdated = 0;
+    let upsertError: string | null = null;
+    console.log(`[到達率計算] upsert対象: ${upsertRows.length}件`);
+
     if (upsertRows.length > 0) {
-      const { error: upsErr } = await supabase
-        .from("achievement_rates")
-        .upsert(upsertRows, {
-          onConflict: "location_id,day_type,hour",
-          ignoreDuplicates: false,
-        });
-      if (upsErr) throw upsErr;
-      ratesUpdated = upsertRows.length;
+      // 1件ずつupsertして個別のエラーをキャッチ
+      for (const row of upsertRows) {
+        const { error: upsErr } = await supabase
+          .from("achievement_rates")
+          .upsert(row, {
+            onConflict: "location_id,day_type,hour",
+            ignoreDuplicates: false,
+          });
+        if (upsErr) {
+          console.error(`[到達率計算] UPSERT失敗 (loc=${row.location_id}, day=${row.day_type}, hour=${row.hour}):`, upsErr);
+          upsertError = upsErr.message;
+        } else {
+          ratesUpdated++;
+        }
+      }
     }
 
     // ログ: マッチング結果
     console.log(`[到達率計算] マッチしたペア数: ${matchedCount}`);
     console.log(`[到達率計算] マッチしなかった中間報告の店舗名:`, [...unmatchedLocations]);
+    console.log(`[到達率計算] 更新成功: ${ratesUpdated}/${upsertRows.length}`);
 
     // 9. Log the calculation
+    const notesDetail = [
+      `interims=${(interims || []).length}`,
+      `dailies=${(dailies || []).length}`,
+      `matched=${matchedCount}`,
+      `entries=${entries.length}`,
+      `groups=${groups.size}`,
+      `upsert_target=${upsertRows.length}`,
+      `updated=${ratesUpdated}`,
+      `noLocId=${noLocationIdCount}`,
+      `unmatched=[${[...unmatchedLocations].join(",")}]`,
+      upsertError ? `upsert_err=${upsertError}` : null,
+    ].filter(Boolean).join(", ");
+
     const { error: logErr } = await supabase
       .from("achievement_rate_calculations")
       .insert({
@@ -182,7 +211,7 @@ export async function GET(req: NextRequest) {
         data_count: entries.length,
         rates_updated: ratesUpdated,
         triggered_by: triggeredBy,
-        notes: `Processed ${(interims || []).length} interim reports, ${matchedCount} matched with daily sales (normalized), updated ${ratesUpdated} rates`,
+        notes: notesDetail,
       });
     if (logErr) console.error("Log insert error:", logErr);
 
@@ -192,7 +221,10 @@ export async function GET(req: NextRequest) {
       rates_updated: ratesUpdated,
       total_interims: (interims || []).length,
       matched_count: matchedCount,
+      groups_count: groups.size,
+      upsert_target: upsertRows.length,
       unmatched_locations: [...unmatchedLocations],
+      upsert_error: upsertError,
     });
   } catch (err: any) {
     console.error("Achievement rate calc error:", err);
