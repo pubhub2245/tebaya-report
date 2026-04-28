@@ -12,6 +12,7 @@ import AdminGate from "@/app/components/AdminGate";
 // - スマホでドラッグ＆ドロップ移動
 // - スタッフ個別のLINE通知
 // - 過去実績ベースの担当者推奨
+// - Instagram投稿用テンプレートのカスタマイズ機能
 
 type Location = { id: number; name: string; rank: string; target: number };
 
@@ -324,6 +325,14 @@ export default function ShiftsPage() {
             ▶
           </button>
         </div>
+
+        {/* Instagram投稿モード */}
+        <Link
+          href={`/admin/shifts/instagram`}
+          className="block w-full bg-gradient-to-r from-pink-500 to-orange-400 hover:from-pink-600 hover:to-orange-500 text-white font-bold px-4 py-3 rounded-xl text-sm text-center shadow"
+        >
+          📷 Instagram投稿モード
+        </Link>
 
         {/* アクションボタン */}
         <div className="flex gap-2 flex-wrap">
