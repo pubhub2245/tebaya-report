@@ -1,5 +1,5 @@
 import { yen, slashDate } from "./format";
-import type { FormState } from "./formState";
+import type { FormState, InventoryStatus } from "./formState";
 
 const SEP = "━━━━━━━━━━━━━━";
 
@@ -40,13 +40,15 @@ export function generateLineText(f: FormState, cumulative: number): string {
         .join("\n") + `\n経費合計：${yen(expensesTotal)}`
     : "";
 
+  const unitInfo = f.unit_number ? ` ${f.unit_number}番隊` : "";
+
   const parts = [
-    "【営業後 日報】",
-    `日付：${slashDate(f.date)}`,
-    `場所: ${f.location}`,
-    `担当：${f.staff_name}`,
+    `🍗 手羽屋 業務報告（${slashDate(f.date)}${unitInfo}）`,
     SEP,
-    "■ 売上",
+    `👤 担当：${f.staff_name}`,
+    `📍 出店：${f.location}`,
+    "",
+    "📊 売上",
     `本日売上：${yen(sales)}`,
     `累計売上：${yen(cumulative)}`,
     SEP,
@@ -61,12 +63,12 @@ export function generateLineText(f: FormState, cumulative: number): string {
     coinLines || "(金種入力なし)",
     `レジ合計：${yen(registerTotal)}（${f.register_ok ? "確認OK" : "差異あり"}）`,
     SEP,
-    "手羽先.手羽餃子残り本数",
-    `・手羽 ×${f.remaining.tebasaki}`,
-    `・手羽ギョーザ ×${f.remaining.gyoza}`,
-    `・ねぎ塩 ×${f.remaining.negishio}`,
-    `・ポテト ×${f.remaining.potato}`,
-    `・トルネードポテト ×${f.remaining.tornado}`,
+    "📦 残り在庫",
+    `・手羽先：${f.remaining.tebasaki}本`,
+    `・餃子：${f.remaining.gyoza}個`,
+    `・ポテト：${f.remaining.potato}袋`,
+    `・トルネード：${f.remaining.tornado}本`,
+    `・ねぎ塩：${f.remaining.negishio}パック`,
   ];
 
   if (expLines) {
@@ -77,5 +79,62 @@ export function generateLineText(f: FormState, cumulative: number): string {
     parts.push(SEP, "引き継ぎ事項", f.handover.trim());
   }
 
+  // 片付けチェック引継ぎ情報
+  const cleanupSection = generateCleanupSection(f);
+  if (cleanupSection) {
+    parts.push(SEP, cleanupSection);
+  }
+
   return parts.join("\n");
+}
+
+function generateCleanupSection(f: FormState): string {
+  const inv = f.cleanup_inventory;
+  const tasks = f.cleanup_tasks;
+
+  // Check if any cleanup data was entered
+  const hasInventory = Object.values(inv).some((v) => v !== "");
+  const hasTasks = Object.values(tasks).some((v) => v);
+  if (!hasInventory && !hasTasks) return "";
+
+  const lines: string[] = ["🔄 次の出店者へ引継ぎ"];
+
+  // 要補充（△ or ×）
+  if (hasInventory) {
+    const statusLabel: Record<string, string> = {
+      "×": "ほぼなし",
+      "△": "ストックなし",
+    };
+    const warnings = Object.entries(inv)
+      .filter(([, v]) => v === "×" || v === "△")
+      .map(([name, status]) => `・${name}（${status}：${statusLabel[status as string]}）`);
+
+    if (warnings.length > 0) {
+      lines.push("", "⚠️ 要補充");
+      lines.push(...warnings);
+    }
+  }
+
+  // 未完了タスク
+  if (hasTasks) {
+    const incomplete = Object.entries(tasks)
+      .filter(([, done]) => !done)
+      .map(([name]) => `・${name}`);
+
+    const complete = Object.entries(tasks)
+      .filter(([, done]) => done)
+      .map(([name]) => name);
+
+    if (incomplete.length > 0) {
+      lines.push("", "⚠️ 未完了");
+      lines.push(...incomplete);
+    }
+
+    if (complete.length > 0) {
+      lines.push("", "✅ 完了済み");
+      lines.push(complete.join("・"));
+    }
+  }
+
+  return lines.join("\n");
 }

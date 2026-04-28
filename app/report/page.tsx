@@ -9,10 +9,15 @@ import {
   STORAGE_KEY,
   laborFor,
   STAFF_OPTIONS,
+  InventoryStatus,
+  CleanupInventory,
+  CleanupTasks,
+  CLEANUP_INVENTORY_ITEMS,
+  CLEANUP_TASK_ITEMS,
 } from "@/lib/formState";
 import { generateLineText } from "@/lib/lineText";
 
-const TOTAL_STEPS = 7;
+const TOTAL_STEPS = 8;
 
 const LOCATION_OPTIONS = [
   "ながやま 鷹尾店",
@@ -51,6 +56,7 @@ export default function Page() {
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
+  const [lineSent, setLineSent] = useState(false);
 
   // Load draft from sessionStorage
   useEffect(() => {
@@ -165,13 +171,30 @@ export default function Page() {
           expenses: form.expenses,
           handover: form.handover,
           line_text: text,
+          unit_number: form.unit_number || null,
+          cleanup_inventory: form.cleanup_inventory,
+          cleanup_tasks: form.cleanup_tasks,
         })
         .select("id")
         .single();
       if (error) throw error;
       setSavedId(data.id);
       sessionStorage.removeItem(STORAGE_KEY);
-      setStep(8);
+
+      // LINE自動送信（失敗しても提出は成功とする）
+      try {
+        const res = await fetch("/api/line/send-report", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        const json = await res.json();
+        if (json.ok) setLineSent(true);
+      } catch {
+        console.warn("LINE自動送信に失敗しましたが、日報は保存済みです");
+      }
+
+      setStep(9);
     } catch (e: any) {
       alert("保存に失敗しました: " + (e?.message || e));
     } finally {
@@ -186,13 +209,13 @@ export default function Page() {
     setStep(1);
     setLineText("");
     setSavedId(null);
+    setLineSent(false);
   };
 
   if (!loaded) return null;
 
-  if (step === 8) {
+  if (step === 9) {
     const sales = form.sales_amount || 0;
-    // 目標は shifts から取れないため売上のみ表示
     if (!lineText) {
       const text = generateLineText(form, cumulative);
       setLineText(text);
@@ -219,11 +242,23 @@ export default function Page() {
                 <span className="font-bold">{yen(cumulative)}</span>
               </div>
             </div>
+            {lineSent && (
+              <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-sm text-green-800">
+                🔔 LINE通知も自動送信しました
+              </div>
+            )}
+            {!lineSent && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-sm text-yellow-800">
+                ⚠️ LINE自動送信できませんでした（手動でコピーしてください）
+              </div>
+            )}
           </div>
 
           <div className="card space-y-3">
             <p className="text-sm text-stone-600 text-center">
-              下のボタンを押してLINEグループに貼り付けてください
+              {lineSent
+                ? "LINEは自動送信済みです。再コピーしたい場合は下のボタンを押してください"
+                : "下のボタンを押してLINEグループに貼り付けてください"}
             </p>
             <textarea
               readOnly
@@ -237,6 +272,8 @@ export default function Page() {
             >
               {copied
                 ? "✅ コピーしました！"
+                : lineSent
+                ? "📋 LINEテキストを再コピー"
                 : "📋 LINEに送る用のテキストをコピー"}
             </button>
           </div>
@@ -289,7 +326,8 @@ export default function Page() {
                 "在庫残り",
                 "立替経費",
                 "引き継ぎ",
-                "確認・生成",
+                "片付けチェック",
+                "確認・提出",
               ][step - 1]}
             </span>
           </div>
@@ -325,7 +363,8 @@ export default function Page() {
         />
       )}
       {step === 6 && <Step6 form={form} update={update} />}
-      {step === 7 && (
+      {step === 7 && <StepCleanup form={form} update={update} />}
+      {step === 8 && (
         <Step7
           form={form}
           cumulative={cumulative}
@@ -961,7 +1000,32 @@ function Step7({
           v={`手羽${form.remaining.tebasaki} / 餃子${form.remaining.gyoza} / ねぎ塩${form.remaining.negishio} / ポテト${form.remaining.potato} / トルネード${form.remaining.tornado}`}
         />
         <Row k="経費件数" v={`${form.expenses.length}件（${yen(expensesTotal)}）`} />
+        {form.unit_number && <Row k="番隊" v={`${form.unit_number}番隊`} />}
       </div>
+
+      {/* 片付けチェックサマリー */}
+      {(Object.values(form.cleanup_inventory).some((v) => v !== "") ||
+        Object.values(form.cleanup_tasks).some((v) => v)) && (
+        <div className="card space-y-2">
+          <h3 className="font-bold">🧹 片付けチェック</h3>
+          {Object.entries(form.cleanup_inventory)
+            .filter(([, v]) => v !== "")
+            .map(([name, status]) => (
+              <Row key={name} k={name} v={status as string} />
+            ))}
+          {Object.entries(form.cleanup_tasks)
+            .filter(([, v]) => v)
+            .length > 0 && (
+            <Row
+              k="完了作業"
+              v={Object.entries(form.cleanup_tasks)
+                .filter(([, v]) => v)
+                .map(([name]) => name)
+                .join("、")}
+            />
+          )}
+        </div>
+      )}
 
       <div className="card space-y-2">
         <h3 className="font-bold">粗利（自動計算）</h3>
@@ -985,7 +1049,7 @@ function Step7({
       <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center text-sm text-green-800">
         <p className="font-bold">✅ 入力内容を確認して、下のボタンを押してください</p>
         <p className="text-xs mt-1 text-green-600">
-          ※ 提出後にLINEコピー用のテキストが表示されます
+          ※ 提出と同時にLINEグループへ自動送信されます
         </p>
       </div>
 
@@ -997,6 +1061,115 @@ function Step7({
       >
         {saving ? "提出中…" : "📤 日報を提出（今日の業務完了）"}
       </button>
+    </section>
+  );
+}
+
+/* ---------- STEP CLEANUP (片付けチェックリスト) ---------- */
+function StepCleanup({
+  form,
+  update,
+}: {
+  form: FormState;
+  update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
+}) {
+  const statusOptions: { value: InventoryStatus; label: string; color: string; bg: string }[] = [
+    { value: "○", label: "○", color: "text-white", bg: "bg-green-500" },
+    { value: "△", label: "△", color: "text-white", bg: "bg-yellow-500" },
+    { value: "×", label: "×", color: "text-white", bg: "bg-red-500" },
+  ];
+
+  return (
+    <section className="space-y-4">
+      <div className="card space-y-4">
+        <h2 className="text-lg font-bold">🧹 片付けチェックリスト</h2>
+
+        {/* 番隊選択 */}
+        <div>
+          <label className="label">番隊選択（任意）</label>
+          <div className="grid grid-cols-2 gap-2">
+            {["1", "2"].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => update("unit_number", form.unit_number === n ? "" : n)}
+                className={`rounded-xl py-3 font-bold border-2 transition-colors ${
+                  form.unit_number === n
+                    ? "bg-brand text-white border-brand"
+                    : "bg-white text-stone-700 border-stone-300"
+                }`}
+              >
+                {n}番隊でやった
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* 食材・備品（在庫状況） */}
+      <div className="card space-y-3">
+        <h3 className="font-bold">🍗 食材・備品（在庫状況）</h3>
+        <p className="text-xs text-stone-500">
+          ○：在庫たくさん　△：使う分はあるがストックなし　×：使う分もほぼなくなっている
+        </p>
+        <div className="space-y-2">
+          {CLEANUP_INVENTORY_ITEMS.map((item) => (
+            <div
+              key={item}
+              className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2"
+            >
+              <span className="flex-1 font-semibold text-sm">{item}</span>
+              <div className="flex gap-1">
+                {statusOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() =>
+                      update("cleanup_inventory", {
+                        ...form.cleanup_inventory,
+                        [item]: form.cleanup_inventory[item] === opt.value ? "" : opt.value,
+                      } as CleanupInventory)
+                    }
+                    className={`w-10 h-10 rounded-lg font-bold text-lg transition-colors ${
+                      form.cleanup_inventory[item] === opt.value
+                        ? `${opt.bg} ${opt.color}`
+                        : "bg-stone-200 text-stone-500"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 作業確認 */}
+      <div className="card space-y-3">
+        <h3 className="font-bold">🔧 作業確認</h3>
+        <div className="space-y-2">
+          {CLEANUP_TASK_ITEMS.map((task) => (
+            <label
+              key={task}
+              className="flex items-center gap-3 bg-stone-50 rounded-xl px-3 py-3 cursor-pointer"
+            >
+              <input
+                type="checkbox"
+                checked={form.cleanup_tasks[task]}
+                onChange={(e) =>
+                  update("cleanup_tasks", {
+                    ...form.cleanup_tasks,
+                    [task]: e.target.checked,
+                  } as CleanupTasks)
+                }
+                className="w-6 h-6 rounded accent-green-600"
+              />
+              <span className="font-semibold text-sm">{task}</span>
+            </label>
+          ))}
+        </div>
+      </div>
     </section>
   );
 }

@@ -22,6 +22,47 @@ export type ExpenseRow = {
   receipt_image_url?: string | null;
 };
 
+export type InventoryStatus = "○" | "△" | "×" | "";
+
+export type CleanupInventory = {
+  塩: InventoryStatus;
+  ノリ塩: InventoryStatus;
+  タレ: InventoryStatus;
+  バター醤油: InventoryStatus;
+  ポテト: InventoryStatus;
+  片栗粉: InventoryStatus;
+  油: InventoryStatus;
+  "袋・折": InventoryStatus;
+  ペーパー: InventoryStatus;
+  "手袋・輪ゴム": InventoryStatus;
+};
+
+export type CleanupTasks = {
+  "ガスorガソリン": boolean;
+  仕込電話: boolean;
+  フライヤー: boolean;
+  器具洗浄: boolean;
+  ゴミ捨て: boolean;
+  "ガソリン（箱バン）": boolean;
+  忘れ物確認: boolean;
+};
+
+export const CLEANUP_INVENTORY_ITEMS: (keyof CleanupInventory)[] = [
+  "塩", "ノリ塩", "タレ", "バター醤油", "ポテト", "片栗粉", "油", "袋・折", "ペーパー", "手袋・輪ゴム",
+];
+
+export const CLEANUP_TASK_ITEMS: (keyof CleanupTasks)[] = [
+  "ガスorガソリン", "仕込電話", "フライヤー", "器具洗浄", "ゴミ捨て", "ガソリン（箱バン）", "忘れ物確認",
+];
+
+export const initialCleanupInventory = (): CleanupInventory => ({
+  塩: "", ノリ塩: "", タレ: "", バター醤油: "", ポテト: "", 片栗粉: "", 油: "", "袋・折": "", ペーパー: "", "手袋・輪ゴム": "",
+});
+
+export const initialCleanupTasks = (): CleanupTasks => ({
+  "ガスorガソリン": false, 仕込電話: false, フライヤー: false, 器具洗浄: false, ゴミ捨て: false, "ガソリン（箱バン）": false, 忘れ物確認: false,
+});
+
 export type FormState = {
   date: string;
   location: string;
@@ -48,6 +89,9 @@ export type FormState = {
   };
   expenses: ExpenseRow[];
   handover: string;
+  unit_number: string;
+  cleanup_inventory: CleanupInventory;
+  cleanup_tasks: CleanupTasks;
 };
 
 export const initialForm = (): FormState => ({
@@ -62,6 +106,9 @@ export const initialForm = (): FormState => ({
   remaining: { tebasaki: 0, gyoza: 0, potato: 0, tornado: 0, negishio: 0 },
   expenses: [],
   handover: "",
+  unit_number: "",
+  cleanup_inventory: initialCleanupInventory(),
+  cleanup_tasks: initialCleanupTasks(),
 });
 
 export const STORAGE_KEY = "tebasaya-report-draft-v1";
