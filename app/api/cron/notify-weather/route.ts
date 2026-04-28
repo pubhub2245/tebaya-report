@@ -171,32 +171,60 @@ export async function GET(req: NextRequest) {
     const isCancelLevel = windSpeedMax >= 18;
 
     // メッセージ作成
-    const [y, m, d] = targetDate.split("-");
+    const [, m, d] = targetDate.split("-");
     const monthDay = `${parseInt(m)}/${parseInt(d)}`;
     const icon = weatherIcon(mainWeather);
+    const maxWind = Math.round(windSpeedMax);
 
-    let message = "";
-
-    if (isCancelLevel) {
-      message += "🚨 明日は出店中止レベルの暴風予報！\n\n";
-    } else if (isStrongWind) {
-      message += "🌬️ 明日は強風注意！\n\n";
+    // 出店判断を決定
+    let judgmentText: string;
+    if (maxWind >= 18) {
+      judgmentText = `🚨 出店不可の可能性大\n   最大風速 ${maxWind}m/s予報`;
+    } else if (maxWind >= 12) {
+      judgmentText = `⚠️ 要注意（風速 ${maxWind}m/s）`;
     } else {
-      message += "🌤️ 明日の天気予報\n\n";
+      judgmentText = "✅ 出店OK（風速 良好）";
     }
 
+    // メッセージ組み立て
+    let message = "🌤️ 明日の天気予報\n\n";
     message += `📅 ${monthDay}（都城市）\n`;
     message += `${icon} ${mainDesc}\n`;
     message += `🌡️ 気温：${Math.round(tempMin)}℃〜${Math.round(tempMax)}℃\n`;
     message += `☔ 降水確率：${Math.round(precipProbMax)}%\n`;
-    message += `💨 風速：${Math.round(windSpeedAvg)}m/s（最大${Math.round(windSpeedMax)}m/s）\n`;
+    message += `💨 風速：${Math.round(windSpeedAvg)}m/s（最大${maxWind}m/s）\n`;
+    message += "\n━━━━━━━━━━━━━━━\n";
+    message += `${judgmentText}\n`;
+    message += "━━━━━━━━━━━━━━━";
+
+    // 追加の警告メッセージ
+    const warnings: string[] = [];
 
     if (isCancelLevel) {
-      message +=
-        "\n⛔ 出店可否を必ず確認してください。\nテント・のぼり等の屋外設置は危険です。";
+      warnings.push(
+        "⛔ 出店可否を必ず確認してください。\nテント・のぼり等の屋外設置は危険です。",
+      );
     } else if (isStrongWind) {
-      message +=
-        "\n⚠️ テント・のぼりの固定を強化してください。\n状況次第で出店中止の判断も検討を。";
+      warnings.push(
+        "⚠️ テント・のぼりの対策をお願いします！\n固定具の確認をお忘れなく。",
+      );
+    }
+
+    const hasThunderstorm = tomorrowEntries.some(
+      (f: any) => f.weather?.[0]?.main === "Thunderstorm",
+    );
+    if (hasThunderstorm) {
+      warnings.push(
+        "⚡ 雷雨予報です。雷の音が聞こえたら避難してください。",
+      );
+    }
+
+    if (precipProbMax >= 70 && !hasThunderstorm) {
+      warnings.push("☔ 雨対策をお願いします。");
+    }
+
+    if (warnings.length > 0) {
+      message += "\n\n" + warnings.join("\n\n");
     }
 
     // LINE送信
