@@ -104,6 +104,12 @@ export default function TaskAdminDashboard() {
   };
 
   const handleManualNotify = async () => {
+    if (
+      !confirm(
+        "タスク期限通知を今すぐ送信しますか？\nスタッフ全員のLINEグループに通知が届きます。"
+      )
+    )
+      return;
     setNotifying(true);
     setNotifyResult(null);
     try {
@@ -115,15 +121,15 @@ export default function TaskAdminDashboard() {
       const data = await res.json();
       if (data.success) {
         setNotifyResult(
-          `通知完了！ リマインダー: ${data.reminder_count}件 / 期限超過: ${data.overdue_count}件`,
+          `✅ 通知完了！ リマインダー: ${data.reminder_count}件 / 期限超過: ${data.overdue_count}件`,
         );
       } else {
         setNotifyResult(
-          `エラー: ${data.errors?.join(", ") || data.error || "不明なエラー"}`,
+          `❌ エラー: ${data.errors?.join(", ") || data.error || "不明なエラー"}`,
         );
       }
     } catch (e: any) {
-      setNotifyResult(`通信エラー: ${e?.message || String(e)}`);
+      setNotifyResult(`❌ 通信エラー: ${e?.message || String(e)}`);
     } finally {
       setNotifying(false);
     }
@@ -180,29 +186,24 @@ export default function TaskAdminDashboard() {
         </div>
       )}
 
-      <div className="card">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="font-bold text-brand-dark">LINE通知</h3>
-          <button
-            onClick={handleManualNotify}
-            disabled={notifying}
-            className="text-sm bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2 rounded-lg disabled:opacity-50 transition-colors"
-          >
-            {notifying ? "送信中…" : "タスク期限を今すぐチェックして通知"}
-          </button>
+      <button
+        onClick={handleManualNotify}
+        disabled={notifying}
+        className="w-full bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-base px-6 py-4 rounded-xl shadow-md disabled:opacity-50 transition-colors"
+      >
+        {notifying ? "📢 通知中…" : "📢 タスク期限を今すぐチェックして通知"}
+      </button>
+      {notifyResult && (
+        <div
+          className={`card text-sm font-semibold ${
+            notifyResult.startsWith("✅")
+              ? "bg-green-50 text-green-700 border border-green-200"
+              : "bg-red-50 text-red-700 border border-red-200"
+          }`}
+        >
+          {notifyResult}
         </div>
-        {notifyResult && (
-          <p
-            className={`text-sm p-2 rounded ${
-              notifyResult.startsWith("通知完了")
-                ? "bg-green-50 text-green-700"
-                : "bg-red-50 text-red-700"
-            }`}
-          >
-            {notifyResult}
-          </p>
-        )}
-      </div>
+      )}
 
       <div className="card">
         <h3 className="font-bold text-brand-dark mb-3">担当者別</h3>
