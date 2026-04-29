@@ -156,7 +156,10 @@ export async function GET(req: NextRequest) {
       ].join("\n");
 
       const sent = await sendLineGroupMessage(
-        transformWithCurrentCharacter(message, { context: "report" }),
+        transformWithCurrentCharacter(message, {
+          context: "report",
+          isScolding: true,
+        }),
       );
 
       return NextResponse.json({
@@ -201,7 +204,10 @@ export async function GET(req: NextRequest) {
       ].join("\n");
 
       const sent = await sendLineGroupMessage(
-        transformWithCurrentCharacter(message, { context: "report" }),
+        transformWithCurrentCharacter(message, {
+          context: "report",
+          isScolding: true,
+        }),
       );
 
       return NextResponse.json({

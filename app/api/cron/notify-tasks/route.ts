@@ -193,7 +193,10 @@ export async function GET(req: NextRequest) {
           ].join("\n");
 
           const sent = await sendLineGroupMessage(
-            transformWithCurrentCharacter(message, { context: "report" }),
+            transformWithCurrentCharacter(message, {
+              context: "report",
+              isScolding: true,
+            }),
           );
           if (sent) reportMissingCount = missing.length;
           else errors.push("日報未提出LINE送信失敗");

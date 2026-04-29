@@ -16,11 +16,22 @@ export const transformWithCharacter = (
   if (!character) return baseMessage;
 
   const isEmergency = context.isEmergency === true;
+  const isScolding = context.isScolding === true;
 
   if (isEmergency) {
     const prefix = character.emergencyPrefix;
     const ending = pickRandom(character.emergencyEndings);
     return `${prefix}\n\n${baseMessage}\n\n${ending}\n\n${character.displaySignature}`;
+  }
+
+  // プンプンモード（日報遅れ等）：displaySignatureを怒り版に差し替え
+  if (isScolding && character.scoldingSignature) {
+    const ending = pickRandom(
+      character.scoldingEndings && character.scoldingEndings.length > 0
+        ? character.scoldingEndings
+        : character.endings,
+    );
+    return `${character.scoldingSignature}\n\n${baseMessage}\n\n${ending}`;
   }
 
   const greeting = pickRandom(character.greetings);

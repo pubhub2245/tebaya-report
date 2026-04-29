@@ -14,11 +14,16 @@ export type Character = {
   emergencyPrefix: string;
   emergencyEndings: string[];
 
+  // 日報遅れなど「プンプン」モード（任意。未設定なら通常モードにフォールバック）
+  scoldingSignature?: string;
+  scoldingEndings?: string[];
+
   fallbackMonthIntro: string;
   fallbackMonthOutro: string;
 };
 
 export type TransformContext = {
   isEmergency?: boolean;
+  isScolding?: boolean;
   context?: "weather" | "task" | "report" | "cancel" | "generic";
 };
