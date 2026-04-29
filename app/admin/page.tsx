@@ -312,6 +312,13 @@ export default function AdminPage() {
         🗓️ シフト管理ページへ
       </Link>
 
+      <Link
+        href="/admin/stats"
+        className="block w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-base px-6 py-4 rounded-xl shadow-md text-center transition-colors"
+      >
+        📊 番隊別ダッシュボード
+      </Link>
+
       <MonthlyDashboard />
 
       <TaskAdminDashboard />

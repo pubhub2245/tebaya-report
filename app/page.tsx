@@ -48,6 +48,13 @@ export default function MenuPage() {
           <span className="text-2xl">📅</span>
           <span>自分のシフトを確認</span>
         </Link>
+        <Link
+          href="/stats"
+          className="flex items-center justify-center gap-3 w-full h-20 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xl shadow-md transition"
+        >
+          <span className="text-2xl">📊</span>
+          <span>チーム成績を見る</span>
+        </Link>
       </section>
 
       <footer className="mt-8 text-center">
