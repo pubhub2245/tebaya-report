@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sendLineGroupMessage } from "@/lib/line/sendMessage";
+import { transformWithCurrentCharacter } from "@/lib/formatters/characterTransform";
 
 export const runtime = "nodejs";
 
@@ -10,9 +11,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const success = await sendLineGroupMessage(
+  const message =
     "🧪 テスト送信です\n\n手羽屋業務連絡Botが正常に動作しています！\n" +
-      new Date().toLocaleString("ja-JP"),
+    new Date().toLocaleString("ja-JP");
+  const success = await sendLineGroupMessage(
+    transformWithCurrentCharacter(message, { context: "generic" }),
   );
 
   return NextResponse.json({ success });

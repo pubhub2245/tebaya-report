@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendLineGroupMessage } from "@/lib/line/sendMessage";
+import { transformWithCurrentCharacter } from "@/lib/formatters/characterTransform";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -71,7 +72,9 @@ export async function GET(req: NextRequest) {
         "期限内に完了させましょう！",
       ].join("\n");
 
-      const sent = await sendLineGroupMessage(message);
+      const sent = await sendLineGroupMessage(
+        transformWithCurrentCharacter(message, { context: "task" }),
+      );
       if (sent) {
         // 通知済みフラグを更新
         const ids = reminderTasks.map((t) => t.id);
@@ -113,7 +116,9 @@ export async function GET(req: NextRequest) {
         "至急対応をお願いします！",
       ].join("\n");
 
-      const sent = await sendLineGroupMessage(message);
+      const sent = await sendLineGroupMessage(
+        transformWithCurrentCharacter(message, { context: "task" }),
+      );
       if (sent) {
         const ids = overdueTasks.map((t) => t.id);
         await supabase
@@ -187,7 +192,9 @@ export async function GET(req: NextRequest) {
             "確認をお願いします。",
           ].join("\n");
 
-          const sent = await sendLineGroupMessage(message);
+          const sent = await sendLineGroupMessage(
+            transformWithCurrentCharacter(message, { context: "report" }),
+          );
           if (sent) reportMissingCount = missing.length;
           else errors.push("日報未提出LINE送信失敗");
         }

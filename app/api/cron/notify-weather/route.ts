@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendLineGroupMessage } from "@/lib/line/sendMessage";
+import { transformWithCurrentCharacter } from "@/lib/formatters/characterTransform";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -227,8 +228,12 @@ export async function GET(req: NextRequest) {
       message += "\n\n" + warnings.join("\n\n");
     }
 
-    // LINE送信
-    const sent = await sendLineGroupMessage(message);
+    // LINE送信（強風中止レベルなら緊急扱い）
+    const decorated = transformWithCurrentCharacter(message, {
+      context: "weather",
+      isEmergency: isCancelLevel,
+    });
+    const sent = await sendLineGroupMessage(decorated);
 
     // 通知履歴をDBに保存
     const forecast = {

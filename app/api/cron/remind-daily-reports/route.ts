@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendLineGroupMessage } from "@/lib/line/sendMessage";
+import { transformWithCurrentCharacter } from "@/lib/formatters/characterTransform";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -128,7 +129,9 @@ export async function GET(req: NextRequest) {
 
       if (missing.length === 0) {
         const msg = `✅ 昨日（${dateLabel}）の日報：全${total}件提出済みです！`;
-        await sendLineGroupMessage(msg);
+        await sendLineGroupMessage(
+          transformWithCurrentCharacter(msg, { context: "report" }),
+        );
         return NextResponse.json({
           success: true,
           missing_count: 0,
@@ -152,7 +155,9 @@ export async function GET(req: NextRequest) {
         "確認をお願いします。",
       ].join("\n");
 
-      const sent = await sendLineGroupMessage(message);
+      const sent = await sendLineGroupMessage(
+        transformWithCurrentCharacter(message, { context: "report" }),
+      );
 
       return NextResponse.json({
         success: sent,
@@ -195,7 +200,9 @@ export async function GET(req: NextRequest) {
         "本日中の提出をお願いします！",
       ].join("\n");
 
-      const sent = await sendLineGroupMessage(message);
+      const sent = await sendLineGroupMessage(
+        transformWithCurrentCharacter(message, { context: "report" }),
+      );
 
       return NextResponse.json({
         success: sent,
