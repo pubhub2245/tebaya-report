@@ -16,6 +16,7 @@ import {
   CLEANUP_TASK_ITEMS,
 } from "@/lib/formState";
 import { generateLineText } from "@/lib/lineText";
+import { getUnitFromStaff } from "@/lib/teamMapping";
 
 const TOTAL_STEPS = 8;
 
@@ -475,10 +476,13 @@ function Step1({
               setIsStaffOther(true);
               update("staff_name", "");
               update("labor", laborFor("", true));
+              update("unit_number", "");
             } else {
               setIsStaffOther(false);
               update("staff_name", v);
               update("labor", laborFor(v));
+              const u = getUnitFromStaff(v);
+              update("unit_number", u ? String(u) : "");
             }
           }}
         >
@@ -495,9 +499,34 @@ function Step1({
             className="field mt-2"
             placeholder="担当者名を入力"
             value={form.staff_name}
-            onChange={(e) => update("staff_name", e.target.value)}
+            onChange={(e) => {
+              update("staff_name", e.target.value);
+              const u = getUnitFromStaff(e.target.value);
+              update("unit_number", u ? String(u) : "");
+            }}
           />
         )}
+      </div>
+      <div>
+        <label className="label">番隊（自動選択／変更可）</label>
+        <div className="grid grid-cols-2 gap-2">
+          {["1", "2"].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() =>
+                update("unit_number", form.unit_number === n ? "" : n)
+              }
+              className={`rounded-xl py-3 font-bold border-2 transition-colors ${
+                form.unit_number === n
+                  ? "bg-brand text-white border-brand"
+                  : "bg-white text-stone-700 border-stone-300"
+              }`}
+            >
+              {n}番隊
+            </button>
+          ))}
+        </div>
       </div>
       <div>
         <label className="label">日当（自動）</label>
@@ -1089,31 +1118,7 @@ function StepCleanup({
 
   return (
     <section className="space-y-4">
-      <div className="card space-y-4">
-        <h2 className="text-lg font-bold">🧹 片付けチェックリスト</h2>
-
-        {/* 番隊選択 */}
-        <div>
-          <label className="label">番隊選択（任意）</label>
-          <div className="grid grid-cols-2 gap-2">
-            {["1", "2"].map((n) => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => update("unit_number", form.unit_number === n ? "" : n)}
-                className={`rounded-xl py-3 font-bold border-2 transition-colors ${
-                  form.unit_number === n
-                    ? "bg-brand text-white border-brand"
-                    : "bg-white text-stone-700 border-stone-300"
-                }`}
-              >
-                {n}番隊
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
+      <h2 className="text-lg font-bold text-brand-dark px-1">🧹 片付けチェックリスト</h2>
       {/* 食材・備品（在庫状況） */}
       <div className="card space-y-3">
         <h3 className="font-bold">🍗 食材・備品（在庫状況）</h3>
