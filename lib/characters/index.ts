@@ -1,4 +1,5 @@
 import { Character } from "./types";
+import { aprHoney } from "./apr-honey";
 import { mayTebachan } from "./may-tebachan";
 import { junTsuyuGirl } from "./jun-tsuyu-girl";
 import { julGal } from "./jul-gal";
@@ -7,6 +8,7 @@ import { sepButler } from "./sep-butler";
 import { octWitch } from "./oct-witch";
 
 export const ALL_CHARACTERS: Character[] = [
+  aprHoney,
   mayTebachan,
   junTsuyuGirl,
   julGal,
