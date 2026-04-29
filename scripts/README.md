@@ -1,6 +1,6 @@
 # scripts/
 
-このディレクトリには、本番DBを直接いじらない補助スクリプトを置きます。
+このディレクトリには補助スクリプトを置きます。`extract-line-reports.mjs` は読み取り専用、`insert-line-reports.mjs` は `--execute` フラグ必須の安全設計です。
 
 ## extract-line-reports.mjs
 
@@ -70,3 +70,62 @@ LINEのトーク履歴エクスポート（テキスト）から、過去の手�
 | `レジ合計：￥30,500(差異+500円)` | `register_total: 30500, register_ok: false, register_diff: 500` |
 | `・手羽  30本` / `・手羽30` | `remaining_tebasaki: 30` |
 | `・ポテト×2` / `・ポテト 2` | `remaining_potato: 2` |
+
+---
+
+## insert-line-reports.mjs
+
+`extract-line-reports.mjs` で生成した `data/extracted-reports.json` を `daily_reports` テーブルへ投入します。
+
+### 前提
+
+- `data/extracted-reports.json` が生成済み
+- `staff_members` テーブルが作成済み**推奨**（無くてもハードコードフォールバックで動作）
+- `.env.local` に `NEXT_PUBLIC_SUPABASE_URL` と キー（service_role があれば優先）
+
+### 使い方
+
+```bash
+# 1. dryRun（DB書き込みなし、投入予定だけ確認）
+node scripts/insert-line-reports.mjs data/extracted-reports.json
+
+# 2. 実投入（dryRunで問題なければ --execute を付ける）
+node scripts/insert-line-reports.mjs data/extracted-reports.json --execute
+```
+
+### 出力
+
+- **コンソール**：処理結果サマリー＋各レコードの状態（✅投入予定 / ⏭️重複 / ⚠️解決失敗 / ❌エラー）
+- **`data/insert-report-{timestamp}.md`**：詳細レポート（実投入後の成功/失敗も追記）
+
+### 安全機構
+
+| 機構 | 動作 |
+|------|------|
+| `--execute` フラグ必須 | 付けないと dryRun（DB変更なし） |
+| 既存レコードと重複 | `date+staff_name+location` 一致は自動スキップ |
+| スタッフ名解決失敗 | WARNING＋投入スキップ（勝手に推測しない） |
+| 店舗名解決失敗 | WARNING＋投入スキップ |
+| バリデーション失敗 | エラー記録＋投入スキップ（date不正・売上欠落等） |
+
+### 名寄せ動作
+
+- まず `staff_members` テーブルから `name + aliases` を取得して解決を試みる
+- テーブルが無い／該当しない場合はハードコードマッピングにフォールバック：
+  - `井手` `idehiro（イデさん）_Fairy` `川畑潤一郎` `りゅうき` `あ Ryuki` `さよ` などの実名・別名を網羅
+- どちらでも解決できなければ WARNING＋スキップ（誤投入を防ぐ）
+
+### 経費フィールドの扱い
+
+LINEログの `cost_food / cost_labor / cost_rent` は売上から計算される値なので、`expenses` jsonb には積みません（`labor` カラムだけセット）。`cost_other`（その他備品）が0より大きい場合のみ、立替経費として1件登録します。
+
+### 投入後の確認
+
+実投入後、Supabase Dashboard or `/admin` で以下を確認：
+
+```sql
+SELECT date, staff_name, location, sales_amount, unit_number
+FROM daily_reports
+WHERE created_at < now() - INTERVAL '1 day' -- LINE移行分
+ORDER BY date;
+```

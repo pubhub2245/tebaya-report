@@ -10,3 +10,5 @@ out
 data/line-export.txt
 data/extracted-reports.json
 data/extracted-reports-summary.md
+data/extracted-reports.sample.json
+data/insert-report-*.md
