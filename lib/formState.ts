@@ -1,4 +1,4 @@
-import { todayStr } from "./format";
+import { businessDateStr } from "./format";
 
 export const STAFF_OPTIONS = ["イデ", "じゅん", "かずき", "なぎさ"];
 
@@ -95,7 +95,7 @@ export type FormState = {
 };
 
 export const initialForm = (): FormState => ({
-  date: todayStr(),
+  date: businessDateStr(),
   location: "",
   staff_name: "",
   sales_amount: 0,
