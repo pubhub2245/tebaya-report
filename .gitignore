@@ -5,3 +5,8 @@ out
 .env
 *.log
 .DS_Store
+
+# LINEログとその抽出結果（プライバシー情報を含むためコミットしない）
+data/line-export.txt
+data/extracted-reports.json
+data/extracted-reports-summary.md
