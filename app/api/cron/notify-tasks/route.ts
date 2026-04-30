@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendLineGroupMessage } from "@/lib/line/sendMessage";
 import { transformWithCurrentCharacter } from "@/lib/formatters/characterTransform";
+import { getMissingReportLocations } from "@/lib/reportMissingLocations";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -131,76 +132,38 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // ── 昨日の日報未提出チェック ──
+    // ── 昨日の日報未提出チェック（店舗ベース判定）──
     let reportMissingCount = 0;
     const yesterday = addDays(today, -1);
     try {
-      const { data: shifts } = await supabase
-        .from("shifts")
-        .select("staff_name, locations(name)")
-        .eq("date", yesterday)
-        .eq("status", "published");
+      const { missing, total, submitted } =
+        await getMissingReportLocations(yesterday);
 
-      if (shifts && shifts.length > 0) {
-        const { data: reports } = await supabase
-          .from("daily_reports")
-          .select("staff_name")
-          .eq("date", yesterday);
-
-        const reportedStaff = new Set(
-          (reports || []).map((r: any) => r.staff_name),
+      if (total > 0 && missing.length > 0) {
+        const [, m, d] = yesterday.split("-");
+        const dateLabel = `${parseInt(m)}/${parseInt(d)}`;
+        const lines = missing.map(
+          (e) => `・${e.location_name}(担当：${e.staff_hint})`,
         );
+        const message = [
+          `📋 昨日（${dateLabel}）の日報状況`,
+          "",
+          `提出済み：${submitted}件 / 全${total}件`,
+          "",
+          "【未提出店舗】",
+          ...lines,
+          "",
+          "確認をお願いします。",
+        ].join("\n");
 
-        const missing: { staff: string; location: string }[] = [];
-        for (const s of shifts) {
-          const staffName = s.staff_name || "未定";
-          const locName = (s.locations as any)?.name || "不明";
-          if (staffName.includes("&") || staffName.includes("・")) {
-            const individuals = staffName
-              .split(/[&・]/)
-              .map((n: string) => n.trim())
-              .filter(Boolean);
-            const unsubmitted = individuals.filter(
-              (name: string) => !reportedStaff.has(name),
-            );
-            if (unsubmitted.length > 0) {
-              missing.push({
-                staff: unsubmitted.join("・"),
-                location: locName,
-              });
-            }
-          } else if (!reportedStaff.has(staffName)) {
-            missing.push({ staff: staffName, location: locName });
-          }
-        }
-
-        if (missing.length > 0) {
-          const [, m, d] = yesterday.split("-");
-          const dateLabel = `${parseInt(m)}/${parseInt(d)}`;
-          const submitted = shifts.length - missing.length;
-          const lines = missing.map(
-            (e) => `・${e.staff}（${e.location}）`,
-          );
-          const message = [
-            `📋 昨日（${dateLabel}）の日報状況`,
-            "",
-            `提出済み：${submitted}件 / 全${shifts.length}件`,
-            "",
-            "【未提出】",
-            ...lines,
-            "",
-            "確認をお願いします。",
-          ].join("\n");
-
-          const sent = await sendLineGroupMessage(
-            transformWithCurrentCharacter(message, {
-              context: "report",
-              isScolding: true,
-            }),
-          );
-          if (sent) reportMissingCount = missing.length;
-          else errors.push("日報未提出LINE送信失敗");
-        }
+        const sent = await sendLineGroupMessage(
+          transformWithCurrentCharacter(message, {
+            context: "report",
+            isScolding: true,
+          }),
+        );
+        if (sent) reportMissingCount = missing.length;
+        else errors.push("日報未提出LINE送信失敗");
       }
     } catch (e: any) {
       errors.push(`日報未提出チェックエラー: ${e?.message || e}`);

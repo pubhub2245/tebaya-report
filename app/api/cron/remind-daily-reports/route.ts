@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sendLineGroupMessage } from "@/lib/line/sendMessage";
 import { transformWithCurrentCharacter } from "@/lib/formatters/characterTransform";
+import { getMissingReportLocations } from "@/lib/reportMissingLocations";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-);
 
 /** 日本時間の「今日」をYYYY-MM-DD形式で返す */
 function todayJST(): string {
@@ -24,76 +18,6 @@ function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
-}
-
-type MissingEntry = {
-  staff_name: string;
-  location_name: string;
-};
-
-/**
- * 指定日のシフトと日報を照合し、未提出リストを返す
- */
-async function getMissingReports(
-  targetDate: string,
-): Promise<{ missing: MissingEntry[]; total: number; submitted: number }> {
-  // 当日のpublishedシフトを取得
-  const { data: shifts } = await supabase
-    .from("shifts")
-    .select("staff_name, locations(name)")
-    .eq("date", targetDate)
-    .eq("status", "published");
-
-  if (!shifts || shifts.length === 0) {
-    return { missing: [], total: 0, submitted: 0 };
-  }
-
-  // 当日の日報を取得
-  const { data: reports } = await supabase
-    .from("daily_reports")
-    .select("staff_name")
-    .eq("date", targetDate);
-
-  const reportedStaff = new Set(
-    (reports || []).map((r) => r.staff_name),
-  );
-
-  // 未提出リスト作成
-  const missing: MissingEntry[] = [];
-  for (const s of shifts) {
-    const staffName = s.staff_name || "未定";
-    const locName = (s.locations as any)?.name || "不明";
-
-    // 連名チェック: 「かずき&なぎさ」→ かずき と なぎさ それぞれチェック
-    if (staffName.includes("&") || staffName.includes("・")) {
-      const individuals = staffName
-        .split(/[&・]/)
-        .map((n: string) => n.trim())
-        .filter(Boolean);
-      const allSubmitted = individuals.every((name: string) =>
-        reportedStaff.has(name),
-      );
-      if (!allSubmitted) {
-        const unsubmitted = individuals.filter(
-          (name: string) => !reportedStaff.has(name),
-        );
-        missing.push({
-          staff_name: unsubmitted.join("・"),
-          location_name: locName,
-        });
-      }
-    } else {
-      if (!reportedStaff.has(staffName)) {
-        missing.push({ staff_name: staffName, location_name: locName });
-      }
-    }
-  }
-
-  return {
-    missing,
-    total: shifts.length,
-    submitted: shifts.length - missing.length,
-  };
 }
 
 export async function GET(req: NextRequest) {
@@ -112,7 +36,7 @@ export async function GET(req: NextRequest) {
       const today = todayJST();
       const yesterday = addDays(today, -1);
       const { missing, total, submitted } =
-        await getMissingReports(yesterday);
+        await getMissingReportLocations(yesterday);
 
       const [, m, d] = yesterday.split("-");
       const dateLabel = `${parseInt(m)}/${parseInt(d)}`;
@@ -142,14 +66,14 @@ export async function GET(req: NextRequest) {
       }
 
       const lines = missing.map(
-        (e) => `・${e.staff_name}（${e.location_name}）`,
+        (e) => `・${e.location_name}（担当：${e.staff_hint}）`,
       );
       const message = [
         `📋 昨日（${dateLabel}）の日報状況`,
         "",
         `提出済み：${submitted}件 / 全${total}件`,
         "",
-        "【未提出】",
+        "【未提出店舗】",
         ...lines,
         "",
         "確認をお願いします。",
@@ -172,7 +96,7 @@ export async function GET(req: NextRequest) {
     } else {
       // ── スタッフ向け：当日の未提出リマインダー ──
       const today = todayJST();
-      const { missing, total } = await getMissingReports(today);
+      const { missing, total } = await getMissingReportLocations(today);
 
       if (total === 0) {
         return NextResponse.json({
@@ -191,12 +115,12 @@ export async function GET(req: NextRequest) {
       }
 
       const lines = missing.map(
-        (e) => `・${e.staff_name}（${e.location_name}）`,
+        (e) => `・${e.location_name}（担当：${e.staff_hint}）`,
       );
       const message = [
         "⏰ 本日の日報リマインダー",
         "",
-        "以下のスタッフはまだ日報が未提出です：",
+        "以下の店舗はまだ日報が未提出です：",
         "",
         ...lines,
         "",
