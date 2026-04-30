@@ -25,9 +25,13 @@ export type MonthlyResult = {
   shiftMonthlyTarget?: number;
   shiftAchievementRate?: number;
   shortfallAmount?: number;
+  // 月間規模感（採用必要性のメッセージング用）
+  averageUnitPrice?: number;        // ¥/件
+  requiredMonthlyReports?: number;  // 月間目標達成に必要な月総出店数
+  monthlyScaleGap?: number;         // 必要 - 実績（差分件数）
   // 中止・休業日（強風・雨等）— 悔しさを表現する文脈
   canceledDays?: string[];
-  // 出店数不足の構造的課題メッセージ
+  // 出店数不足の構造的課題メッセージ（既に整形済の自然文）
   storeShortageMessage?: string;
 };
 
@@ -164,11 +168,18 @@ export const generateMonthOutroMessage = async (
     result.canceledDays && result.canceledDays.length > 0
       ? `3. 中止になった日（${result.canceledDays.join("・")}）への悔しさ・天候への言及`
       : "3. 中止日の言及は不要",
-    "4. 【最重要】出店数が少ないと利益が出ない構造的課題、従業員（仲間・人手）を早く集めて出店を増やす必要があることを真剣に伝える（祝勝ムード一色にしない）",
+    result.requiredMonthlyReports && result.requiredMonthlyReports > 0
+      ? `4. 【最重要・絶対に薄めない】業務メッセージ：月間目標達成のためには、平均単価¥${(result.averageUnitPrice ?? 0).toLocaleString()}/件を維持しつつ「月の総出店数」を約${result.requiredMonthlyReports}件規模にする必要がある。今月は${result.totalReports}件だったので、月間規模としては${result.monthlyScaleGap ?? 0}件くらい増やしたい、というニュアンスを必ず含める。出店日を増やすには仲間（働いてくれる人）を早く集めるのが鍵、を採用の真剣な提言として伝える（祝勝ムード一色にしない）`
+      : "4. 【最重要】出店数を増やすために仲間（人手）を早く集めることを真剣に提言する",
     "5. 翌月キャラへのバトンタッチ＋自分らしい締めくくり",
     "",
+    "【絶対に使わない表現（禁止語）】",
+    "- 「あと◯件出店すれば達成」「あと◯件追加すれば届いた」のような、現状のシフト総額に上乗せして達成する発想の表現は絶対に使わない。",
+    "  → 理由：シフトを追加で組むと shifts.target も連動して上がるため、追加してもまた未達になる。業務的に意味のないメッセージになるので避ける。",
+    "- 必ず「月の総出店規模を◯件にする必要がある」「月◯件規模を目指す」という、月の総出店数の話として伝える。",
+    "",
     "【トーン指示】",
-    "- 祝勝ムード一色にしない。「出店した分はやれた」「全体としては足りない、人を集めないと」をセットで語る",
+    "- 祝勝ムード一色にしない。「出店した分はやれた」「全体としては足りない、月の出店規模を増やすには人を集めないと」をセットで語る",
     "- キャラの軽さ・絵文字・語尾は維持しつつ、業務的な真剣さを織り込む",
     "- 文章は500〜700文字程度（5つの要素を全部入れるためやや長め可）",
     "- 説教臭くならず、仲間に語りかけるトーン",

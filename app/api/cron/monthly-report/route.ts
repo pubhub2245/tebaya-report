@@ -101,15 +101,23 @@ export async function GET(req: NextRequest) {
         ? Math.round((totalSales / shiftMonthlyTarget) * 1000) / 10
         : 0;
 
-    // 出店数不足メッセージを動的に生成
+    // 出店数の月間規模を動的に算出
+    // 注意：「あと◯件追加すれば達成」という発想は誤り
+    //  → 追加でシフトを組むと shifts.target も連動して上がる構造のため
+    // 正しい考え方：「月の総出店数を◯件規模にする必要がある」
     const avgPerReport = totalReports > 0 ? totalSales / totalReports : 0;
-    const shortReports =
-      avgPerReport > 0 && shortfallAmount > 0
-        ? Math.ceil(shortfallAmount / avgPerReport)
+    const averageUnitPrice = Math.round(avgPerReport);
+    const requiredMonthlyReports =
+      avgPerReport > 0 && shiftMonthlyTarget > 0
+        ? Math.ceil(shiftMonthlyTarget / avgPerReport)
         : 0;
+    const monthlyScaleGap = Math.max(
+      0,
+      requiredMonthlyReports - totalReports,
+    );
     const storeShortageMessage =
-      shortfallAmount > 0 && shortReports > 0
-        ? `平均単価（¥${Math.round(avgPerReport).toLocaleString()}/件）で計算すると、月間目標達成にはあと約${shortReports}件の出店が必要だった。出店数を増やすには仲間（従業員）を早く集めることが鍵。`
+      avgPerReport > 0 && requiredMonthlyReports > 0
+        ? `月間目標¥${shiftMonthlyTarget.toLocaleString()}達成のためには、平均単価¥${averageUnitPrice.toLocaleString()}/件を維持した上で月${requiredMonthlyReports}件規模の出店が必要。今月は${totalReports}件だったので、月間の総出店規模としては${monthlyScaleGap}件くらい増やしたい。出店日を増やすには仲間（働いてくれる人）を早く集めることが鍵。`
         : "出店数を増やせるよう、仲間（従業員）を早く集めよう。";
 
     const result: MonthlyResult = {
@@ -126,6 +134,9 @@ export async function GET(req: NextRequest) {
       shiftMonthlyTarget,
       shiftAchievementRate,
       shortfallAmount,
+      averageUnitPrice,
+      requiredMonthlyReports,
+      monthlyScaleGap,
       canceledDays: KNOWN_CANCELED_DAYS[today.ym] || [],
       storeShortageMessage,
     };
