@@ -152,7 +152,7 @@ export const generateMonthOutroMessage = async (
   if (hasShiftTarget) {
     lines.push(
       "",
-      "【指標B：月間トータル達成率（中止日含む全シフト目標ベース）】",
+      "【月間トータル達成率（中止日含む全シフト目標ベース）】",
       `・月間トータル目標: ${yen(result.shiftMonthlyTarget!)}`,
       `・達成率: ${result.shiftAchievementRate ?? 0}%`,
       `・足りなかった金額: ${yen(result.shortfallAmount ?? 0)}`,
@@ -162,9 +162,9 @@ export const generateMonthOutroMessage = async (
   if (hasActualTarget) {
     lines.push(
       "",
-      "【指標A：実出店日達成率（中止日を除外した実稼働ベース）】",
+      "【実稼働ベース達成率（中止日を除外した実出店日のみ）】",
       `・実出店日のシフト目標合計: ${yen(result.actualShiftTargetSum!)}`,
-      `・実出店日達成率: ${result.actualAchievementRate ?? 0}%`,
+      `・達成率: ${result.actualAchievementRate ?? 0}%`,
     );
   }
 
@@ -214,13 +214,13 @@ export const generateMonthOutroMessage = async (
     "【メッセージに必ず含める内容（6セクション、すべて触れる）】",
     `1. 4月の総括：合計売上${yen(result.totalSales)}、${result.totalReports}件の出店について軽く振り返る`,
     hasShiftTarget && hasActualTarget
-      ? `2. 【誠実な達成率報告】2つの達成率を両方語る：(B)月間トータル目標${yen(result.shiftMonthlyTarget!)}に対し達成率${result.shiftAchievementRate ?? 0}%、(A)中止日除外の実稼働ベースでも目標${yen(result.actualShiftTargetSum!)}に対し達成率${result.actualAchievementRate ?? 0}%。「両方とも未達、実稼働でも伸び代がある」と誠実に伝える`
+      ? `2. 【誠実な達成率報告】2つの達成率を両方語る：①月間トータル目標${yen(result.shiftMonthlyTarget!)}に対し達成率${result.shiftAchievementRate ?? 0}%、②中止日を除いた実稼働ベースでも目標${yen(result.actualShiftTargetSum!)}に対し達成率${result.actualAchievementRate ?? 0}%。「両方とも未達、実稼働でも伸び代がある」と誠実に伝える。【絶対ルール】「指標A」「指標B」「（指標X）」のような内部用語ラベルは絶対に文中で使わない。説明文だけで自然に伝える（例：「月間トータル目標¥XXに対して達成率XX%」「中止日を除いた実稼働ベースだと達成率XX%」）`
       : "2. 達成率を誠実に伝える",
     result.canceledDays && result.canceledDays.length > 0
       ? `3. 中止2日（${result.canceledDays.join("・")}）の影響を補足程度に触れる。「あの2日が痛かった」ニュアンスで軽くだけ。「中止が主因」とは絶対に語らない（実際は店舗別の問題が大きい）`
       : "3. 中止日の言及は不要",
     result.storesNeedReview && result.storesNeedReview.length > 0
-      ? `4. 【新・重要】店舗別ランク見直し提言：達成率が低い店舗を3つほど名指しで具体的に語る（個人攻撃ではなく店舗としての評価）。例：「マンガ倉庫都城店は現Bランクだけど達成率57%、平均¥27,000/件だから推奨D未満が現実的」など。一方で頑張っている店舗（${(result.storesOk || []).map((s) => s.store).join("・") || "達成率100%超え店舗"}）は具体的に讃える。「5月のシフト組む時、ランク見直しを真剣に考えたい」と提言する`
+      ? `4. 【新・重要】店舗別ランク見直し提言：\n   【最初に必ず】店舗名を出す前に「これから店舗ごとの数字を話すけど、担当してくれた子の話じゃなくて、店舗の特性とランク設定の話だよ〜！担当者は精一杯やってくれた、それは絶対だからね💛」のような担当者保護の一文を入れる（ハニー口調で表現は変えてOK、ただし「担当者の話じゃなく店舗の話」「担当者は精一杯やった」のニュアンスは必ず明示）。\n   その上で、達成率が低い店舗を3つほど名指しで具体的に語る（必ず店舗としての評価で、個人を一切批判しない）。例：「マンガ倉庫都城店は現Bランクだけど達成率57%、平均¥27,000/件だから推奨D未満が現実的」など。\n   一方で頑張っている店舗（${(result.storesOk || []).map((s) => s.store).join("・") || "達成率100%超え店舗"}）は具体的に讃える。\n   「5月のシフト組む時、ランク見直しを真剣に考えたい」と提言する`
       : "4. 店舗別の状況に触れる",
     result.requiredMonthlyReports && result.requiredMonthlyReports > 0
       ? `5. 【最重要・絶対に薄めない】業務メッセージ：月間目標達成のためには、平均単価¥${(result.averageUnitPrice ?? 0).toLocaleString()}/件を維持しつつ「月の総出店数」を約${result.requiredMonthlyReports}件規模にする必要がある。今月は${result.totalReports}件だったので、月間規模としては${result.monthlyScaleGap ?? 0}件くらい増やしたい、というニュアンスを必ず含める。出店日を増やすには仲間（働いてくれる人）を早く集めるのが鍵、を採用の真剣な提言として伝える`
@@ -228,6 +228,7 @@ export const generateMonthOutroMessage = async (
     "6. 翌月キャラへのバトンタッチ＋ハニーらしい春爛漫キャラの締めくくり",
     "",
     "【絶対に使わない表現（禁止語）】",
+    "- 「指標A」「指標B」「（指標◯）」のような内部用語ラベルは絶対に文中に出さない。スタッフが見る業務LINEなので、説明文だけで自然に通じる日本語にする。",
     "- 「マジ蜜レベル」「100%超え」「達成率100%以上」など、実出店分が達成したかのような祝勝表現は絶対に使わない。実出店日でも未達であることを明確に伝える。",
     "- 「あと◯件出店すれば達成」「あと◯件追加すれば届いた」のような、現状のシフト総額に上乗せして達成する発想の表現は絶対に使わない。シフトを追加で組むと目標も連動して上がるため誤り。",
     "- 必ず「月の総出店規模を◯件にする必要がある」「月◯件規模を目指す」という、月の総出店数の話として伝える。",
