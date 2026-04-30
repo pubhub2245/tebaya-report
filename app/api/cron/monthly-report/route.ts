@@ -8,14 +8,10 @@ import {
 import {
   getTeamStatsForPeriod,
   getShiftMonthlyTargetForPeriod,
+  getActualShiftTargetSumForPeriod,
   monthRange,
 } from "@/lib/teamStats";
-
-// 4月（ハニー月）の中止・特殊事情をハードコードで渡す。
-// 5月以降は月ごとに別途追加可能。
-const KNOWN_CANCELED_DAYS: Record<string, string[]> = {
-  "2026-04": ["4/4 雨で中止", "4/16 強風で中止"],
-};
+import { getStoreAnalysisForMonth } from "@/lib/storeAnalysis";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -74,10 +70,12 @@ export async function GET(req: NextRequest) {
     }
 
     const { start, end } = monthRange(today.ym);
-    const [stats, shiftTargetInfo] = await Promise.all([
+    const [stats, shiftTargetInfo, actualShiftInfo] = await Promise.all([
       getTeamStatsForPeriod(start, end),
       getShiftMonthlyTargetForPeriod(start, end),
+      getActualShiftTargetSumForPeriod(start, end),
     ]);
+    const storeAnalysis = getStoreAnalysisForMonth(today.ym);
 
     const team1 = stats.find((s) => s.unit === 1)!;
     const team2 = stats.find((s) => s.unit === 2)!;
@@ -120,6 +118,14 @@ export async function GET(req: NextRequest) {
         ? `月間目標¥${shiftMonthlyTarget.toLocaleString()}達成のためには、平均単価¥${averageUnitPrice.toLocaleString()}/件を維持した上で月${requiredMonthlyReports}件規模の出店が必要。今月は${totalReports}件だったので、月間の総出店規模としては${monthlyScaleGap}件くらい増やしたい。出店日を増やすには仲間（働いてくれる人）を早く集めることが鍵。`
         : "出店数を増やせるよう、仲間（従業員）を早く集めよう。";
 
+    // 実稼働ベース達成率（中止日除外）
+    const actualShiftTargetSum = actualShiftInfo.actualShiftTargetSum;
+    const canceledTargetSum = actualShiftInfo.canceledTargetSum;
+    const actualAchievementRate =
+      actualShiftTargetSum > 0
+        ? Math.round((totalSales / actualShiftTargetSum) * 1000) / 10
+        : 0;
+
     const result: MonthlyResult = {
       totalSales,
       totalReports,
@@ -137,7 +143,12 @@ export async function GET(req: NextRequest) {
       averageUnitPrice,
       requiredMonthlyReports,
       monthlyScaleGap,
-      canceledDays: KNOWN_CANCELED_DAYS[today.ym] || [],
+      actualShiftTargetSum,
+      actualAchievementRate,
+      canceledTargetSum,
+      canceledDays: storeAnalysis?.canceledDays ?? [],
+      storesNeedReview: storeAnalysis?.storesNeedReview ?? [],
+      storesOk: storeAnalysis?.storesOk ?? [],
       storeShortageMessage,
     };
 

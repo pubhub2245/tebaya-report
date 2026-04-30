@@ -274,6 +274,71 @@ export const getTeamLocationCrossForPeriod = async (
 };
 
 /**
+ * 期間内の「実出店日」のシフト目標累計と「中止日」の目標累計を分けて返す。
+ * 実出店日 = daily_reports に1件以上記録された日
+ * 中止日 = shifts はあるが daily_reports が無い日
+ */
+export const getActualShiftTargetSumForPeriod = async (
+  startDate: string,
+  endDate: string,
+): Promise<{
+  actualShiftTargetSum: number;
+  canceledTargetSum: number;
+  actualDates: string[];
+  canceledDates: string[];
+}> => {
+  const [shiftsRes, reportsRes] = await Promise.all([
+    supabase
+      .from("shifts")
+      .select("date, target")
+      .eq("status", "published")
+      .gte("date", startDate)
+      .lte("date", endDate),
+    supabase
+      .from("daily_reports")
+      .select("date")
+      .gte("date", startDate)
+      .lte("date", endDate),
+  ]);
+  if (shiftsRes.error) throw shiftsRes.error;
+  if (reportsRes.error) throw reportsRes.error;
+
+  const reportedDates = new Set(
+    (reportsRes.data || []).map((r: any) => r.date),
+  );
+
+  // 各日の shifts.target 合計（同日複数シフトに対応）
+  const shiftTargetByDate = new Map<string, number>();
+  for (const s of shiftsRes.data || []) {
+    const cur = shiftTargetByDate.get(s.date) || 0;
+    shiftTargetByDate.set(s.date, cur + (s.target || 0));
+  }
+
+  let actualShiftTargetSum = 0;
+  let canceledTargetSum = 0;
+  const actualDates: string[] = [];
+  const canceledDates: string[] = [];
+  for (const [date, target] of shiftTargetByDate) {
+    if (reportedDates.has(date)) {
+      actualShiftTargetSum += target;
+      actualDates.push(date);
+    } else {
+      canceledTargetSum += target;
+      canceledDates.push(date);
+    }
+  }
+  actualDates.sort();
+  canceledDates.sort();
+
+  return {
+    actualShiftTargetSum,
+    canceledTargetSum,
+    actualDates,
+    canceledDates,
+  };
+};
+
+/**
  * 期間内のpublishedシフトの target 合計を返す（月間目標金額）。
  * 「実出店分」ではなく「シフトで予定していた目標の総額」を見たいときに使う。
  */

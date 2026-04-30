@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Character } from "../characters/types";
 
 const MODEL = "claude-sonnet-4-6";
-const MAX_TOKENS = 1500;
+const MAX_TOKENS = 2200;
 const TEMPERATURE = 0.8;
 
 export type MonthlyTarget = {
@@ -29,10 +29,31 @@ export type MonthlyResult = {
   averageUnitPrice?: number;        // ¥/件
   requiredMonthlyReports?: number;  // 月間目標達成に必要な月総出店数
   monthlyScaleGap?: number;         // 必要 - 実績（差分件数）
+  // 実稼働ベース（中止日除外）の達成率
+  actualShiftTargetSum?: number;     // 実出店日の shifts.target 合計
+  actualAchievementRate?: number;    // totalSales / actualShiftTargetSum
+  canceledTargetSum?: number;        // 中止日の目標合計
   // 中止・休業日（強風・雨等）— 悔しさを表現する文脈
   canceledDays?: string[];
   // 出店数不足の構造的課題メッセージ（既に整形済の自然文）
   storeShortageMessage?: string;
+  // 店舗別ランク見直し提言（達成率<90%）
+  storesNeedReview?: Array<{
+    store: string;
+    current_rank: string;
+    suggested_rank: string;
+    achievement_rate: number;
+    avg_per_visit: number;
+    count: number;
+  }>;
+  // 現状維持OK（達成率≥100%）
+  storesOk?: Array<{
+    store: string;
+    current_rank: string;
+    achievement_rate: number;
+    avg_per_visit: number;
+    count: number;
+  }>;
 };
 
 const yen = (n: number) => "¥" + Math.round(n).toLocaleString("ja-JP");
@@ -117,23 +138,36 @@ export const generateMonthOutroMessage = async (
   const hasShiftTarget =
     typeof result.shiftMonthlyTarget === "number" &&
     result.shiftMonthlyTarget > 0;
+  const hasActualTarget =
+    typeof result.actualShiftTargetSum === "number" &&
+    result.actualShiftTargetSum > 0;
   const lines: string[] = [
     `${character.month}月最終日の業務LINEに、あなたの月末成果報告とお別れの挨拶を投稿してください。`,
     "",
     "【今月の実績データ】",
     `・合計売上: ${yen(result.totalSales)}`,
     `・出店件数: ${result.totalReports}件`,
-    `・実出店分の店舗目標合計: ${yen(result.totalTarget)}`,
-    `・実出店分の達成率: ${result.achievementRate}%`,
   ];
 
   if (hasShiftTarget) {
     lines.push(
-      `・月間トータル目標（シフト全体）: ${yen(result.shiftMonthlyTarget!)}`,
-      `・月間トータル達成率: ${result.shiftAchievementRate ?? 0}%`,
-      `・目標まで足りなかった金額: ${yen(result.shortfallAmount ?? 0)}`,
+      "",
+      "【指標B：月間トータル達成率（中止日含む全シフト目標ベース）】",
+      `・月間トータル目標: ${yen(result.shiftMonthlyTarget!)}`,
+      `・達成率: ${result.shiftAchievementRate ?? 0}%`,
+      `・足りなかった金額: ${yen(result.shortfallAmount ?? 0)}`,
     );
   }
+
+  if (hasActualTarget) {
+    lines.push(
+      "",
+      "【指標A：実出店日達成率（中止日を除外した実稼働ベース）】",
+      `・実出店日のシフト目標合計: ${yen(result.actualShiftTargetSum!)}`,
+      `・実出店日達成率: ${result.actualAchievementRate ?? 0}%`,
+    );
+  }
+
   lines.push(
     "",
     "【番隊別】",
@@ -148,6 +182,31 @@ export const generateMonthOutroMessage = async (
       "【中止・惜しかった日】",
       ...result.canceledDays.map((d) => `・${d}`),
     );
+    if (typeof result.canceledTargetSum === "number") {
+      lines.push(`・中止日の目標合計: ${yen(result.canceledTargetSum)}`);
+    }
+  }
+
+  if (result.storesNeedReview && result.storesNeedReview.length > 0) {
+    lines.push(
+      "",
+      "【ランク見直しが必要な店舗（達成率90%未満）】",
+      ...result.storesNeedReview.map(
+        (s) =>
+          `・${s.store}：現${s.current_rank}ランク / 達成率${s.achievement_rate}% / 平均${yen(s.avg_per_visit)}/件 → 推奨${s.suggested_rank}`,
+      ),
+    );
+  }
+
+  if (result.storesOk && result.storesOk.length > 0) {
+    lines.push(
+      "",
+      "【現状維持OKな店舗（達成率100%以上）】",
+      ...result.storesOk.map(
+        (s) =>
+          `・${s.store}：${s.current_rank}ランク / 達成率${s.achievement_rate}% / 平均${yen(s.avg_per_visit)}/件`,
+      ),
+    );
   }
 
   if (result.storeShortageMessage) {
@@ -160,28 +219,35 @@ export const generateMonthOutroMessage = async (
 
   lines.push(
     "",
-    "【メッセージに必ず含める内容（5つ全て触れる）】",
-    "1. 実出店分の店舗目標は達成（or どの程度の数字だったか）— 出店した日の頑張りはしっかり祝う",
-    hasShiftTarget
-      ? `2. 月間トータル目標 ${yen(result.shiftMonthlyTarget!)} には ${yen(result.shortfallAmount ?? 0)} 届かず、月間達成率は ${result.shiftAchievementRate ?? 0}% だったことを誠実に伝える（隠さない）`
-      : "2. 月間目標との差については触れなくてよい",
+    "【メッセージに必ず含める内容（7セクション、すべて触れる）】",
+    `1. 4月の総括：合計売上${yen(result.totalSales)}、${result.totalReports}件の出店について軽く振り返る`,
+    hasShiftTarget && hasActualTarget
+      ? `2. 【誠実な達成率報告】2つの達成率を両方語る：(B)月間トータル目標${yen(result.shiftMonthlyTarget!)}に対し達成率${result.shiftAchievementRate ?? 0}%、(A)中止日除外の実稼働ベースでも目標${yen(result.actualShiftTargetSum!)}に対し達成率${result.actualAchievementRate ?? 0}%。「両方とも未達、実稼働でも伸び代がある」と誠実に伝える`
+      : "2. 達成率を誠実に伝える",
     result.canceledDays && result.canceledDays.length > 0
-      ? `3. 中止になった日（${result.canceledDays.join("・")}）への悔しさ・天候への言及`
+      ? `3. 中止2日（${result.canceledDays.join("・")}）の影響を補足程度に触れる。「あの2日が痛かった」ニュアンスで軽くだけ。「中止が主因」とは絶対に語らない（実際は店舗別の問題が大きい）`
       : "3. 中止日の言及は不要",
+    result.storesNeedReview && result.storesNeedReview.length > 0
+      ? `4. 【新・重要】店舗別ランク見直し提言：達成率が低い店舗を3つほど名指しで具体的に語る（個人攻撃ではなく店舗としての評価）。例：「マンガ倉庫都城店は現Bランクだけど達成率57%、平均¥27,000/件だから推奨D未満が現実的」など。一方で頑張っている店舗（${(result.storesOk || []).map((s) => s.store).join("・") || "達成率100%超え店舗"}）は具体的に讃える。「5月のシフト組む時、ランク見直しを真剣に考えたい」と提言する`
+      : "4. 店舗別の状況に触れる",
     result.requiredMonthlyReports && result.requiredMonthlyReports > 0
-      ? `4. 【最重要・絶対に薄めない】業務メッセージ：月間目標達成のためには、平均単価¥${(result.averageUnitPrice ?? 0).toLocaleString()}/件を維持しつつ「月の総出店数」を約${result.requiredMonthlyReports}件規模にする必要がある。今月は${result.totalReports}件だったので、月間規模としては${result.monthlyScaleGap ?? 0}件くらい増やしたい、というニュアンスを必ず含める。出店日を増やすには仲間（働いてくれる人）を早く集めるのが鍵、を採用の真剣な提言として伝える（祝勝ムード一色にしない）`
-      : "4. 【最重要】出店数を増やすために仲間（人手）を早く集めることを真剣に提言する",
-    "5. 翌月キャラへのバトンタッチ＋自分らしい締めくくり",
+      ? `5. 【最重要・絶対に薄めない】業務メッセージ：月間目標達成のためには、平均単価¥${(result.averageUnitPrice ?? 0).toLocaleString()}/件を維持しつつ「月の総出店数」を約${result.requiredMonthlyReports}件規模にする必要がある。今月は${result.totalReports}件だったので、月間規模としては${result.monthlyScaleGap ?? 0}件くらい増やしたい、というニュアンスを必ず含める。出店日を増やすには仲間（働いてくれる人）を早く集めるのが鍵、を採用の真剣な提言として伝える`
+      : "5. 採用の必要性を真剣に提言する",
+    "6. 番隊別実績：1番隊・2番隊それぞれの売上と件数を簡潔に紹介",
+    "7. 翌月キャラへのバトンタッチ＋ハニーらしい春爛漫キャラの締めくくり",
     "",
     "【絶対に使わない表現（禁止語）】",
-    "- 「あと◯件出店すれば達成」「あと◯件追加すれば届いた」のような、現状のシフト総額に上乗せして達成する発想の表現は絶対に使わない。",
-    "  → 理由：シフトを追加で組むと shifts.target も連動して上がるため、追加してもまた未達になる。業務的に意味のないメッセージになるので避ける。",
+    "- 「マジ蜜レベル」「100%超え」「達成率100%以上」など、実出店分が達成したかのような祝勝表現は絶対に使わない。実出店日でも未達であることを明確に伝える。",
+    "- 「あと◯件出店すれば達成」「あと◯件追加すれば届いた」のような、現状のシフト総額に上乗せして達成する発想の表現は絶対に使わない。シフトを追加で組むと目標も連動して上がるため誤り。",
     "- 必ず「月の総出店規模を◯件にする必要がある」「月◯件規模を目指す」という、月の総出店数の話として伝える。",
+    "- ランク見直しの話で、担当者個人を批判するような表現は絶対に避ける。あくまで「店舗としての評価」として語る。",
     "",
     "【トーン指示】",
-    "- 祝勝ムード一色にしない。「出店した分はやれた」「全体としては足りない、月の出店規模を増やすには人を集めないと」をセットで語る",
-    "- キャラの軽さ・絵文字・語尾は維持しつつ、業務的な真剣さを織り込む",
-    "- 文章は500〜700文字程度（5つの要素を全部入れるためやや長め可）",
+    "- 春爛漫ハイテンションギャル「ブンブン〜🐝」「だぁ〜♡」「マジで〜」「〜じゃん」を維持",
+    "- ただし76%・70.4%という未達数字を「正直に・伸び代あり」と語る誠実なトーン",
+    "- ランク見直しの話は具体的・建設的に（店舗としての評価で、担当者個人を責めない）",
+    "- ミツバチ絵文字🐝、ハート💛、キラキラ✨、はちみつ🍯は維持",
+    "- 全体で700〜1000文字（情報量が増えるので長めOK）",
     "- 説教臭くならず、仲間に語りかけるトーン",
   );
 

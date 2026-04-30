@@ -11,13 +11,11 @@ import {
 import {
   getTeamStatsForPeriod,
   getShiftMonthlyTargetForPeriod,
+  getActualShiftTargetSumForPeriod,
   monthRange,
   currentYM,
 } from "@/lib/teamStats";
-
-const KNOWN_CANCELED_DAYS: Record<string, string[]> = {
-  "2026-04": ["4/4 雨で中止", "4/16 強風で中止"],
-};
+import { getStoreAnalysisForMonth } from "@/lib/storeAnalysis";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -51,10 +49,12 @@ async function fetchMonthlyTarget(ym: string): Promise<MonthlyTarget> {
 
 async function fetchMonthlyResult(ym: string): Promise<MonthlyResult> {
   const { start, end } = monthRange(ym);
-  const [stats, shiftTargetInfo] = await Promise.all([
+  const [stats, shiftTargetInfo, actualShiftInfo] = await Promise.all([
     getTeamStatsForPeriod(start, end),
     getShiftMonthlyTargetForPeriod(start, end),
+    getActualShiftTargetSumForPeriod(start, end),
   ]);
+  const storeAnalysis = getStoreAnalysisForMonth(ym);
   const team1 = stats.find((s) => s.unit === 1)!;
   const team2 = stats.find((s) => s.unit === 2)!;
   const other = stats.find((s) => s.unit === null)!;
@@ -88,6 +88,12 @@ async function fetchMonthlyResult(ym: string): Promise<MonthlyResult> {
     avgPerReport > 0 && requiredMonthlyReports > 0
       ? `月間目標¥${shiftMonthlyTarget.toLocaleString()}達成のためには、平均単価¥${averageUnitPrice.toLocaleString()}/件を維持した上で月${requiredMonthlyReports}件規模の出店が必要。今月は${totalReports}件だったので、月間の総出店規模としては${monthlyScaleGap}件くらい増やしたい。出店日を増やすには仲間（働いてくれる人）を早く集めることが鍵。`
       : "出店数を増やせるよう、仲間（従業員）を早く集めよう。";
+  const actualShiftTargetSum = actualShiftInfo.actualShiftTargetSum;
+  const canceledTargetSum = actualShiftInfo.canceledTargetSum;
+  const actualAchievementRate =
+    actualShiftTargetSum > 0
+      ? Math.round((totalSales / actualShiftTargetSum) * 1000) / 10
+      : 0;
   return {
     totalSales,
     totalReports,
@@ -105,7 +111,12 @@ async function fetchMonthlyResult(ym: string): Promise<MonthlyResult> {
     averageUnitPrice,
     requiredMonthlyReports,
     monthlyScaleGap,
-    canceledDays: KNOWN_CANCELED_DAYS[ym] || [],
+    actualShiftTargetSum,
+    actualAchievementRate,
+    canceledTargetSum,
+    canceledDays: storeAnalysis?.canceledDays ?? [],
+    storesNeedReview: storeAnalysis?.storesNeedReview ?? [],
+    storesOk: storeAnalysis?.storesOk ?? [],
     storeShortageMessage,
   };
 }

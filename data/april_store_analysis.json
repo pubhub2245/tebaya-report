@@ -1,0 +1,245 @@
+{
+  "month": "2026-04",
+  "total_reports": 42,
+  "total_sales": 1471750,
+  "total_target": 1790000,
+  "stores": [
+    {
+      "store": "マンガ倉庫都城店",
+      "count": 6,
+      "target_total": 290000,
+      "sales_total": 165150,
+      "achievement_rate": 56.9,
+      "avg_per_visit": 27525,
+      "most_common_rank": "B",
+      "suggested_rank": "D未満",
+      "rank_change_needed": true
+    },
+    {
+      "store": "にくる朝市",
+      "count": 1,
+      "target_total": 30000,
+      "sales_total": 18950,
+      "achievement_rate": 63.2,
+      "avg_per_visit": 18950,
+      "most_common_rank": "D",
+      "suggested_rank": "D未満",
+      "rank_change_needed": true
+    },
+    {
+      "store": "PASIO高城店",
+      "count": 5,
+      "target_total": 170000,
+      "sales_total": 112650,
+      "achievement_rate": 66.3,
+      "avg_per_visit": 22530,
+      "most_common_rank": "D",
+      "suggested_rank": "D未満",
+      "rank_change_needed": true
+    },
+    {
+      "store": "PASIO志比田店",
+      "count": 1,
+      "target_total": 30000,
+      "sales_total": 22700,
+      "achievement_rate": 75.7,
+      "avg_per_visit": 22700,
+      "most_common_rank": "D",
+      "suggested_rank": "D未満",
+      "rank_change_needed": true
+    },
+    {
+      "store": "イオンモール都城",
+      "count": 1,
+      "target_total": 60000,
+      "sales_total": 45800,
+      "achievement_rate": 76.3,
+      "avg_per_visit": 45800,
+      "most_common_rank": "A",
+      "suggested_rank": "C",
+      "rank_change_needed": true
+    },
+    {
+      "store": "ながやま鷹尾店",
+      "count": 8,
+      "target_total": 400000,
+      "sales_total": 323350,
+      "achievement_rate": 80.8,
+      "avg_per_visit": 40418,
+      "most_common_rank": "B",
+      "suggested_rank": "C",
+      "rank_change_needed": true
+    },
+    {
+      "store": "ながやま若葉店",
+      "count": 6,
+      "target_total": 280000,
+      "sales_total": 245450,
+      "achievement_rate": 87.7,
+      "avg_per_visit": 40908,
+      "most_common_rank": "B",
+      "suggested_rank": "C",
+      "rank_change_needed": true
+    },
+    {
+      "store": "ながやま三股店",
+      "count": 7,
+      "target_total": 280000,
+      "sales_total": 260300,
+      "achievement_rate": 93.0,
+      "avg_per_visit": 37185,
+      "most_common_rank": "C",
+      "suggested_rank": "D",
+      "rank_change_needed": true
+    },
+    {
+      "store": "まるまる朝市",
+      "count": 1,
+      "target_total": 40000,
+      "sales_total": 39300,
+      "achievement_rate": 98.2,
+      "avg_per_visit": 39300,
+      "most_common_rank": "C",
+      "suggested_rank": "D",
+      "rank_change_needed": true
+    },
+    {
+      "store": "ながやま都北店",
+      "count": 3,
+      "target_total": 110000,
+      "sales_total": 121500,
+      "achievement_rate": 110.5,
+      "avg_per_visit": 40500,
+      "most_common_rank": "C",
+      "suggested_rank": "C",
+      "rank_change_needed": false
+    },
+    {
+      "store": "ながやま山田店",
+      "count": 3,
+      "target_total": 100000,
+      "sales_total": 116600,
+      "achievement_rate": 116.6,
+      "avg_per_visit": 38866,
+      "most_common_rank": "D",
+      "suggested_rank": "D",
+      "rank_change_needed": false
+    }
+  ],
+  "stores_need_review": [
+    {
+      "store": "マンガ倉庫都城店",
+      "count": 6,
+      "target_total": 290000,
+      "sales_total": 165150,
+      "achievement_rate": 56.9,
+      "avg_per_visit": 27525,
+      "most_common_rank": "B",
+      "suggested_rank": "D未満",
+      "rank_change_needed": true
+    },
+    {
+      "store": "にくる朝市",
+      "count": 1,
+      "target_total": 30000,
+      "sales_total": 18950,
+      "achievement_rate": 63.2,
+      "avg_per_visit": 18950,
+      "most_common_rank": "D",
+      "suggested_rank": "D未満",
+      "rank_change_needed": true
+    },
+    {
+      "store": "PASIO高城店",
+      "count": 5,
+      "target_total": 170000,
+      "sales_total": 112650,
+      "achievement_rate": 66.3,
+      "avg_per_visit": 22530,
+      "most_common_rank": "D",
+      "suggested_rank": "D未満",
+      "rank_change_needed": true
+    },
+    {
+      "store": "PASIO志比田店",
+      "count": 1,
+      "target_total": 30000,
+      "sales_total": 22700,
+      "achievement_rate": 75.7,
+      "avg_per_visit": 22700,
+      "most_common_rank": "D",
+      "suggested_rank": "D未満",
+      "rank_change_needed": true
+    },
+    {
+      "store": "イオンモール都城",
+      "count": 1,
+      "target_total": 60000,
+      "sales_total": 45800,
+      "achievement_rate": 76.3,
+      "avg_per_visit": 45800,
+      "most_common_rank": "A",
+      "suggested_rank": "C",
+      "rank_change_needed": true
+    },
+    {
+      "store": "ながやま鷹尾店",
+      "count": 8,
+      "target_total": 400000,
+      "sales_total": 323350,
+      "achievement_rate": 80.8,
+      "avg_per_visit": 40418,
+      "most_common_rank": "B",
+      "suggested_rank": "C",
+      "rank_change_needed": true
+    },
+    {
+      "store": "ながやま若葉店",
+      "count": 6,
+      "target_total": 280000,
+      "sales_total": 245450,
+      "achievement_rate": 87.7,
+      "avg_per_visit": 40908,
+      "most_common_rank": "B",
+      "suggested_rank": "C",
+      "rank_change_needed": true
+    }
+  ],
+  "stores_ok": [
+    {
+      "store": "ながやま都北店",
+      "count": 3,
+      "target_total": 110000,
+      "sales_total": 121500,
+      "achievement_rate": 110.5,
+      "avg_per_visit": 40500,
+      "most_common_rank": "C",
+      "suggested_rank": "C",
+      "rank_change_needed": false
+    },
+    {
+      "store": "ながやま山田店",
+      "count": 3,
+      "target_total": 100000,
+      "sales_total": 116600,
+      "achievement_rate": 116.6,
+      "avg_per_visit": 38866,
+      "most_common_rank": "D",
+      "suggested_rank": "D",
+      "rank_change_needed": false
+    }
+  ],
+  "canceled_days": [
+    {
+      "date": "2026-04-04",
+      "reason": "雨で中止",
+      "estimated_target": 90000
+    },
+    {
+      "date": "2026-04-16",
+      "reason": "強風で中止",
+      "estimated_target": 60000
+    }
+  ],
+  "canceled_target_total": 150000
+}
