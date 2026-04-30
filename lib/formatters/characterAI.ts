@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Character } from "../characters/types";
 
 const MODEL = "claude-sonnet-4-6";
-const MAX_TOKENS = 2200;
+const MAX_TOKENS = 2800;
 const TEMPERATURE = 0.8;
 
 export type MonthlyTarget = {
@@ -211,7 +211,7 @@ export const generateMonthOutroMessage = async (
 
   lines.push(
     "",
-    "【メッセージに必ず含める内容（6セクション、すべて触れる）】",
+    "【メッセージに必ず含める内容（7セクション、すべて触れる）】",
     `1. 4月の総括：合計売上${yen(result.totalSales)}、${result.totalReports}件の出店について軽く振り返る`,
     hasShiftTarget && hasActualTarget
       ? `2. 【誠実な達成率報告】2つの達成率を両方語る：①月間トータル目標${yen(result.shiftMonthlyTarget!)}に対し達成率${result.shiftAchievementRate ?? 0}%、②中止日を除いた実稼働ベースでも目標${yen(result.actualShiftTargetSum!)}に対し達成率${result.actualAchievementRate ?? 0}%。「両方とも未達、実稼働でも伸び代がある」と誠実に伝える。【絶対ルール】「指標A」「指標B」「（指標X）」のような内部用語ラベルは絶対に文中で使わない。説明文だけで自然に伝える（例：「月間トータル目標¥XXに対して達成率XX%」「中止日を除いた実稼働ベースだと達成率XX%」）`
@@ -225,7 +225,13 @@ export const generateMonthOutroMessage = async (
     result.requiredMonthlyReports && result.requiredMonthlyReports > 0
       ? `5. 【最重要・絶対に薄めない】業務メッセージ：月間目標達成のためには、平均単価¥${(result.averageUnitPrice ?? 0).toLocaleString()}/件を維持しつつ「月の総出店数」を約${result.requiredMonthlyReports}件規模にする必要がある。今月は${result.totalReports}件だったので、月間規模としては${result.monthlyScaleGap ?? 0}件くらい増やしたい、というニュアンスを必ず含める。出店日を増やすには仲間（働いてくれる人）を早く集めるのが鍵、を採用の真剣な提言として伝える`
       : "5. 採用の必要性を真剣に提言する",
-    "6. 翌月キャラへのバトンタッチ＋ハニーらしい春爛漫キャラの締めくくり",
+    "6. 【新・必ず含める】具体的な改善策の宣言：問題提起だけで終わらず、5月から実行する具体策をハニーが決定事項として宣言する。ハニー口調で表現は変えてOKだが、以下3点は必ず明確に伝えること。",
+    "   ①マンガ倉庫都城店のランクをB→Cに変更（5月のシフトから）。例：「マンガ倉庫都城店、5月からBランクからCランクに変更するね〜！実態に合わせて目標を現実的にしていくよ💛」（4番で『推奨D未満』と語ったが、5月はまず段階的にCに下げて、結果を見てさらに見直す方針でOK）",
+    "   ②5月からバイトルで求人活動開始。例：「5月から求人サイト『バイトル』で求人出していくよ〜！仲間が早く集まるように本気で動くから、紹介あれば全力で歓迎🐝」",
+    "   ③単価向上施策の検討開始（セット販売、価格見直し等）。例：「単価を上げる施策も並行で考えていくよ〜！セット販売とか価格の見直しとか、5月から少しずつ試していく💛」",
+    "   ★この3つは『やるかも』『検討したい』ではなく『やるよ』『変更するね』『開始するね』と確定形で伝える。スタッフが「これから具体的に動く」と理解できる伝え方が重要。",
+    "   ★5番（採用必要）→6番（だから5月からバイトルで求人開始）と滑らかに接続させる。",
+    "7. 翌月キャラへのバトンタッチ＋ハニーらしい春爛漫キャラの締めくくり",
     "",
     "【絶対に使わない表現（禁止語）】",
     "- 「指標A」「指標B」「（指標◯）」のような内部用語ラベルは絶対に文中に出さない。スタッフが見る業務LINEなので、説明文だけで自然に通じる日本語にする。",
