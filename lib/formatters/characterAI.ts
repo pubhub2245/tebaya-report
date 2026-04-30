@@ -168,14 +168,6 @@ export const generateMonthOutroMessage = async (
     );
   }
 
-  lines.push(
-    "",
-    "【番隊別】",
-    `・1番隊: ${yen(result.team1Sales)} / ${result.team1Reports}件`,
-    `・2番隊: ${yen(result.team2Sales)} / ${result.team2Reports}件`,
-    `・応援/その他: ${yen(result.otherSales)} / ${result.otherReports}件`,
-  );
-
   if (result.canceledDays && result.canceledDays.length > 0) {
     lines.push(
       "",
@@ -219,7 +211,7 @@ export const generateMonthOutroMessage = async (
 
   lines.push(
     "",
-    "【メッセージに必ず含める内容（7セクション、すべて触れる）】",
+    "【メッセージに必ず含める内容（6セクション、すべて触れる）】",
     `1. 4月の総括：合計売上${yen(result.totalSales)}、${result.totalReports}件の出店について軽く振り返る`,
     hasShiftTarget && hasActualTarget
       ? `2. 【誠実な達成率報告】2つの達成率を両方語る：(B)月間トータル目標${yen(result.shiftMonthlyTarget!)}に対し達成率${result.shiftAchievementRate ?? 0}%、(A)中止日除外の実稼働ベースでも目標${yen(result.actualShiftTargetSum!)}に対し達成率${result.actualAchievementRate ?? 0}%。「両方とも未達、実稼働でも伸び代がある」と誠実に伝える`
@@ -233,8 +225,7 @@ export const generateMonthOutroMessage = async (
     result.requiredMonthlyReports && result.requiredMonthlyReports > 0
       ? `5. 【最重要・絶対に薄めない】業務メッセージ：月間目標達成のためには、平均単価¥${(result.averageUnitPrice ?? 0).toLocaleString()}/件を維持しつつ「月の総出店数」を約${result.requiredMonthlyReports}件規模にする必要がある。今月は${result.totalReports}件だったので、月間規模としては${result.monthlyScaleGap ?? 0}件くらい増やしたい、というニュアンスを必ず含める。出店日を増やすには仲間（働いてくれる人）を早く集めるのが鍵、を採用の真剣な提言として伝える`
       : "5. 採用の必要性を真剣に提言する",
-    "6. 番隊別実績：1番隊・2番隊それぞれの売上と件数を簡潔に紹介",
-    "7. 翌月キャラへのバトンタッチ＋ハニーらしい春爛漫キャラの締めくくり",
+    "6. 翌月キャラへのバトンタッチ＋ハニーらしい春爛漫キャラの締めくくり",
     "",
     "【絶対に使わない表現（禁止語）】",
     "- 「マジ蜜レベル」「100%超え」「達成率100%以上」など、実出店分が達成したかのような祝勝表現は絶対に使わない。実出店日でも未達であることを明確に伝える。",

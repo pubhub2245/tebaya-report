@@ -158,6 +158,20 @@ export default function Page() {
     try {
       const text = lineText || generateLineText(form, cumulative);
       if (!lineText) setLineText(text);
+
+      // 代理INSERT（line_textに「【代理INSERT】」マーカー付き）が同じ
+      // 日付・担当者で先に存在していたら、本人提出時に自動削除して二重計上を防ぐ
+      try {
+        await supabase
+          .from("daily_reports")
+          .delete()
+          .eq("date", form.date)
+          .eq("staff_name", form.staff_name)
+          .ilike("line_text", "%【代理INSERT】%");
+      } catch (e) {
+        console.warn("代理INSERTの自動削除でエラー（無視して続行）", e);
+      }
+
       const { data, error } = await supabase
         .from("daily_reports")
         .insert({
