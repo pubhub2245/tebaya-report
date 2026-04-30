@@ -5,7 +5,17 @@ import {
   generateMonthOutroMessage,
   type MonthlyResult,
 } from "@/lib/formatters/characterAI";
-import { getTeamStatsForPeriod, monthRange } from "@/lib/teamStats";
+import {
+  getTeamStatsForPeriod,
+  getShiftMonthlyTargetForPeriod,
+  monthRange,
+} from "@/lib/teamStats";
+
+// 4月（ハニー月）の中止・特殊事情をハードコードで渡す。
+// 5月以降は月ごとに別途追加可能。
+const KNOWN_CANCELED_DAYS: Record<string, string[]> = {
+  "2026-04": ["4/4 雨で中止", "4/16 強風で中止"],
+};
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -64,7 +74,10 @@ export async function GET(req: NextRequest) {
     }
 
     const { start, end } = monthRange(today.ym);
-    const stats = await getTeamStatsForPeriod(start, end);
+    const [stats, shiftTargetInfo] = await Promise.all([
+      getTeamStatsForPeriod(start, end),
+      getShiftMonthlyTargetForPeriod(start, end),
+    ]);
 
     const team1 = stats.find((s) => s.unit === 1)!;
     const team2 = stats.find((s) => s.unit === 2)!;
@@ -81,6 +94,24 @@ export async function GET(req: NextRequest) {
         ? Math.round((totalSales / totalTarget) * 1000) / 10
         : 0;
 
+    const shiftMonthlyTarget = shiftTargetInfo.totalTarget;
+    const shortfallAmount = Math.max(0, shiftMonthlyTarget - totalSales);
+    const shiftAchievementRate =
+      shiftMonthlyTarget > 0
+        ? Math.round((totalSales / shiftMonthlyTarget) * 1000) / 10
+        : 0;
+
+    // 出店数不足メッセージを動的に生成
+    const avgPerReport = totalReports > 0 ? totalSales / totalReports : 0;
+    const shortReports =
+      avgPerReport > 0 && shortfallAmount > 0
+        ? Math.ceil(shortfallAmount / avgPerReport)
+        : 0;
+    const storeShortageMessage =
+      shortfallAmount > 0 && shortReports > 0
+        ? `平均単価（¥${Math.round(avgPerReport).toLocaleString()}/件）で計算すると、月間目標達成にはあと約${shortReports}件の出店が必要だった。出店数を増やすには仲間（従業員）を早く集めることが鍵。`
+        : "出店数を増やせるよう、仲間（従業員）を早く集めよう。";
+
     const result: MonthlyResult = {
       totalSales,
       totalReports,
@@ -92,6 +123,11 @@ export async function GET(req: NextRequest) {
       team2Reports: team2.reportCount,
       otherSales: other.totalSales,
       otherReports: other.reportCount,
+      shiftMonthlyTarget,
+      shiftAchievementRate,
+      shortfallAmount,
+      canceledDays: KNOWN_CANCELED_DAYS[today.ym] || [],
+      storeShortageMessage,
     };
 
     const message = await generateMonthOutroMessage(character, result);

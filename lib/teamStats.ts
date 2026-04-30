@@ -273,6 +273,29 @@ export const getTeamLocationCrossForPeriod = async (
   return [...map.values()].sort((a, b) => b.total.totalSales - a.total.totalSales);
 };
 
+/**
+ * 期間内のpublishedシフトの target 合計を返す（月間目標金額）。
+ * 「実出店分」ではなく「シフトで予定していた目標の総額」を見たいときに使う。
+ */
+export const getShiftMonthlyTargetForPeriod = async (
+  startDate: string,
+  endDate: string,
+): Promise<{ totalTarget: number; shiftCount: number }> => {
+  const { data, error } = await supabase
+    .from("shifts")
+    .select("target")
+    .eq("status", "published")
+    .gte("date", startDate)
+    .lte("date", endDate);
+  if (error) throw error;
+  const list = data || [];
+  const totalTarget = list.reduce(
+    (s: number, r: any) => s + (r.target || 0),
+    0,
+  );
+  return { totalTarget, shiftCount: list.length };
+};
+
 /** YYYY-MM → 開始日・終了日 */
 export const monthRange = (ym: string): { start: string; end: string } => {
   const [y, m] = ym.split("-").map(Number);

@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Character } from "../characters/types";
 
 const MODEL = "claude-sonnet-4-6";
-const MAX_TOKENS = 600;
+const MAX_TOKENS = 1500;
 const TEMPERATURE = 0.8;
 
 export type MonthlyTarget = {
@@ -13,14 +13,22 @@ export type MonthlyTarget = {
 export type MonthlyResult = {
   totalSales: number;
   totalReports: number;
-  totalTarget: number;
-  achievementRate: number;
+  totalTarget: number;          // 実出店した店舗のtarget合計（locations.target × visits）
+  achievementRate: number;       // totalSales / totalTarget
   team1Sales: number;
   team1Reports: number;
   team2Sales: number;
   team2Reports: number;
   otherSales: number;
   otherReports: number;
+  // 月間目標（shift合計）— 全月の目標。届いていない金額・達成率の計算に使う
+  shiftMonthlyTarget?: number;
+  shiftAchievementRate?: number;
+  shortfallAmount?: number;
+  // 中止・休業日（強風・雨等）— 悔しさを表現する文脈
+  canceledDays?: string[];
+  // 出店数不足の構造的課題メッセージ
+  storeShortageMessage?: string;
 };
 
 const yen = (n: number) => "¥" + Math.round(n).toLocaleString("ja-JP");
@@ -102,31 +110,71 @@ export const generateMonthOutroMessage = async (
   character: Character,
   result: MonthlyResult,
 ): Promise<string> => {
-  const praise = result.achievementRate >= 90;
-  const userPrompt = [
+  const hasShiftTarget =
+    typeof result.shiftMonthlyTarget === "number" &&
+    result.shiftMonthlyTarget > 0;
+  const lines: string[] = [
     `${character.month}月最終日の業務LINEに、あなたの月末成果報告とお別れの挨拶を投稿してください。`,
     "",
     "【今月の実績データ】",
     `・合計売上: ${yen(result.totalSales)}`,
     `・出店件数: ${result.totalReports}件`,
-    `・月間目標: ${yen(result.totalTarget)}`,
-    `・達成率: ${result.achievementRate}%`,
+    `・実出店分の店舗目標合計: ${yen(result.totalTarget)}`,
+    `・実出店分の達成率: ${result.achievementRate}%`,
+  ];
+
+  if (hasShiftTarget) {
+    lines.push(
+      `・月間トータル目標（シフト全体）: ${yen(result.shiftMonthlyTarget!)}`,
+      `・月間トータル達成率: ${result.shiftAchievementRate ?? 0}%`,
+      `・目標まで足りなかった金額: ${yen(result.shortfallAmount ?? 0)}`,
+    );
+  }
+  lines.push(
     "",
     "【番隊別】",
     `・1番隊: ${yen(result.team1Sales)} / ${result.team1Reports}件`,
     `・2番隊: ${yen(result.team2Sales)} / ${result.team2Reports}件`,
     `・応援/その他: ${yen(result.otherSales)} / ${result.otherReports}件`,
-    "",
-    "【メッセージに含めること】",
-    "- 今月の合計売上と達成率を伝える",
-    "- 1番隊・2番隊（応援/その他がいれば）の働きを番隊単位で振り返る",
-    praise
-      ? "- 達成率が90%以上なので、しっかり褒めて喜びを表現する"
-      : "- 達成率が90%未満なので、淡々と数字を伝える（過剰な励ましや謝罪は不要、お疲れさまの感謝は入れる）",
-    "- 翌月から別のキャラに交代することへの簡潔なお別れ",
-    "- キャラらしい温かい締めくくり",
-  ].join("\n");
+  );
 
+  if (result.canceledDays && result.canceledDays.length > 0) {
+    lines.push(
+      "",
+      "【中止・惜しかった日】",
+      ...result.canceledDays.map((d) => `・${d}`),
+    );
+  }
+
+  if (result.storeShortageMessage) {
+    lines.push(
+      "",
+      "【出店数の構造的課題】",
+      result.storeShortageMessage,
+    );
+  }
+
+  lines.push(
+    "",
+    "【メッセージに必ず含める内容（5つ全て触れる）】",
+    "1. 実出店分の店舗目標は達成（or どの程度の数字だったか）— 出店した日の頑張りはしっかり祝う",
+    hasShiftTarget
+      ? `2. 月間トータル目標 ${yen(result.shiftMonthlyTarget!)} には ${yen(result.shortfallAmount ?? 0)} 届かず、月間達成率は ${result.shiftAchievementRate ?? 0}% だったことを誠実に伝える（隠さない）`
+      : "2. 月間目標との差については触れなくてよい",
+    result.canceledDays && result.canceledDays.length > 0
+      ? `3. 中止になった日（${result.canceledDays.join("・")}）への悔しさ・天候への言及`
+      : "3. 中止日の言及は不要",
+    "4. 【最重要】出店数が少ないと利益が出ない構造的課題、従業員（仲間・人手）を早く集めて出店を増やす必要があることを真剣に伝える（祝勝ムード一色にしない）",
+    "5. 翌月キャラへのバトンタッチ＋自分らしい締めくくり",
+    "",
+    "【トーン指示】",
+    "- 祝勝ムード一色にしない。「出店した分はやれた」「全体としては足りない、人を集めないと」をセットで語る",
+    "- キャラの軽さ・絵文字・語尾は維持しつつ、業務的な真剣さを織り込む",
+    "- 文章は500〜700文字程度（5つの要素を全部入れるためやや長め可）",
+    "- 説教臭くならず、仲間に語りかけるトーン",
+  );
+
+  const userPrompt = lines.join("\n");
   const text = await callAnthropic(buildSystemPrompt(character), userPrompt);
   return text ?? character.fallbackMonthOutro;
 };

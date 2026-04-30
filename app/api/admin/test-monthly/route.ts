@@ -8,7 +8,16 @@ import {
   type MonthlyTarget,
   type MonthlyResult,
 } from "@/lib/formatters/characterAI";
-import { getTeamStatsForPeriod, monthRange, currentYM } from "@/lib/teamStats";
+import {
+  getTeamStatsForPeriod,
+  getShiftMonthlyTargetForPeriod,
+  monthRange,
+  currentYM,
+} from "@/lib/teamStats";
+
+const KNOWN_CANCELED_DAYS: Record<string, string[]> = {
+  "2026-04": ["4/4 雨で中止", "4/16 強風で中止"],
+};
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -42,7 +51,10 @@ async function fetchMonthlyTarget(ym: string): Promise<MonthlyTarget> {
 
 async function fetchMonthlyResult(ym: string): Promise<MonthlyResult> {
   const { start, end } = monthRange(ym);
-  const stats = await getTeamStatsForPeriod(start, end);
+  const [stats, shiftTargetInfo] = await Promise.all([
+    getTeamStatsForPeriod(start, end),
+    getShiftMonthlyTargetForPeriod(start, end),
+  ]);
   const team1 = stats.find((s) => s.unit === 1)!;
   const team2 = stats.find((s) => s.unit === 2)!;
   const other = stats.find((s) => s.unit === null)!;
@@ -56,6 +68,21 @@ async function fetchMonthlyResult(ym: string): Promise<MonthlyResult> {
     totalTarget > 0
       ? Math.round((totalSales / totalTarget) * 1000) / 10
       : 0;
+  const shiftMonthlyTarget = shiftTargetInfo.totalTarget;
+  const shortfallAmount = Math.max(0, shiftMonthlyTarget - totalSales);
+  const shiftAchievementRate =
+    shiftMonthlyTarget > 0
+      ? Math.round((totalSales / shiftMonthlyTarget) * 1000) / 10
+      : 0;
+  const avgPerReport = totalReports > 0 ? totalSales / totalReports : 0;
+  const shortReports =
+    avgPerReport > 0 && shortfallAmount > 0
+      ? Math.ceil(shortfallAmount / avgPerReport)
+      : 0;
+  const storeShortageMessage =
+    shortfallAmount > 0 && shortReports > 0
+      ? `平均単価（¥${Math.round(avgPerReport).toLocaleString()}/件）で計算すると、月間目標達成にはあと約${shortReports}件の出店が必要だった。出店数を増やすには仲間（従業員）を早く集めることが鍵。`
+      : "出店数を増やせるよう、仲間（従業員）を早く集めよう。";
   return {
     totalSales,
     totalReports,
@@ -67,6 +94,11 @@ async function fetchMonthlyResult(ym: string): Promise<MonthlyResult> {
     team2Reports: team2.reportCount,
     otherSales: other.totalSales,
     otherReports: other.reportCount,
+    shiftMonthlyTarget,
+    shiftAchievementRate,
+    shortfallAmount,
+    canceledDays: KNOWN_CANCELED_DAYS[ym] || [],
+    storeShortageMessage,
   };
 }
 
