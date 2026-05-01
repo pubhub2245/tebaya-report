@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
       // ── 管理者向け：昨日の未提出一覧 ──
       const today = todayJST();
       const yesterday = addDays(today, -1);
-      const { missing, total, submitted } =
+      const { missing, total, submitted, cancelled } =
         await getMissingReportLocations(yesterday);
 
       const [, m, d] = yesterday.split("-");
@@ -47,12 +47,14 @@ export async function GET(req: NextRequest) {
           missing_count: 0,
           total,
           submitted,
+          cancelled,
           message: `${dateLabel} はシフト予定がありません`,
         });
       }
 
       if (missing.length === 0) {
-        const msg = `✅ 昨日（${dateLabel}）の日報：全${total}件提出済みです！`;
+        const cancelSuffix = cancelled > 0 ? `（中止${cancelled}件含む）` : "";
+        const msg = `✅ 昨日（${dateLabel}）の日報：全${total}件 提出/中止 完了です！${cancelSuffix}`;
         await sendLineGroupMessage(
           transformWithCurrentCharacter(msg, { context: "report" }),
         );
@@ -61,17 +63,22 @@ export async function GET(req: NextRequest) {
           missing_count: 0,
           total,
           submitted,
-          message: "全員提出済み",
+          cancelled,
+          message: "全員提出済み（中止記録含む）",
         });
       }
 
       const lines = missing.map(
         (e) => `・${e.location_name}（担当：${e.staff_hint}）`,
       );
+      const summaryLine =
+        cancelled > 0
+          ? `提出済み：${submitted}件 / 中止：${cancelled}件 / 全${total}件`
+          : `提出済み：${submitted}件 / 全${total}件`;
       const message = [
         `📋 昨日（${dateLabel}）の日報状況`,
         "",
-        `提出済み：${submitted}件 / 全${total}件`,
+        summaryLine,
         "",
         "【未提出店舗】",
         ...lines,
@@ -91,17 +98,21 @@ export async function GET(req: NextRequest) {
         missing_count: missing.length,
         total,
         submitted,
+        cancelled,
         error: sent ? undefined : "LINE送信に失敗しました",
       });
     } else {
       // ── スタッフ向け：当日の未提出リマインダー ──
       const today = todayJST();
-      const { missing, total } = await getMissingReportLocations(today);
+      const { missing, total, submitted, cancelled } =
+        await getMissingReportLocations(today);
 
       if (total === 0) {
         return NextResponse.json({
           success: true,
           missing_count: 0,
+          submitted,
+          cancelled,
           message: "本日はシフト予定がありません",
         });
       }
@@ -110,7 +121,12 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({
           success: true,
           missing_count: 0,
-          message: "全員提出済みです",
+          submitted,
+          cancelled,
+          message:
+            cancelled > 0
+              ? `全員提出済み（中止${cancelled}件含む）`
+              : "全員提出済みです",
         });
       }
 
@@ -138,6 +154,8 @@ export async function GET(req: NextRequest) {
         success: sent,
         missing_count: missing.length,
         total,
+        submitted,
+        cancelled,
         error: sent ? undefined : "LINE送信に失敗しました",
       });
     }

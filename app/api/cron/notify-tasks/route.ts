@@ -132,12 +132,14 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // ── 昨日の日報未提出チェック（店舗ベース判定）──
+    // ── 昨日の日報未提出チェック（店舗ベース判定／中止記録は除外）──
     let reportMissingCount = 0;
+    let reportCancelledCount = 0;
     const yesterday = addDays(today, -1);
     try {
-      const { missing, total, submitted } =
+      const { missing, total, submitted, cancelled } =
         await getMissingReportLocations(yesterday);
+      reportCancelledCount = cancelled;
 
       if (total > 0 && missing.length > 0) {
         const [, m, d] = yesterday.split("-");
@@ -145,10 +147,14 @@ export async function GET(req: NextRequest) {
         const lines = missing.map(
           (e) => `・${e.location_name}(担当：${e.staff_hint})`,
         );
+        const summaryLine =
+          cancelled > 0
+            ? `提出済み：${submitted}件 / 中止：${cancelled}件 / 全${total}件`
+            : `提出済み：${submitted}件 / 全${total}件`;
         const message = [
           `📋 昨日（${dateLabel}）の日報状況`,
           "",
-          `提出済み：${submitted}件 / 全${total}件`,
+          summaryLine,
           "",
           "【未提出店舗】",
           ...lines,
@@ -174,6 +180,7 @@ export async function GET(req: NextRequest) {
       reminder_count: reminderCount,
       overdue_count: overdueCount,
       report_missing_count: reportMissingCount,
+      report_cancelled_count: reportCancelledCount,
       today,
       tomorrow,
       errors: errors.length > 0 ? errors : undefined,

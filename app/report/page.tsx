@@ -333,6 +333,12 @@ export default function Page() {
             📊 中間報告
           </a>
         </div>
+        <a
+          href="/report/cancel"
+          className="block w-full text-center rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-3 py-2 mb-2"
+        >
+          ⚠️ 出店中止を登録（雨・強風・台風など）
+        </a>
         <h1 className="text-xl font-bold text-brand-dark text-center">
           手羽屋 営業後日報
         </h1>
