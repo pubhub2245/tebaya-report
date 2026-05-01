@@ -12,3 +12,15 @@ data/extracted-reports.json
 data/extracted-reports-summary.md
 data/extracted-reports.sample.json
 data/insert-report-*.md
+
+# 4月の業務実データ（個人売上情報）
+data/april_*.json
+data/april_*.docx
+data/april_*.md
+
+# LINE トークログ（二重拡張子パターンも除外）
+data/line-*.txt
+data/line-*.txt.txt
+
+# 念のため data/ 配下のJSON/docx/txtを広く除外し、必要なものだけ個別許可
+# （現状のホワイトリスト不要のものはここでは追加しない）
