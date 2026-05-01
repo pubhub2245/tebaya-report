@@ -26,7 +26,19 @@
       "Bash(node *)",
       "Bash(curl *)",
       "Bash(find *)",
-      "Bash(npm list *)"
+      "Bash(npm list *)",
+      "Bash(awk '{print $2}')",
+      "Bash(xargs -r kill)",
+      "Bash(xargs -r kill -9)",
+      "mcp__claude_ai_Supabase__list_tables",
+      "mcp__claude_ai_Supabase__execute_sql",
+      "Bash(npx --no-install tsx --version)",
+      "Bash(grep -c '\"tsx\"' package-lock.json)",
+      "Bash(ls node_modules/.bin/tsx)",
+      "Bash(YEAR_HINT=2026 npx tsx scripts/test-nagayama-parser.ts fixtures/nagayama_schedule_2026_04_21.pdf.pdf)",
+      "Bash(npx tsx -e ' *)",
+      "Bash(npx tsx *)",
+      "Bash(echo \"EXIT: $?\")"
     ]
   }
 }
