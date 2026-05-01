@@ -313,6 +313,13 @@ export default function AdminPage() {
       </Link>
 
       <Link
+        href="/admin/shift-generator"
+        className="block w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-base px-6 py-4 rounded-xl shadow-md text-center transition-colors"
+      >
+        🤖 シフト自動生成（ながやまPDFから）
+      </Link>
+
+      <Link
         href="/admin/stats"
         className="block w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-base px-6 py-4 rounded-xl shadow-md text-center transition-colors"
       >
