@@ -80,14 +80,24 @@ export const NAGAYAMA_DAY_PREFERENCE: Record<
   },
 };
 
-/** ながやま以外の店舗の月次目標日数 */
+/**
+ * 自動配置対象の店舗の月次目標日数。
+ *
+ * ここに含まれる店舗のみ shift-engine が自動配置する。
+ * 含まれない店舗（イオン、パシオ、朝市など）はUIから手動追加する運用。
+ *
+ * マンガ倉庫は土日のみ自動配置（平日は売上見込めないため）。
+ * MANGA_SOUKO_WEEKEND_ONLY を参照。
+ */
 export const EXTRA_STORE_TARGETS: Record<string, number> = {
-  イオンモール都城駅前: 6,
-  マンガ倉庫: 8,
-  パシオたかお店: 3,
-  パシオ志比田店: 1,
-  ニクルの朝市: 2,
+  マンガ倉庫: 8, // 土日のみ。月内に8件配置を目標
 };
+
+/**
+ * マンガ倉庫の曜日制約フラグ。
+ * true の場合、土日のみ自動配置する。
+ */
+export const MANGA_SOUKO_WEEKEND_ONLY = true;
 
 /** スタッフ割当ルール */
 export const STAFF_ASSIGNMENT_RULES = {

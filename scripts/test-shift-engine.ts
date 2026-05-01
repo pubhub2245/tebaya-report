@@ -136,10 +136,19 @@ async function main(): Promise<void> {
 
   console.log("[Step 2-4] 全体スケジュール構築 + スタッフ割当");
   let totalShifts = 0;
+  let restDays = 0;
+  let workDays = 0;
   for (let day = 1; day <= daysInMonth; day++) {
     const d = new Date(year, month - 1, day);
     const entries = staffed.byDay[day] ?? [];
-    if (entries.length === 0) continue;
+    if (entries.length === 0) {
+      restDays++;
+      console.log(
+        `  ${month}/${day} (${WEEKDAY_LABEL_JS[d.getDay()]}): （休み）`,
+      );
+      continue;
+    }
+    workDays++;
     totalShifts += entries.length;
 
     const parts: string[] = [];
@@ -165,6 +174,10 @@ async function main(): Promise<void> {
       `  ${month}/${day} (${WEEKDAY_LABEL_JS[d.getDay()]}): ${parts.join(", ")}`,
     );
   }
+  console.log("");
+  console.log(
+    `  最終配置: 月内${workDays}日に出店予定、${restDays}日が休み`,
+  );
   console.log("");
 
   console.log("[サマリー]");
