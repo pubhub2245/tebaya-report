@@ -16,11 +16,15 @@ const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
 );
 
-/** 日本時間の「明日」をYYYY-MM-DD形式で返す */
-function tomorrowJST(): string {
+type TargetDayType = "today" | "tomorrow";
+
+/** JSTの「今日」または「明日」をYYYY-MM-DD形式で返す */
+function targetDateJST(dayType: TargetDayType): string {
   const now = new Date();
   const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  jst.setUTCDate(jst.getUTCDate() + 1);
+  if (dayType === "tomorrow") {
+    jst.setUTCDate(jst.getUTCDate() + 1);
+  }
   return jst.toISOString().slice(0, 10);
 }
 
@@ -73,27 +77,40 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const targetDate = tomorrowJST();
+  // クエリパラメータ
+  const targetDayParam = req.nextUrl.searchParams.get("targetDay");
+  const targetDayType: TargetDayType =
+    targetDayParam === "today" ? "today" : "tomorrow";
+  const dryRun = req.nextUrl.searchParams.get("dryRun") === "1";
+
+  const targetDate = targetDateJST(targetDayType);
 
   try {
-    // 重複チェック
-    const { data: existing } = await supabase
-      .from("weather_alerts")
-      .select("id")
-      .eq("target_date", targetDate)
-      .limit(1);
+    // 重複チェック（dryRun時はスキップ）
+    if (!dryRun) {
+      const { data: existing, error: existingErr } = await supabase
+        .from("weather_alerts")
+        .select("id")
+        .eq("target_date", targetDate)
+        .eq("target_day_type", targetDayType)
+        .limit(1);
 
-    if (existing && existing.length > 0) {
-      return NextResponse.json({
-        success: true,
-        skipped: true,
-        message: `${targetDate} の天気予報は通知済みです`,
-      });
+      if (existingErr) {
+        console.error("[notify-weather] 重複チェックエラー:", existingErr);
+      }
+
+      if (existing && existing.length > 0) {
+        return NextResponse.json({
+          success: true,
+          skipped: true,
+          message: `${targetDate} (${targetDayType}) の天気予報は通知済みです`,
+        });
+      }
     }
 
     // OpenWeatherMap 5日間/3時間予報API
-    const url = `https://api.openweathermap.org/data/2.5/forecast?lat=${MIYAKONOJO_LAT}&lon=${MIYAKONOJO_LON}&appid=${apiKey}&units=metric&lang=ja`;
-    const res = await fetch(url);
+    const apiUrl = `https://api.openweathermap.org/data/2.5/forecast?lat=${MIYAKONOJO_LAT}&lon=${MIYAKONOJO_LON}&appid=${apiKey}&units=metric&lang=ja`;
+    const res = await fetch(apiUrl);
 
     if (!res.ok) {
       const errBody = await res.text();
@@ -109,20 +126,19 @@ export async function GET(req: NextRequest) {
 
     const data = await res.json();
 
-    // 翌日のデータだけ抽出（3時間ごとのデータ）
-    const tomorrowEntries = (data.list || []).filter((entry: any) => {
-      const dt = entry.dt_txt as string; // "2026-04-29 03:00:00" (UTC)
-      // UTCのdt_txtを日本時間に変換して翌日かチェック
+    // 対象日（JST）のデータだけ抽出
+    const targetDayEntries = (data.list || []).filter((entry: any) => {
+      const dt = entry.dt_txt as string;
       const utcDate = new Date(dt.replace(" ", "T") + "Z");
       const jstDate = new Date(utcDate.getTime() + 9 * 60 * 60 * 1000);
       const jstDateStr = jstDate.toISOString().slice(0, 10);
       return jstDateStr === targetDate;
     });
 
-    if (tomorrowEntries.length === 0) {
+    if (targetDayEntries.length === 0) {
       return NextResponse.json({
         success: false,
-        error: `${targetDate} の予報データが見つかりません`,
+        error: `${targetDate} (${targetDayType}) の予報データが見つかりません`,
       });
     }
 
@@ -131,19 +147,23 @@ export async function GET(req: NextRequest) {
     let tempMax = -Infinity;
     let windSpeedMax = 0;
     let windSpeedSum = 0;
+    let gustMax = 0;
     let precipProbMax = 0;
     const weatherCounts = new Map<string, number>();
     let mainWeather = "";
     let mainDesc = "";
 
-    for (const entry of tomorrowEntries) {
+    for (const entry of targetDayEntries) {
       const temp = entry.main;
       if (temp.temp_min < tempMin) tempMin = temp.temp_min;
       if (temp.temp_max > tempMax) tempMax = temp.temp_max;
 
-      const wind = entry.wind?.speed || 0;
-      if (wind > windSpeedMax) windSpeedMax = wind;
-      windSpeedSum += wind;
+      const speed = entry.wind?.speed || 0;
+      // gust が欠損していれば speed をフォールバック
+      const gust = entry.wind?.gust ?? speed;
+      if (speed > windSpeedMax) windSpeedMax = speed;
+      windSpeedSum += speed;
+      if (gust > gustMax) gustMax = gust;
 
       const pop = (entry.pop || 0) * 100;
       if (pop > precipProbMax) precipProbMax = pop;
@@ -155,7 +175,9 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const windSpeedAvg = windSpeedSum / tomorrowEntries.length;
+    const windSpeedAvg = windSpeedSum / targetDayEntries.length;
+    // 持続風と突風の高い方で判定
+    const effectiveWind = Math.max(windSpeedMax, gustMax);
 
     // 最頻出の天気を選ぶ
     let maxCount = 0;
@@ -167,33 +189,49 @@ export async function GET(req: NextRequest) {
     }
     mainDesc = weatherDescJa(mainWeather, mainWeather);
 
-    // 強風判定
-    const isStrongWind = windSpeedMax >= 12;
-    const isCancelLevel = windSpeedMax >= 18;
+    // 強風判定（effectiveWind ベース）
+    const isCancelLevel = effectiveWind >= 18;
+    const isStrongWind = effectiveWind >= 12 && !isCancelLevel;
+    const alertLevel: "normal" | "caution" | "cancel" = isCancelLevel
+      ? "cancel"
+      : isStrongWind
+        ? "caution"
+        : "normal";
 
-    // メッセージ作成
+    // 表示用の値
     const [, m, d] = targetDate.split("-");
     const monthDay = `${parseInt(m)}/${parseInt(d)}`;
     const icon = weatherIcon(mainWeather);
-    const maxWind = Math.round(windSpeedMax);
+    const gustDisp = Math.round(gustMax);
+    const windMaxDisp = Math.round(windSpeedMax);
+    const windAvgDisp = Math.round(windSpeedAvg);
+    const effDisp = Math.round(effectiveWind);
 
-    // 出店判断を決定
+    // 出店判断
     let judgmentText: string;
-    if (maxWind >= 18) {
-      judgmentText = `🚨 出店不可の可能性大\n   最大風速 ${maxWind}m/s予報`;
-    } else if (maxWind >= 12) {
-      judgmentText = `⚠️ 要注意（風速 ${maxWind}m/s）`;
+    if (isCancelLevel) {
+      judgmentText = `🚨 出店不可の可能性大\n   最大瞬間風速 ${effDisp}m/s予報`;
+    } else if (isStrongWind) {
+      judgmentText = `⚠️ 要注意（最大瞬間風速 ${effDisp}m/s）`;
     } else {
       judgmentText = "✅ 出店OK（風速 良好）";
     }
 
+    // 見出し
+    const headline =
+      targetDayType === "tomorrow"
+        ? "🌤️ 明日の天気予報"
+        : "🌤️ 今日の天気予報";
+
     // メッセージ組み立て
-    let message = "🌤️ 明日の天気予報\n\n";
+    let message = `${headline}\n\n`;
     message += `📅 ${monthDay}（都城市）\n`;
     message += `${icon} ${mainDesc}\n`;
     message += `🌡️ 気温：${Math.round(tempMin)}℃〜${Math.round(tempMax)}℃\n`;
     message += `☔ 降水確率：${Math.round(precipProbMax)}%\n`;
-    message += `💨 風速：${Math.round(windSpeedAvg)}m/s（最大${maxWind}m/s）\n`;
+    message += `💨 最大瞬間風速：${gustDisp}m/s\n`;
+    message += `　 持続風（最大）：${windMaxDisp}m/s\n`;
+    message += `　 持続風（平均）：${windAvgDisp}m/s\n`;
     message += "\n━━━━━━━━━━━━━━━\n";
     message += `${judgmentText}\n`;
     message += "━━━━━━━━━━━━━━━";
@@ -211,7 +249,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const hasThunderstorm = tomorrowEntries.some(
+    const hasThunderstorm = targetDayEntries.some(
       (f: any) => f.weather?.[0]?.main === "Thunderstorm",
     );
     if (hasThunderstorm) {
@@ -228,42 +266,81 @@ export async function GET(req: NextRequest) {
       message += "\n\n" + warnings.join("\n\n");
     }
 
-    // LINE送信（強風中止レベルなら緊急扱い）
+    // forecastデータ
+    const forecast = {
+      weather: mainDesc,
+      tempMin: Math.round(tempMin),
+      tempMax: Math.round(tempMax),
+      precipProbMax: Math.round(precipProbMax),
+      windSpeedAvg: Math.round(windSpeedAvg * 10) / 10,
+      windSpeedMax: Math.round(windSpeedMax * 10) / 10,
+      gustMax: Math.round(gustMax * 10) / 10,
+      effectiveWind: Math.round(effectiveWind * 10) / 10,
+      alertLevel,
+      isStrongWind,
+      isCancelLevel,
+    };
+
+    // dryRun: LINE送信 & DB INSERT をスキップ
+    if (dryRun) {
+      return NextResponse.json({
+        success: true,
+        dryRun: true,
+        target_date: targetDate,
+        target_day_type: targetDayType,
+        forecast,
+        message,
+      });
+    }
+
+    // LINE送信
     const decorated = transformWithCurrentCharacter(message, {
       context: "weather",
       isEmergency: isCancelLevel,
     });
     const sent = await sendLineGroupMessage(decorated);
 
-    // 通知履歴をDBに保存
-    const forecast = {
-      weather: mainDesc,
-      tempMin: Math.round(tempMin),
-      tempMax: Math.round(tempMax),
-      precipProbMax: Math.round(precipProbMax),
-      windSpeedAvg: Math.round(windSpeedAvg),
-      windSpeedMax: Math.round(windSpeedMax),
-      isStrongWind,
-      isCancelLevel,
-    };
+    // 通知履歴をDBに保存（エラーハンドリングあり）
+    try {
+      const { error: insertErr } = await supabase
+        .from("weather_alerts")
+        .insert({
+          target_date: targetDate,
+          target_day_type: targetDayType,
+          alert_level: alertLevel,
+          weather: mainDesc,
+          temp_min: Math.round(tempMin * 10) / 10,
+          temp_max: Math.round(tempMax * 10) / 10,
+          precip_prob_max: Math.round(precipProbMax * 10) / 10,
+          wind_speed_avg: Math.round(windSpeedAvg * 100) / 100,
+          wind_speed_max: Math.round(windSpeedMax * 100) / 100,
+          wind_gust_max: Math.round(gustMax * 100) / 100,
+          effective_wind: Math.round(effectiveWind * 100) / 100,
+          is_strong_wind: isStrongWind,
+          is_cancel_level: isCancelLevel,
+          line_sent: sent,
+        });
 
-    await supabase.from("weather_alerts").insert({
-      target_date: targetDate,
-      weather: mainDesc,
-      temp_min: Math.round(tempMin),
-      temp_max: Math.round(tempMax),
-      precip_prob_max: Math.round(precipProbMax),
-      wind_speed_avg: Math.round(windSpeedAvg * 10) / 10,
-      wind_speed_max: Math.round(windSpeedMax * 10) / 10,
-      is_strong_wind: isStrongWind,
-      is_cancel_level: isCancelLevel,
-      line_sent: sent,
-    });
+      if (insertErr) {
+        if (insertErr.code === "23505") {
+          // UNIQUE違反は重複時の正常動作として無視
+          console.warn(
+            "[notify-weather] 重複INSERTを検出（無視）:",
+            insertErr.message,
+          );
+        } else {
+          console.error("[notify-weather] INSERTエラー:", insertErr);
+        }
+      }
+    } catch (e) {
+      console.error("[notify-weather] INSERT例外:", e);
+    }
 
     return NextResponse.json({
       success: sent,
       forecast,
       target_date: targetDate,
+      target_day_type: targetDayType,
       error: sent ? undefined : "LINE送信に失敗しました",
     });
   } catch (e: any) {
