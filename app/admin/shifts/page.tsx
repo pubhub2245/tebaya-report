@@ -25,6 +25,8 @@ type Shift = {
   staff_name: string | null;
   note: string | null;
   status: string;
+  /** Phase 1 で追加されたカラム（migration 未適用環境では undefined） */
+  shift_status?: string | null;
   planned_open_time: string | null;
   planned_close_time: string | null;
   published_at: string | null;
@@ -399,14 +401,40 @@ export default function ShiftsPage() {
                       }
                       const ds = dateStr(day);
                       const dayShifts = shiftsByDate.get(ds) || [];
-                      const activeCount = dayShifts.filter(
+                      const activeShifts = dayShifts.filter(
                         (s) => s.status !== "cancelled",
-                      ).length;
+                      );
+                      const activeCount = activeShifts.length;
+                      const hasStaffRequired = activeShifts.some((s) =>
+                        (s.note ?? "").includes("【スタッフ要設定】"),
+                      );
+                      const hasUnconfirmed = activeShifts.some(
+                        (s) =>
+                          s.shift_status === "pending" ||
+                          (s.note ?? "").includes("【未確定】"),
+                      );
+                      const hasRejected = activeShifts.some(
+                        (s) => s.shift_status === "rejected",
+                      );
+                      const allRejected =
+                        activeCount > 0 &&
+                        activeShifts.every(
+                          (s) => s.shift_status === "rejected",
+                        );
+                      const noteBg = allRejected
+                        ? "bg-red-50"
+                        : hasStaffRequired
+                          ? "bg-orange-100"
+                          : hasUnconfirmed
+                            ? "bg-yellow-100"
+                            : hasRejected
+                              ? "bg-orange-50"
+                              : cellBg(activeCount);
                       return (
                         <td
                           key={di}
                           onClick={() => setSelectedDate(ds)}
-                          className={`border border-stone-100 p-1 h-16 align-top cursor-pointer hover:bg-orange-50 transition-colors ${cellBg(activeCount)} ${
+                          className={`border border-stone-100 p-1 h-16 align-top cursor-pointer hover:bg-orange-50 transition-colors ${noteBg} ${
                             di === 0
                               ? "text-red-500"
                               : di === 6
@@ -418,6 +446,30 @@ export default function ShiftsPage() {
                           {activeCount > 0 && (
                             <div className="text-[10px] text-center mt-1 font-bold text-orange-700">
                               📍{activeCount}
+                              {hasRejected && (
+                                <span
+                                  className="text-red-700 ml-0.5"
+                                  title="NG（却下）"
+                                >
+                                  ❌
+                                </span>
+                              )}
+                              {hasStaffRequired && (
+                                <span
+                                  className="text-red-600 ml-0.5"
+                                  title="スタッフ要設定"
+                                >
+                                  👤
+                                </span>
+                              )}
+                              {!hasStaffRequired && hasUnconfirmed && (
+                                <span
+                                  className="text-red-600 ml-0.5"
+                                  title="未確定/仮シフト"
+                                >
+                                  ⚠️
+                                </span>
+                              )}
                             </div>
                           )}
                         </td>
@@ -598,16 +650,43 @@ function DateModal({
           </p>
         ) : (
           <div className="space-y-3">
-            {shifts.map((s) => (
+            {shifts.map((s) => {
+              const isStaffRequired = (s.note ?? "").includes(
+                "【スタッフ要設定】",
+              );
+              const isPending = s.shift_status === "pending";
+              const isRejected = s.shift_status === "rejected";
+              const isUnconfirmed =
+                isPending || (s.note ?? "").includes("【未確定】");
+              const cardBg =
+                s.status === "cancelled"
+                  ? "border-stone-200 bg-stone-50 opacity-60"
+                  : isRejected
+                    ? "border-red-300 bg-red-50"
+                    : isStaffRequired
+                      ? "border-orange-300 bg-orange-100"
+                      : isUnconfirmed
+                        ? "border-yellow-300 bg-yellow-100"
+                        : "border-stone-200";
+              const rejectedDecor = isRejected ? "line-through opacity-60" : "";
+              return (
               <div
                 key={s.id}
-                className={`border rounded-xl p-3 ${
-                  s.status === "cancelled"
-                    ? "border-stone-200 bg-stone-50 opacity-60"
-                    : "border-stone-200"
-                }`}
+                className={`border rounded-xl p-3 ${cardBg}`}
               >
-                <div className="flex items-start justify-between gap-2">
+                {(isRejected || isStaffRequired || isUnconfirmed) &&
+                  s.status !== "cancelled" && (
+                    <div className="mb-1 text-xs font-bold text-red-600">
+                      {isRejected
+                        ? "❌ NG（却下）"
+                        : isStaffRequired
+                          ? "👤 スタッフ要設定"
+                          : isPending
+                            ? "⚠️ 仮シフト（メール由来）"
+                            : "⚠️ 未確定"}
+                    </div>
+                  )}
+                <div className={`flex items-start justify-between gap-2 ${rejectedDecor}`}>
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-sm">
                       📍{" "}
@@ -652,7 +731,8 @@ function DateModal({
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

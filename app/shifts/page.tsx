@@ -12,7 +12,10 @@ type Shift = {
   rank: string;
   target: number;
   staff_name: string | null;
+  note: string | null;
   status: string;
+  /** Phase 1 で追加されたカラム（migration 未適用環境では undefined） */
+  shift_status?: string | null;
   locations?: { name: string } | null;
 };
 
@@ -20,6 +23,29 @@ const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"];
 
 function yen(n: number) {
   return `¥${n.toLocaleString()}`;
+}
+
+/**
+ * シフトの表示種別を返す。
+ *   rejected: NG（取り消し線で表示）
+ *   staff_required: 担当者未割当
+ *   unconfirmed: 仮シフト（pending） or 旧 note マーカー
+ */
+function getShiftKind(
+  s: Pick<Shift, "note" | "shift_status">,
+): "rejected" | "unconfirmed" | "staff_required" | null {
+  if (s.shift_status === "rejected") return "rejected";
+  const note = s.note ?? "";
+  if (note.includes("【スタッフ要設定】")) return "staff_required";
+  if (s.shift_status === "pending") return "unconfirmed";
+  if (note.includes("【未確定】")) return "unconfirmed";
+  return null;
+}
+
+/** 後方互換のため残す（古い呼び出し用） */
+function getNoteKind(note: string | null): "unconfirmed" | "staff_required" | null {
+  const k = getShiftKind({ note, shift_status: null });
+  return k === "rejected" ? null : k;
 }
 
 export default function StaffShiftsPage() {
@@ -272,12 +298,35 @@ export default function StaffShiftsPage() {
                         const ds = dateStr(day);
                         const dayShifts = shiftsByDate.get(ds) || [];
                         const hasShift = dayShifts.length > 0;
+                        const dayHasStaffRequired = dayShifts.some(
+                          (s) => getShiftKind(s) === "staff_required",
+                        );
+                        const dayHasUnconfirmed = dayShifts.some(
+                          (s) => getShiftKind(s) === "unconfirmed",
+                        );
+                        const dayHasRejected = dayShifts.some(
+                          (s) => getShiftKind(s) === "rejected",
+                        );
+                        const dayAllRejected =
+                          hasShift &&
+                          dayShifts.every(
+                            (s) => getShiftKind(s) === "rejected",
+                          );
+                        const cellBg = hasShift
+                          ? dayAllRejected
+                            ? "bg-red-50"
+                            : dayHasStaffRequired
+                              ? "bg-orange-100"
+                              : dayHasUnconfirmed
+                                ? "bg-yellow-100"
+                                : dayHasRejected
+                                  ? "bg-orange-50"
+                                  : "bg-orange-100"
+                          : "bg-stone-50";
                         return (
                           <td
                             key={di}
-                            className={`border border-stone-100 p-1 h-16 align-top ${
-                              hasShift ? "bg-orange-100" : "bg-stone-50"
-                            } ${
+                            className={`border border-stone-100 p-1 h-16 align-top ${cellBg} ${
                               di === 0
                                 ? "text-red-500"
                                 : di === 6
@@ -288,13 +337,38 @@ export default function StaffShiftsPage() {
                             <div className="text-xs font-semibold">{day}</div>
                             {hasShift && (
                               <div className="text-[9px] font-bold text-orange-700 mt-0.5 leading-tight">
-                                {dayShifts.map((s, si) => (
-                                  <div key={si}>
-                                    {shortLocationName(
-                                      (s.locations as any)?.name || "",
-                                    )}
-                                  </div>
-                                ))}
+                                {dayShifts.map((s, si) => {
+                                  const kind = getShiftKind(s);
+                                  return (
+                                    <div
+                                      key={si}
+                                      className={
+                                        kind === "rejected"
+                                          ? "line-through opacity-60"
+                                          : ""
+                                      }
+                                    >
+                                      {kind === "rejected" && (
+                                        <span className="text-red-700 font-bold mr-0.5">
+                                          ❌
+                                        </span>
+                                      )}
+                                      {kind === "staff_required" && (
+                                        <span className="text-red-600 font-bold mr-0.5">
+                                          👤
+                                        </span>
+                                      )}
+                                      {kind === "unconfirmed" && (
+                                        <span className="text-red-600 font-bold mr-0.5">
+                                          ⚠️
+                                        </span>
+                                      )}
+                                      {shortLocationName(
+                                        (s.locations as any)?.name || "",
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
                           </td>
@@ -323,17 +397,37 @@ export default function StaffShiftsPage() {
                     shortLocationName(
                       (s.locations as any)?.name || "",
                     ) || `店舗ID:${s.location_id}`;
+                  const kind = getShiftKind(s);
+                  const cardBg =
+                    kind === "rejected"
+                      ? "bg-red-50 border border-red-200"
+                      : kind === "staff_required"
+                        ? "bg-orange-100 border border-orange-300"
+                        : kind === "unconfirmed"
+                          ? "bg-yellow-100 border border-yellow-300"
+                          : "";
+                  const rejectedClass =
+                    kind === "rejected" ? "line-through opacity-60" : "";
                   return (
-                    <div key={s.id} className="card py-3">
-                      <div className="text-sm font-bold text-stone-700">
+                    <div key={s.id} className={`card py-3 ${cardBg}`}>
+                      {kind && (
+                        <div className="mb-1 text-xs font-bold text-red-600">
+                          {kind === "rejected"
+                            ? "❌ NG（却下）"
+                            : kind === "staff_required"
+                              ? "👤 スタッフ要設定"
+                              : "⚠️ 未確定"}
+                        </div>
+                      )}
+                      <div className={`text-sm font-bold text-stone-700 ${rejectedClass}`}>
                         {parseInt(m2)}/{parseInt(d2)}（{dayName}）
                       </div>
-                      <div className="text-sm mt-1">
+                      <div className={`text-sm mt-1 ${rejectedClass}`}>
                         <span className="font-bold text-brand-dark">
                           📍 {locName}（{s.rank}）
                         </span>
                       </div>
-                      <div className="text-xs text-stone-500 mt-0.5">
+                      <div className={`text-xs text-stone-500 mt-0.5 ${rejectedClass}`}>
                         目標：{yen(s.target || 0)}
                       </div>
                     </div>
