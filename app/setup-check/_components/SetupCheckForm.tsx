@@ -6,10 +6,7 @@ import {
   calculateCashTotal,
   compareWithPrevious,
 } from "@/lib/setupCheck/cashCalculator";
-import {
-  inferTeamUnit,
-  getTeamMembers,
-} from "@/lib/setupCheck/teamUnit";
+import { inferTeamUnit } from "@/lib/setupCheck/teamUnit";
 import {
   STANDARD_CASH_AMOUNT,
   type CashCoinCounts,
@@ -91,8 +88,6 @@ export default function SetupCheckForm({
     }
   };
 
-  const teamMembers = getTeamMembers(teamUnit);
-
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {/* 出店情報 */}
@@ -143,7 +138,7 @@ export default function SetupCheckForm({
                       : "bg-white text-stone-700 border-stone-300"
                   }`}
                 >
-                  {u}番隊（{(u === 1 ? ["じゅん", "イデ"] : ["かずき", "なぎさ"]).join("・")}）
+                  {u}番隊
                 </button>
               );
             })}
