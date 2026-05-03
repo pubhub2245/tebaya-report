@@ -92,22 +92,22 @@ d29c1c3 feat(gmail): Google OAuth2 認証フロー（gmail.readonly スコープ
 
 ## 5. PR URL
 
-Task 10 の最後で `gh pr create` により作成。**マージ未実施**（じゅんさん判断待ち）。
-
-→ 詳細は §10 末尾参照
+- **PR #6**: https://github.com/pubhub2245/tebaya-report/pull/6
+- タイトル: `feat(shift-engine): Phase 1 - Gmailメール解析でシフト仮生成`
+- ベース: `master` ← `feature/email-parser-phase1`
+- 状態: **OPEN（未マージ）** — じゅんさん判断待ち
 
 ---
 
 ## 6. Vercel Preview URL
 
-PR 作成後、Vercel Bot がコメントに Preview URL を投稿します。
-PR URL から GitHub UI で確認するか、`gh api` で取得可能：
+https://tebaya-report-git-feature-email-par-8c56ee-pubhub2245s-projects.vercel.app
 
-```
-gh api repos/pubhub2245/tebaya-report/issues/<PR番号>/comments \
-  --jq '.[] | select(.user.login=="vercel[bot]") | .body' \
-  | grep -oE 'https://[^ )]*vercel\.app[^ )]*'
-```
+⚠️ **このPreview URLでOAuthテストするには、Google Cloud Console の
+「承認済みリダイレクト URI」に
+`https://tebaya-report-git-feature-email-par-8c56ee-pubhub2245s-projects.vercel.app/api/auth/google/callback`
+を追加する必要があります**。本番URI のみ登録されている場合、Preview では Google が
+redirect_uri_mismatch でエラーを返します。
 
 ---
 
@@ -238,6 +238,11 @@ PR #5 のバッジ UI は本 PR に取り込み済み。GitHub UI で「Close pu
 
 ---
 
-## 10. PR 情報（push 後に追記）
+## 10. PR 情報（追記）
 
-ブランチ push と PR 作成は本 WORK_LOG コミット後に実施。
+- PR #6: https://github.com/pubhub2245/tebaya-report/pull/6
+- Preview: https://tebaya-report-git-feature-email-par-8c56ee-pubhub2245s-projects.vercel.app
+- ブランチ: `feature/email-parser-phase1` （master 直上、最新コミット `851fd8c` ＋ 後追いログ更新）
+- 全コミット数（master 比）: 7 コミット
+
+PR は OPEN 状態のまま。マージ判断はじゅんさん側で。
