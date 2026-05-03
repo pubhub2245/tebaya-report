@@ -12,6 +12,7 @@ type Shift = {
   rank: string;
   target: number;
   staff_name: string | null;
+  note: string | null;
   status: string;
   locations?: { name: string } | null;
 };
@@ -20,6 +21,13 @@ const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"];
 
 function yen(n: number) {
   return `¥${n.toLocaleString()}`;
+}
+
+function getNoteKind(note: string | null): "unconfirmed" | "staff_required" | null {
+  if (!note) return null;
+  if (note.includes("【スタッフ要設定】")) return "staff_required";
+  if (note.includes("【未確定】")) return "unconfirmed";
+  return null;
 }
 
 export default function StaffShiftsPage() {
@@ -272,12 +280,23 @@ export default function StaffShiftsPage() {
                         const ds = dateStr(day);
                         const dayShifts = shiftsByDate.get(ds) || [];
                         const hasShift = dayShifts.length > 0;
+                        const dayHasStaffRequired = dayShifts.some(
+                          (s) => getNoteKind(s.note) === "staff_required",
+                        );
+                        const dayHasUnconfirmed = dayShifts.some(
+                          (s) => getNoteKind(s.note) === "unconfirmed",
+                        );
+                        const cellBg = hasShift
+                          ? dayHasStaffRequired
+                            ? "bg-orange-100"
+                            : dayHasUnconfirmed
+                              ? "bg-yellow-100"
+                              : "bg-orange-100"
+                          : "bg-stone-50";
                         return (
                           <td
                             key={di}
-                            className={`border border-stone-100 p-1 h-16 align-top ${
-                              hasShift ? "bg-orange-100" : "bg-stone-50"
-                            } ${
+                            className={`border border-stone-100 p-1 h-16 align-top ${cellBg} ${
                               di === 0
                                 ? "text-red-500"
                                 : di === 6
@@ -288,13 +307,26 @@ export default function StaffShiftsPage() {
                             <div className="text-xs font-semibold">{day}</div>
                             {hasShift && (
                               <div className="text-[9px] font-bold text-orange-700 mt-0.5 leading-tight">
-                                {dayShifts.map((s, si) => (
-                                  <div key={si}>
-                                    {shortLocationName(
-                                      (s.locations as any)?.name || "",
-                                    )}
-                                  </div>
-                                ))}
+                                {dayShifts.map((s, si) => {
+                                  const kind = getNoteKind(s.note);
+                                  return (
+                                    <div key={si}>
+                                      {kind === "staff_required" && (
+                                        <span className="text-red-600 font-bold mr-0.5">
+                                          👤
+                                        </span>
+                                      )}
+                                      {kind === "unconfirmed" && (
+                                        <span className="text-red-600 font-bold mr-0.5">
+                                          ⚠️
+                                        </span>
+                                      )}
+                                      {shortLocationName(
+                                        (s.locations as any)?.name || "",
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
                           </td>
@@ -323,8 +355,22 @@ export default function StaffShiftsPage() {
                     shortLocationName(
                       (s.locations as any)?.name || "",
                     ) || `店舗ID:${s.location_id}`;
+                  const kind = getNoteKind(s.note);
+                  const cardBg =
+                    kind === "staff_required"
+                      ? "bg-orange-100 border border-orange-300"
+                      : kind === "unconfirmed"
+                        ? "bg-yellow-100 border border-yellow-300"
+                        : "";
                   return (
-                    <div key={s.id} className="card py-3">
+                    <div key={s.id} className={`card py-3 ${cardBg}`}>
+                      {kind && (
+                        <div className="mb-1 text-xs font-bold text-red-600">
+                          {kind === "staff_required"
+                            ? "👤 スタッフ要設定"
+                            : "⚠️ 未確定"}
+                        </div>
+                      )}
                       <div className="text-sm font-bold text-stone-700">
                         {parseInt(m2)}/{parseInt(d2)}（{dayName}）
                       </div>
