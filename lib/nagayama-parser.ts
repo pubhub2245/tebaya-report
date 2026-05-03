@@ -25,10 +25,21 @@ export type NagayamaSchedule = {
   };
 };
 
+export interface ParserSelfCheckEntry {
+  store: string;
+  month: number;
+  expectedDays: number;
+  actualCellCount: number;
+}
+
 export interface NagayamaParseResult {
   schedule: NagayamaSchedule;
   /** 店舗 → ISO日付（"2026-05-01" 等）の配列。「手羽屋」と書かれた確定済み出店日 */
   confirmed: Record<string, string[]>;
+  /** パーサーが自己診断した「期待日数 vs 実セル数」の不一致やその他の警告 */
+  warnings: string[];
+  /** 各店舗 × 各月の期待日数と実エントリ数（UIで列ズレ検出に使う） */
+  parserSelfCheck: ParserSelfCheckEntry[];
   meta: {
     detectedYear: number;
     detectedMonths: number[];
@@ -38,8 +49,21 @@ export interface NagayamaParseResult {
 }
 
 /**
+ * 「手羽屋」を表す可能性のある表記。Claude 側でも正規化を指示しているが
+ * 二重防御として JS 側でも吸収する。
+ */
+const TEBAYA_ALIASES = ["手羽屋", "手羽", "テバヤ", "TEBAYA", "tebaya"] as const;
+
+/** vendor セル文字列に「手羽屋」相当の表記が含まれるか（略記・カナ・大小文字許容） */
+export function isTebayaCell(vendor: string | null | undefined): boolean {
+  if (!vendor) return false;
+  const upper = vendor.toUpperCase();
+  return TEBAYA_ALIASES.some((alias) => upper.includes(alias.toUpperCase()));
+}
+
+/**
  * schedule から「手羽屋」表記の確定日を店舗別に抽出。
- * "手羽屋 / 他業者" のような複合表記にも対応するため includes で判定する。
+ * "手羽屋 / 他業者" "手羽 / 他業者" "テバヤ" などの揺れにも対応。
  */
 function extractTebayaConfirmedDays(
   schedule: NagayamaSchedule,
@@ -48,7 +72,7 @@ function extractTebayaConfirmedDays(
   for (const [store, dates] of Object.entries(schedule)) {
     const confirmedDates: string[] = [];
     for (const [dateISO, vendor] of Object.entries(dates)) {
-      if (vendor && vendor.includes("手羽屋")) {
+      if (isTebayaCell(vendor)) {
         confirmedDates.push(dateISO);
       }
     }
@@ -118,6 +142,25 @@ function buildInstructionText(year: number): string {
     "「次の月の表」が無いか最後まで確認してください。",
     "1つの月だけ抽出して終わりにすることは絶対にしないでください。",
     "",
+    "【列インデックスを正しく揃える手順】（最重要）",
+    "1. 各表の最上段に「日付ヘッダー行」がある（例: 4/1 4/2 4/3 ... 4/30）",
+    "2. 多くの場合その下に「曜日行」がある（例: 火 水 木 ...）",
+    "3. これら2行を最初に解析し、何列目がどの日付かを完全に確定させる",
+    "4. 店舗ごとの行（データ行）は、上で確定した列マッピングを基準に読む",
+    "5. 表中に空白マスがあっても、列をズラさない。空白マスは null として必ず埋める",
+    "",
+    "【絶対に守ること】",
+    "- 各店舗の行は、必ずその月の日数（28〜31）と同じ要素数になるよう日付キーを埋めること",
+    "- 空白マスは null を記録（省略禁止）。要素数が日数より少ないと致命的エラー",
+    "- 要素数が少ない場合、どの列をスキップしたかを推定して null を補うこと",
+    "- 空白マスが連続する行（要素数が極端に少ない行）は特に慎重に。曜日行の列インデックスを再確認すること",
+    "",
+    "【出店者表記の正規化】",
+    "- 「手羽屋」「手羽」「テバヤ」「TEBAYA」が書かれているセルは、",
+    "  すべて「手羽屋」という統一文字列に正規化して返すこと（屋ありの3文字へ統一）",
+    "- 上記の略記やカタカナ表記が出てきても判定に迷わない",
+    "- 他業者名はPDF表記のまま",
+    "",
     "以下のルールでJSON形式で抽出してください：",
     "",
     `1. PDF内の全ての表を見つけて、それぞれを完全に抽出する`,
@@ -127,6 +170,7 @@ function buildInstructionText(year: number): string {
     "5. 各セルに出店者名が書かれていれば、その名前を文字列で記録（改行は空白に置換）",
     "6. セルが空欄の場合は null を記録",
     `7. 同じ日に複数の出店者が並んでいる場合は " / " で結合した1つの文字列にする`,
+    "8. 「手羽屋／手羽／テバヤ／TEBAYA」はすべて「手羽屋」へ正規化",
     "",
     "【出力フォーマット】",
     "{",
@@ -143,8 +187,18 @@ function buildInstructionText(year: number): string {
     `      "${year}-06-30": "田中屋"`,
     `    },`,
     `    "店舗名2": { ... }`,
-    "  }",
+    "  },",
+    `  "parserSelfCheck": [`,
+    `    { "store": "店舗名1", "month": 5, "expectedDays": 31, "actualCellCount": 31 },`,
+    `    { "store": "店舗名1", "month": 6, "expectedDays": 30, "actualCellCount": 30 },`,
+    `    { "store": "店舗名2", "month": 5, "expectedDays": 31, "actualCellCount": 31 }`,
+    `  ]`,
     "}",
+    "",
+    "【parserSelfCheck の必須要件】",
+    "- 各店舗 × 各月について1エントリ。`expectedDays` はその月の総日数、`actualCellCount` は実際に出力した日付キー数",
+    "- 自分の出力を集計して埋めること（後段でこの値と実際のJSONを照合する）",
+    "- 一致していなくても自己申告すること（隠さずありのままに）",
     "",
     "【出力前の自己チェック手順】（必ず守ること）",
     "- PDFに何個の表があったか数える",
@@ -359,9 +413,64 @@ export async function parseNagayamaPDF(
     );
   }
 
+  // ----- parserSelfCheck の検証 -----
+  // Claude が返した自己診断と、実際のJSONエントリ数を照合し、
+  // 不一致があれば warnings に追加する（致命的にはせず、UI に出す）。
+  const warnings: string[] = [];
+  const parserSelfCheck: ParserSelfCheckEntry[] = [];
+
+  const claimedRaw = Array.isArray(parsed.parserSelfCheck)
+    ? (parsed.parserSelfCheck as Array<Record<string, unknown>>)
+    : [];
+
+  for (const month of parsed.months as number[]) {
+    const expectedDays = new Date(parsed.year, month, 0).getDate();
+    const prefix = `${parsed.year}-${String(month).padStart(2, "0")}-`;
+    for (const [storeNorm, dates] of Object.entries(normalizedSchedule)) {
+      const actualCellCount = Object.keys(dates).filter((k) =>
+        k.startsWith(prefix),
+      ).length;
+      parserSelfCheck.push({
+        store: storeNorm,
+        month,
+        expectedDays,
+        actualCellCount,
+      });
+      if (actualCellCount !== expectedDays) {
+        warnings.push(
+          `${storeNorm}: ${month}月の日付エントリ数が ${actualCellCount}/${expectedDays} （${expectedDays - actualCellCount}日分の欠損または超過の可能性）`,
+        );
+      }
+    }
+  }
+
+  // Claude 申告と実数の食い違い（自己申告に嘘がないか）
+  for (const claim of claimedRaw) {
+    const cs = String(claim.store ?? "");
+    const cm = Number(claim.month);
+    const ce = Number(claim.expectedDays);
+    const ca = Number(claim.actualCellCount);
+    if (!cs || !Number.isFinite(cm)) continue;
+    const matched = parserSelfCheck.find(
+      (p) => normalizeStoreName(cs) === p.store && p.month === cm,
+    );
+    if (matched && Number.isFinite(ca) && matched.actualCellCount !== ca) {
+      warnings.push(
+        `${cs}: ${cm}月で Claude 自己申告 ${ca} 件 vs 実エントリ ${matched.actualCellCount} 件 が食い違っています`,
+      );
+    }
+    if (matched && Number.isFinite(ce) && matched.expectedDays !== ce) {
+      warnings.push(
+        `${cs}: ${cm}月で Claude 自己申告 expectedDays ${ce} と実カレンダー日数 ${matched.expectedDays} が食い違っています`,
+      );
+    }
+  }
+
   return {
     schedule: normalizedSchedule,
     confirmed: extractTebayaConfirmedDays(normalizedSchedule),
+    warnings,
+    parserSelfCheck,
     meta: {
       detectedYear: parsed.year,
       detectedMonths: parsed.months as number[],
