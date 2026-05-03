@@ -167,7 +167,12 @@ export default function SetupCheckPage() {
       )}
 
       {view.kind === "done" && (
-        <LineTextPreview text={view.lineText} onReset={backToList} />
+        <LineTextPreview
+          text={view.lineText}
+          onReset={backToList}
+          recordId={view.record.id}
+          alreadyPosted={view.record.line_posted_at !== null}
+        />
       )}
     </main>
   );

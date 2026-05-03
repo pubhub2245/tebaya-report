@@ -3,14 +3,25 @@
 import { useState } from "react";
 import Link from "next/link";
 
+type LineTextPreviewProps = {
+  text: string;
+  onReset: () => void;
+  recordId?: string;
+  alreadyPosted?: boolean;
+  onPostSuccess?: () => void;
+};
+
 export default function LineTextPreview({
   text,
   onReset,
-}: {
-  text: string;
-  onReset: () => void;
-}) {
+  recordId,
+  alreadyPosted,
+  onPostSuccess,
+}: LineTextPreviewProps) {
   const [copied, setCopied] = useState(false);
+  const [posting, setPosting] = useState(false);
+  const [posted, setPosted] = useState(alreadyPosted ?? false);
+  const [postError, setPostError] = useState<string | null>(null);
 
   const handleCopy = async () => {
     try {
@@ -18,7 +29,38 @@ export default function LineTextPreview({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (e) {
-      alert("クリップボードにコピーできませんでした。手動で選択してコピーしてください。");
+      alert(
+        "クリップボードにコピーできませんでした。手動で選択してコピーしてください。",
+      );
+    }
+  };
+
+  const handlePostToLine = async () => {
+    if (!recordId) {
+      setPostError("レコードIDがありません");
+      return;
+    }
+    if (!confirm("LINE合同グループに自動投稿します。よろしいですか？")) {
+      return;
+    }
+    setPosting(true);
+    setPostError(null);
+    try {
+      const res = await fetch("/api/setup-check/post-line", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: recordId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "投稿に失敗しました");
+      }
+      setPosted(true);
+      onPostSuccess?.();
+    } catch (e: any) {
+      setPostError(e?.message || "投稿に失敗しました");
+    } finally {
+      setPosting(false);
     }
   };
 
@@ -37,41 +79,54 @@ export default function LineTextPreview({
           className="field font-mono text-xs whitespace-pre"
           onClick={(e) => (e.target as HTMLTextAreaElement).select()}
         />
-        <p className="text-xs text-stone-500 mt-1">
-          ※ 自動投稿は次回アップデートで対応予定。今回は手動でLINEに貼り付けてください。
-        </p>
+        {posted && (
+          <p className="text-xs text-green-700 mt-1 font-semibold">
+            ✅ LINE合同グループに投稿しました
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="btn-primary"
-        >
+        <button type="button" onClick={handleCopy} className="btn-primary">
           {copied ? "✓ コピーしました" : "📋 コピー"}
         </button>
+        <button
+          type="button"
+          onClick={handlePostToLine}
+          disabled={posting || posted || !recordId}
+          className="btn-primary bg-green-600 hover:bg-green-700 disabled:bg-stone-300 disabled:cursor-not-allowed"
+        >
+          {posting ? "投稿中..." : posted ? "✅ 投稿済み" : "🤖 Botで投稿"}
+        </button>
+      </div>
+
+      {postError && (
+        <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl p-2">
+          エラー: {postError}
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-2">
         <a
           href="https://line.me/R/"
           target="_blank"
           rel="noopener noreferrer"
           className="btn-secondary text-center"
         >
-          LINEを開く
+          LINEを開く（手動）
         </a>
-      </div>
-
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onReset}
-          className="btn-secondary flex-1"
-        >
-          続けて別のチェックを入力
-        </button>
-        <Link href="/" className="btn-secondary flex-1 text-center">
+        <Link href="/" className="btn-secondary text-center">
           🏠 トップへ
         </Link>
       </div>
+
+      <button
+        type="button"
+        onClick={onReset}
+        className="btn-secondary w-full"
+      >
+        続けて別のチェックを入力
+      </button>
     </section>
   );
 }
