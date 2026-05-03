@@ -77,6 +77,16 @@ export default function SetupCheckForm({
         }),
       });
       const json = await res.json();
+
+      // 重複登録（409）はフォーム入力を残したまま alert で通知して中断
+      if (res.status === 409) {
+        alert(
+          json.message ||
+            "この日・この店舗・このスタッフの設営チェックは既に登録されています。",
+        );
+        return;
+      }
+
       if (!res.ok || !json.success) {
         throw new Error(json.error || "登録に失敗しました");
       }
