@@ -10,7 +10,10 @@
  * DB INSERT 自体はこのモジュールでは行わない（プロンプト4の API Route で実施）。
  */
 
-import { parseNagayamaPDF } from "../nagayama-parser";
+import {
+  parseNagayamaPDF,
+  type NagayamaParseResult,
+} from "../nagayama-parser";
 import { matchLocation } from "../locationMatcher";
 import { NOTE_MARKERS } from "../shift-config";
 import { selectNagayamaDates } from "./nagayama-selector";
@@ -22,15 +25,22 @@ function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-export async function generateMonthlyShift(
-  pdfBuffer: Buffer,
+/**
+ * パーサー結果を受け取って月次シフトを生成する。
+ * UI で「読み取り結果の検証画面」を挟む場合は parse 済みの結果を渡してこちらを直接呼ぶ。
+ */
+export async function generateMonthlyShiftFromParsed(
+  parsed: Pick<NagayamaParseResult, "schedule" | "confirmed" | "meta" | "warnings">,
   year: number,
   month: number,
 ): Promise<MonthlyShift> {
   const allWarnings: string[] = [];
 
-  // 1. PDFパース
-  const parsed = await parseNagayamaPDF(pdfBuffer, { year });
+  // パース時点で出た警告をそのまま伝搬
+  if (parsed.warnings && parsed.warnings.length > 0) {
+    allWarnings.push(...parsed.warnings.map((w) => `[parser] ${w}`));
+  }
+
   if (!parsed.meta.detectedMonths.includes(month)) {
     throw new Error(
       `PDFに ${month} 月のデータが含まれていません（検出月: [${parsed.meta.detectedMonths.join(", ")}]）`,
@@ -121,6 +131,19 @@ export async function generateMonthlyShift(
   }
 
   return { year, month, days, warnings: allWarnings, staffSummary };
+}
+
+/**
+ * PDF Buffer から月次シフトを生成する従来のエントリポイント。
+ * 内部では parseNagayamaPDF → generateMonthlyShiftFromParsed の順に呼ぶだけ。
+ */
+export async function generateMonthlyShift(
+  pdfBuffer: Buffer,
+  year: number,
+  month: number,
+): Promise<MonthlyShift> {
+  const parsed = await parseNagayamaPDF(pdfBuffer, { year });
+  return generateMonthlyShiftFromParsed(parsed, year, month);
 }
 
 // 各Step関数も再export（テスト用）

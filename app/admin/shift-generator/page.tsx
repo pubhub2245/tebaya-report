@@ -9,8 +9,7 @@ const LOADING_MESSAGES = [
   { atSeconds: 0, text: "PDFをアップロード中…" },
   { atSeconds: 5, text: "Claude API でPDFを解析中… 約60秒かかります" },
   { atSeconds: 30, text: "もう少しです（PDF解析中）…" },
-  { atSeconds: 70, text: "シフトを組み立て中…" },
-  { atSeconds: 90, text: "ほぼ完了です…" },
+  { atSeconds: 70, text: "ほぼ完了です。検証画面に遷移します…" },
 ];
 
 export default function ShiftGeneratorPage() {
@@ -71,26 +70,26 @@ function UploadView() {
       const fd = new FormData();
       fd.append("pdf", file);
       fd.append("year", String(year));
-      fd.append("month", String(month));
-      const res = await fetch("/api/shift-generator/generate", {
+      // PDF パースのみ。月で絞り込まないので month は送らない。
+      const res = await fetch("/api/shift-generator/parse", {
         method: "POST",
         body: fd,
       });
       const json = await res.json();
       if (!res.ok || !json.success) {
-        throw new Error(json.error || "生成に失敗しました");
+        throw new Error(json.error || "PDF解析に失敗しました");
       }
-      const key = `shift-preview-${Date.now()}`;
+      const key = `shift-parsed-${Date.now()}`;
       try {
         sessionStorage.setItem(key, JSON.stringify(json.data));
       } catch (storageErr: any) {
         throw new Error(
-          "プレビューデータの一時保存に失敗しました（容量超過？）: " +
+          "解析結果の一時保存に失敗しました（容量超過？）: " +
             (storageErr?.message || ""),
         );
       }
       router.push(
-        `/admin/shift-generator/preview?key=${encodeURIComponent(key)}&year=${year}&month=${month}`,
+        `/admin/shift-generator/validate?key=${encodeURIComponent(key)}&year=${year}&month=${month}`,
       );
     } catch (err: any) {
       setError(err?.message || String(err));
@@ -117,8 +116,9 @@ function UploadView() {
 
       <div className="card space-y-4">
         <p className="text-sm text-stone-600 leading-relaxed">
-          ながやまPDFスケジュール表をアップロードして、月次シフトを自動生成します。
-          生成後にプレビュー画面で内容を編集してから DB に登録できます。
+          ながやまPDFスケジュール表をアップロードします。
+          まずAIがPDFを読み取った結果を <strong>確認画面</strong> で目視チェックし、
+          問題なければ自動生成へ進みます。
         </p>
 
         <form onSubmit={onSubmit} className="space-y-4">
@@ -182,7 +182,7 @@ function UploadView() {
             disabled={submitting || !file}
             className="btn-primary w-full"
           >
-            {submitting ? "⏳ 生成中…" : "シフトを生成"}
+            {submitting ? "⏳ 解析中…" : "PDFを解析して読み取り結果を確認"}
           </button>
         </form>
       </div>
@@ -193,7 +193,7 @@ function UploadView() {
             <div className="text-center">
               <div className="text-5xl animate-bounce mb-3">🗓️</div>
               <h2 className="text-lg font-bold text-brand-dark">
-                シフト生成中…
+                PDF解析中…
               </h2>
               <p className="text-sm text-stone-600 mt-2">{currentMessage}</p>
             </div>
