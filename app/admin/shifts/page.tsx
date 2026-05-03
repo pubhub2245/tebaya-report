@@ -399,14 +399,26 @@ export default function ShiftsPage() {
                       }
                       const ds = dateStr(day);
                       const dayShifts = shiftsByDate.get(ds) || [];
-                      const activeCount = dayShifts.filter(
+                      const activeShifts = dayShifts.filter(
                         (s) => s.status !== "cancelled",
-                      ).length;
+                      );
+                      const activeCount = activeShifts.length;
+                      const hasStaffRequired = activeShifts.some((s) =>
+                        (s.note ?? "").includes("【スタッフ要設定】"),
+                      );
+                      const hasUnconfirmed = activeShifts.some((s) =>
+                        (s.note ?? "").includes("【未確定】"),
+                      );
+                      const noteBg = hasStaffRequired
+                        ? "bg-orange-100"
+                        : hasUnconfirmed
+                          ? "bg-yellow-100"
+                          : cellBg(activeCount);
                       return (
                         <td
                           key={di}
                           onClick={() => setSelectedDate(ds)}
-                          className={`border border-stone-100 p-1 h-16 align-top cursor-pointer hover:bg-orange-50 transition-colors ${cellBg(activeCount)} ${
+                          className={`border border-stone-100 p-1 h-16 align-top cursor-pointer hover:bg-orange-50 transition-colors ${noteBg} ${
                             di === 0
                               ? "text-red-500"
                               : di === 6
@@ -418,6 +430,22 @@ export default function ShiftsPage() {
                           {activeCount > 0 && (
                             <div className="text-[10px] text-center mt-1 font-bold text-orange-700">
                               📍{activeCount}
+                              {hasStaffRequired && (
+                                <span
+                                  className="text-red-600 ml-0.5"
+                                  title="スタッフ要設定"
+                                >
+                                  👤
+                                </span>
+                              )}
+                              {!hasStaffRequired && hasUnconfirmed && (
+                                <span
+                                  className="text-red-600 ml-0.5"
+                                  title="未確定"
+                                >
+                                  ⚠️
+                                </span>
+                              )}
                             </div>
                           )}
                         </td>
@@ -598,15 +626,32 @@ function DateModal({
           </p>
         ) : (
           <div className="space-y-3">
-            {shifts.map((s) => (
+            {shifts.map((s) => {
+              const isStaffRequired = (s.note ?? "").includes(
+                "【スタッフ要設定】",
+              );
+              const isUnconfirmed = (s.note ?? "").includes("【未確定】");
+              const cardBg =
+                s.status === "cancelled"
+                  ? "border-stone-200 bg-stone-50 opacity-60"
+                  : isStaffRequired
+                    ? "border-orange-300 bg-orange-100"
+                    : isUnconfirmed
+                      ? "border-yellow-300 bg-yellow-100"
+                      : "border-stone-200";
+              return (
               <div
                 key={s.id}
-                className={`border rounded-xl p-3 ${
-                  s.status === "cancelled"
-                    ? "border-stone-200 bg-stone-50 opacity-60"
-                    : "border-stone-200"
-                }`}
+                className={`border rounded-xl p-3 ${cardBg}`}
               >
+                {(isStaffRequired || isUnconfirmed) &&
+                  s.status !== "cancelled" && (
+                    <div className="mb-1 text-xs font-bold text-red-600">
+                      {isStaffRequired
+                        ? "👤 スタッフ要設定"
+                        : "⚠️ 未確定"}
+                    </div>
+                  )}
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-sm">
@@ -652,7 +697,8 @@ function DateModal({
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
