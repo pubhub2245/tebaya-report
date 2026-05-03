@@ -28,6 +28,13 @@ export default function MenuPage() {
           <span>営業後日報</span>
         </Link>
         <Link
+          href="/setup-check"
+          className="flex items-center justify-center gap-3 w-full h-20 rounded-2xl bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-bold text-xl shadow-md transition"
+        >
+          <span className="text-2xl">🪙</span>
+          <span>設営後チェック</span>
+        </Link>
+        <Link
           href="/interim"
           className="flex items-center justify-center gap-3 w-full h-20 rounded-2xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xl shadow-md transition"
         >
