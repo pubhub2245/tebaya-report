@@ -52,6 +52,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 重複登録防止: (date, location, staff_name) で既存レコードがあれば 409
+    const { data: existing, error: checkError } = await supabase
+      .from("setup_checks")
+      .select("id")
+      .eq("date", body.date)
+      .eq("location", body.location)
+      .eq("staff_name", body.staff_name)
+      .maybeSingle();
+
+    if (checkError) {
+      console.error("[setup-check/create] 重複チェック失敗:", checkError);
+      return NextResponse.json(
+        { success: false, error: "重複チェック中にエラーが発生しました" },
+        { status: 500 },
+      );
+    }
+
+    if (existing) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "DUPLICATE",
+          message:
+            "この日・この店舗・このスタッフの設営チェックは既に登録されています。",
+        },
+        { status: 409 },
+      );
+    }
+
     const team_unit: 1 | 2 = body.team_unit ?? inferTeamUnit(body.staff_name);
     const register_total = calculateCashTotal(body.register_coins);
 
