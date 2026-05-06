@@ -35,6 +35,11 @@ type EditState = {
 
 const ADMIN_NAME = "管理者";
 
+/** AI 機能フラグ。NEXT_PUBLIC_FEEDBACK_AI_ENABLED が "true" の時のみボタン表示。
+ *  サーバー側は FEEDBACK_AI_ENABLED を見るが、フロントは NEXT_PUBLIC_ プレフィックス必須。 */
+const AI_ENABLED =
+  (process.env.NEXT_PUBLIC_FEEDBACK_AI_ENABLED ?? "").toLowerCase() === "true";
+
 function formatDateTime(iso: string | null): string {
   if (!iso) return "";
   return new Date(iso).toLocaleString("ja-JP", {
@@ -58,6 +63,7 @@ export default function FeedbackBoxAdmin() {
     text: string;
     rowId: string;
   } | null>(null);
+  const [implementingId, setImplementingId] = useState<string | null>(null);
 
   const reload = async () => {
     setLoading(true);
@@ -108,6 +114,50 @@ export default function FeedbackBoxAdmin() {
       return tb - ta;
     });
   }, [rows]);
+
+  const handleImplement = async (row: FeedbackRow) => {
+    if (
+      !confirm(
+        "Claudeに実装させますか？\n" +
+          "API 利用料が発生します（約 ¥30〜100）。\n" +
+          "30秒〜2分ほどかかる場合があります。",
+      )
+    ) {
+      return;
+    }
+    setImplementingId(row.id);
+    setFeedback(null);
+    try {
+      const adminPw = process.env.NEXT_PUBLIC_ADMIN_PASSWORD ?? "";
+      const res = await fetch(`/api/feedback/${row.id}/implement`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${adminPw}`,
+        },
+        body: JSON.stringify({ attempted_by: ADMIN_NAME }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "実装依頼に失敗しました");
+      }
+      setFeedback({
+        kind: "ok",
+        text: `🎉 PR を作成しました：${data.pr_url}`,
+        rowId: row.id,
+      });
+      await reload();
+    } catch (e: any) {
+      setFeedback({
+        kind: "err",
+        text: e?.message || "実装依頼に失敗しました",
+        rowId: row.id,
+      });
+    } finally {
+      setImplementingId(null);
+      setTimeout(() => setFeedback(null), 8000);
+    }
+  };
 
   const handleSave = async (row: FeedbackRow) => {
     const edit = editState[row.id];
@@ -241,6 +291,22 @@ export default function FeedbackBoxAdmin() {
                       </p>
                     </details>
                   )}
+
+                  {/* Claude 実装依頼ボタン */}
+                  {AI_ENABLED &&
+                    !row.pr_url &&
+                    (row.status === "pending" || row.status === "reviewing") && (
+                      <button
+                        type="button"
+                        onClick={() => handleImplement(row)}
+                        disabled={implementingId === row.id}
+                        className="w-full bg-violet-600 hover:bg-violet-700 active:bg-violet-800 disabled:bg-stone-300 disabled:cursor-not-allowed text-white font-bold text-sm px-4 py-3 rounded-xl shadow-md transition-colors"
+                      >
+                        {implementingId === row.id
+                          ? "🤖 Claude に実装させています…（30秒〜2分）"
+                          : "🤖 Claude に実装依頼"}
+                      </button>
+                    )}
 
                   <div className="border-t border-stone-200 pt-3 space-y-2">
                     <div>
