@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getStatusColor, getStatusLabel } from "@/lib/feedbackStatus";
+import ReplyThread from "./_components/ReplyThread";
 
 type FeedbackDetail = {
   id: string;
@@ -169,6 +170,8 @@ export default function FeedbackDetailPage() {
               </p>
             </section>
           )}
+
+          <ReplyThread feedbackId={item.id} />
         </>
       )}
     </main>

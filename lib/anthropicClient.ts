@@ -32,6 +32,18 @@ const SAFETY_CONSTRAINTS = [
   "3. 出力は必ず指定された JSON フォーマットに厳密に従うこと。コードフェンスや前置きは禁止。",
 ].join("\n");
 
+/** staff_reply（投稿者への返信文）のスタイル指針 */
+const REPLY_STYLE_GUIDE = [
+  "【staff_reply のスタイル】",
+  "- 日本語の丁寧体（です・ます調）",
+  "- 投稿者に対して敬意を持った口調",
+  "- 却下の場合は理由を明確にし、代替案や妥協案を提示する（建設的に）",
+  "- 成功の場合は実装内容を簡潔に説明し、テスト推奨項目を含める",
+  "- 文字数の目安: 140〜400 文字",
+  "- 機械的すぎず、馴れ馴れしくもない、ビジネスチャットのトーン",
+  "- 改行を含めて構わないが、過剰な絵文字や顔文字は避ける",
+].join("\n");
+
 const PLAN_SYSTEM = [
   "あなたは Next.js 14 (App Router) + TypeScript + Supabase の小規模業務 Web アプリ「tebaya-report」のシニアエンジニアです。",
   "スタッフが投稿した改善要望を読み、実装計画を JSON で返してください。",
@@ -48,11 +60,16 @@ const PLAN_SYSTEM = [
   '  files_to_modify: [ { "path": "...", "reason": "..." } ]   feasible 以外なら空配列',
   '  files_to_read_first: [ "..." ]   コード生成前に全文取得すべきファイル（最大10件）',
   "  implementation_summary: 何を実装するかの要約（管理者向け、日本語3〜10行）",
+  "  staff_reply: 投稿者本人へ返す返信文（feasible でも infeasible でも必ず生成。下記スタイル指針に従う）",
   "",
   "【判定指針】",
   "- 認証・売上集計・レジ金・シフト確定の根本破壊や DB スキーマ変更を要するもの → infeasible",
   "- 表記の修正、UI のカード追加、ヘルパー関数追加程度 → feasible",
   "- 投稿が曖昧で何を望んでいるか不明 → unclear",
+  "",
+  REPLY_STYLE_GUIDE,
+  "- feasibility が feasible の場合: 「これから実装に入ります」というニュアンスで構わない（最終的な完了報告は第2段階で改めて生成）",
+  "- feasibility が infeasible / unclear の場合: 却下/保留の理由を明確にし、代替案や追加ヒアリングを促す",
   "",
   SAFETY_CONSTRAINTS,
 ].join("\n");
@@ -71,10 +88,14 @@ const CODE_SYSTEM = [
   "  commit_message: コミットメッセージ（feat/fix プレフィックス推奨、80字以内）",
   "  pr_title: PR タイトル（80字以内）",
   "  pr_body: PR 本文（要約＋テスト観点。日本語）",
+  "  staff_reply: 投稿者本人への返信文（実装が完了し PR 作成準備が整った旨の報告）",
   "",
   "【上限】",
   "- files の数は 20 件以下。超える場合は最重要のものに絞る",
   "- 1ファイルあたり 2000 行以下",
+  "",
+  REPLY_STYLE_GUIDE,
+  "- staff_reply には: 何を実装したか、テスト推奨項目、PR レビュー後にマージ予定 という流れを含める",
   "",
   SAFETY_CONSTRAINTS,
 ].join("\n");
@@ -103,6 +124,8 @@ export interface PlanResult {
   files_to_modify: Array<{ path: string; reason: string }>;
   files_to_read_first: string[];
   implementation_summary: string;
+  /** 投稿者への返信文（feasible/infeasible/unclear いずれの場合も生成される想定） */
+  staff_reply: string;
 }
 
 export interface GeneratedCodeResult {
@@ -114,6 +137,8 @@ export interface GeneratedCodeResult {
   commit_message: string;
   pr_title: string;
   pr_body: string;
+  /** 投稿者への返信文（実装完了報告） */
+  staff_reply: string;
 }
 
 function buildClient(): Anthropic {
@@ -213,6 +238,7 @@ export async function planImplementation(
       ? parsed.files_to_read_first.slice(0, 10)
       : [],
     implementation_summary: String(parsed.implementation_summary ?? ""),
+    staff_reply: String(parsed.staff_reply ?? ""),
   };
 }
 
@@ -270,5 +296,6 @@ export async function generateCode(
     commit_message: String(parsed.commit_message ?? "feat: AI実装"),
     pr_title: String(parsed.pr_title ?? "AI 実装"),
     pr_body: String(parsed.pr_body ?? ""),
+    staff_reply: String(parsed.staff_reply ?? ""),
   };
 }

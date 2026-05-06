@@ -31,6 +31,8 @@ type FeedbackRow = {
 type EditState = {
   status: string;
   admin_comment: string;
+  /** 管理者として投稿する返信本文（独立アクション） */
+  admin_reply: string;
 };
 
 const ADMIN_NAME = "管理者";
@@ -64,6 +66,7 @@ export default function FeedbackBoxAdmin() {
     rowId: string;
   } | null>(null);
   const [implementingId, setImplementingId] = useState<string | null>(null);
+  const [replyingId, setReplyingId] = useState<string | null>(null);
 
   const reload = async () => {
     setLoading(true);
@@ -86,6 +89,7 @@ export default function FeedbackBoxAdmin() {
             next[r.id] = {
               status: r.status,
               admin_comment: r.admin_comment ?? "",
+              admin_reply: "",
             };
           }
         }
@@ -156,6 +160,50 @@ export default function FeedbackBoxAdmin() {
     } finally {
       setImplementingId(null);
       setTimeout(() => setFeedback(null), 8000);
+    }
+  };
+
+  const handleAdminReply = async (row: FeedbackRow) => {
+    const edit = editState[row.id];
+    const text = (edit?.admin_reply ?? "").trim();
+    if (!text) {
+      setFeedback({
+        kind: "err",
+        text: "返信本文を入力してください",
+        rowId: row.id,
+      });
+      setTimeout(() => setFeedback(null), 4000);
+      return;
+    }
+    setReplyingId(row.id);
+    setFeedback(null);
+    try {
+      const { error: err } = await supabase.from("feedback_replies").insert({
+        feedback_id: row.id,
+        author_type: "admin",
+        author_name: ADMIN_NAME,
+        content: text,
+      });
+      if (err) throw err;
+      // 投稿後はテキストエリアをクリア
+      setEditState((prev) => ({
+        ...prev,
+        [row.id]: { ...prev[row.id], admin_reply: "" },
+      }));
+      setFeedback({
+        kind: "ok",
+        text: "管理者として返信を投稿しました",
+        rowId: row.id,
+      });
+    } catch (e: any) {
+      setFeedback({
+        kind: "err",
+        text: e?.message || "返信投稿に失敗しました",
+        rowId: row.id,
+      });
+    } finally {
+      setReplyingId(null);
+      setTimeout(() => setFeedback(null), 4000);
     }
   };
 
@@ -392,6 +440,42 @@ export default function FeedbackBoxAdmin() {
                         {isSaving ? "保存中…" : "保存"}
                       </button>
                     </div>
+                  </div>
+
+                  {/* 管理者として返信（ステータス変更とは独立） */}
+                  <div className="border-t border-stone-200 pt-3 space-y-2 bg-amber-50/40 -mx-3 -mb-3 px-3 pb-3 rounded-b-xl">
+                    <label className="text-xs font-bold text-amber-900 block">
+                      👑 管理者として返信（任意・独立アクション）
+                    </label>
+                    <textarea
+                      value={edit.admin_reply ?? ""}
+                      onChange={(e) =>
+                        setEditState((prev) => ({
+                          ...prev,
+                          [row.id]: {
+                            ...prev[row.id],
+                            admin_reply: e.target.value,
+                          },
+                        }))
+                      }
+                      rows={3}
+                      className="field text-sm"
+                      placeholder="スレッドに管理者として返信する文面（このフォームはステータス変更と無関係）"
+                      disabled={replyingId === row.id}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAdminReply(row)}
+                      disabled={
+                        replyingId === row.id ||
+                        !(edit.admin_reply ?? "").trim()
+                      }
+                      className="w-full bg-amber-600 hover:bg-amber-700 disabled:bg-stone-300 disabled:cursor-not-allowed text-white font-bold text-sm px-4 py-2 rounded-xl transition-colors"
+                    >
+                      {replyingId === row.id
+                        ? "投稿中…"
+                        : "💬 管理者として返信"}
+                    </button>
                   </div>
                 </div>
               )}
