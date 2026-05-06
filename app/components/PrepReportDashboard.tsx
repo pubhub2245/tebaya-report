@@ -5,11 +5,14 @@ import { supabase } from "@/lib/supabase";
 import {
   calculatePrepMinutes,
   getPrepSettings,
+  calculateMonthlyCostBreakdown,
+  getDirectCostStatus,
   type PrepProduct,
   type PrepSettings,
   type PrepReportRow,
   type PrepSessionRow,
   type PrepSessionItemRow,
+  type MonthlyCostBreakdown,
 } from "@/lib/prepHelpers";
 
 function thisMonth(): string {
@@ -36,6 +39,8 @@ export default function PrepReportDashboard() {
   const [products, setProducts] = useState<PrepProduct[]>([]);
   const [bundle, setBundle] = useState<Bundle | null>(null);
   const [settings, setSettings] = useState<PrepSettings | null>(null);
+  const [costBreakdown, setCostBreakdown] = useState<MonthlyCostBreakdown | null>(null);
+  const [prevCostBreakdown, setPrevCostBreakdown] = useState<MonthlyCostBreakdown | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,22 +56,30 @@ export default function PrepReportDashboard() {
       setLoading(true);
       setError(null);
       try {
-        const [prodRes, reportRes, settingsData] = await Promise.all([
-          supabase.from("prep_products").select("*"),
-          supabase
-            .from("prep_reports")
-            .select("*")
-            .gte("date", startDate)
-            .lte("date", endDate)
-            .order("date"),
-          getPrepSettings(endDate),
-        ]);
+        // 前月（直接費比率の前月比表示用）
+        const prevM = month === 1 ? 12 : month - 1;
+        const prevY = month === 1 ? year - 1 : year;
+        const [prodRes, reportRes, settingsData, breakdown, prevBreakdown] =
+          await Promise.all([
+            supabase.from("prep_products").select("*"),
+            supabase
+              .from("prep_reports")
+              .select("*")
+              .gte("date", startDate)
+              .lte("date", endDate)
+              .order("date"),
+            getPrepSettings(endDate),
+            calculateMonthlyCostBreakdown(year, month),
+            calculateMonthlyCostBreakdown(prevY, prevM),
+          ]);
         if (cancelled) return;
         if (prodRes.error) throw prodRes.error;
         if (reportRes.error) throw reportRes.error;
         const reports = (reportRes.data as PrepReportRow[]) ?? [];
         setProducts((prodRes.data as PrepProduct[]) ?? []);
         setSettings(settingsData);
+        setCostBreakdown(breakdown);
+        setPrevCostBreakdown(prevBreakdown);
 
         if (reports.length === 0) {
           setBundle({ reports: [], sessions: [], items: [] });
@@ -266,6 +279,15 @@ export default function PrepReportDashboard() {
             </div>
           </div>
 
+          {/* 💡 直接費比率セクション */}
+          {costBreakdown && settings && costBreakdown.total_minutes > 0 && (
+            <DirectCostSection
+              breakdown={costBreakdown}
+              prev={prevCostBreakdown}
+              settings={settings}
+            />
+          )}
+
           <div className="space-y-1">
             <h3 className="text-sm font-bold text-stone-700">業務時間カテゴリ別</h3>
             <ul className="text-sm space-y-0.5 bg-stone-50 rounded-lg p-2">
@@ -340,5 +362,131 @@ export default function PrepReportDashboard() {
         </>
       )}
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 💡 直接費比率セクション
+// ---------------------------------------------------------------------------
+
+function DirectCostSection({
+  breakdown,
+  prev,
+  settings,
+}: {
+  breakdown: MonthlyCostBreakdown;
+  prev: MonthlyCostBreakdown | null;
+  settings: PrepSettings;
+}) {
+  const ratio = breakdown.direct_cost_ratio;
+  const ratioPct = (ratio * 100).toFixed(1);
+  const status = getDirectCostStatus(ratio, settings);
+
+  const wPct = Number(settings.direct_cost_warning_threshold) * 100;
+  const tPct = Number(settings.direct_cost_target_threshold) * 100;
+  const iPct = Number(settings.direct_cost_ideal_threshold) * 100;
+
+  // 前月比
+  let diffText: string | null = null;
+  if (prev && prev.total_minutes > 0) {
+    const diff = (ratio - prev.direct_cost_ratio) * 100;
+    const sign = diff > 0 ? "+" : diff < 0 ? "" : "±";
+    diffText = `前月比 ${sign}${diff.toFixed(1)} pt（前月 ${(prev.direct_cost_ratio * 100).toFixed(1)}%）`;
+  }
+
+  // バッジ色マップ
+  const badgeColor: Record<typeof status.color, string> = {
+    red: "bg-red-100 text-red-800 border-red-300",
+    amber: "bg-amber-100 text-amber-800 border-amber-300",
+    yellow: "bg-yellow-100 text-yellow-800 border-yellow-300",
+    emerald: "bg-emerald-100 text-emerald-800 border-emerald-300",
+  };
+  const barColor: Record<typeof status.color, string> = {
+    red: "bg-red-500",
+    amber: "bg-amber-500",
+    yellow: "bg-yellow-500",
+    emerald: "bg-emerald-500",
+  };
+
+  return (
+    <div className="space-y-2 border-t border-stone-200 pt-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h3 className="text-sm font-bold text-stone-700">💡 直接費比率</h3>
+        <span
+          className={`text-xs font-bold rounded-full px-2 py-0.5 border ${badgeColor[status.color]}`}
+        >
+          {status.label}
+        </span>
+      </div>
+
+      <div className="text-center py-1">
+        <span className="text-3xl font-bold text-stone-800">{ratioPct}%</span>
+        {diffText && (
+          <div className="text-xs text-stone-500 mt-0.5">{diffText}</div>
+        )}
+      </div>
+
+      {/* 警告メッセージ */}
+      {status.level === "warning" && (
+        <div className="bg-red-50 border border-red-200 text-red-800 text-xs rounded-lg px-2 py-1.5 font-semibold">
+          ⚠️ 警告：直接費比率が{wPct.toFixed(0)}%を下回っています。間接費の削減を検討してください。
+        </div>
+      )}
+
+      {/* プログレスバー with 3段階マーカー */}
+      <div className="relative w-full bg-stone-200 rounded-full h-3 overflow-visible">
+        <div
+          className={`h-3 rounded-full transition-all ${barColor[status.color]}`}
+          style={{ width: `${Math.min(100, ratio * 100)}%` }}
+        />
+        {/* 警告ライン */}
+        <div
+          className="absolute top-0 h-3 border-l-2 border-red-400"
+          style={{ left: `${wPct}%` }}
+          title={`警告ライン ${wPct.toFixed(0)}%`}
+        />
+        {/* 目標ライン */}
+        <div
+          className="absolute top-0 h-3 border-l-2 border-yellow-500"
+          style={{ left: `${tPct}%` }}
+          title={`目標ライン ${tPct.toFixed(0)}%`}
+        />
+        {/* 理想ライン */}
+        <div
+          className="absolute top-0 h-3 border-l-2 border-emerald-500"
+          style={{ left: `${iPct}%` }}
+          title={`理想ライン ${iPct.toFixed(0)}%`}
+        />
+      </div>
+      <div className="flex justify-between text-[10px] text-stone-500">
+        <span>0%</span>
+        <span style={{ marginLeft: `calc(${wPct}% - 1.5em)` }}>
+          警告 {wPct.toFixed(0)}%
+        </span>
+        <span style={{ marginLeft: `calc(${tPct - wPct}% - 1.5em)` }}>
+          目標 {tPct.toFixed(0)}%
+        </span>
+        <span style={{ marginLeft: `calc(${iPct - tPct}% - 1.5em)` }}>
+          理想 {iPct.toFixed(0)}%
+        </span>
+        <span>100%</span>
+      </div>
+
+      {/* 内訳 */}
+      <ul className="text-xs space-y-0.5 bg-stone-50 rounded-lg p-2 mt-2">
+        <li className="flex justify-between">
+          <span>直接費（仕込み + 現場勤務）</span>
+          <span className="font-mono">
+            {(breakdown.direct_cost_minutes / 60).toFixed(1)}h ¥{breakdown.direct_cost_amount.toLocaleString()}
+          </span>
+        </li>
+        <li className="flex justify-between">
+          <span>間接費（仕入れ + 発注 + 準備 + その他）</span>
+          <span className="font-mono">
+            {(breakdown.indirect_cost_minutes / 60).toFixed(1)}h ¥{breakdown.indirect_cost_amount.toLocaleString()}
+          </span>
+        </li>
+      </ul>
+    </div>
   );
 }

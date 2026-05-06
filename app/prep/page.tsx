@@ -8,8 +8,15 @@ import {
   calculateTheoreticalPrepQuantity,
   calculatePrepMinutes,
   getStaffPrepReport,
+  calculateAutoCarryover,
+  calculateMonthlyCostBreakdown,
+  getDirectCostStatus,
+  getPrepSettings,
   type PrepProduct,
   type TheoreticalQty,
+  type AutoCarryoverEntry,
+  type MonthlyCostBreakdown,
+  type PrepSettings,
 } from "@/lib/prepHelpers";
 
 const STAFF_OPTIONS = ["なぎさ"];
@@ -55,6 +62,11 @@ export default function PrepReportPage() {
   const [carryoverYesterday, setCarryoverYesterday] = useState<
     Array<{ product_id: string; product_name: string; quantity: number; unit_label: string }>
   >([]);
+  /** 翌日繰越の自動計算結果（前々日繰越 + 前日仕込み - 前日使用） */
+  const [autoCarryovers, setAutoCarryovers] = useState<AutoCarryoverEntry[]>([]);
+  /** 当月の直接費比率（参考表示用） */
+  const [monthlyCost, setMonthlyCost] = useState<MonthlyCostBreakdown | null>(null);
+  const [monthlySettings, setMonthlySettings] = useState<PrepSettings | null>(null);
   const [theoretical, setTheoretical] = useState<TheoreticalQty[]>([]);
   const [showTheoretical, setShowTheoretical] = useState(true);
   const [sessions, setSessions] = useState<SessionForm[]>([newSession()]);
@@ -73,26 +85,53 @@ export default function PrepReportPage() {
     text: string;
   } | null>(null);
 
+  // 当月の直接費比率（参考表示用）
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [y, m] = date.split("-").map((s) => parseInt(s, 10));
+      const lastDay = new Date(y, m, 0).getDate();
+      const endDate = `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+      const [breakdown, settings] = await Promise.all([
+        calculateMonthlyCostBreakdown(y, m, staffName),
+        getPrepSettings(endDate),
+      ]);
+      if (cancelled) return;
+      setMonthlyCost(breakdown);
+      setMonthlySettings(settings);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [date, staffName]);
+
   // 商品マスター・前日繰越・理論量を取得
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const [prods, co, th] = await Promise.all([
+        const [prods, co, th, autoCO] = await Promise.all([
           getActiveProducts(date),
           getCarryoverFromYesterday(date),
           calculateTheoreticalPrepQuantity(date),
+          calculateAutoCarryover(date),
         ]);
         if (cancelled) return;
         setProducts(prods);
         setCarryoverYesterday(co);
         setTheoretical(th);
-        // 繰越トラック対象商品の入力欄を初期化
+        setAutoCarryovers(autoCO);
+        // 繰越トラック対象商品の入力欄を初期化（自動計算値をプリセット）
         const tracked = prods.filter((p) => p.is_carryover_tracked);
+        const autoMap = new Map<string, number>();
+        for (const a of autoCO) autoMap.set(a.product_id, a.calculated_quantity);
         setCarryovers((prev) => {
           if (prev.length > 0) return prev;
-          return tracked.map((p) => ({ product_id: p.id, quantity: 0 }));
+          return tracked.map((p) => ({
+            product_id: p.id,
+            quantity: autoMap.get(p.id) ?? 0,
+          }));
         });
       } finally {
         if (!cancelled) setLoading(false);
@@ -281,6 +320,11 @@ export default function PrepReportPage() {
         <h1 className="text-xl font-bold text-brand-dark">🍳 仕込み日報</h1>
         <div className="w-16" />
       </header>
+
+      {/* 当月の直接費比率（参考表示） */}
+      {monthlyCost && monthlySettings && monthlyCost.total_minutes > 0 && (
+        <DirectCostBadge breakdown={monthlyCost} settings={monthlySettings} />
+      )}
 
       {/* セクション1: 基本情報 */}
       <section className="card space-y-3">
@@ -553,36 +597,78 @@ export default function PrepReportPage() {
       {/* セクション6: 翌日への繰越 */}
       <section className="card space-y-2">
         <h2 className="text-base font-bold">翌日への繰越</h2>
+        {/* データ揃わない場合の警告 */}
+        {autoCarryovers.length > 0 &&
+          autoCarryovers.some(
+            (a) => !a.has_yesterday_sales || !a.has_yesterday_prep,
+          ) && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-lg px-2 py-1.5">
+              ⚠️ 前日の{" "}
+              {autoCarryovers[0]?.has_yesterday_sales ? "" : "営業後日報"}
+              {!autoCarryovers[0]?.has_yesterday_sales &&
+              !autoCarryovers[0]?.has_yesterday_prep
+                ? "・"
+                : ""}
+              {autoCarryovers[0]?.has_yesterday_prep ? "" : "仕込み日報"}
+              がまだ提出されていません。自動計算は不完全な可能性があるので、必要なら手入力してください。
+            </div>
+          )}
         {products
           .filter((p) => p.is_carryover_tracked)
           .map((p) => {
             const co = carryovers.find((c) => c.product_id === p.id);
+            const auto = autoCarryovers.find((a) => a.product_id === p.id);
+            const autoQty = auto?.calculated_quantity ?? null;
+            const currentQty = co?.quantity ?? 0;
+            const isOverridden =
+              autoQty !== null && currentQty !== autoQty;
             return (
               <div
                 key={p.id}
-                className="flex items-center gap-2 bg-stone-50 rounded-lg px-2 py-1.5"
+                className="bg-stone-50 rounded-lg px-2 py-1.5 space-y-1"
               >
-                <div className="flex-1 text-sm">{p.name}</div>
-                <input
-                  type="number"
-                  min={0}
-                  value={co?.quantity || ""}
-                  onChange={(e) => {
-                    const next = parseInt(e.target.value || "0", 10);
-                    setCarryovers((prev) => {
-                      const exists = prev.find((c) => c.product_id === p.id);
-                      if (exists) {
-                        return prev.map((c) =>
-                          c.product_id === p.id ? { ...c, quantity: next } : c,
-                        );
-                      }
-                      return [...prev, { product_id: p.id, quantity: next }];
-                    });
-                  }}
-                  className="field text-sm py-1 w-24 text-right"
-                  placeholder="0"
-                />
-                <span className="text-xs text-stone-500 w-6">{p.unit_label}</span>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 text-sm">{p.name}</div>
+                  <input
+                    type="number"
+                    min={0}
+                    value={co?.quantity || ""}
+                    onChange={(e) => {
+                      const next = parseInt(e.target.value || "0", 10);
+                      setCarryovers((prev) => {
+                        const exists = prev.find((c) => c.product_id === p.id);
+                        if (exists) {
+                          return prev.map((c) =>
+                            c.product_id === p.id ? { ...c, quantity: next } : c,
+                          );
+                        }
+                        return [...prev, { product_id: p.id, quantity: next }];
+                      });
+                    }}
+                    className="field text-sm py-1 w-24 text-right"
+                    placeholder="0"
+                  />
+                  <span className="text-xs text-stone-500 w-6">{p.unit_label}</span>
+                </div>
+                {auto && (
+                  <div className="text-[11px] leading-tight pl-1">
+                    {isOverridden ? (
+                      <div className="text-amber-700 font-bold">
+                        ⚠️ 自動計算値から変更されています（自動: {autoQty}{p.unit_label} → 手入力: {currentQty}{p.unit_label}）
+                      </div>
+                    ) : (
+                      <div className="text-stone-500">
+                        自動計算: {autoQty}{p.unit_label}
+                      </div>
+                    )}
+                    <details className="text-stone-500 mt-0.5">
+                      <summary className="cursor-pointer">詳細</summary>
+                      <div className="bg-white rounded px-2 py-1 mt-1 font-mono text-[10px]">
+                        {auto.source_summary}
+                      </div>
+                    </details>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -626,5 +712,32 @@ export default function PrepReportPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+function DirectCostBadge({
+  breakdown,
+  settings,
+}: {
+  breakdown: MonthlyCostBreakdown;
+  settings: PrepSettings;
+}) {
+  const ratio = breakdown.direct_cost_ratio;
+  const status = getDirectCostStatus(ratio, settings);
+  const colorMap: Record<typeof status.color, string> = {
+    red: "bg-red-100 text-red-800 border-red-300",
+    amber: "bg-amber-100 text-amber-800 border-amber-300",
+    yellow: "bg-yellow-100 text-yellow-800 border-yellow-300",
+    emerald: "bg-emerald-100 text-emerald-800 border-emerald-300",
+  };
+  return (
+    <div
+      className={`flex items-center justify-between text-xs rounded-lg border px-2 py-1.5 ${colorMap[status.color]}`}
+    >
+      <span className="font-semibold">📊 今月の直接費比率</span>
+      <span className="font-bold">
+        {(ratio * 100).toFixed(1)}%（{status.label}）
+      </span>
+    </div>
   );
 }
