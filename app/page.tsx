@@ -62,6 +62,13 @@ export default function MenuPage() {
           <span className="text-2xl">📊</span>
           <span>チーム成績を見る</span>
         </Link>
+        <Link
+          href="/feedback"
+          className="flex items-center justify-center gap-3 w-full h-20 rounded-2xl bg-pink-500 hover:bg-pink-600 active:bg-pink-700 text-white font-bold text-xl shadow-md transition"
+        >
+          <span className="text-2xl">💡</span>
+          <span>意見箱</span>
+        </Link>
       </section>
 
       <footer className="mt-8 text-center">
