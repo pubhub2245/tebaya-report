@@ -18,6 +18,8 @@ import {
 import { generateLineText } from "@/lib/lineText";
 import { getUnitFromStaff } from "@/lib/teamMapping";
 import { getLimitedProductForMonth } from "@/lib/limitedProduct";
+import { calculateTebasakiCount } from "@/lib/calculateTebasakiCount";
+import { PRODUCT_PRICES } from "@/lib/productPrices";
 
 const TOTAL_STEPS = 8;
 
@@ -143,6 +145,25 @@ export default function Page() {
     [form.expenses]
   );
 
+  // 手羽先使用本数を売上から逆算（リアルタイム）
+  const tebasakiCalc = useMemo(
+    () =>
+      calculateTebasakiCount({
+        sales_amount: form.sales_amount || 0,
+        gyoza_count: form.remaining.gyoza || 0,
+        potato_count: form.remaining.potato || 0,
+        tornado_count: form.remaining.tornado || 0,
+        limited_count: form.limited_product_count || 0,
+      }),
+    [
+      form.sales_amount,
+      form.remaining.gyoza,
+      form.remaining.potato,
+      form.remaining.tornado,
+      form.limited_product_count,
+    ],
+  );
+
   const update = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
@@ -216,8 +237,9 @@ export default function Page() {
           register_ok: form.register_ok,
           register_diff: form.register_diff || 0,
           labor: form.labor || 10000,
-          // 手羽先・ねぎ塩はフォームから削除済み。互換性のため0で送信
-          remaining_tebasaki: 0,
+          // ねぎ塩はフォームから削除済み。互換性のため0で送信
+          // 手羽先は売上から逆算した自動計算値（calculateTebasakiCount）を保存
+          remaining_tebasaki: tebasakiCalc.count,
           remaining_gyoza: form.remaining.gyoza,
           remaining_potato: form.remaining.potato,
           remaining_tornado: form.remaining.tornado,
@@ -476,6 +498,33 @@ function Step1({
     form.staff_name.length > 0 && !STAFF_OPTIONS.includes(form.staff_name)
   );
   return (
+    <>
+      <details
+        open
+        className="bg-orange-50 border-l-4 border-orange-400 rounded p-3 mb-3"
+      >
+        <summary className="font-bold text-sm cursor-pointer text-orange-900">
+          🟧 手羽先の本数について（タップで開閉）
+        </summary>
+        <div className="text-xs text-orange-900 mt-2 leading-relaxed space-y-2">
+          <p>
+            このアプリでは、手羽先の使用本数は「売上から逆算」して自動計算します。
+            スタッフが数えるのは餃子・ポテト・トルネード・限定商品の本数だけです。
+          </p>
+          <div>
+            <div className="font-bold">【計算の仕組み】</div>
+            <ol className="list-decimal pl-5 space-y-0.5">
+              <li>数えた本数 × 単価 = 他商品の合計売上</li>
+              <li>その日の売上 − 他商品の合計売上 = 手羽先の売上</li>
+              <li>手羽先の売上 ÷ 150円 = 手羽先の本数（端数切り捨て）</li>
+            </ol>
+          </div>
+          <div>
+            <div className="font-bold">【単価】</div>
+            餃子 ¥{PRODUCT_PRICES.GYOZA}、ポテト ¥{PRODUCT_PRICES.POTATO}、トルネード ¥{PRODUCT_PRICES.TORNADO}、限定商品 ¥{PRODUCT_PRICES.LIMITED}、手羽先 ¥{PRODUCT_PRICES.TEBASAKI}
+          </div>
+        </div>
+      </details>
     <section className="card space-y-4">
       <h2 className="text-lg font-bold">基本情報</h2>
       <div>
@@ -602,6 +651,7 @@ function Step1({
         </div>
       </div>
     </section>
+    </>
   );
 }
 
@@ -855,7 +905,52 @@ function Step4({
           />
         </div>
       </section>
+
+      <TebasakiAutoCalcSection form={form} />
     </>
+  );
+}
+
+/* ---------- 手羽先 自動計算セクション ---------- */
+function TebasakiAutoCalcSection({ form }: { form: FormState }) {
+  const calc = useMemo(
+    () =>
+      calculateTebasakiCount({
+        sales_amount: form.sales_amount || 0,
+        gyoza_count: form.remaining.gyoza || 0,
+        potato_count: form.remaining.potato || 0,
+        tornado_count: form.remaining.tornado || 0,
+        limited_count: form.limited_product_count || 0,
+      }),
+    [
+      form.sales_amount,
+      form.remaining.gyoza,
+      form.remaining.potato,
+      form.remaining.tornado,
+      form.limited_product_count,
+    ],
+  );
+
+  return (
+    <section className="card space-y-2 mt-3 bg-orange-50 border border-orange-200">
+      <h2 className="text-lg font-bold text-orange-900">
+        🍗 手羽先 使用本数（自動計算）
+      </h2>
+      {calc.warning ? (
+        <div className="bg-red-100 text-red-800 border border-red-300 rounded-lg px-3 py-2 text-sm font-semibold">
+          ⚠️ {calc.warning}
+        </div>
+      ) : null}
+      <div className="text-center py-2">
+        <div className="text-4xl font-bold text-orange-900">{calc.count} 本</div>
+      </div>
+      <div className="text-xs text-stone-700 bg-white rounded-lg p-2 leading-relaxed break-all">
+        {calc.calculation_breakdown}
+      </div>
+      <p className="text-[11px] text-stone-500">
+        ※ 売上と他商品の本数を入力すると自動で計算されます。手動入力は不要です。
+      </p>
+    </section>
   );
 }
 
