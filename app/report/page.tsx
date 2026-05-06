@@ -17,6 +17,7 @@ import {
 } from "@/lib/formState";
 import { generateLineText } from "@/lib/lineText";
 import { getUnitFromStaff } from "@/lib/teamMapping";
+import { getLimitedProductForMonth } from "@/lib/limitedProduct";
 
 const TOTAL_STEPS = 8;
 
@@ -107,6 +108,27 @@ export default function Page() {
     })();
   }, [form.sales_amount]);
 
+  // 月次限定商品プリセット読み込み
+  // 日付 (form.date) の年月から該当月の登録名を取得し、空欄の場合のみ初期値として埋める
+  // ユーザーが既に書き換えていた場合は上書きしない
+  useEffect(() => {
+    if (!loaded) return;
+    if (!form.date) return;
+    if (form.limited_product_name.trim() !== "") return;
+    let cancelled = false;
+    (async () => {
+      const preset = await getLimitedProductForMonth(form.date);
+      if (cancelled) return;
+      if (preset && form.limited_product_name.trim() === "") {
+        setForm((f) => ({ ...f, limited_product_name: preset.product_name }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.date, loaded]);
+
   const registerTotal = useMemo(
     () =>
       COINS.reduce(
@@ -172,6 +194,16 @@ export default function Page() {
         console.warn("代理INSERTの自動削除でエラー（無視して続行）", e);
       }
 
+      // 限定商品: 商品名が空欄なら両方 NULL、本数のみ未入力なら本数のみ NULL
+      const limitedNameTrim = form.limited_product_name.trim();
+      const limitedName = limitedNameTrim === "" ? null : limitedNameTrim;
+      const limitedCount =
+        limitedName === null
+          ? null
+          : form.limited_product_count > 0
+            ? form.limited_product_count
+            : null;
+
       const { data, error } = await supabase
         .from("daily_reports")
         .insert({
@@ -184,11 +216,14 @@ export default function Page() {
           register_ok: form.register_ok,
           register_diff: form.register_diff || 0,
           labor: form.labor || 10000,
-          remaining_tebasaki: form.remaining.tebasaki,
+          // 手羽先・ねぎ塩はフォームから削除済み。互換性のため0で送信
+          remaining_tebasaki: 0,
           remaining_gyoza: form.remaining.gyoza,
           remaining_potato: form.remaining.potato,
           remaining_tornado: form.remaining.tornado,
-          remaining_negishio: form.remaining.negishio,
+          remaining_negishio: 0,
+          limited_product_name: limitedName,
+          limited_product_count: limitedCount,
           expenses: form.expenses,
           handover: form.handover,
           line_text: text,
@@ -350,7 +385,7 @@ export default function Page() {
                 "基本情報",
                 "売上",
                 "レジ確認",
-                "在庫残り",
+                "使用本数・限定商品",
                 "立替経費",
                 "引き継ぎ",
                 "片付けチェック",
@@ -722,66 +757,105 @@ function Step4({
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
 }) {
+  // DBカラム名は維持。表示ラベルだけ「使用本数」。手羽先・ねぎ塩は廃止。
   const items: { key: keyof FormState["remaining"]; label: string }[] = [
-    { key: "tebasaki", label: "手羽先" },
-    { key: "gyoza", label: "手羽餃子" },
-    { key: "negishio", label: "ねぎ塩" },
-    { key: "potato", label: "ポテト" },
-    { key: "tornado", label: "トルネードポテト" },
+    { key: "gyoza", label: "餃子の使用本数" },
+    { key: "potato", label: "ポテトの使用本数" },
+    { key: "tornado", label: "トルネードの使用本数" },
   ];
   return (
-    <section className="card space-y-3">
-      <h2 className="text-lg font-bold">在庫残り本数</h2>
-      {items.map((it) => {
-        const v = form.remaining[it.key] || 0;
-        return (
-          <div
-            key={it.key}
-            className="flex items-center gap-3 bg-stone-50 rounded-xl px-3 py-2"
-          >
-            <div className="flex-1 font-semibold">{it.label}</div>
-            <button
-              type="button"
-              onClick={() =>
-                update("remaining", {
-                  ...form.remaining,
-                  [it.key]: Math.max(0, v - 1),
-                })
-              }
-              className="w-10 h-10 rounded-full bg-stone-200 text-xl font-bold"
+    <>
+      <section className="card space-y-3">
+        <h2 className="text-lg font-bold">使用本数</h2>
+        <p className="text-xs text-stone-500">
+          今日使った本数を入力してください
+        </p>
+        {items.map((it) => {
+          const v = form.remaining[it.key] || 0;
+          return (
+            <div
+              key={it.key}
+              className="flex items-center gap-3 bg-stone-50 rounded-xl px-3 py-2"
             >
-              −
-            </button>
-            <input
-              type="number"
-              inputMode="numeric"
-              className="field w-20 text-center"
-              value={v || ""}
-              onChange={(e) =>
-                update("remaining", {
-                  ...form.remaining,
-                  [it.key]: parseInt(e.target.value || "0", 10),
-                })
-              }
-              placeholder="0"
-            />
-            <span className="text-stone-500">本</span>
-            <button
-              type="button"
-              onClick={() =>
-                update("remaining", {
-                  ...form.remaining,
-                  [it.key]: v + 1,
-                })
-              }
-              className="w-10 h-10 rounded-full bg-stone-200 text-xl font-bold"
-            >
-              ＋
-            </button>
-          </div>
-        );
-      })}
-    </section>
+              <div className="flex-1 font-semibold">{it.label}</div>
+              <button
+                type="button"
+                onClick={() =>
+                  update("remaining", {
+                    ...form.remaining,
+                    [it.key]: Math.max(0, v - 1),
+                  })
+                }
+                className="w-10 h-10 rounded-full bg-stone-200 text-xl font-bold"
+              >
+                −
+              </button>
+              <input
+                type="number"
+                inputMode="numeric"
+                className="field w-20 text-center"
+                value={v || ""}
+                onChange={(e) =>
+                  update("remaining", {
+                    ...form.remaining,
+                    [it.key]: parseInt(e.target.value || "0", 10),
+                  })
+                }
+                placeholder="0"
+              />
+              <span className="text-stone-500">本</span>
+              <button
+                type="button"
+                onClick={() =>
+                  update("remaining", {
+                    ...form.remaining,
+                    [it.key]: v + 1,
+                  })
+                }
+                className="w-10 h-10 rounded-full bg-stone-200 text-xl font-bold"
+              >
+                ＋
+              </button>
+            </div>
+          );
+        })}
+      </section>
+
+      <section className="card space-y-3 mt-3">
+        <h2 className="text-lg font-bold">限定商品</h2>
+        <p className="text-xs text-stone-500">
+          今月の限定商品を販売した場合のみ入力してください（任意）
+        </p>
+        <div>
+          <label className="label">商品名</label>
+          <input
+            type="text"
+            className="field"
+            value={form.limited_product_name}
+            onChange={(e) => update("limited_product_name", e.target.value)}
+            placeholder="例：チキン南蛮"
+          />
+        </div>
+        <div>
+          <label className="label">販売本数</label>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            step={1}
+            className="field text-right"
+            value={form.limited_product_count || ""}
+            onChange={(e) =>
+              update(
+                "limited_product_count",
+                Math.max(0, parseInt(e.target.value || "0", 10)),
+              )
+            }
+            placeholder="例：12"
+          />
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -1051,9 +1125,15 @@ function Step7({
         <Row k="累計売上" v={yen(cumulative)} />
         <Row k="レジ合計" v={`${yen(registerTotal)}（${form.register_ok ? "OK" : "差異あり"}）`} />
         <Row
-          k="在庫残"
-          v={`手羽${form.remaining.tebasaki} / 餃子${form.remaining.gyoza} / ねぎ塩${form.remaining.negishio} / ポテト${form.remaining.potato} / トルネード${form.remaining.tornado}`}
+          k="使用本数"
+          v={`餃子${form.remaining.gyoza} / ポテト${form.remaining.potato} / トルネード${form.remaining.tornado}`}
         />
+        {form.limited_product_name.trim() && (
+          <Row
+            k="限定商品"
+            v={`${form.limited_product_name.trim()}${form.limited_product_count > 0 ? ` ${form.limited_product_count}本` : ""}`}
+          />
+        )}
         <Row k="経費件数" v={`${form.expenses.length}件（${yen(expensesTotal)}）`} />
         {form.unit_number && <Row k="番隊" v={`${form.unit_number}番隊`} />}
       </div>
