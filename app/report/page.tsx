@@ -499,32 +499,6 @@ function Step1({
   );
   return (
     <>
-      <details
-        open
-        className="bg-orange-50 border-l-4 border-orange-400 rounded p-3 mb-3"
-      >
-        <summary className="font-bold text-sm cursor-pointer text-orange-900">
-          🟧 手羽先の本数について（タップで開閉）
-        </summary>
-        <div className="text-xs text-orange-900 mt-2 leading-relaxed space-y-2">
-          <p>
-            このアプリでは、手羽先の使用本数は「売上から逆算」して自動計算します。
-            スタッフが数えるのは餃子・ポテト・トルネード・限定商品の本数だけです。
-          </p>
-          <div>
-            <div className="font-bold">【計算の仕組み】</div>
-            <ol className="list-decimal pl-5 space-y-0.5">
-              <li>数えた本数 × 単価 = 他商品の合計売上</li>
-              <li>その日の売上 − 他商品の合計売上 = 手羽先の売上</li>
-              <li>手羽先の売上 ÷ 150円 = 手羽先の本数（端数切り捨て）</li>
-            </ol>
-          </div>
-          <div>
-            <div className="font-bold">【単価】</div>
-            餃子 ¥{PRODUCT_PRICES.GYOZA}、ポテト ¥{PRODUCT_PRICES.POTATO}、トルネード ¥{PRODUCT_PRICES.TORNADO}、限定商品 ¥{PRODUCT_PRICES.LIMITED}、手羽先 ¥{PRODUCT_PRICES.TEBASAKI}
-          </div>
-        </div>
-      </details>
     <section className="card space-y-4">
       <h2 className="text-lg font-bold">基本情報</h2>
       <div>
@@ -815,6 +789,32 @@ function Step4({
   ];
   return (
     <>
+      <details
+        open
+        className="bg-orange-50 border-l-4 border-orange-400 rounded p-3 mb-3"
+      >
+        <summary className="font-bold text-sm cursor-pointer text-orange-900">
+          🟧 手羽先の本数について（タップで開閉）
+        </summary>
+        <div className="text-xs text-orange-900 mt-2 leading-relaxed space-y-2">
+          <p>
+            このアプリでは、手羽先の使用本数は「売上から逆算」して自動計算します。
+            スタッフが数えるのは餃子・ポテト・トルネード・限定商品の本数だけです。
+          </p>
+          <div>
+            <div className="font-bold">【計算の仕組み】</div>
+            <ol className="list-decimal pl-5 space-y-0.5">
+              <li>数えた本数 × 単価 = 他商品の合計売上</li>
+              <li>その日の売上 − 他商品の合計売上 = 手羽先の売上</li>
+              <li>手羽先の売上 ÷ 150円 = 手羽先の本数（端数切り捨て）</li>
+            </ol>
+          </div>
+          <div>
+            <div className="font-bold">【単価】</div>
+            餃子 ¥{PRODUCT_PRICES.GYOZA}、ポテト ¥{PRODUCT_PRICES.POTATO}、トルネード ¥{PRODUCT_PRICES.TORNADO}、限定商品 ¥{PRODUCT_PRICES.LIMITED}、手羽先 ¥{PRODUCT_PRICES.TEBASAKI}
+          </div>
+        </div>
+      </details>
       <section className="card space-y-3">
         <h2 className="text-lg font-bold">使用本数</h2>
         <p className="text-xs text-stone-500">
