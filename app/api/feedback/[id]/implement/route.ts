@@ -184,7 +184,24 @@ export async function POST(
     })
     .eq("id", id);
 
-  /** エラーで終了する共通処理: ステータスを reviewing に戻し ai_error を保存 */
+  /** AI（Claude）として返信を1件投稿。失敗してもメイン処理は止めない */
+  async function postAiReply(content: string, prUrl: string | null = null) {
+    const trimmed = (content ?? "").trim();
+    if (!trimmed) return;
+    try {
+      await supabase.from("feedback_replies").insert({
+        feedback_id: id,
+        author_type: "ai",
+        author_name: "Claude AI",
+        content: trimmed,
+        pr_url: prUrl,
+      });
+    } catch (e) {
+      console.warn("[implement] AI reply 投稿失敗（継続）", e);
+    }
+  }
+
+  /** エラーで終了する共通処理: ステータスを reviewing に戻し ai_error を保存し、AI返信も投稿 */
   async function failAndRespond(message: string, status: number) {
     await supabase
       .from("feedback_box")
@@ -193,6 +210,11 @@ export async function POST(
         ai_error: message.slice(0, 1000),
       })
       .eq("id", id);
+    // システム固定文として AI 返信を投稿（短く要約）
+    const short = message.length > 200 ? message.slice(0, 200) + "…" : message;
+    await postAiReply(
+      `実装中にエラーが発生しました：${short}\n管理者に確認をお願いします。`,
+    );
     return NextResponse.json(
       { success: false, error: message },
       { status },
@@ -244,9 +266,26 @@ export async function POST(
   }
 
   if (plan.feasibility !== "feasible") {
-    return failAndRespond(
-      `AI が「${plan.feasibility}」と判定しました: ${plan.feasibility_reason}`,
-      422,
+    // 却下/保留: AI が生成した staff_reply を AI 返信として投稿
+    const replyText =
+      plan.staff_reply && plan.staff_reply.trim()
+        ? plan.staff_reply.trim()
+        : `この要望は「${plan.feasibility}」と判定しました：${plan.feasibility_reason}\n別案がございましたら追加でご投稿ください。`;
+    await supabase
+      .from("feedback_box")
+      .update({
+        status: "reviewing",
+        ai_error: `AI 判定: ${plan.feasibility}（${plan.feasibility_reason}）`.slice(0, 1000),
+      })
+      .eq("id", id);
+    await postAiReply(replyText);
+    return NextResponse.json(
+      {
+        success: false,
+        error: `AI が「${plan.feasibility}」と判定しました: ${plan.feasibility_reason}`,
+        staff_reply: replyText,
+      },
+      { status: 422 },
     );
   }
 
@@ -350,6 +389,13 @@ export async function POST(
       ai_implementation_summary: plan.implementation_summary,
     })
     .eq("id", id);
+
+  // ---------- 9.5. AI 返信を自動投稿（成功時） ----------
+  const successReply =
+    generated.staff_reply && generated.staff_reply.trim()
+      ? generated.staff_reply.trim()
+      : `ご投稿ありがとうございます。ご要望に沿った実装案を作成し、PR (#${prInfo.number}) として準備しました。\n${plan.implementation_summary || ""}\n内容をレビューのうえマージいたします。テスト推奨：該当機能の動作確認をお願いします。`;
+  await postAiReply(successReply, prInfo.url);
 
   // ---------- 10. レスポンス ----------
   return NextResponse.json({
