@@ -87,6 +87,9 @@ export type FormState = {
     tornado: number;
     negishio: number;
   };
+  /** 月次限定商品（例：チキン南蛮）。商品名空欄なら DB は両方 NULL 保存。 */
+  limited_product_name: string;
+  limited_product_count: number;
   expenses: ExpenseRow[];
   handover: string;
   unit_number: string;
@@ -104,6 +107,8 @@ export const initialForm = (): FormState => ({
   register_diff: 0,
   labor: DEFAULT_DAILY_PAY,
   remaining: { tebasaki: 0, gyoza: 0, potato: 0, tornado: 0, negishio: 0 },
+  limited_product_name: "",
+  limited_product_count: 0,
   expenses: [],
   handover: "",
   unit_number: "",

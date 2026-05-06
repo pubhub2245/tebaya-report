@@ -8,6 +8,7 @@ import { laborFor } from "@/lib/formState";
 import MonthlyDashboard from "@/app/components/MonthlyDashboard";
 import TaskAdminDashboard from "@/app/components/TaskAdminDashboard";
 import AchievementRateDashboard from "@/app/components/AchievementRateDashboard";
+import MonthlyLimitedProductManager from "@/app/components/MonthlyLimitedProductManager";
 import AdminGate from "@/app/components/AdminGate";
 
 type Report = {
@@ -401,6 +402,8 @@ export default function AdminPage() {
       </section>
 
       <AchievementRateDashboard />
+
+      <MonthlyLimitedProductManager />
 
       {alerts.length > 0 && (
         <section className="space-y-3">

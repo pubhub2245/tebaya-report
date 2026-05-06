@@ -63,13 +63,18 @@ export function generateLineText(f: FormState, cumulative: number): string {
     coinLines || "(金種入力なし)",
     `レジ合計：${yen(registerTotal)}（${f.register_ok ? "確認OK" : "差異あり"}）`,
     SEP,
-    "📦 残り在庫",
-    `・手羽先：${f.remaining.tebasaki}本`,
+    "📦 使用本数",
     `・餃子：${f.remaining.gyoza}個`,
     `・ポテト：${f.remaining.potato}袋`,
     `・トルネード：${f.remaining.tornado}本`,
-    `・ねぎ塩：${f.remaining.negishio}パック`,
   ];
+
+  // 限定商品（任意項目、商品名がある場合のみ）
+  const limitedName = (f.limited_product_name ?? "").trim();
+  if (limitedName) {
+    const cnt = f.limited_product_count > 0 ? `${f.limited_product_count}本` : "（本数未入力）";
+    parts.push(`・限定商品 ${limitedName}：${cnt}`);
+  }
 
   if (expLines) {
     parts.push(SEP, "立替経費", expLines);
