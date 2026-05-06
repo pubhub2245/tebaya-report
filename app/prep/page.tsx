@@ -1,0 +1,630 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import {
+  getActiveProducts,
+  getCarryoverFromYesterday,
+  calculateTheoreticalPrepQuantity,
+  calculatePrepMinutes,
+  getStaffPrepReport,
+  type PrepProduct,
+  type TheoreticalQty,
+} from "@/lib/prepHelpers";
+
+const STAFF_OPTIONS = ["なぎさ"];
+
+type SessionItemForm = {
+  product_id: string;
+  quantity: number;
+};
+
+type SessionForm = {
+  session_label: string;
+  start_time: string;
+  end_time: string;
+  items: SessionItemForm[];
+};
+
+type CarryoverForm = {
+  product_id: string;
+  quantity: number;
+};
+
+function todayIso(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function newSession(): SessionForm {
+  return {
+    session_label: "",
+    start_time: "09:00",
+    end_time: "11:00",
+    items: [{ product_id: "", quantity: 0 }],
+  };
+}
+
+export default function PrepReportPage() {
+  const [date, setDate] = useState<string>(todayIso());
+  const [staffName, setStaffName] = useState<string>(STAFF_OPTIONS[0]);
+  const [products, setProducts] = useState<PrepProduct[]>([]);
+  const [carryoverYesterday, setCarryoverYesterday] = useState<
+    Array<{ product_id: string; product_name: string; quantity: number; unit_label: string }>
+  >([]);
+  const [theoretical, setTheoretical] = useState<TheoreticalQty[]>([]);
+  const [showTheoretical, setShowTheoretical] = useState(true);
+  const [sessions, setSessions] = useState<SessionForm[]>([newSession()]);
+  const [fieldWork, setFieldWork] = useState(0);
+  const [procurement, setProcurement] = useState(0);
+  const [ordering, setOrdering] = useState(0);
+  const [setup, setSetup] = useState(0);
+  const [other, setOther] = useState(0);
+  const [otherDesc, setOtherDesc] = useState("");
+  const [memo, setMemo] = useState("");
+  const [carryovers, setCarryovers] = useState<CarryoverForm[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<{
+    kind: "ok" | "err";
+    text: string;
+  } | null>(null);
+
+  // 商品マスター・前日繰越・理論量を取得
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const [prods, co, th] = await Promise.all([
+          getActiveProducts(date),
+          getCarryoverFromYesterday(date),
+          calculateTheoreticalPrepQuantity(date),
+        ]);
+        if (cancelled) return;
+        setProducts(prods);
+        setCarryoverYesterday(co);
+        setTheoretical(th);
+        // 繰越トラック対象商品の入力欄を初期化
+        const tracked = prods.filter((p) => p.is_carryover_tracked);
+        setCarryovers((prev) => {
+          if (prev.length > 0) return prev;
+          return tracked.map((p) => ({ product_id: p.id, quantity: 0 }));
+        });
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [date]);
+
+  // 既存レポートの読み込み
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const bundle = await getStaffPrepReport(date, staffName);
+      if (cancelled) return;
+      if (bundle.report) {
+        setFieldWork(bundle.report.field_work_minutes);
+        setProcurement(bundle.report.procurement_minutes);
+        setOrdering(bundle.report.ordering_minutes);
+        setSetup(bundle.report.setup_minutes);
+        setOther(bundle.report.other_minutes);
+        setOtherDesc(bundle.report.other_description ?? "");
+        setMemo(bundle.report.memo ?? "");
+        // sessions + items 復元
+        if (bundle.sessions.length > 0) {
+          const sessForms: SessionForm[] = bundle.sessions
+            .sort((a, b) => a.display_order - b.display_order)
+            .map((s) => ({
+              session_label: s.session_label ?? "",
+              start_time: s.start_time.slice(0, 5),
+              end_time: s.end_time.slice(0, 5),
+              items: bundle.items
+                .filter((i) => i.prep_session_id === s.id)
+                .map((i) => ({ product_id: i.product_id, quantity: i.quantity })),
+            }));
+          setSessions(sessForms.length > 0 ? sessForms : [newSession()]);
+        }
+        // 当日繰越の復元
+        const todayCo = bundle.carryovers.filter((c) => c.date === date);
+        if (todayCo.length > 0) {
+          setCarryovers(
+            todayCo.map((c) => ({ product_id: c.product_id, quantity: c.quantity })),
+          );
+        }
+      } else {
+        // 既存レポートが無い場合は初期化
+        setFieldWork(0);
+        setProcurement(0);
+        setOrdering(0);
+        setSetup(0);
+        setOther(0);
+        setOtherDesc("");
+        setMemo("");
+        setSessions([newSession()]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [date, staffName]);
+
+  // 商品マップ（速度計算用）
+  const productMap = useMemo(() => {
+    const m = new Map<string, PrepProduct>();
+    for (const p of products) m.set(p.id, p);
+    return m;
+  }, [products]);
+
+  // 各セッションの所要分数
+  const sessionMinutes = useMemo(
+    () =>
+      sessions.map((s) =>
+        calculatePrepMinutes(
+          s.items,
+          productMap as unknown as Map<string, { speed_basis: PrepProduct["speed_basis"]; speed_minutes: number }>,
+        ),
+      ),
+    [sessions, productMap],
+  );
+  const totalPrepMinutes = sessionMinutes.reduce((a, b) => a + b, 0);
+  const totalNonPrepMinutes = fieldWork + procurement + ordering + setup + other;
+  const grandTotal = totalPrepMinutes + totalNonPrepMinutes;
+
+  // ----- セッション操作 -----
+  const addSession = () => setSessions([...sessions, newSession()]);
+  const removeSession = (idx: number) => {
+    if (sessions.length <= 1) return;
+    setSessions(sessions.filter((_, i) => i !== idx));
+  };
+  const updateSession = (idx: number, patch: Partial<SessionForm>) => {
+    setSessions(sessions.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+  };
+  const addItem = (sIdx: number) => {
+    updateSession(sIdx, {
+      items: [...sessions[sIdx].items, { product_id: "", quantity: 0 }],
+    });
+  };
+  const removeItem = (sIdx: number, iIdx: number) => {
+    const next = sessions[sIdx].items.filter((_, i) => i !== iIdx);
+    updateSession(sIdx, { items: next.length > 0 ? next : [{ product_id: "", quantity: 0 }] });
+  };
+  const updateItem = (sIdx: number, iIdx: number, patch: Partial<SessionItemForm>) => {
+    const next = sessions[sIdx].items.map((it, i) => (i === iIdx ? { ...it, ...patch } : it));
+    updateSession(sIdx, { items: next });
+  };
+
+  // ----- 保存 -----
+  const handleSave = async () => {
+    setFeedback(null);
+    // 簡易バリデーション
+    for (let i = 0; i < sessions.length; i++) {
+      const s = sessions[i];
+      if (!s.start_time || !s.end_time) {
+        setFeedback({ kind: "err", text: `セッション #${i + 1}: 開始/終了時刻を入力してください` });
+        return;
+      }
+      if (s.start_time >= s.end_time) {
+        setFeedback({ kind: "err", text: `セッション #${i + 1}: 開始時刻は終了時刻より前にしてください` });
+        return;
+      }
+      const filledItems = s.items.filter((it) => it.product_id);
+      if (filledItems.length === 0) {
+        setFeedback({ kind: "err", text: `セッション #${i + 1}: 商品を1件以上選択してください` });
+        return;
+      }
+    }
+
+    setSaving(true);
+    try {
+      const payload = {
+        date,
+        staff_name: staffName,
+        sessions: sessions.map((s) => ({
+          session_label: s.session_label || null,
+          start_time: s.start_time,
+          end_time: s.end_time,
+          items: s.items
+            .filter((it) => it.product_id)
+            .map((it) => ({
+              product_id: it.product_id,
+              quantity: Math.max(0, it.quantity || 0),
+            })),
+        })),
+        field_work_minutes: fieldWork,
+        procurement_minutes: procurement,
+        ordering_minutes: ordering,
+        setup_minutes: setup,
+        other_minutes: other,
+        other_description: otherDesc,
+        memo,
+        carryovers: carryovers
+          .filter((c) => c.product_id)
+          .map((c) => ({ product_id: c.product_id, quantity: Math.max(0, c.quantity || 0) })),
+      };
+      const res = await fetch("/api/prep/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "保存に失敗しました");
+      }
+      setFeedback({
+        kind: "ok",
+        text: `保存しました（セッション ${json.sessions_count} 件、品目 ${json.items_count} 件）`,
+      });
+    } catch (e: any) {
+      setFeedback({ kind: "err", text: e?.message || "保存失敗" });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setFeedback(null), 6000);
+    }
+  };
+
+  return (
+    <main className="max-w-2xl mx-auto px-4 py-6 pb-32 space-y-4">
+      <header className="flex items-center justify-between gap-2">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-700 font-bold text-sm px-3 py-2"
+        >
+          🏠 トップ
+        </Link>
+        <h1 className="text-xl font-bold text-brand-dark">🍳 仕込み日報</h1>
+        <div className="w-16" />
+      </header>
+
+      {/* セクション1: 基本情報 */}
+      <section className="card space-y-3">
+        <h2 className="text-base font-bold">基本情報</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">日付</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="field text-sm"
+            />
+          </div>
+          <div>
+            <label className="label">担当者</label>
+            <select
+              value={staffName}
+              onChange={(e) => setStaffName(e.target.value)}
+              className="field text-sm"
+            >
+              {STAFF_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </section>
+
+      {/* セクション2: 前日の繰越 */}
+      <section className="card space-y-2">
+        <h2 className="text-base font-bold">前日の繰越（参考）</h2>
+        {loading ? (
+          <p className="text-sm text-stone-500">読み込み中…</p>
+        ) : carryoverYesterday.length === 0 ? (
+          <p className="text-sm text-stone-400">前日の繰越データはありません</p>
+        ) : (
+          <ul className="text-sm space-y-1">
+            {carryoverYesterday.map((c) => (
+              <li key={c.product_id}>
+                ・{c.product_name}：<strong>{c.quantity}</strong>{c.unit_label}（前日繰越）
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* セクション3: 理論仕込み量 */}
+      <section className="card space-y-2">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-bold">理論仕込み量（売上から逆算）</h2>
+          <button
+            type="button"
+            onClick={() => setShowTheoretical(!showTheoretical)}
+            className="text-xs text-stone-600 underline"
+          >
+            {showTheoretical ? "折りたたむ" : "展開"}
+          </button>
+        </div>
+        {showTheoretical && (
+          <>
+            {theoretical.length === 0 ? (
+              <p className="text-sm text-stone-400">前日の売上データなし、または未集計</p>
+            ) : (
+              <div className="text-sm bg-amber-50 border border-amber-200 rounded-lg p-2">
+                売上から逆算すると、今日の必要量は：
+                <ul className="mt-1 space-y-0.5">
+                  {theoretical.map((t) => (
+                    <li key={t.product_id}>
+                      ・{t.product_name}：<strong>{t.theoretical_quantity}本</strong>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
+      {/* セクション4: 仕込みセッション */}
+      <section className="card space-y-3">
+        <h2 className="text-base font-bold">仕込みセッション</h2>
+        {sessions.map((s, sIdx) => (
+          <div
+            key={sIdx}
+            className="border border-stone-200 rounded-xl p-3 space-y-2 bg-stone-50/50"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold">
+                セッション #{sIdx + 1}
+                <span className="ml-2 text-xs text-stone-500 font-normal">
+                  所要：{sessionMinutes[sIdx]}分
+                </span>
+              </span>
+              {sessions.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeSession(sIdx)}
+                  className="text-xs text-red-600 hover:text-red-700"
+                >
+                  ＋ セッション削除
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-xs font-bold text-stone-600 block mb-0.5">
+                  ラベル
+                </label>
+                <input
+                  type="text"
+                  value={s.session_label}
+                  onChange={(e) =>
+                    updateSession(sIdx, { session_label: e.target.value })
+                  }
+                  placeholder="朝/昼/夜"
+                  className="field text-sm py-1.5"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-stone-600 block mb-0.5">
+                  開始
+                </label>
+                <input
+                  type="time"
+                  value={s.start_time}
+                  onChange={(e) =>
+                    updateSession(sIdx, { start_time: e.target.value })
+                  }
+                  className="field text-sm py-1.5"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-stone-600 block mb-0.5">
+                  終了
+                </label>
+                <input
+                  type="time"
+                  value={s.end_time}
+                  onChange={(e) =>
+                    updateSession(sIdx, { end_time: e.target.value })
+                  }
+                  className="field text-sm py-1.5"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              {s.items.map((it, iIdx) => (
+                <div key={iIdx} className="flex items-center gap-2">
+                  <select
+                    value={it.product_id}
+                    onChange={(e) =>
+                      updateItem(sIdx, iIdx, { product_id: e.target.value })
+                    }
+                    className="field text-sm py-1.5 flex-1"
+                  >
+                    <option value="">— 商品 —</option>
+                    {products.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    min={0}
+                    value={it.quantity || ""}
+                    onChange={(e) =>
+                      updateItem(sIdx, iIdx, {
+                        quantity: parseInt(e.target.value || "0", 10),
+                      })
+                    }
+                    placeholder="0"
+                    className="field text-sm py-1.5 w-24 text-right"
+                  />
+                  <span className="text-xs text-stone-500 w-10">
+                    {productMap.get(it.product_id)?.unit_label ?? ""}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeItem(sIdx, iIdx)}
+                    className="text-stone-400 hover:text-red-600 text-lg leading-none px-1"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => addItem(sIdx)}
+                className="text-xs text-brand hover:text-brand-dark underline"
+              >
+                ＋ 商品を追加
+              </button>
+            </div>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={addSession}
+          className="btn-secondary w-full text-sm"
+        >
+          ＋ セッションを追加
+        </button>
+      </section>
+
+      {/* セクション5: 業務時間カテゴリ */}
+      <section className="card space-y-2">
+        <h2 className="text-base font-bold">業務時間（仕込み以外）</h2>
+        <div className="space-y-2">
+          {[
+            { label: "現場勤務", value: fieldWork, set: setFieldWork },
+            { label: "仕入れ・買い出し", value: procurement, set: setProcurement },
+            { label: "発注・業者連絡", value: ordering, set: setOrdering },
+            { label: "翌日準備・セッティング", value: setup, set: setSetup },
+            { label: "その他", value: other, set: setOther },
+          ].map((row) => (
+            <div
+              key={row.label}
+              className="flex items-center gap-2 bg-stone-50 rounded-lg px-2 py-1.5"
+            >
+              <div className="flex-1 text-sm">{row.label}</div>
+              <input
+                type="number"
+                min={0}
+                value={row.value || ""}
+                onChange={(e) => row.set(parseInt(e.target.value || "0", 10))}
+                className="field text-sm py-1 w-20 text-right"
+                placeholder="0"
+              />
+              <span className="text-xs text-stone-500 w-6">分</span>
+            </div>
+          ))}
+          {other > 0 && (
+            <div>
+              <label className="text-xs font-bold text-stone-700 block mb-0.5">
+                その他の内容
+              </label>
+              <input
+                type="text"
+                value={otherDesc}
+                onChange={(e) => setOtherDesc(e.target.value)}
+                className="field text-sm"
+                placeholder="例：清掃、研修、SNS投稿など"
+              />
+            </div>
+          )}
+        </div>
+        <div className="bg-stone-100 rounded-lg p-2 text-sm space-y-0.5">
+          <div className="flex justify-between">
+            <span>仕込み時間（セッション合計）</span>
+            <span className="font-mono font-bold">{totalPrepMinutes}分</span>
+          </div>
+          <div className="flex justify-between">
+            <span>仕込み以外</span>
+            <span className="font-mono">{totalNonPrepMinutes}分</span>
+          </div>
+          <div className="flex justify-between border-t border-stone-300 pt-1">
+            <span className="font-bold">合計</span>
+            <span className="font-mono font-bold text-brand-dark">
+              {grandTotal}分（{(grandTotal / 60).toFixed(1)}h）
+            </span>
+          </div>
+        </div>
+      </section>
+
+      {/* セクション6: 翌日への繰越 */}
+      <section className="card space-y-2">
+        <h2 className="text-base font-bold">翌日への繰越</h2>
+        {products
+          .filter((p) => p.is_carryover_tracked)
+          .map((p) => {
+            const co = carryovers.find((c) => c.product_id === p.id);
+            return (
+              <div
+                key={p.id}
+                className="flex items-center gap-2 bg-stone-50 rounded-lg px-2 py-1.5"
+              >
+                <div className="flex-1 text-sm">{p.name}</div>
+                <input
+                  type="number"
+                  min={0}
+                  value={co?.quantity || ""}
+                  onChange={(e) => {
+                    const next = parseInt(e.target.value || "0", 10);
+                    setCarryovers((prev) => {
+                      const exists = prev.find((c) => c.product_id === p.id);
+                      if (exists) {
+                        return prev.map((c) =>
+                          c.product_id === p.id ? { ...c, quantity: next } : c,
+                        );
+                      }
+                      return [...prev, { product_id: p.id, quantity: next }];
+                    });
+                  }}
+                  className="field text-sm py-1 w-24 text-right"
+                  placeholder="0"
+                />
+                <span className="text-xs text-stone-500 w-6">{p.unit_label}</span>
+              </div>
+            );
+          })}
+      </section>
+
+      {/* セクション7: メモ */}
+      <section className="card space-y-2">
+        <h2 className="text-base font-bold">メモ・引き継ぎ（任意）</h2>
+        <textarea
+          value={memo}
+          onChange={(e) => setMemo(e.target.value)}
+          rows={4}
+          className="field text-sm"
+          placeholder="次回への引き継ぎ事項など"
+        />
+      </section>
+
+      {feedback && (
+        <div
+          className={`text-sm font-semibold rounded-xl px-3 py-2 ${
+            feedback.kind === "ok"
+              ? "bg-green-50 text-green-700 border border-green-200"
+              : "bg-red-50 text-red-700 border border-red-200"
+          }`}
+        >
+          {feedback.kind === "ok" ? "✅" : "❌"} {feedback.text}
+        </div>
+      )}
+
+      {/* セクション8: 保存 */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 shadow-lg">
+        <div className="max-w-2xl mx-auto px-4 py-3">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="btn-primary w-full"
+          >
+            {saving ? "保存中…" : "保存して送信"}
+          </button>
+        </div>
+      </div>
+    </main>
+  );
+}

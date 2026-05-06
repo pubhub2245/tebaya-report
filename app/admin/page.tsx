@@ -10,6 +10,8 @@ import TaskAdminDashboard from "@/app/components/TaskAdminDashboard";
 import AchievementRateDashboard from "@/app/components/AchievementRateDashboard";
 import MonthlyLimitedProductManager from "@/app/components/MonthlyLimitedProductManager";
 import FeedbackBoxAdmin from "@/app/components/FeedbackBoxAdmin";
+import PrepProductManager from "@/app/components/PrepProductManager";
+import PrepReportDashboard from "@/app/components/PrepReportDashboard";
 import AdminGate from "@/app/components/AdminGate";
 
 type Report = {
@@ -405,6 +407,10 @@ export default function AdminPage() {
       <AchievementRateDashboard />
 
       <MonthlyLimitedProductManager />
+
+      <PrepProductManager />
+
+      <PrepReportDashboard />
 
       <FeedbackBoxAdmin />
 
