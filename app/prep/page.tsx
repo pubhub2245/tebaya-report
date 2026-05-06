@@ -13,7 +13,7 @@ import {
   getDirectCostStatus,
   getPrepSettings,
   type PrepProduct,
-  type TheoreticalQty,
+  type TheoreticalPrepResult,
   type AutoCarryoverEntry,
   type MonthlyCostBreakdown,
   type PrepSettings,
@@ -67,7 +67,7 @@ export default function PrepReportPage() {
   /** 当月の直接費比率（参考表示用） */
   const [monthlyCost, setMonthlyCost] = useState<MonthlyCostBreakdown | null>(null);
   const [monthlySettings, setMonthlySettings] = useState<PrepSettings | null>(null);
-  const [theoretical, setTheoretical] = useState<TheoreticalQty[]>([]);
+  const [theoretical, setTheoretical] = useState<TheoreticalPrepResult | null>(null);
   const [showTheoretical, setShowTheoretical] = useState(true);
   const [sessions, setSessions] = useState<SessionForm[]>([newSession()]);
   const [fieldWork, setFieldWork] = useState(0);
@@ -374,10 +374,10 @@ export default function PrepReportPage() {
         )}
       </section>
 
-      {/* セクション3: 理論仕込み量 */}
+      {/* セクション3: 明日の必要仕込み量 */}
       <section className="card space-y-2">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-bold">理論仕込み量（売上から逆算）</h2>
+          <h2 className="text-base font-bold">📋 明日の必要仕込み量</h2>
           <button
             type="button"
             onClick={() => setShowTheoretical(!showTheoretical)}
@@ -386,24 +386,7 @@ export default function PrepReportPage() {
             {showTheoretical ? "折りたたむ" : "展開"}
           </button>
         </div>
-        {showTheoretical && (
-          <>
-            {theoretical.length === 0 ? (
-              <p className="text-sm text-stone-400">前日の売上データなし、または未集計</p>
-            ) : (
-              <div className="text-sm bg-amber-50 border border-amber-200 rounded-lg p-2">
-                売上から逆算すると、今日の必要量は：
-                <ul className="mt-1 space-y-0.5">
-                  {theoretical.map((t) => (
-                    <li key={t.product_id}>
-                      ・{t.product_name}：<strong>{t.theoretical_quantity}本</strong>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </>
-        )}
+        {showTheoretical && <TheoreticalPanel result={theoretical} />}
       </section>
 
       {/* セクション4: 仕込みセッション */}
@@ -712,6 +695,62 @@ export default function PrepReportPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+function TheoreticalPanel({ result }: { result: TheoreticalPrepResult | null }) {
+  if (!result) {
+    return <p className="text-sm text-stone-400">読み込み中…</p>;
+  }
+  if (result.shifts.length === 0 || result.total_target === 0) {
+    return (
+      <div className="text-sm bg-amber-50 border border-amber-200 rounded-lg p-2 text-amber-900">
+        明日のシフトがまだ確定していません。仕込み量はじゅんさんに確認してください。
+      </div>
+    );
+  }
+  const [, m, d] = result.tomorrow.split("-");
+  const dateLabel = `${parseInt(m, 10)}/${parseInt(d, 10)}`;
+  const yen = (n: number) => `¥${n.toLocaleString()}`;
+  const productEmoji = (name: string) =>
+    name === "手羽先" ? "🍗" : name === "餃子" ? "🥟" : "🍳";
+  return (
+    <div className="text-sm bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+      <div className="font-bold text-amber-900">
+        明日（{dateLabel}）の必要仕込み量
+      </div>
+      <div className="text-xs text-stone-700 space-y-0.5">
+        <div className="font-semibold">店舗予定：</div>
+        <ul className="pl-3 space-y-0.5">
+          {result.shifts.map((s, i) => (
+            <li key={i}>
+              ・{s.location_name}
+              {s.rank ? s.rank : ""}　{yen(s.target)}
+            </li>
+          ))}
+        </ul>
+        <div className="pt-1 font-semibold">
+          売上目標合計：{yen(result.total_target)}
+        </div>
+      </div>
+      {result.items.length === 0 ? (
+        <p className="text-xs text-stone-500">設定が未登録のため本数を計算できません</p>
+      ) : (
+        <div className="space-y-1.5 pt-1 border-t border-amber-200">
+          {result.items.map((it) => (
+            <div key={it.product_id}>
+              <div className="font-bold text-amber-900">
+                {productEmoji(it.product_name)} {it.product_name}：
+                <span className="text-lg">{it.theoretical_quantity}</span>本
+              </div>
+              <div className="text-xs text-stone-600 pl-5">
+                目標 {it.target}本 − 余り {it.carryover}本
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

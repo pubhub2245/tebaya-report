@@ -3,12 +3,13 @@
  *
  * - getActiveProducts: 当該日に有効な商品マスター
  * - getCarryoverFromYesterday: 前日の繰越（手羽先・餃子等）
- * - calculateTheoreticalPrepQuantity: 売上から逆算した理論仕込み量
+ * - calculateTheoreticalPrepQuantity: 明日の店舗target合計 − 当日繰越 から逆算した必要仕込み量
  * - calculatePrepMinutes: speed_basis を考慮した所要分数計算
  * - getStaffPrepReport: 既存レポート + sessions + items + carryovers をまとめて取得
  */
 
 import { supabase } from "./supabase";
+import { PRODUCT_PRICES } from "./productPrices";
 
 export type SpeedBasis = "per_100" | "per_session" | "per_unit";
 
@@ -211,69 +212,127 @@ export async function getPrepSettings(date: Date | string): Promise<PrepSettings
 export type TheoreticalQty = {
   product_id: string;
   product_name: string;
+  /** 必要仕込み量 = max(0, target - carryover) */
   theoretical_quantity: number;
+  /** 明日の目標売上から逆算した必要本数（繰越控除前） */
+  target: number;
+  /** 当日の繰越本数（=今日の仕込み開始時点で残っている分） */
+  carryover: number;
+};
+
+export type TheoreticalPrepShift = {
+  location_name: string;
+  rank: string;
+  target: number;
+};
+
+export type TheoreticalPrepResult = {
+  /** 集計対象日（=明日）の ISO 日付 */
+  tomorrow: string;
+  /** 明日の published シフト一覧（店舗・ランク・目標） */
+  shifts: TheoreticalPrepShift[];
+  /** 明日の target 合計 */
+  total_target: number;
+  /** 商品ごとの理論仕込み量（手羽先・餃子） */
+  items: TheoreticalQty[];
 };
 
 /**
- * 前日売上 → 当日の理論仕込み量。
+ * 明日の店舗 target 合計から逆算した必要仕込み量。
  *
- * ロジック（prep_settings 由来）:
- *   tebasaki = sales × ratio × (tebasaki_per_10k / (tebasaki_per_10k + gyoza_per_10k))
- *   実本数換算は per_10k_sales を「売上1万円あたり○本」として直接使う:
- *     tebasaki_qty = sales × tebasaki_gyoza_sales_ratio × (tebasaki_per_10k_sales / 10000)
- *     gyoza_qty    = sales × tebasaki_gyoza_sales_ratio × (gyoza_per_10k_sales / 10000)
+ * ロジック:
+ *   tomorrowTotalTarget = SUM(shifts.target WHERE date = date+1 AND status = 'published')
+ *   prepTargetSales     = tomorrowTotalTarget × tebasaki_gyoza_sales_ratio
+ *   tebasakiSales       = prepTargetSales × (tebasaki_per_10k / (tebasaki_per_10k + gyoza_per_10k))
+ *   tebasakiTarget      = floor(tebasakiSales / PRODUCT_PRICES.TEBASAKI)
+ *   tebasakiNeeded      = max(0, tebasakiTarget − 当日繰越(手羽先))
+ *   餃子も同様。
  */
 export async function calculateTheoreticalPrepQuantity(
   date: Date | string,
-): Promise<TheoreticalQty[]> {
+): Promise<TheoreticalPrepResult> {
   const iso = toIsoDate(date);
-  const yesterday = shiftDays(iso, -1);
+  const tomorrow = shiftDays(iso, 1);
 
-  // 前日売上集計
-  const { data: sales, error: salesErr } = await supabase
-    .from("daily_reports")
-    .select("sales_amount")
-    .eq("date", yesterday);
-  if (salesErr) {
-    console.warn("[prepHelpers] calculateTheoreticalPrepQuantity 売上取得エラー", salesErr);
-    return [];
+  // 1. 明日のシフト
+  const { data: shiftRows } = await supabase
+    .from("shifts")
+    .select("rank, target, locations(name)")
+    .eq("date", tomorrow)
+    .eq("status", "published");
+  const shifts: TheoreticalPrepShift[] = ((shiftRows as Array<{
+    rank: string | null;
+    target: number | null;
+    locations: { name: string } | Array<{ name: string }> | null;
+  }>) ?? []).map((r) => {
+    const loc = Array.isArray(r.locations) ? r.locations[0] : r.locations;
+    return {
+      location_name: loc?.name ?? "",
+      rank: r.rank ?? "",
+      target: r.target ?? 0,
+    };
+  });
+  const totalTarget = shifts.reduce((s, r) => s + r.target, 0);
+
+  if (totalTarget === 0) {
+    return { tomorrow, shifts, total_target: 0, items: [] };
   }
-  const totalSales = (sales ?? []).reduce(
-    (s: number, r: { sales_amount: number | null }) => s + (r.sales_amount ?? 0),
-    0,
-  );
-  if (totalSales === 0) return [];
 
-  // 設定取得
+  // 2. 設定取得
   const settings = await getPrepSettings(iso);
-  if (!settings) return [];
+  if (!settings) {
+    return { tomorrow, shifts, total_target: totalTarget, items: [] };
+  }
 
-  // 商品取得
+  // 3. 商品取得
   const products = await getActiveProducts(iso);
   const tebasaki = products.find((p) => p.name === "手羽先");
   const gyoza = products.find((p) => p.name === "餃子");
 
-  const out: TheoreticalQty[] = [];
+  // 4. 手羽先・餃子の売上目標 → 本数換算
   const ratio = Number(settings.tebasaki_gyoza_sales_ratio);
-  const targetSales = totalSales * (Number.isFinite(ratio) ? ratio : 0.9);
+  const prepTargetSales = totalTarget * (Number.isFinite(ratio) ? ratio : 0.9);
+  const tebasakiPer = Number(settings.tebasaki_per_10k_sales) || 0;
+  const gyozaPer = Number(settings.gyoza_per_10k_sales) || 0;
+  const sumPer = tebasakiPer + gyozaPer;
+  const tebasakiSales = sumPer > 0 ? prepTargetSales * (tebasakiPer / sumPer) : 0;
+  const gyozaSales = sumPer > 0 ? prepTargetSales * (gyozaPer / sumPer) : 0;
+  const tebasakiTarget = Math.floor(tebasakiSales / PRODUCT_PRICES.TEBASAKI);
+  const gyozaTarget = Math.floor(gyozaSales / PRODUCT_PRICES.GYOZA);
 
+  // 5. 当日繰越（手羽先・餃子のみ）
+  const { data: coRows } = await supabase
+    .from("prep_carryovers")
+    .select("product_id, quantity")
+    .eq("date", iso);
+  const coMap = new Map<string, number>();
+  for (const r of (coRows as Array<{ product_id: string; quantity: number }>) ?? []) {
+    coMap.set(r.product_id, r.quantity);
+  }
+
+  const items: TheoreticalQty[] = [];
   if (tebasaki) {
-    const qty = Math.round((targetSales * settings.tebasaki_per_10k_sales) / 10000);
-    out.push({
+    const carryover = coMap.get(tebasaki.id) ?? 0;
+    items.push({
       product_id: tebasaki.id,
       product_name: tebasaki.name,
-      theoretical_quantity: qty,
+      target: tebasakiTarget,
+      carryover,
+      theoretical_quantity: Math.max(0, tebasakiTarget - carryover),
     });
   }
   if (gyoza) {
-    const qty = Math.round((targetSales * settings.gyoza_per_10k_sales) / 10000);
-    out.push({
+    const carryover = coMap.get(gyoza.id) ?? 0;
+    items.push({
       product_id: gyoza.id,
       product_name: gyoza.name,
-      theoretical_quantity: qty,
+      target: gyozaTarget,
+      carryover,
+      theoretical_quantity: Math.max(0, gyozaTarget - carryover),
     });
   }
-  return out;
+
+  return { tomorrow, shifts, total_target: totalTarget, items };
 }
 
 // ---------------------------------------------------------------------------
