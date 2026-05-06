@@ -36,6 +36,12 @@ export type PrepSettings = {
   gyoza_per_10k_sales: number;
   tebasaki_gyoza_sales_ratio: number;
   notes: string | null;
+  /** 直接費比率の警告ライン（未満で「警告」、デフォルト 0.85） */
+  direct_cost_warning_threshold: number;
+  /** 直接費比率の目標ライン（デフォルト 0.90） */
+  direct_cost_target_threshold: number;
+  /** 直接費比率の理想ライン（デフォルト 0.95） */
+  direct_cost_ideal_threshold: number;
 };
 
 export type PrepSessionItemInput = {
@@ -371,4 +377,318 @@ export async function getStaffPrepReport(
     items,
     carryovers: (carryovers as PrepCarryoverRow[]) ?? [],
   };
+}
+
+// ---------------------------------------------------------------------------
+// 翌日繰越の自動計算
+// ---------------------------------------------------------------------------
+
+export type AutoCarryoverEntry = {
+  product_id: string;
+  product_name: string;
+  unit_label: string;
+  /** 自動計算された当日繰越（マイナスは0にクランプ） */
+  calculated_quantity: number;
+  /** 計算過程の文字列 */
+  source_summary: string;
+  /** 前々日繰越が見つかったか */
+  has_prev_carryover: boolean;
+  /** 前日の prep_report が見つかったか */
+  has_yesterday_prep: boolean;
+  /** 前日の daily_reports が見つかったか */
+  has_yesterday_sales: boolean;
+};
+
+/**
+ * 翌日繰越（=date 当日の繰越欄の初期値）を自動計算。
+ *   翌日繰越 = 前々日繰越 + 前日仕込み量 - 前日使用量
+ *
+ * - date 当日の繰越欄の値を埋める用途のため、参照する「前々日」「前日」は
+ *   date を起点にした date-2 / date-1。
+ * - 各値の取得元：
+ *     前々日繰越    : prep_carryovers.quantity   (date-2)
+ *     前日仕込み量  : prep_session_items の合計   (date-1 の prep_reports に紐付くもの)
+ *     前日使用量    : daily_reports
+ *                       手羽先 → remaining_tebasaki
+ *                       餃子   → remaining_gyoza
+ *                       (それ以外は 0 として扱う)
+ * - 対象は is_carryover_tracked=true の商品のみ。
+ */
+export async function calculateAutoCarryover(
+  date: Date | string,
+): Promise<AutoCarryoverEntry[]> {
+  const iso = toIsoDate(date);
+  const yesterday = shiftDays(iso, -1);
+  const dayBefore = shiftDays(iso, -2);
+
+  // 1. 対象商品（繰越管理）
+  const { data: prodData } = await supabase
+    .from("prep_products")
+    .select("id, name, unit_label, is_carryover_tracked")
+    .eq("is_carryover_tracked", true)
+    .eq("is_active", true);
+  const products = (prodData as Array<{
+    id: string;
+    name: string;
+    unit_label: string;
+  }>) ?? [];
+  if (products.length === 0) return [];
+
+  // 2. 前々日繰越
+  const { data: prevCO } = await supabase
+    .from("prep_carryovers")
+    .select("product_id, quantity")
+    .eq("date", dayBefore);
+  const prevCOMap = new Map<string, number>();
+  for (const r of (prevCO as Array<{ product_id: string; quantity: number }>) ??
+    []) {
+    prevCOMap.set(r.product_id, r.quantity);
+  }
+
+  // 3. 前日の prep_reports → sessions → items
+  const { data: prepReportRows } = await supabase
+    .from("prep_reports")
+    .select("id")
+    .eq("date", yesterday);
+  const reportIds = ((prepReportRows as Array<{ id: string }>) ?? []).map(
+    (r) => r.id,
+  );
+  const prepMap = new Map<string, number>();
+  let hasYesterdayPrep = false;
+  if (reportIds.length > 0) {
+    hasYesterdayPrep = true;
+    const { data: sessRows } = await supabase
+      .from("prep_sessions")
+      .select("id")
+      .in("prep_report_id", reportIds);
+    const sessIds = ((sessRows as Array<{ id: string }>) ?? []).map(
+      (s) => s.id,
+    );
+    if (sessIds.length > 0) {
+      const { data: itemRows } = await supabase
+        .from("prep_session_items")
+        .select("product_id, quantity")
+        .in("prep_session_id", sessIds);
+      for (const it of (itemRows as Array<{
+        product_id: string;
+        quantity: number;
+      }>) ?? []) {
+        prepMap.set(
+          it.product_id,
+          (prepMap.get(it.product_id) ?? 0) + it.quantity,
+        );
+      }
+    }
+  }
+
+  // 4. 前日 daily_reports → 使用量（手羽先・餃子）
+  const { data: dailyRows } = await supabase
+    .from("daily_reports")
+    .select("remaining_tebasaki, remaining_gyoza")
+    .eq("date", yesterday);
+  const dailyList = (dailyRows as Array<{
+    remaining_tebasaki: number | null;
+    remaining_gyoza: number | null;
+  }>) ?? [];
+  const totalTebasakiUsed = dailyList.reduce(
+    (s, r) => s + (r.remaining_tebasaki ?? 0),
+    0,
+  );
+  const totalGyozaUsed = dailyList.reduce(
+    (s, r) => s + (r.remaining_gyoza ?? 0),
+    0,
+  );
+  const hasYesterdaySales = dailyList.length > 0;
+
+  // 5. 各商品の繰越を計算
+  const out: AutoCarryoverEntry[] = [];
+  for (const p of products) {
+    const prevCarryover = prevCOMap.get(p.id) ?? 0;
+    const prepMade = prepMap.get(p.id) ?? 0;
+    let used = 0;
+    if (p.name === "手羽先") used = totalTebasakiUsed;
+    else if (p.name === "餃子") used = totalGyozaUsed;
+    // それ以外の繰越管理商品は使用量0扱い
+
+    const raw = prevCarryover + prepMade - used;
+    const clamped = Math.max(0, raw);
+    const summary = `${prevCarryover}(前繰) + ${prepMade}(仕込み) - ${used}(使用) = ${raw}${raw < 0 ? " → 0" : ""}`;
+
+    out.push({
+      product_id: p.id,
+      product_name: p.name,
+      unit_label: p.unit_label,
+      calculated_quantity: clamped,
+      source_summary: summary,
+      has_prev_carryover: prevCOMap.has(p.id),
+      has_yesterday_prep: hasYesterdayPrep,
+      has_yesterday_sales: hasYesterdaySales,
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// 直接費比率の集計と判定
+// ---------------------------------------------------------------------------
+
+export type MonthlyCostBreakdown = {
+  /** 直接費 = 仕込みセッション時間（end-start 合計） + field_work_minutes */
+  direct_cost_minutes: number;
+  /** 間接費 = procurement + ordering + setup + other */
+  indirect_cost_minutes: number;
+  total_minutes: number;
+  /** 0.0〜1.0 */
+  direct_cost_ratio: number;
+  direct_cost_amount: number;
+  indirect_cost_amount: number;
+  total_cost_amount: number;
+  /** 仕込みセッションの合計分数（end-start ベース） */
+  prep_minutes: number;
+  field_work_minutes: number;
+  procurement_minutes: number;
+  ordering_minutes: number;
+  setup_minutes: number;
+  other_minutes: number;
+  /** 集計に含めた prep_reports 件数 */
+  report_count: number;
+};
+
+function diffTimeToMinutes(start: string, end: string): number {
+  // "HH:MM:SS" or "HH:MM" 形式を仮定
+  const parse = (s: string) => {
+    const parts = s.split(":").map((x) => parseInt(x, 10));
+    const h = parts[0] ?? 0;
+    const m = parts[1] ?? 0;
+    return h * 60 + m;
+  };
+  const a = parse(start);
+  const b = parse(end);
+  return Math.max(0, b - a);
+}
+
+function lastDayOfMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
+
+/**
+ * 月次の業務時間を「直接費（仕込みセッション + field_work）」と
+ * 「間接費（procurement + ordering + setup + other）」に分けて集計。
+ * 金額換算は hourly_rate を使用。
+ */
+export async function calculateMonthlyCostBreakdown(
+  year: number,
+  month: number,
+  staffName?: string,
+): Promise<MonthlyCostBreakdown> {
+  const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
+  const endDate = `${year}-${String(month).padStart(2, "0")}-${String(lastDayOfMonth(year, month)).padStart(2, "0")}`;
+
+  const settings = await getPrepSettings(endDate);
+  const hourlyRate = settings?.hourly_rate ?? 1000;
+
+  let q = supabase
+    .from("prep_reports")
+    .select("*")
+    .gte("date", startDate)
+    .lte("date", endDate);
+  if (staffName) q = q.eq("staff_name", staffName);
+  const { data: reports } = await q;
+  const reportList = (reports as PrepReportRow[]) ?? [];
+
+  const empty: MonthlyCostBreakdown = {
+    direct_cost_minutes: 0,
+    indirect_cost_minutes: 0,
+    total_minutes: 0,
+    direct_cost_ratio: 0,
+    direct_cost_amount: 0,
+    indirect_cost_amount: 0,
+    total_cost_amount: 0,
+    prep_minutes: 0,
+    field_work_minutes: 0,
+    procurement_minutes: 0,
+    ordering_minutes: 0,
+    setup_minutes: 0,
+    other_minutes: 0,
+    report_count: 0,
+  };
+
+  if (reportList.length === 0) return empty;
+
+  // 業務時間カテゴリ集計
+  let fieldWork = 0;
+  let procurement = 0;
+  let ordering = 0;
+  let setup = 0;
+  let other = 0;
+  for (const r of reportList) {
+    fieldWork += r.field_work_minutes;
+    procurement += r.procurement_minutes;
+    ordering += r.ordering_minutes;
+    setup += r.setup_minutes;
+    other += r.other_minutes;
+  }
+
+  // 仕込みセッション時間（end-start ベース）
+  const reportIds = reportList.map((r) => r.id);
+  let prepMin = 0;
+  if (reportIds.length > 0) {
+    const { data: sessRows } = await supabase
+      .from("prep_sessions")
+      .select("start_time, end_time")
+      .in("prep_report_id", reportIds);
+    for (const s of (sessRows as Array<{
+      start_time: string;
+      end_time: string;
+    }>) ?? []) {
+      prepMin += diffTimeToMinutes(s.start_time, s.end_time);
+    }
+  }
+
+  const direct = prepMin + fieldWork;
+  const indirect = procurement + ordering + setup + other;
+  const total = direct + indirect;
+  const ratio = total > 0 ? direct / total : 0;
+
+  return {
+    direct_cost_minutes: direct,
+    indirect_cost_minutes: indirect,
+    total_minutes: total,
+    direct_cost_ratio: ratio,
+    direct_cost_amount: Math.round((direct / 60) * hourlyRate),
+    indirect_cost_amount: Math.round((indirect / 60) * hourlyRate),
+    total_cost_amount: Math.round((total / 60) * hourlyRate),
+    prep_minutes: prepMin,
+    field_work_minutes: fieldWork,
+    procurement_minutes: procurement,
+    ordering_minutes: ordering,
+    setup_minutes: setup,
+    other_minutes: other,
+    report_count: reportList.length,
+  };
+}
+
+export type DirectCostStatus = {
+  level: "warning" | "caution" | "target" | "ideal";
+  label: string;
+  /** Tailwind カラー名（red/amber/yellow/emerald） */
+  color: "red" | "amber" | "yellow" | "emerald";
+};
+
+export function getDirectCostStatus(
+  ratio: number,
+  settings: Pick<
+    PrepSettings,
+    | "direct_cost_warning_threshold"
+    | "direct_cost_target_threshold"
+    | "direct_cost_ideal_threshold"
+  >,
+): DirectCostStatus {
+  const w = Number(settings.direct_cost_warning_threshold ?? 0.85);
+  const t = Number(settings.direct_cost_target_threshold ?? 0.9);
+  const i = Number(settings.direct_cost_ideal_threshold ?? 0.95);
+  if (ratio < w) return { level: "warning", label: "警告", color: "red" };
+  if (ratio < t) return { level: "caution", label: "注意", color: "amber" };
+  if (ratio < i) return { level: "target", label: "目標達成", color: "yellow" };
+  return { level: "ideal", label: "理想達成", color: "emerald" };
 }
