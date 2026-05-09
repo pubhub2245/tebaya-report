@@ -1,5 +1,6 @@
 import { yen, slashDate } from "./format";
 import type { FormState, InventoryStatus } from "./formState";
+import { calculateTebasakiCount } from "./calculateTebasakiCount";
 
 const SEP = "━━━━━━━━━━━━━━";
 
@@ -68,6 +69,18 @@ export function generateLineText(f: FormState, cumulative: number): string {
     `・ポテト：${f.remaining.potato}袋`,
     `・トルネード：${f.remaining.tornado}本`,
   ];
+
+  // 手羽先 使用本数（売上から自動計算）
+  const tebasakiCalc = calculateTebasakiCount({
+    sales_amount: sales,
+    gyoza_count: f.remaining.gyoza || 0,
+    potato_count: f.remaining.potato || 0,
+    tornado_count: f.remaining.tornado || 0,
+    limited_count: f.limited_product_count || 0,
+  });
+  parts.push(
+    `・手羽先：${tebasakiCalc.count}本（売上から自動計算）`,
+  );
 
   // 限定商品（任意項目、商品名がある場合のみ）
   const limitedName = (f.limited_product_name ?? "").trim();

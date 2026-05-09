@@ -12,6 +12,7 @@ import MonthlyLimitedProductManager from "@/app/components/MonthlyLimitedProduct
 import FeedbackBoxAdmin from "@/app/components/FeedbackBoxAdmin";
 import PrepProductManager from "@/app/components/PrepProductManager";
 import PrepReportDashboard from "@/app/components/PrepReportDashboard";
+import PrepSettingsManager from "@/app/components/PrepSettingsManager";
 import AdminGate from "@/app/components/AdminGate";
 
 type Report = {
@@ -409,6 +410,8 @@ export default function AdminPage() {
       <MonthlyLimitedProductManager />
 
       <PrepProductManager />
+
+      <PrepSettingsManager />
 
       <PrepReportDashboard />
 
