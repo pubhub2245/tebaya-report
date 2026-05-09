@@ -18,20 +18,40 @@ export interface GitHubEnv {
   repo: string;
 }
 
+/**
+ * HTTP ヘッダーに渡される環境変数値を ASCII printable に正規化する。
+ * - 改行・空白・BOM・絵文字などを取り除く
+ * - fetch の Headers は ByteString（Latin-1）しか許容しないため、
+ *   非 ASCII 文字が混入すると `Cannot convert argument to a ByteString` で失敗する
+ */
+function sanitizeHeaderValue(s: string): string {
+  // 0x21 - 0x7E のみ残す（printable ASCII、空白も除外）
+  return (s ?? "").replace(/[^\x21-\x7E]/g, "");
+}
+
+/** Octokit に渡す User-Agent。ASCII のみ。 */
+const USER_AGENT = "tebaya-report-feedback-ai";
+
+/** AI 経由のコミットに付与する author / committer。ASCII のみ。 */
+const COMMIT_AUTHOR = {
+  name: "Claude AI Bot",
+  email: "claude-ai@tebaya-report.vercel.app",
+} as const;
+
 function readEnv(): GitHubEnv {
-  const pat = process.env.GITHUB_PAT ?? "";
-  const owner = process.env.GITHUB_OWNER ?? "";
-  const repo = process.env.GITHUB_REPO ?? "";
+  const pat = sanitizeHeaderValue(process.env.GITHUB_PAT ?? "");
+  const owner = sanitizeHeaderValue(process.env.GITHUB_OWNER ?? "");
+  const repo = sanitizeHeaderValue(process.env.GITHUB_REPO ?? "");
   if (!pat || !owner || !repo) {
     throw new Error(
-      "GITHUB_PAT / GITHUB_OWNER / GITHUB_REPO のいずれかが未設定です",
+      "GITHUB_PAT / GITHUB_OWNER / GITHUB_REPO のいずれかが未設定または不正な文字を含みます（ASCII printable 以外は除去されます）",
     );
   }
   return { pat, owner, repo };
 }
 
 function buildClient(env: GitHubEnv): Octokit {
-  return new Octokit({ auth: env.pat });
+  return new Octokit({ auth: env.pat, userAgent: USER_AGENT });
 }
 
 export interface RepoFileEntry {
@@ -166,6 +186,8 @@ export async function commitFile(
     content: Buffer.from(content, "utf8").toString("base64"),
     branch,
     sha: existingSha,
+    author: { ...COMMIT_AUTHOR },
+    committer: { ...COMMIT_AUTHOR },
   });
 
   return { commitSha: res.data.commit.sha ?? "" };
