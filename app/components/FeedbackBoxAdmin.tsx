@@ -10,6 +10,10 @@ import {
   sortKeyForAdmin,
   type FeedbackStatus,
 } from "@/lib/feedbackStatus";
+import {
+  buildClaudeCodePrompt,
+  copyToClipboard,
+} from "@/lib/feedbackPrompt";
 
 type FeedbackRow = {
   id: string;
@@ -67,6 +71,38 @@ export default function FeedbackBoxAdmin() {
   } | null>(null);
   const [implementingId, setImplementingId] = useState<string | null>(null);
   const [replyingId, setReplyingId] = useState<string | null>(null);
+  /** Claude Code 用プロンプトコピー失敗時のフォールバック用テキスト（行IDキー） */
+  const [manualCopyText, setManualCopyText] = useState<Record<string, string>>({});
+
+  const handleCopyPrompt = async (row: FeedbackRow) => {
+    const text = buildClaudeCodePrompt({
+      submitter: row.submitter,
+      title: row.title,
+      current_problem: row.current_problem,
+      proposed_solution: row.proposed_solution,
+    });
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setFeedback({
+        kind: "ok",
+        text: "Claude Code 用プロンプトをコピーしました",
+        rowId: row.id,
+      });
+      setManualCopyText((prev) => {
+        const next = { ...prev };
+        delete next[row.id];
+        return next;
+      });
+    } else {
+      setFeedback({
+        kind: "err",
+        text: "自動コピー失敗。下のテキストを手動でコピーしてください",
+        rowId: row.id,
+      });
+      setManualCopyText((prev) => ({ ...prev, [row.id]: text }));
+    }
+    setTimeout(() => setFeedback(null), 5000);
+  };
 
   const reload = async () => {
     setLoading(true);
@@ -355,6 +391,24 @@ export default function FeedbackBoxAdmin() {
                           : "🤖 Claude に実装依頼"}
                       </button>
                     )}
+
+                  {/* Claude Code 用プロンプトコピー（常時表示・既存ボタンの直下に並べる） */}
+                  <button
+                    type="button"
+                    onClick={() => handleCopyPrompt(row)}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-sm px-4 py-3 rounded-xl shadow-md transition-colors"
+                  >
+                    📋 Claude Code用にコピー
+                  </button>
+                  {manualCopyText[row.id] && (
+                    <textarea
+                      readOnly
+                      value={manualCopyText[row.id]}
+                      rows={10}
+                      className="field text-xs font-mono"
+                      onFocus={(e) => e.currentTarget.select()}
+                    />
+                  )}
 
                   <div className="border-t border-stone-200 pt-3 space-y-2">
                     <div>
