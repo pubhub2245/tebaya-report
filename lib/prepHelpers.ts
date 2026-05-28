@@ -75,6 +75,10 @@ export type PrepReportRow = {
   other_minutes: number;
   other_description: string | null;
   memo: string | null;
+  /** 仕込み前チェック（JSONB） */
+  pre_check?: Record<string, unknown> | null;
+  /** 仕込み後チェック（JSONB） */
+  post_check?: Record<string, unknown> | null;
 };
 
 export type PrepSessionRow = {

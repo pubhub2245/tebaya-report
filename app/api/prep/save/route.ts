@@ -25,6 +25,8 @@ interface SaveBody {
   other_description: string;
   memo: string;
   carryovers: Array<{ product_id: string; quantity: number }>;
+  pre_check?: Record<string, unknown>;
+  post_check?: Record<string, unknown>;
 }
 
 function nonNeg(v: unknown): number {
@@ -122,6 +124,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     other_minutes: nonNeg(body.other_minutes),
     other_description: (body.other_description ?? "").trim() || null,
     memo: (body.memo ?? "").trim() || null,
+    pre_check:
+      body.pre_check && typeof body.pre_check === "object"
+        ? body.pre_check
+        : {},
+    post_check:
+      body.post_check && typeof body.post_check === "object"
+        ? body.post_check
+        : {},
   };
 
   // 1. prep_reports UPSERT
