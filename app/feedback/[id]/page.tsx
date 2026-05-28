@@ -5,6 +5,10 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getStatusColor, getStatusLabel } from "@/lib/feedbackStatus";
+import {
+  buildClaudeCodePrompt,
+  copyToClipboard,
+} from "@/lib/feedbackPrompt";
 import ReplyThread from "./_components/ReplyThread";
 
 type FeedbackDetail = {
@@ -42,6 +46,34 @@ export default function FeedbackDetailPage() {
   const [item, setItem] = useState<FeedbackDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState<{
+    kind: "ok" | "err";
+    text: string;
+  } | null>(null);
+  /** クリップボードAPI失敗時のフォールバック用：このテキストが入っていれば手動コピー用 textarea を表示 */
+  const [manualCopyText, setManualCopyText] = useState<string | null>(null);
+
+  const handleCopyPrompt = async () => {
+    if (!item) return;
+    const text = buildClaudeCodePrompt({
+      submitter: item.submitter,
+      title: item.title,
+      current_problem: item.current_problem,
+      proposed_solution: item.proposed_solution,
+    });
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopyState({ kind: "ok", text: "コピーしました！Claude Code に貼り付けてください" });
+      setManualCopyText(null);
+    } else {
+      setCopyState({
+        kind: "err",
+        text: "自動コピーに失敗しました。下のテキストを長押し→全選択→コピーしてください",
+      });
+      setManualCopyText(text);
+    }
+    setTimeout(() => setCopyState(null), 6000);
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -125,6 +157,44 @@ export default function FeedbackDetailPage() {
             <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">
               {item.proposed_solution}
             </p>
+          </section>
+
+          {/* 📋 Claude Code 用プロンプトコピー */}
+          <section className="card space-y-2 bg-violet-50 border border-violet-200">
+            <h3 className="font-bold text-sm text-violet-900">
+              📋 Claude Code に依頼する
+            </h3>
+            <p className="text-xs text-violet-800">
+              この投稿を Claude Code 用のプロンプトとして整形してコピーします。
+              コピー後、Claude Code に貼り付けて対話しながら実装してください。
+            </p>
+            <button
+              type="button"
+              onClick={handleCopyPrompt}
+              className="w-full bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white font-bold text-sm px-4 py-3 rounded-xl shadow-md transition-colors"
+            >
+              📋 Claude Code用にコピー
+            </button>
+            {copyState && (
+              <div
+                className={`text-xs font-semibold rounded-lg px-2 py-1.5 ${
+                  copyState.kind === "ok"
+                    ? "bg-green-50 text-green-700 border border-green-200"
+                    : "bg-amber-50 text-amber-800 border border-amber-200"
+                }`}
+              >
+                {copyState.kind === "ok" ? "✅" : "⚠️"} {copyState.text}
+              </div>
+            )}
+            {manualCopyText && (
+              <textarea
+                readOnly
+                value={manualCopyText}
+                rows={12}
+                className="field text-xs font-mono"
+                onFocus={(e) => e.currentTarget.select()}
+              />
+            )}
           </section>
 
           {item.admin_comment && (
