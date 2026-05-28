@@ -246,6 +246,9 @@ export default function FeedbackBoxAdmin() {
   const handleSave = async (row: FeedbackRow) => {
     const edit = editState[row.id];
     if (!edit) return;
+    // 通知判定：「completed 以外 → completed」への遷移のときだけ後で LINE 通知 API を呼ぶ
+    const shouldNotifyCompletion =
+      row.status !== "completed" && edit.status === "completed";
     setSavingId(row.id);
     setFeedback(null);
     try {
@@ -260,6 +263,44 @@ export default function FeedbackBoxAdmin() {
         .eq("id", row.id);
       if (err) throw err;
       setFeedback({ kind: "ok", text: "保存しました", rowId: row.id });
+
+      // 「完了」へ遷移したときだけ LINE 業務グループへ通知（fire-and-forget・失敗してもUIには出さない）
+      if (shouldNotifyCompletion) {
+        try {
+          const adminPw = process.env.NEXT_PUBLIC_ADMIN_PASSWORD ?? "";
+          const res = await fetch(
+            `/api/feedback/${row.id}/notify-completion`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${adminPw}`,
+              },
+            },
+          );
+          if (res.ok) {
+            setFeedback({
+              kind: "ok",
+              text: "保存しました（LINE 業務グループにも通知済み）",
+              rowId: row.id,
+            });
+          } else {
+            const data = await res.json().catch(() => ({}));
+            console.warn(
+              "[feedback notify-completion] 送信失敗",
+              data?.error ?? res.statusText,
+            );
+            setFeedback({
+              kind: "ok",
+              text: "保存しました（LINE 通知は失敗：管理者に確認をお願いします）",
+              rowId: row.id,
+            });
+          }
+        } catch (notifyErr) {
+          console.warn("[feedback notify-completion] 例外", notifyErr);
+        }
+      }
+
       await reload();
     } catch (e: any) {
       setFeedback({
@@ -269,7 +310,7 @@ export default function FeedbackBoxAdmin() {
       });
     } finally {
       setSavingId(null);
-      setTimeout(() => setFeedback(null), 4000);
+      setTimeout(() => setFeedback(null), 5000);
     }
   };
 
