@@ -52,8 +52,9 @@ export type PrepSessionItemInput = {
 
 export type PrepSessionInput = {
   session_label: string | null;
-  start_time: string; // "HH:MM" or "HH:MM:SS"
-  end_time: string;
+  /** 本数換算ベースへ移行済み。互換用に残すが null 可。 */
+  start_time: string | null;
+  end_time: string | null;
   display_order: number;
   items: PrepSessionItemInput[];
 };
@@ -80,9 +81,10 @@ export type PrepSessionRow = {
   id: string;
   prep_report_id: string;
   session_label: string | null;
-  start_time: string;
-  end_time: string;
+  start_time: string | null;
+  end_time: string | null;
   display_order: number;
+  prep_minutes: number;
 };
 
 export type PrepSessionItemRow = {
@@ -688,19 +690,17 @@ export async function calculateMonthlyCostBreakdown(
     other += r.other_minutes;
   }
 
-  // 仕込みセッション時間（end-start ベース）
+  // 仕込みセッション時間（本数換算ベース：prep_minutes カラムを合算）
   const reportIds = reportList.map((r) => r.id);
   let prepMin = 0;
   if (reportIds.length > 0) {
     const { data: sessRows } = await supabase
       .from("prep_sessions")
-      .select("start_time, end_time")
+      .select("prep_minutes")
       .in("prep_report_id", reportIds);
-    for (const s of (sessRows as Array<{
-      start_time: string;
-      end_time: string;
-    }>) ?? []) {
-      prepMin += diffTimeToMinutes(s.start_time, s.end_time);
+    for (const s of (sessRows as Array<{ prep_minutes: number | null }>) ??
+      []) {
+      prepMin += s.prep_minutes ?? 0;
     }
   }
 

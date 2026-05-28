@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { calculatePrepMinutes, type PrepProduct } from "@/lib/prepHelpers";
 
 export const runtime = "nodejs";
 
@@ -14,8 +15,6 @@ interface SaveBody {
   staff_name: string;
   sessions: Array<{
     session_label: string | null;
-    start_time: string;
-    end_time: string;
     items: Array<{ product_id: string; quantity: number }>;
   }>;
   field_work_minutes: number;
@@ -31,14 +30,6 @@ interface SaveBody {
 function nonNeg(v: unknown): number {
   const n = typeof v === "number" ? v : parseInt(String(v ?? "0"), 10);
   return Number.isFinite(n) && n >= 0 ? n : 0;
-}
-
-function normalizeTime(t: string): string {
-  // HH:MM or HH:MM:SS → HH:MM:SS
-  if (!t) return "00:00:00";
-  if (/^\d{2}:\d{2}$/.test(t)) return `${t}:00`;
-  if (/^\d{2}:\d{2}:\d{2}$/.test(t)) return t;
-  return "00:00:00";
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -73,24 +64,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   for (let i = 0; i < body.sessions.length; i++) {
     const s = body.sessions[i];
-    if (!s.start_time || !s.end_time) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `session #${i + 1}: start_time / end_time は必須`,
-        },
-        { status: 400 },
-      );
-    }
-    if (normalizeTime(s.start_time) >= normalizeTime(s.end_time)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `session #${i + 1}: 開始時刻は終了時刻より前にしてください`,
-        },
-        { status: 400 },
-      );
-    }
     if (!Array.isArray(s.items) || s.items.length === 0) {
       return NextResponse.json(
         {
@@ -114,6 +87,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
       }
     }
+  }
+
+  // 商品マスター取得（prep_minutes をサーバー側で再計算する単一ソース化のため）
+  const { data: productRows, error: prodErr } = await supabase
+    .from("prep_products")
+    .select("id, speed_basis, speed_minutes");
+  if (prodErr) {
+    return NextResponse.json(
+      { success: false, error: `prep_products 取得失敗: ${prodErr.message}` },
+      { status: 500 },
+    );
+  }
+  const productMap = new Map<
+    string,
+    Pick<PrepProduct, "speed_basis" | "speed_minutes">
+  >();
+  for (const p of (productRows ?? []) as Array<
+    Pick<PrepProduct, "id" | "speed_basis" | "speed_minutes">
+  >) {
+    productMap.set(p.id, {
+      speed_basis: p.speed_basis,
+      speed_minutes: p.speed_minutes,
+    });
   }
 
   const reportPayload = {
@@ -160,14 +156,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 3. sessions 一括 INSERT
-  const sessionPayload = body.sessions.map((s, idx) => ({
-    prep_report_id: reportId,
-    session_label: (s.session_label ?? "").trim() || null,
-    start_time: normalizeTime(s.start_time),
-    end_time: normalizeTime(s.end_time),
-    display_order: idx,
-  }));
+  // 3. sessions 一括 INSERT（prep_minutes はサーバー側で本数から再計算）
+  const sessionPayload = body.sessions.map((s, idx) => {
+    const items = s.items
+      .filter((it) => it.product_id)
+      .map((it) => ({
+        product_id: it.product_id,
+        quantity: nonNeg(it.quantity),
+      }));
+    return {
+      prep_report_id: reportId,
+      session_label: (s.session_label ?? "").trim() || null,
+      start_time: null,
+      end_time: null,
+      display_order: idx,
+      prep_minutes: calculatePrepMinutes(items, productMap),
+    };
+  });
   const { data: insertedSessions, error: sessInsErr } = await supabase
     .from("prep_sessions")
     .insert(sessionPayload)
