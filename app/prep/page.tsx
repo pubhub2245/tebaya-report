@@ -28,8 +28,6 @@ type SessionItemForm = {
 
 type SessionForm = {
   session_label: string;
-  start_time: string;
-  end_time: string;
   items: SessionItemForm[];
 };
 
@@ -49,8 +47,6 @@ function todayIso(): string {
 function newSession(): SessionForm {
   return {
     session_label: "",
-    start_time: "09:00",
-    end_time: "11:00",
     items: [{ product_id: "", quantity: 0 }],
   };
 }
@@ -162,8 +158,6 @@ export default function PrepReportPage() {
             .sort((a, b) => a.display_order - b.display_order)
             .map((s) => ({
               session_label: s.session_label ?? "",
-              start_time: s.start_time.slice(0, 5),
-              end_time: s.end_time.slice(0, 5),
               items: bundle.items
                 .filter((i) => i.prep_session_id === s.id)
                 .map((i) => ({ product_id: i.product_id, quantity: i.quantity })),
@@ -245,14 +239,6 @@ export default function PrepReportPage() {
     // 簡易バリデーション
     for (let i = 0; i < sessions.length; i++) {
       const s = sessions[i];
-      if (!s.start_time || !s.end_time) {
-        setFeedback({ kind: "err", text: `セッション #${i + 1}: 開始/終了時刻を入力してください` });
-        return;
-      }
-      if (s.start_time >= s.end_time) {
-        setFeedback({ kind: "err", text: `セッション #${i + 1}: 開始時刻は終了時刻より前にしてください` });
-        return;
-      }
       const filledItems = s.items.filter((it) => it.product_id);
       if (filledItems.length === 0) {
         setFeedback({ kind: "err", text: `セッション #${i + 1}: 商品を1件以上選択してください` });
@@ -267,8 +253,6 @@ export default function PrepReportPage() {
         staff_name: staffName,
         sessions: sessions.map((s) => ({
           session_label: s.session_label || null,
-          start_time: s.start_time,
-          end_time: s.end_time,
           items: s.items
             .filter((it) => it.product_id)
             .map((it) => ({
@@ -398,12 +382,7 @@ export default function PrepReportPage() {
             className="border border-stone-200 rounded-xl p-3 space-y-2 bg-stone-50/50"
           >
             <div className="flex items-center justify-between">
-              <span className="text-sm font-bold">
-                セッション #{sIdx + 1}
-                <span className="ml-2 text-xs text-stone-500 font-normal">
-                  所要：{sessionMinutes[sIdx]}分
-                </span>
-              </span>
+              <span className="text-sm font-bold">セッション #{sIdx + 1}</span>
               {sessions.length > 1 && (
                 <button
                   type="button"
@@ -414,47 +393,19 @@ export default function PrepReportPage() {
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="text-xs font-bold text-stone-600 block mb-0.5">
-                  ラベル
-                </label>
-                <input
-                  type="text"
-                  value={s.session_label}
-                  onChange={(e) =>
-                    updateSession(sIdx, { session_label: e.target.value })
-                  }
-                  placeholder="朝/昼/夜"
-                  className="field text-sm py-1.5"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-stone-600 block mb-0.5">
-                  開始
-                </label>
-                <input
-                  type="time"
-                  value={s.start_time}
-                  onChange={(e) =>
-                    updateSession(sIdx, { start_time: e.target.value })
-                  }
-                  className="field text-sm py-1.5"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-stone-600 block mb-0.5">
-                  終了
-                </label>
-                <input
-                  type="time"
-                  value={s.end_time}
-                  onChange={(e) =>
-                    updateSession(sIdx, { end_time: e.target.value })
-                  }
-                  className="field text-sm py-1.5"
-                />
-              </div>
+            <div>
+              <label className="text-xs font-bold text-stone-600 block mb-0.5">
+                ラベル（任意）
+              </label>
+              <input
+                type="text"
+                value={s.session_label}
+                onChange={(e) =>
+                  updateSession(sIdx, { session_label: e.target.value })
+                }
+                placeholder="朝/昼/夜"
+                className="field text-sm py-1.5"
+              />
             </div>
 
             <div className="space-y-1">
@@ -505,6 +456,20 @@ export default function PrepReportPage() {
               >
                 ＋ 商品を追加
               </button>
+            </div>
+
+            {/* このセッションの作業時間の目安（本数換算） */}
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-900">
+              <div className="text-xs font-semibold">⏱ 作業時間の目安</div>
+              <div className="text-xl font-bold leading-tight">
+                約 {(sessionMinutes[sIdx] / 60).toFixed(1)} 時間
+                <span className="text-sm font-normal text-amber-800 ml-1">
+                  （{sessionMinutes[sIdx]}分）
+                </span>
+              </div>
+              <div className="text-[11px] text-amber-700 mt-0.5">
+                ※ 換算ルール：手羽先 100本 ＝ 1時間、餃子 100本 ＝ 1.5時間、ポテト 1セッション ＝ 1時間
+              </div>
             </div>
           </div>
         ))}
