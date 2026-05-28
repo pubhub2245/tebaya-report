@@ -3,6 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  PRE_CHECK_FIELDS,
+  POST_CHECK_FIELDS,
+  initialPreCheck,
+  initialPostCheck,
+  normalizeCheckState,
+  isFieldVisible,
+  type PrepCheckField,
+  type PrepCheckState,
+} from "@/lib/prepChecklist";
+import {
   getActiveProducts,
   getCarryoverFromYesterday,
   calculateTheoreticalPrepQuantity,
@@ -74,6 +84,8 @@ export default function PrepReportPage() {
   const [otherDesc, setOtherDesc] = useState("");
   const [memo, setMemo] = useState("");
   const [carryovers, setCarryovers] = useState<CarryoverForm[]>([]);
+  const [preCheck, setPreCheck] = useState<PrepCheckState>(initialPreCheck());
+  const [postCheck, setPostCheck] = useState<PrepCheckState>(initialPostCheck());
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{
@@ -152,6 +164,11 @@ export default function PrepReportPage() {
         setOther(bundle.report.other_minutes);
         setOtherDesc(bundle.report.other_description ?? "");
         setMemo(bundle.report.memo ?? "");
+        // チェックリスト復元（未保存なら初期値）
+        setPreCheck(normalizeCheckState(bundle.report.pre_check, PRE_CHECK_FIELDS));
+        setPostCheck(
+          normalizeCheckState(bundle.report.post_check, POST_CHECK_FIELDS),
+        );
         // sessions + items 復元
         if (bundle.sessions.length > 0) {
           const sessForms: SessionForm[] = bundle.sessions
@@ -181,6 +198,8 @@ export default function PrepReportPage() {
         setOtherDesc("");
         setMemo("");
         setSessions([newSession()]);
+        setPreCheck(initialPreCheck());
+        setPostCheck(initialPostCheck());
       }
     })();
     return () => {
@@ -270,6 +289,8 @@ export default function PrepReportPage() {
         carryovers: carryovers
           .filter((c) => c.product_id)
           .map((c) => ({ product_id: c.product_id, quantity: Math.max(0, c.quantity || 0) })),
+        pre_check: preCheck,
+        post_check: postCheck,
       };
       const res = await fetch("/api/prep/save", {
         method: "POST",
@@ -372,6 +393,16 @@ export default function PrepReportPage() {
         </div>
         {showTheoretical && <TheoreticalPanel result={theoretical} />}
       </section>
+
+      {/* セクション3.5: 仕込み前チェック */}
+      <ChecklistSection
+        title="✅ 仕込み前チェック"
+        emoji="📝"
+        description="仕込み作業を始める前にひとつずつ確認してください"
+        fields={PRE_CHECK_FIELDS}
+        state={preCheck}
+        onChange={setPreCheck}
+      />
 
       {/* セクション4: 仕込みセッション */}
       <section className="card space-y-3">
@@ -622,6 +653,16 @@ export default function PrepReportPage() {
           })}
       </section>
 
+      {/* セクション6.5: 仕込み後チェック */}
+      <ChecklistSection
+        title="✅ 仕込み後チェック"
+        emoji="🧹"
+        description="仕込み作業を終えたあとの確認項目"
+        fields={POST_CHECK_FIELDS}
+        state={postCheck}
+        onChange={setPostCheck}
+      />
+
       {/* セクション7: メモ */}
       <section className="card space-y-2">
         <h2 className="text-base font-bold">メモ・引き継ぎ（任意）</h2>
@@ -743,5 +784,113 @@ function DirectCostBadge({
         {(ratio * 100).toFixed(1)}%（{status.label}）
       </span>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ✅ ChecklistSection（仕込み前 / 仕込み後 共通）
+// ---------------------------------------------------------------------------
+
+function ChecklistSection({
+  title,
+  emoji,
+  description,
+  fields,
+  state,
+  onChange,
+}: {
+  title: string;
+  emoji: string;
+  description: string;
+  fields: PrepCheckField[];
+  state: PrepCheckState;
+  onChange: (next: PrepCheckState) => void;
+}) {
+  const updateField = (key: string, value: boolean | string | number) => {
+    onChange({ ...state, [key]: value });
+  };
+
+  return (
+    <section className="card space-y-2">
+      <h2 className="text-base font-bold">{title}</h2>
+      <p className="text-xs text-stone-500">
+        {emoji} {description}
+      </p>
+      <div className="space-y-2">
+        {fields.map((f) => {
+          if (!isFieldVisible(f, state)) return null;
+
+          if (f.type === "check") {
+            const checked = state[f.key] === true;
+            return (
+              <label
+                key={f.key}
+                className="flex items-center gap-3 bg-stone-50 rounded-xl px-3 py-2.5 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => updateField(f.key, e.target.checked)}
+                  className="w-5 h-5 accent-brand"
+                />
+                <span className="text-sm flex-1">{f.label}</span>
+                {f.hint && (
+                  <span className="text-[10px] text-stone-400 hidden sm:inline">
+                    {f.hint}
+                  </span>
+                )}
+              </label>
+            );
+          }
+
+          if (f.type === "number") {
+            const v = state[f.key];
+            const num = typeof v === "number" ? v : 0;
+            return (
+              <div
+                key={f.key}
+                className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2"
+              >
+                <span className="text-sm flex-1">{f.label}</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={num || ""}
+                  onChange={(e) =>
+                    updateField(f.key, parseInt(e.target.value || "0", 10))
+                  }
+                  className="field text-sm py-1 w-24 text-right"
+                  placeholder="0"
+                />
+              </div>
+            );
+          }
+
+          // text or date
+          const v = state[f.key];
+          const str = typeof v === "string" ? v : "";
+          return (
+            <div
+              key={f.key}
+              className="bg-stone-50 rounded-xl px-3 py-2 space-y-1"
+            >
+              <label className="text-xs font-bold text-stone-700 block">
+                {f.label}
+              </label>
+              <input
+                type={f.type === "date" ? "date" : "text"}
+                value={str}
+                onChange={(e) => updateField(f.key, e.target.value)}
+                className="field text-sm py-1.5"
+                placeholder={f.type === "date" ? "" : "入力してください"}
+              />
+              {f.hint && (
+                <p className="text-[10px] text-stone-400">{f.hint}</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
