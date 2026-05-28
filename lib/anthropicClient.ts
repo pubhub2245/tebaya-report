@@ -13,7 +13,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 
-const MODEL = "claude-sonnet-4-20250514";
+const MODEL = "claude-sonnet-4-6";
 const PLAN_MAX_TOKENS = 2000;
 const CODE_MAX_TOKENS = 8000;
 
