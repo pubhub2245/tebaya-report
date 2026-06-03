@@ -12,8 +12,6 @@ import { transformWithCurrentCharacter } from "@/lib/formatters/characterTransfo
 export type FeedbackCompletionInput = {
   title: string;
   submitter: string;
-  /** 管理者コメント。空/未入力なら「ひとこと」セクションは省略する */
-  admin_comment?: string | null;
 };
 
 /** 通知のベース文（キャラ整形前のプレーンテキスト） */
@@ -25,17 +23,10 @@ export function buildFeedbackCompletionMessage(
     "",
     `『${input.title}』`,
     `提案：${input.submitter}さん`,
-  ];
-
-  const adminComment = (input.admin_comment ?? "").trim();
-  if (adminComment) {
-    lines.push("", `ひとこと：${adminComment}`);
-  }
-
-  lines.push(
     "",
-    "提案ありがとう！これからもどんどん意見お待ちしてます。",
-  );
+    "詳しい内容は意見箱のスレッドをチェックしてね！",
+    "提案ありがとう、これからもどんどん意見お待ちしてます。",
+  ];
 
   return lines.join("\n");
 }

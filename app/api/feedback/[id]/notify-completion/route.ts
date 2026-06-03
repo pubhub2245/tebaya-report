@@ -58,7 +58,7 @@ export async function POST(
   // feedback 取得
   const { data: feedback, error: fetchErr } = await supabase
     .from("feedback_box")
-    .select("id, title, submitter, status, admin_comment")
+    .select("id, title, submitter, status")
     .eq("id", id)
     .maybeSingle();
   if (fetchErr) {
@@ -89,7 +89,6 @@ export async function POST(
   const { sent, message } = await sendFeedbackCompletionNotification({
     title: feedback.title,
     submitter: feedback.submitter,
-    admin_comment: feedback.admin_comment,
   });
 
   if (!sent) {
