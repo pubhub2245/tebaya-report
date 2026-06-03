@@ -48,11 +48,13 @@ export default function MonthlySummary({
           supabase
             .from("shifts")
             .select("target")
+            .eq("status", "published")
             .gte("date", start)
             .lte("date", end),
           supabase
             .from("shifts")
             .select("target")
+            .eq("status", "published")
             .gte("date", start)
             .lte("date", upTo),
           supabase
