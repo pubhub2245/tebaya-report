@@ -3,8 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { STAFF_OPTIONS } from "@/lib/formState";
 import AdminGate from "@/app/components/AdminGate";
+import ShiftFormModal, {
+  resolveShiftVenueName,
+  stripFreeVenueFromNote,
+} from "@/app/components/ShiftFormModal";
 
 // TODO: 将来追加予定の機能
 // - 希望休申請（shift_change_requestsテーブル）
@@ -32,17 +35,10 @@ type Shift = {
   locations?: { name: string } | null;
 };
 
-const RANKS = ["A", "B", "C", "D"] as const;
-const RANK_TARGET: Record<string, number> = {
-  A: 60000,
-  B: 50000,
-  C: 40000,
-  D: 30000,
-};
 const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"];
 
 const STATUS_LABEL: Record<string, string> = {
-  draft: "下書き",
+  draft: "未確定",
   published: "確定済み",
   cancelled: "中止",
 };
@@ -182,7 +178,7 @@ export default function ShiftsPage() {
     const prevY = month === 1 ? year - 1 : year;
     if (
       !confirm(
-        `先月（${prevY}年${prevM}月）のシフトを${year}年${month}月にコピーしますか？\n日付は同じ曜日に合わせます。status は「下書き」で作成されます。`,
+        `先月（${prevY}年${prevM}月）のシフトを${year}年${month}月にコピーしますか？\n日付は同じ曜日に合わせます。status は「未確定」で作成されます。`,
       )
     )
       return;
@@ -214,12 +210,12 @@ export default function ShiftsPage() {
   // LINE通知で確定
   const handlePublish = async () => {
     if (summary.draft === 0) {
-      setActionResult("下書きのシフトがありません");
+      setActionResult("未確定のシフトがありません");
       return;
     }
     if (
       !confirm(
-        `${year}年${month}月のシフト（下書き ${summary.draft}件）をLINEグループに通知して確定しますか？`,
+        `${year}年${month}月のシフト（未確定 ${summary.draft}件）をLINEグループに通知して確定しますか？`,
       )
     )
       return;
@@ -444,7 +440,7 @@ export default function ShiftsPage() {
             <div className="flex justify-between">
               <span>状態</span>
               <span>
-                確定 {summary.published}件 / 下書き {summary.draft}件
+                確定 {summary.published}件 / 未確定 {summary.draft}件
               </span>
             </div>
           </div>
@@ -458,7 +454,7 @@ export default function ShiftsPage() {
         >
           {publishing
             ? "📢 送信中…"
-            : `📢 シフトをLINE通知で確定（下書き ${summary.draft}件）`}
+            : `📢 シフトをLINE通知で確定（未確定 ${summary.draft}件）`}
         </button>
 
         {actionResult && (
@@ -611,8 +607,7 @@ function DateModal({
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-sm">
                       📍{" "}
-                      {(s.locations as any)?.name ||
-                        `店舗ID:${s.location_id}`}
+                      {resolveShiftVenueName(s) || `店舗ID:${s.location_id}`}
                       （{s.rank}）
                     </div>
                     <div className="text-xs text-stone-600 mt-1 space-y-0.5">
@@ -622,8 +617,10 @@ function DateModal({
                         状態：{STATUS_ICON[s.status] || ""}{" "}
                         {STATUS_LABEL[s.status] || s.status}
                       </div>
-                      {s.note && (
-                        <div className="text-stone-500">備考：{s.note}</div>
+                      {stripFreeVenueFromNote(s.note) && (
+                        <div className="text-stone-500">
+                          備考：{stripFreeVenueFromNote(s.note)}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -660,267 +657,4 @@ function DateModal({
   );
 }
 
-/* ─── 追加/編集モーダル ─── */
-function ShiftFormModal({
-  shift,
-  defaultDate,
-  locations,
-  saving,
-  onClose,
-  onSave,
-}: {
-  shift: Shift | null;
-  defaultDate: string;
-  locations: Location[];
-  saving: boolean;
-  onClose: () => void;
-  onSave: (data: any) => void;
-}) {
-  const [date, setDate] = useState(shift?.date || defaultDate);
-  const [locationId, setLocationId] = useState(
-    shift?.location_id?.toString() || "",
-  );
-  const [rank, setRank] = useState(shift?.rank || "C");
-  const [target, setTarget] = useState(shift?.target?.toString() || "40000");
-  const [staffName, setStaffName] = useState(shift?.staff_name || "");
-  const [openTime, setOpenTime] = useState(shift?.planned_open_time || "");
-  const [closeTime, setCloseTime] = useState(shift?.planned_close_time || "");
-  const [status, setStatus] = useState(shift?.status || "draft");
-  const [note, setNote] = useState(shift?.note || "");
-  const [formError, setFormError] = useState<string | null>(null);
-
-  // ランク変更時に目標を自動設定
-  const handleRankChange = (r: string) => {
-    setRank(r);
-    setTarget(String(RANK_TARGET[r] || 40000));
-  };
-
-  // 店舗選択時にランクと目標を自動設定
-  const handleLocationChange = (locId: string) => {
-    setLocationId(locId);
-    const loc = locations.find((l) => l.id === parseInt(locId));
-    if (loc) {
-      setRank(loc.rank || "C");
-      setTarget(String(loc.target || RANK_TARGET[loc.rank] || 40000));
-    }
-  };
-
-  // 開店時刻変更時に閉店を +9時間
-  const handleOpenTimeChange = (t: string) => {
-    setOpenTime(t);
-    if (t) {
-      const [h] = t.split(":").map(Number);
-      const closeH = Math.min(h + 9, 23);
-      setCloseTime(`${String(closeH).padStart(2, "0")}:00`);
-    }
-  };
-
-  const handleSubmit = () => {
-    if (!date) {
-      setFormError("日付を選択してください");
-      return;
-    }
-    if (!locationId) {
-      setFormError("店舗を選択してください");
-      return;
-    }
-    setFormError(null);
-    onSave({
-      date,
-      location_id: parseInt(locationId),
-      rank,
-      target: parseInt(target) || 0,
-      staff_name: staffName.trim() || null,
-      planned_open_time: openTime || null,
-      planned_close_time: closeTime || null,
-      status,
-      note: note.trim() || null,
-    });
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 max-h-[90vh] overflow-y-auto shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-brand-dark">
-            {shift ? "シフト編集" : "シフト追加"}
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-stone-500 text-2xl leading-none px-2"
-          >
-            ×
-          </button>
-        </div>
-
-        {formError && (
-          <div className="mb-3 text-sm text-red-600 bg-red-50 p-2 rounded">
-            {formError}
-          </div>
-        )}
-
-        <div className="space-y-3">
-          <div>
-            <label className="label">日付 *</label>
-            <input
-              type="date"
-              className="field"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label className="label">店舗 *</label>
-            <select
-              className="field"
-              value={locationId}
-              onChange={(e) => handleLocationChange(e.target.value)}
-            >
-              <option value="">選択してください</option>
-              {locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}（{l.rank}）
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">ランク</label>
-              <div className="flex rounded-lg border border-stone-300 overflow-hidden">
-                {RANKS.map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => handleRankChange(r)}
-                    className={`flex-1 py-2 text-sm font-bold ${
-                      rank === r
-                        ? "bg-brand text-white"
-                        : "bg-white text-stone-600"
-                    }`}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="label">売上目標</label>
-              <input
-                type="number"
-                className="field"
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="label">担当者</label>
-            <select
-              className="field"
-              value={
-                STAFF_OPTIONS.includes(staffName) ? staffName : staffName ? "__other__" : ""
-              }
-              onChange={(e) => {
-                const v = e.target.value;
-                if (v === "__other__") setStaffName(" ");
-                else setStaffName(v);
-              }}
-            >
-              <option value="">未定</option>
-              {STAFF_OPTIONS.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-              {staffName &&
-                !STAFF_OPTIONS.includes(staffName) &&
-                staffName.trim() !== "" && (
-                  <option value={staffName}>{staffName}</option>
-                )}
-              <option value="__other__">その他（手入力）</option>
-            </select>
-            {staffName !== "" && !STAFF_OPTIONS.includes(staffName) && (
-              <input
-                className="field mt-2"
-                placeholder="名前を入力"
-                value={staffName.trim() === "" ? "" : staffName}
-                onChange={(e) => setStaffName(e.target.value || " ")}
-              />
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">開店時刻</label>
-              <input
-                type="time"
-                className="field"
-                value={openTime}
-                onChange={(e) => handleOpenTimeChange(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="label">閉店予定</label>
-              <input
-                type="time"
-                className="field"
-                value={closeTime}
-                onChange={(e) => setCloseTime(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="label">状態</label>
-            <select
-              className="field"
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-            >
-              <option value="draft">📝 下書き</option>
-              <option value="published">📤 確定済み</option>
-              <option value="cancelled">🚫 中止</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="label">備考</label>
-            <textarea
-              className="field min-h-[60px]"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="メモがあれば入力"
-            />
-          </div>
-
-          <div className="flex gap-2 pt-2">
-            <button
-              onClick={onClose}
-              disabled={saving}
-              className="btn-secondary flex-1"
-            >
-              キャンセル
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={saving}
-              className="btn-primary flex-1"
-            >
-              {saving ? "保存中…" : "保存"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+/* ShiftFormModal は app/components/ShiftFormModal.tsx に切り出し済み */

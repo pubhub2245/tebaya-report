@@ -4,17 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { shortLocationName } from "@/lib/locationDisplay";
-
-type Shift = {
-  id: number;
-  date: string;
-  location_id: number;
-  rank: string;
-  target: number;
-  staff_name: string | null;
-  status: string;
-  locations?: { name: string } | null;
-};
+import ShiftFormModal, {
+  type Shift,
+  type ShiftLocation,
+  type ShiftFormPayload,
+  resolveShiftVenueName,
+} from "@/app/components/ShiftFormModal";
 
 const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -32,49 +27,60 @@ export default function StaffShiftsPage() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"calendar" | "list">("calendar");
 
+  const [locations, setLocations] = useState<ShiftLocation[]>([]);
+  const [showFormModal, setShowFormModal] = useState(false);
+  const [editingShift, setEditingShift] = useState<Shift | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [actionResult, setActionResult] = useState<string | null>(null);
+
   const monthStr = `${year}-${String(month).padStart(2, "0")}`;
   const lastDay = new Date(year, month, 0).getDate();
 
-  // データ取得
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      const { data } = await supabase
+  const load = async () => {
+    setLoading(true);
+    const [shiftsRes, locsRes] = await Promise.all([
+      supabase
         .from("shifts")
         .select("*, locations(name)")
         .eq("status", "published")
         .gte("date", `${monthStr}-01`)
         .lte("date", `${monthStr}-${lastDay}`)
-        .order("date");
-      const shifts = (data as Shift[]) || [];
-      setAllShifts(shifts);
+        .order("date"),
+      supabase
+        .from("locations")
+        .select("id, name, rank, target")
+        .eq("is_active", true)
+        .order("name"),
+    ]);
+    const shifts = (shiftsRes.data as Shift[]) || [];
+    setAllShifts(shifts);
+    setLocations((locsRes.data as ShiftLocation[]) || []);
 
-      // 個人名リストを抽出（連名は除外）
-      const names = new Set<string>();
-      for (const s of shifts) {
-        if (!s.staff_name) continue;
-        // 「&」を含む場合は分割して個人名を登録
-        if (s.staff_name.includes("&")) {
-          s.staff_name.split("&").forEach((n) => {
-            const trimmed = n.trim();
-            if (trimmed) names.add(trimmed);
-          });
-        } else {
-          names.add(s.staff_name.trim());
-        }
+    const names = new Set<string>();
+    for (const s of shifts) {
+      if (!s.staff_name) continue;
+      if (s.staff_name.includes("&")) {
+        s.staff_name.split("&").forEach((n) => {
+          const trimmed = n.trim();
+          if (trimmed) names.add(trimmed);
+        });
+      } else {
+        names.add(s.staff_name.trim());
       }
-      setStaffList(Array.from(names).sort());
-      setLoading(false);
-    })();
+    }
+    setStaffList(Array.from(names).sort());
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    load();
   }, [year, month]);
 
-  // 選択した担当者のシフト（連名含む）
   const myShifts = useMemo(() => {
     if (!selectedStaff) return [];
     return allShifts.filter((s) => s.staff_name?.includes(selectedStaff));
   }, [allShifts, selectedStaff]);
 
-  // カレンダー週配列
   const calendarWeeks = useMemo(() => {
     const first = new Date(year, month - 1, 1);
     const startDow = first.getDay();
@@ -94,7 +100,6 @@ export default function StaffShiftsPage() {
     return weeks;
   }, [year, month, lastDay]);
 
-  // 日ごとのシフト
   const shiftsByDate = useMemo(() => {
     const m = new Map<string, Shift[]>();
     for (const s of myShifts) {
@@ -105,17 +110,17 @@ export default function StaffShiftsPage() {
     return m;
   }, [myShifts]);
 
-  // サマリー
   const summary = useMemo(() => {
     if (!selectedStaff || myShifts.length === 0) return null;
     const uniqueDates = new Set(myShifts.map((s) => s.date));
     const totalTarget = myShifts.reduce((s, sh) => s + (sh.target || 0), 0);
 
-    // 店舗別日数
     const locCount = new Map<string, number>();
     for (const s of myShifts) {
+      const resolved = resolveShiftVenueName(s);
       const name =
-        shortLocationName((s.locations as any)?.name || "") ||
+        shortLocationName(resolved) ||
+        resolved ||
         `店舗ID:${s.location_id}`;
       locCount.set(name, (locCount.get(name) || 0) + 1);
     }
@@ -150,6 +155,37 @@ export default function StaffShiftsPage() {
   const dateStr = (day: number) =>
     `${monthStr}-${String(day).padStart(2, "0")}`;
 
+  const defaultDateForNew = `${monthStr}-${String(now.getDate()).padStart(2, "0")}`;
+
+  const handleSave = async (data: ShiftFormPayload) => {
+    setSaving(true);
+    setActionResult(null);
+    try {
+      if (editingShift) {
+        const { error } = await supabase
+          .from("shifts")
+          .update({
+            ...data,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", editingShift.id);
+        if (error) throw error;
+        setActionResult("✅ 出店予定を更新しました");
+      } else {
+        const { error } = await supabase.from("shifts").insert(data);
+        if (error) throw error;
+        setActionResult("✅ 出店予定を登録しました");
+      }
+      setShowFormModal(false);
+      setEditingShift(null);
+      load();
+    } catch (e: any) {
+      setActionResult(`❌ 保存失敗：${e?.message || e}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <main className="max-w-md mx-auto px-4 py-5 pb-24">
       <header className="mb-4 flex items-center justify-between gap-2">
@@ -162,6 +198,29 @@ export default function StaffShiftsPage() {
         <h1 className="text-xl font-bold text-brand-dark">📅 シフト確認</h1>
         <div className="w-16" />
       </header>
+
+      {/* 出店予定の登録ボタン（誰でも入力可） */}
+      <button
+        onClick={() => {
+          setEditingShift(null);
+          setShowFormModal(true);
+        }}
+        className="w-full mb-4 bg-green-600 hover:bg-green-700 active:bg-green-800 text-white font-bold px-4 py-3 rounded-xl text-sm shadow"
+      >
+        ＋ 出店予定を登録
+      </button>
+
+      {actionResult && (
+        <div
+          className={`mb-4 card text-sm font-semibold ${
+            actionResult.startsWith("✅")
+              ? "bg-green-50 text-green-700 border border-green-200"
+              : "bg-red-50 text-red-700 border border-red-200"
+          }`}
+        >
+          {actionResult}
+        </div>
+      )}
 
       {/* 担当者選択 + 表示切替 */}
       <section className="card mb-4 space-y-3">
@@ -288,13 +347,15 @@ export default function StaffShiftsPage() {
                             <div className="text-xs font-semibold">{day}</div>
                             {hasShift && (
                               <div className="text-[9px] font-bold text-orange-700 mt-0.5 leading-tight">
-                                {dayShifts.map((s, si) => (
-                                  <div key={si}>
-                                    {shortLocationName(
-                                      (s.locations as any)?.name || "",
-                                    )}
-                                  </div>
-                                ))}
+                                {dayShifts.map((s, si) => {
+                                  const resolved = resolveShiftVenueName(s);
+                                  return (
+                                    <div key={si}>
+                                      {shortLocationName(resolved) ||
+                                        resolved}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
                           </td>
@@ -319,10 +380,11 @@ export default function StaffShiftsPage() {
                   const d = new Date(s.date + "T00:00:00");
                   const dayName = DAY_NAMES[d.getDay()];
                   const [, m2, d2] = s.date.split("-");
+                  const resolvedName = resolveShiftVenueName(s);
                   const locName =
-                    shortLocationName(
-                      (s.locations as any)?.name || "",
-                    ) || `店舗ID:${s.location_id}`;
+                    shortLocationName(resolvedName) ||
+                    resolvedName ||
+                    `店舗ID:${s.location_id}`;
                   return (
                     <div key={s.id} className="card py-3">
                       <div className="text-sm font-bold text-stone-700">
@@ -335,6 +397,17 @@ export default function StaffShiftsPage() {
                       </div>
                       <div className="text-xs text-stone-500 mt-0.5">
                         目標：{yen(s.target || 0)}
+                      </div>
+                      <div className="mt-2">
+                        <button
+                          onClick={() => {
+                            setEditingShift(s);
+                            setShowFormModal(true);
+                          }}
+                          className="text-xs text-blue-600 border border-blue-300 rounded px-2 py-1 hover:bg-blue-50"
+                        >
+                          編集
+                        </button>
                       </div>
                     </div>
                   );
@@ -384,6 +457,21 @@ export default function StaffShiftsPage() {
             </p>
           )}
         </>
+      )}
+
+      {showFormModal && (
+        <ShiftFormModal
+          shift={editingShift}
+          defaultDate={editingShift?.date || defaultDateForNew}
+          locations={locations}
+          saving={saving}
+          defaultStatus="published"
+          onClose={() => {
+            setShowFormModal(false);
+            setEditingShift(null);
+          }}
+          onSave={handleSave}
+        />
       )}
     </main>
   );
