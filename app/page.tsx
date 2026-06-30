@@ -1,6 +1,7 @@
 import Link from "next/link";
 import MonthlySummary from "./components/MonthlySummary";
 import TaskSummary from "./components/TaskSummary";
+import LocationRankingSummary from "./components/LocationRankingSummary";
 
 export default function MenuPage() {
   return (
@@ -13,6 +14,10 @@ export default function MenuPage() {
 
       <section className="mb-4">
         <MonthlySummary />
+      </section>
+
+      <section className="mb-4">
+        <LocationRankingSummary />
       </section>
 
       <section className="mb-6">
