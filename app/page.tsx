@@ -75,6 +75,13 @@ export default function MenuPage() {
           <span>チーム成績を見る</span>
         </Link>
         <Link
+          href="/venues"
+          className="flex items-center justify-center gap-3 w-full h-20 rounded-2xl bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white font-bold text-xl shadow-md transition"
+        >
+          <span className="text-2xl">📞</span>
+          <span>出店先 問い合わせ管理</span>
+        </Link>
+        <Link
           href="/feedback"
           className="flex items-center justify-center gap-3 w-full h-20 rounded-2xl bg-pink-500 hover:bg-pink-600 active:bg-pink-700 text-white font-bold text-xl shadow-md transition"
         >
