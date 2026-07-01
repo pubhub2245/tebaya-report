@@ -9,6 +9,8 @@ import {
   updateStatus,
   deleteInquiry,
   checkOkLimit,
+  okQuota,
+  displaySlot,
   STATUS_OPTIONS,
   type VenueInquiry,
   type InquiryStatus,
@@ -33,10 +35,19 @@ const RANK_LABEL: Record<RankKind, string> = {
   EVENT: "イベント枠",
 };
 
+const WEEKDAY = ["日", "月", "火", "水", "木", "金", "土"];
+
 function fmtDate(d: string | null): string {
   if (!d) return "日付未定";
   const [, m, day] = d.split("-");
   return `${parseInt(m, 10)}/${parseInt(day, 10)}`;
+}
+
+/** グループ見出し用: '7/4（金）' */
+function dateHeading(d: string): string {
+  const [y, m, day] = d.split("-").map(Number);
+  const w = new Date(y, m - 1, day).getDay();
+  return `${m}/${day}（${WEEKDAY[w]}）`;
 }
 
 function fmtContactedAt(iso: string | null): string {
@@ -48,6 +59,28 @@ function fmtContactedAt(iso: string | null): string {
   const hh = String(jst.getUTCHours()).padStart(2, "0");
   const mi = String(jst.getUTCMinutes()).padStart(2, "0");
   return `${mo}/${da} ${hh}:${mi}`;
+}
+
+/** 日付ごとにグループ化（fetchが date昇順・null末尾で返す前提） */
+type DateGroup = { key: string; label: string; rows: VenueInquiry[] };
+function groupByDate(rows: VenueInquiry[]): DateGroup[] {
+  const groups: DateGroup[] = [];
+  const index = new Map<string, DateGroup>();
+  for (const r of rows) {
+    const key = r.date ?? "__none__";
+    let g = index.get(key);
+    if (!g) {
+      g = {
+        key,
+        label: r.date ? dateHeading(r.date) : "日付未設定",
+        rows: [],
+      };
+      index.set(key, g);
+      groups.push(g);
+    }
+    g.rows.push(r);
+  }
+  return groups;
 }
 
 /** 売上サマリー表示（機能Bの集計を再利用） */
@@ -150,6 +183,8 @@ export default function VenuesPage() {
     }
   };
 
+  const groups = rows ? groupByDate(rows) : [];
+
   return (
     <main className="max-w-md mx-auto px-4 py-6 pb-24 space-y-4">
       <header className="space-y-2">
@@ -187,11 +222,26 @@ export default function VenuesPage() {
         </p>
       )}
 
-      {/* 一覧（近い予定日順） */}
-      {rows && rows.length > 0 && (
-        <section className="space-y-3">
-          {rows.map((row) => {
+      {/* 一覧（日付ごとにグループ表示・近い順） */}
+      {groups.map((group) => (
+        <section key={group.key} className="space-y-3">
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-stone-300">━</span>
+            <h2 className="text-sm font-bold text-stone-600">{group.label}</h2>
+            <span className="flex-1 border-t border-stone-200" />
+          </div>
+
+          {group.rows.map((row) => {
             const stats = lookup?.statsOf(row.store_name) ?? null;
+            const quota = rows
+              ? okQuota({
+                  rows,
+                  rankKindOf,
+                  storeName: row.store_name,
+                  date: row.date,
+                })
+              : { applicable: false as const };
+            const slotLabel = displaySlot(row.slot);
             return (
               <div
                 key={row.id}
@@ -199,16 +249,11 @@ export default function VenuesPage() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-stone-500">
-                        {fmtDate(row.date)}
+                    {slotLabel && (
+                      <span className="text-xs text-indigo-500 font-bold">
+                        {slotLabel}
                       </span>
-                      {row.slot && (
-                        <span className="text-xs text-indigo-500 font-bold">
-                          {row.slot}
-                        </span>
-                      )}
-                    </div>
+                    )}
                     <div className="font-bold text-brand-dark text-lg leading-tight truncate">
                       {row.store_name}
                     </div>
@@ -224,6 +269,25 @@ export default function VenuesPage() {
                 <div className="text-xs">
                   <SalesSummary stats={stats} />
                 </div>
+
+                {/* 残り出店可能回数（改善1） */}
+                {quota.applicable && (
+                  <div className="text-xs">
+                    {quota.remaining > 0 ? (
+                      <span className="text-emerald-600 font-bold">
+                        今月あと{quota.remaining}回OK可
+                      </span>
+                    ) : (
+                      <span className="text-red-500 font-bold">
+                        今月上限に達しています
+                      </span>
+                    )}
+                    <span className="text-stone-400">
+                      （{quota.aggregate ? "D全店 " : ""}
+                      {quota.current}/{quota.limit}）
+                    </span>
+                  </div>
+                )}
 
                 {/* 連絡者・連絡日時・担当 */}
                 <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-stone-500">
@@ -272,7 +336,7 @@ export default function VenuesPage() {
             );
           })}
         </section>
-      )}
+      ))}
 
       {/* 追加ボタン（ログイン不要・画面下固定） */}
       <div className="fixed bottom-0 inset-x-0 bg-gradient-to-t from-white via-white to-transparent p-4">
