@@ -32,7 +32,7 @@ export type VenueInquiry = {
   memo: string | null;
   rank: string | null;
   assigned_staff: string | null;
-  slot: string | null; // '①' か '②'
+  slot: string | null; // '1番隊' か '2番隊'（旧データは '①'/'②'）
   created_at: string;
   updated_at: string;
 };
@@ -43,10 +43,36 @@ export type InquiryInput = {
   store_name: string;
   status: InquiryStatus;
   contacted_by: string | null;
+  /** 連絡日時（ISO文字列）。フォームで最終値を確定して渡す。null=未記録 */
+  contacted_at: string | null;
   memo: string | null;
   assigned_staff: string | null;
   slot: string | null;
 };
+
+// -----------------------------------------------------------------------------
+// 番隊（slot）表記の正規化
+// -----------------------------------------------------------------------------
+
+/** 入力・保存で使う番隊の選択肢 */
+export const SLOT_OPTIONS = ["1番隊", "2番隊"] as const;
+
+/**
+ * slot の値を統一表記へ。旧データの '①'/'②' も '1番隊'/'2番隊' に読み替える。
+ * 空なら null。
+ */
+export function normalizeSlot(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const v = raw.trim();
+  if (v === "①" || v === "1番隊") return "1番隊";
+  if (v === "②" || v === "2番隊") return "2番隊";
+  return v || null;
+}
+
+/** 表示用の番隊名（normalizeSlot と同じ。読み替えを明示する別名） */
+export function displaySlot(raw: string | null | undefined): string | null {
+  return normalizeSlot(raw);
+}
 
 // -----------------------------------------------------------------------------
 // 定数: ランク別の月間出店上限（★ここ1か所で変更できる）
@@ -123,6 +149,38 @@ export type LimitCheckResult = {
 };
 
 /**
+ * 指定した月・ランクの OK 件数を数える共通ヘルパー。
+ *  - A/B/C: 同じ店舗名（名寄せ後）のみ
+ *  - D    : Dランク全店の合計
+ *  - excludeId で編集中の自分自身を除外できる
+ */
+function countMonthlyOk(params: {
+  rows: VenueInquiry[];
+  rankKindOf: (storeName: string) => RankKind | null;
+  code: RankCode;
+  month: string;
+  storeName: string;
+  excludeId: number | null;
+}): number {
+  const { rows, rankKindOf, code, month, storeName, excludeId } = params;
+  const isAggregate = AGGREGATE_RANKS.includes(code);
+  const targetKey = normalizeOutletName(storeName);
+
+  let n = 0;
+  for (const r of rows) {
+    if (r.id === excludeId) continue;
+    if (r.status !== "OK") continue;
+    if (monthOf(r.date) !== month) continue;
+    if (isAggregate) {
+      if (rankCodeForLimit(rankKindOf(r.store_name)) === code) n += 1;
+    } else {
+      if (normalizeOutletName(r.store_name) === targetKey) n += 1;
+    }
+  }
+  return n;
+}
+
+/**
  * ある行を status='OK' にしてよいか判定する純関数。
  *
  * @param rows            既存の全 venue_inquiries
@@ -153,23 +211,14 @@ export function checkOkLimit(params: {
 
   const limit = MONTHLY_OK_LIMITS[code];
   const isAggregate = AGGREGATE_RANKS.includes(code);
-  const targetKey = normalizeOutletName(storeName);
-
-  // 既存のOK件数を数える（編集中の自分自身は除外）
-  let current = 0;
-  for (const r of rows) {
-    if (r.id === editingId) continue;
-    if (r.status !== "OK") continue;
-    if (monthOf(r.date) !== month) continue;
-
-    if (isAggregate) {
-      // Dランク: 同じ月の「Dランク店すべて」を合算
-      if (rankCodeForLimit(rankKindOf(r.store_name)) === code) current += 1;
-    } else {
-      // A/B/C: 同じ店舗名（名寄せ後）のみ
-      if (normalizeOutletName(r.store_name) === targetKey) current += 1;
-    }
-  }
+  const current = countMonthlyOk({
+    rows,
+    rankKindOf,
+    code,
+    month,
+    storeName,
+    excludeId: editingId,
+  });
 
   if (current >= limit) {
     const scope = isAggregate
@@ -184,6 +233,59 @@ export function checkOkLimit(params: {
   }
 
   return { allowed: true, current, limit };
+}
+
+// -----------------------------------------------------------------------------
+// 残り出店可能回数（改善1: 「今月あと何回OKにできるか」表示用）
+// -----------------------------------------------------------------------------
+
+export type OkQuota =
+  | { applicable: false }
+  | {
+      applicable: true;
+      code: RankCode;
+      /** D は全店合計での枠かどうか */
+      aggregate: boolean;
+      limit: number;
+      current: number;
+      remaining: number;
+    };
+
+/**
+ * その店舗・その月の「あと何回OKにできるか」を返す純関数。
+ * ランク対象外（データ不足/イベント/実績なし）や日付未設定は applicable:false。
+ * current は編集中の除外をしない“今の実際のOK件数”。
+ */
+export function okQuota(params: {
+  rows: VenueInquiry[];
+  rankKindOf: (storeName: string) => RankKind | null;
+  storeName: string;
+  date: string | null;
+}): OkQuota {
+  const month = monthOf(params.date);
+  if (!month) return { applicable: false };
+
+  const code = rankCodeForLimit(params.rankKindOf(params.storeName));
+  if (!code) return { applicable: false };
+
+  const limit = MONTHLY_OK_LIMITS[code];
+  const current = countMonthlyOk({
+    rows: params.rows,
+    rankKindOf: params.rankKindOf,
+    code,
+    month,
+    storeName: params.storeName,
+    excludeId: null,
+  });
+
+  return {
+    applicable: true,
+    code,
+    aggregate: AGGREGATE_RANKS.includes(code),
+    limit,
+    current,
+    remaining: Math.max(0, limit - current),
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -221,7 +323,8 @@ export async function insertInquiry(input: InquiryInput): Promise<void> {
     store_name: input.store_name,
     status: input.status,
     contacted_by: input.contacted_by,
-    contacted_at: contactedAtFor(input.status, null),
+    // フォームで確定した連絡日時をそのまま保存（自動/手動の判定はフォーム側）
+    contacted_at: input.contacted_at,
     memo: input.memo,
     assigned_staff: input.assigned_staff,
     slot: input.slot,
@@ -234,7 +337,6 @@ export async function insertInquiry(input: InquiryInput): Promise<void> {
 export async function updateInquiry(
   id: number,
   input: InquiryInput,
-  prevContactedAt: string | null,
 ): Promise<void> {
   const now = new Date().toISOString();
   const payload = {
@@ -242,7 +344,7 @@ export async function updateInquiry(
     store_name: input.store_name,
     status: input.status,
     contacted_by: input.contacted_by,
-    contacted_at: contactedAtFor(input.status, prevContactedAt),
+    contacted_at: input.contacted_at,
     memo: input.memo,
     assigned_staff: input.assigned_staff,
     slot: input.slot,
@@ -253,6 +355,22 @@ export async function updateInquiry(
     .update(payload)
     .eq("id", id);
   if (error) throw error;
+}
+
+/**
+ * フォームで連絡日時を確定するためのヘルパー。
+ *  - 未連絡          → null
+ *  - 手動入力あり     → その値（ISO）
+ *  - 手動入力なし     → 既存値、無ければ現在時刻（自動記録・従来動作）
+ */
+export function resolveContactedAt(
+  status: InquiryStatus,
+  manualIso: string | null,
+  prev: string | null,
+): string | null {
+  if (status === "未連絡") return null;
+  if (manualIso) return manualIso;
+  return prev ?? new Date().toISOString();
 }
 
 /** 1件削除（id指定・単一行のみ）。 */

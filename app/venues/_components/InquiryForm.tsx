@@ -6,13 +6,16 @@ import {
   type InquiryInput,
   type InquiryStatus,
   STATUS_OPTIONS,
+  SLOT_OPTIONS,
+  normalizeSlot,
+  resolveContactedAt,
   insertInquiry,
   updateInquiry,
   checkOkLimit,
 } from "@/lib/venueInquiries";
 import type { RankKind } from "@/lib/analytics/outletAnalytics";
 
-/** よく使う店（店舗名クイック入力） */
+/** よく使う店（店舗名クイック入力／候補リスト共用） */
 const QUICK_STORES = [
   "パシオ高城店",
   "パシオ志比田店",
@@ -30,8 +33,36 @@ const QUICK_STORES = [
   "イオンモール",
 ];
 
-/** スタッフ候補 */
-const STAFF = ["イデ", "じゅん", "かずき", "なぎさ"];
+/** スタッフ候補（連絡者・出店担当で共用） */
+const STAFF = ["かずき", "なぎさ", "イデ", "じゅん", "丸目", "ゆうや"];
+
+// -----------------------------------------------------------------------------
+// 連絡日時（datetime-local ⇔ ISO）の JST 変換
+// -----------------------------------------------------------------------------
+
+/** ISO(UTC) → datetime-local 用の JST 文字列 'YYYY-MM-DDTHH:mm' */
+function isoToLocalInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const jst = new Date(d.getTime() + 9 * 3600 * 1000);
+  const y = jst.getUTCFullYear();
+  const mo = String(jst.getUTCMonth() + 1).padStart(2, "0");
+  const da = String(jst.getUTCDate()).padStart(2, "0");
+  const hh = String(jst.getUTCHours()).padStart(2, "0");
+  const mi = String(jst.getUTCMinutes()).padStart(2, "0");
+  return `${y}-${mo}-${da}T${hh}:${mi}`;
+}
+
+/** datetime-local 文字列（JST として解釈）→ ISO(UTC) */
+function localInputToIso(local: string): string | null {
+  if (!local) return null;
+  const [datePart, timePart] = local.split("T");
+  if (!datePart || !timePart) return null;
+  const [y, mo, da] = datePart.split("-").map(Number);
+  const [hh, mi] = timePart.split(":").map(Number);
+  const utcMs = Date.UTC(y, mo - 1, da, hh, mi) - 9 * 3600 * 1000;
+  return new Date(utcMs).toISOString();
+}
 
 type Props = {
   mode: "create" | "edit";
@@ -60,10 +91,13 @@ export default function InquiryForm({
   const [contactedBy, setContactedBy] = useState<string>(
     initial?.contacted_by ?? "",
   );
+  const [contactedAt, setContactedAt] = useState<string>(
+    isoToLocalInput(initial?.contacted_at),
+  );
   const [assignedStaff, setAssignedStaff] = useState<string>(
     initial?.assigned_staff ?? "",
   );
-  const [slot, setSlot] = useState<string>(initial?.slot ?? "");
+  const [slot, setSlot] = useState<string>(normalizeSlot(initial?.slot) ?? "");
   const [memo, setMemo] = useState<string>(initial?.memo ?? "");
 
   const [saving, setSaving] = useState(false);
@@ -74,8 +108,13 @@ export default function InquiryForm({
     store_name: storeName.trim(),
     status,
     contacted_by: contactedBy.trim() || null,
+    contacted_at: resolveContactedAt(
+      status,
+      localInputToIso(contactedAt),
+      initial?.contacted_at ?? null,
+    ),
     assigned_staff: assignedStaff.trim() || null,
-    slot: slot || null,
+    slot: normalizeSlot(slot),
     memo: memo.trim() || null,
   });
 
@@ -104,7 +143,7 @@ export default function InquiryForm({
     setSaving(true);
     try {
       if (mode === "edit" && initial) {
-        await updateInquiry(initial.id, buildInput(), initial.contacted_at);
+        await updateInquiry(initial.id, buildInput());
       } else {
         await insertInquiry(buildInput());
       }
@@ -149,16 +188,22 @@ export default function InquiryForm({
             />
           </div>
 
-          {/* 店舗名: 自由入力 + よく使う店ボタン */}
+          {/* 店舗名: 自由入力 + 候補リスト(datalist) + よく使う店ボタン */}
           <div>
             <label className="label">店舗名</label>
             <input
               type="text"
               className="field"
-              placeholder="店舗名を入力"
+              placeholder="店舗名を入力（一覧から選択も可）"
+              list="store-list"
               value={storeName}
               onChange={(e) => setStoreName(e.target.value)}
             />
+            <datalist id="store-list">
+              {QUICK_STORES.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {QUICK_STORES.map((s) => (
                 <button
@@ -201,7 +246,33 @@ export default function InquiryForm({
             </p>
           </div>
 
-          {/* 連絡者 / 出店担当 */}
+          {/* 連絡日時（手動修正可） */}
+          <div>
+            <label className="label">連絡日時（手動修正可）</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="datetime-local"
+                className="field"
+                value={contactedAt}
+                onChange={(e) => setContactedAt(e.target.value)}
+                disabled={status === "未連絡"}
+              />
+              {contactedAt && (
+                <button
+                  type="button"
+                  onClick={() => setContactedAt("")}
+                  className="text-xs text-stone-500 underline shrink-0"
+                >
+                  クリア
+                </button>
+              )}
+            </div>
+            <p className="text-[11px] text-stone-400 mt-1">
+              空欄なら保存時に自動で現在時刻が入ります（未連絡のときは記録なし）。
+            </p>
+          </div>
+
+          {/* 連絡者 / 出店担当（プルダウン＋自由入力） */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">連絡した人</label>
@@ -209,6 +280,7 @@ export default function InquiryForm({
                 type="text"
                 className="field"
                 list="staff-list"
+                placeholder="選択 or 入力"
                 value={contactedBy}
                 onChange={(e) => setContactedBy(e.target.value)}
               />
@@ -219,6 +291,7 @@ export default function InquiryForm({
                 type="text"
                 className="field"
                 list="staff-list"
+                placeholder="選択 or 入力"
                 value={assignedStaff}
                 onChange={(e) => setAssignedStaff(e.target.value)}
               />
@@ -230,11 +303,11 @@ export default function InquiryForm({
             </datalist>
           </div>
 
-          {/* 枠 */}
+          {/* 番隊（旧「枠①②」） */}
           <div>
-            <label className="label">枠</label>
+            <label className="label">番隊</label>
             <div className="flex gap-2">
-              {["①", "②"].map((sl) => (
+              {SLOT_OPTIONS.map((sl) => (
                 <button
                   key={sl}
                   type="button"
@@ -248,6 +321,17 @@ export default function InquiryForm({
                   {sl}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => setSlot("")}
+                className={`px-4 py-2 rounded-lg border font-bold transition ${
+                  slot === ""
+                    ? "bg-stone-500 text-white border-stone-500"
+                    : "bg-white text-stone-500 border-stone-300 hover:bg-stone-50"
+                }`}
+              >
+                未設定
+              </button>
             </div>
           </div>
 
