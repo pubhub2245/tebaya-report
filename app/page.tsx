@@ -1,6 +1,7 @@
 import Link from "next/link";
 import MonthlySummary from "./components/MonthlySummary";
 import TaskSummary from "./components/TaskSummary";
+import LocationRankingSummary from "./components/LocationRankingSummary";
 
 export default function MenuPage() {
   return (
@@ -13,6 +14,10 @@ export default function MenuPage() {
 
       <section className="mb-4">
         <MonthlySummary />
+      </section>
+
+      <section className="mb-4">
+        <LocationRankingSummary />
       </section>
 
       <section className="mb-6">
@@ -68,6 +73,13 @@ export default function MenuPage() {
         >
           <span className="text-2xl">📊</span>
           <span>チーム成績を見る</span>
+        </Link>
+        <Link
+          href="/venues"
+          className="flex items-center justify-center gap-3 w-full h-20 rounded-2xl bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white font-bold text-xl shadow-md transition"
+        >
+          <span className="text-2xl">📞</span>
+          <span>出店先 問い合わせ管理</span>
         </Link>
         <Link
           href="/feedback"
