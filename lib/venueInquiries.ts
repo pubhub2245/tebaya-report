@@ -255,6 +255,15 @@ export async function updateInquiry(
   if (error) throw error;
 }
 
+/** 1件削除（id指定・単一行のみ）。 */
+export async function deleteInquiry(id: number): Promise<void> {
+  const { error } = await supabase
+    .from("venue_inquiries")
+    .delete()
+    .eq("id", id);
+  if (error) throw error;
+}
+
 /** ステータスだけを変更する（一覧のプルダウン用）。OK化時の上限チェックは呼び出し側で。 */
 export async function updateStatus(
   id: number,

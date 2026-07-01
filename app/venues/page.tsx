@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { yen } from "@/lib/format";
-import { useAdminAuth } from "@/lib/useAdminAuth";
 import {
   fetchInquiries,
   loadAnalyticsLookup,
   updateStatus,
+  deleteInquiry,
   checkOkLimit,
   STATUS_OPTIONS,
   type VenueInquiry,
@@ -66,8 +66,6 @@ function SalesSummary({ stats }: { stats: OutletStats | null }) {
 }
 
 export default function VenuesPage() {
-  const { isAdmin, hydrated, login } = useAdminAuth();
-
   const [rows, setRows] = useState<VenueInquiry[] | null>(null);
   const [lookup, setLookup] = useState<AnalyticsLookup | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,11 +75,6 @@ export default function VenuesPage() {
   // フォーム制御
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<VenueInquiry | null>(null);
-
-  // 管理者ログイン入力
-  const [showLogin, setShowLogin] = useState(false);
-  const [pw, setPw] = useState("");
-  const [pwError, setPwError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -144,14 +137,16 @@ export default function VenuesPage() {
     }
   };
 
-  const submitLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (login(pw)) {
-      setShowLogin(false);
-      setPw("");
-      setPwError(null);
-    } else {
-      setPwError("パスワードが違います");
+  /** 1件削除（確認ダイアログあり） */
+  const onDelete = async (row: VenueInquiry) => {
+    setNotice(null);
+    const label = `${fmtDate(row.date)} ${row.store_name}`;
+    if (!window.confirm(`「${label}」の記録を削除しますか？`)) return;
+    try {
+      await deleteInquiry(row.id);
+      await reload();
+    } catch (e: any) {
+      setNotice(e?.message || String(e));
     }
   };
 
@@ -162,14 +157,6 @@ export default function VenuesPage() {
           <Link href="/" className="btn-secondary text-sm">
             🏠 トップ
           </Link>
-          {hydrated && !isAdmin && (
-            <button
-              onClick={() => setShowLogin((v) => !v)}
-              className="text-xs text-stone-500 underline hover:text-stone-700"
-            >
-              🔒 管理者ログイン
-            </button>
-          )}
         </div>
         <h1 className="text-2xl font-bold text-brand-dark text-center">
           📞 出店先 問い合わせ管理
@@ -178,27 +165,6 @@ export default function VenuesPage() {
           誰がどの店にいつ連絡したかを共有し、二重連絡を防ぎます
         </p>
       </header>
-
-      {/* 管理者ログイン（非管理者向け） */}
-      {showLogin && !isAdmin && (
-        <form
-          onSubmit={submitLogin}
-          className="card space-y-2 border border-stone-200"
-        >
-          <label className="label">管理者パスワード</label>
-          <input
-            type="password"
-            className="field"
-            value={pw}
-            onChange={(e) => setPw(e.target.value)}
-            autoFocus
-          />
-          {pwError && <p className="text-sm text-red-600">{pwError}</p>}
-          <button type="submit" className="btn-primary w-full">
-            ログインして編集する
-          </button>
-        </form>
-      )}
 
       {error && (
         <div className="card bg-red-50 border border-red-200 text-red-700 text-sm">
@@ -217,8 +183,7 @@ export default function VenuesPage() {
 
       {rows && rows.length === 0 && (
         <p className="text-center text-sm text-stone-500 py-8">
-          まだ問い合わせの記録がありません。
-          {isAdmin && "「＋ 追加」から登録できます。"}
+          まだ問い合わせの記録がありません。「＋ 追加」から登録できます。
         </p>
       )}
 
@@ -275,49 +240,48 @@ export default function VenuesPage() {
                   </p>
                 )}
 
-                {/* 管理者操作 */}
-                {isAdmin && (
-                  <div className="flex items-center gap-2 pt-1">
-                    <select
-                      value={row.status}
-                      onChange={(e) =>
-                        onStatusChange(row, e.target.value as InquiryStatus)
-                      }
-                      className="text-xs border border-stone-300 rounded-lg px-2 py-1.5 bg-white"
-                    >
-                      {STATUS_OPTIONS.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={() => openEdit(row)}
-                      className="text-xs text-stone-600 border border-stone-300 rounded-lg px-3 py-1.5 hover:bg-stone-50"
-                    >
-                      編集
-                    </button>
-                  </div>
-                )}
+                {/* 操作（ログイン不要・誰でも可） */}
+                <div className="flex items-center gap-2 pt-1">
+                  <select
+                    value={row.status}
+                    onChange={(e) =>
+                      onStatusChange(row, e.target.value as InquiryStatus)
+                    }
+                    className="text-xs border border-stone-300 rounded-lg px-2 py-1.5 bg-white"
+                  >
+                    {STATUS_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => openEdit(row)}
+                    className="text-xs text-stone-600 border border-stone-300 rounded-lg px-3 py-1.5 hover:bg-stone-50"
+                  >
+                    編集
+                  </button>
+                  <button
+                    onClick={() => onDelete(row)}
+                    className="text-xs text-red-600 border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50 ml-auto"
+                  >
+                    削除
+                  </button>
+                </div>
               </div>
             );
           })}
         </section>
       )}
 
-      {/* 追加ボタン（管理者のみ・画面下固定） */}
-      {isAdmin && (
-        <div className="fixed bottom-0 inset-x-0 bg-gradient-to-t from-white via-white to-transparent p-4">
-          <div className="max-w-md mx-auto">
-            <button
-              onClick={openCreate}
-              className="btn-primary w-full shadow-lg"
-            >
-              ＋ 問い合わせを追加
-            </button>
-          </div>
+      {/* 追加ボタン（ログイン不要・画面下固定） */}
+      <div className="fixed bottom-0 inset-x-0 bg-gradient-to-t from-white via-white to-transparent p-4">
+        <div className="max-w-md mx-auto">
+          <button onClick={openCreate} className="btn-primary w-full shadow-lg">
+            ＋ 問い合わせを追加
+          </button>
         </div>
-      )}
+      </div>
 
       {/* フォーム */}
       {formOpen && rows && (
