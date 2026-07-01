@@ -13,6 +13,10 @@ import {
   type RankKind,
   type RankCode,
 } from "@/lib/analytics/outletAnalytics";
+import {
+  syncShiftForInquiry,
+  cancelShiftForInquiry,
+} from "@/lib/venueShiftSync";
 
 // -----------------------------------------------------------------------------
 // 型
@@ -330,8 +334,14 @@ export async function insertInquiry(input: InquiryInput): Promise<void> {
     slot: input.slot,
     updated_at: now,
   };
-  const { error } = await supabase.from("venue_inquiries").insert(payload);
+  const { data, error } = await supabase
+    .from("venue_inquiries")
+    .insert(payload)
+    .select()
+    .single();
   if (error) throw error;
+  // 一方通行同期：対応するシフトを作成/更新
+  await syncShiftForInquiry(data as VenueInquiry);
 }
 
 export async function updateInquiry(
@@ -350,11 +360,14 @@ export async function updateInquiry(
     slot: input.slot,
     updated_at: now,
   };
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("venue_inquiries")
     .update(payload)
-    .eq("id", id);
+    .eq("id", id)
+    .select()
+    .single();
   if (error) throw error;
+  await syncShiftForInquiry(data as VenueInquiry);
 }
 
 /**
@@ -373,8 +386,10 @@ export function resolveContactedAt(
   return prev ?? new Date().toISOString();
 }
 
-/** 1件削除（id指定・単一行のみ）。 */
+/** 1件削除（id指定・単一行のみ）。対応シフトは中止扱いにする。 */
 export async function deleteInquiry(id: number): Promise<void> {
+  // 先に対応シフトを中止（inquiry_id で紐付いているうちに）
+  await cancelShiftForInquiry(id);
   const { error } = await supabase
     .from("venue_inquiries")
     .delete()
@@ -388,13 +403,16 @@ export async function updateStatus(
   status: InquiryStatus,
   prevContactedAt: string | null,
 ): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("venue_inquiries")
     .update({
       status,
       contacted_at: contactedAtFor(status, prevContactedAt),
       updated_at: new Date().toISOString(),
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select()
+    .single();
   if (error) throw error;
+  await syncShiftForInquiry(data as VenueInquiry);
 }
