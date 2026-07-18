@@ -77,10 +77,21 @@ export function generateLineText(f: FormState, cumulative: number): string {
     potato_count: f.remaining.potato || 0,
     tornado_count: f.remaining.tornado || 0,
     limited_count: f.limited_product_count || 0,
+    allstar_count: f.allstar_count || 0,
   });
   parts.push(
     `・手羽先：${tebasakiCalc.count}本（売上から自動計算）`,
   );
+
+  // オールスター（¥1,300の詰め合わせ商品）
+  if ((f.allstar_count || 0) > 0) {
+    parts.push(`・オールスター：${f.allstar_count}個`);
+  }
+
+  // お客さんの組数
+  if ((f.customer_groups || 0) > 0) {
+    parts.push(`・組数：${f.customer_groups}組`);
+  }
 
   // 限定商品（任意項目、商品名がある場合のみ）
   const limitedName = (f.limited_product_name ?? "").trim();

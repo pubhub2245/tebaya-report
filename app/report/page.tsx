@@ -166,6 +166,7 @@ export default function Page() {
         potato_count: form.remaining.potato || 0,
         tornado_count: form.remaining.tornado || 0,
         limited_count: form.limited_product_count || 0,
+        allstar_count: form.allstar_count || 0,
       }),
     [
       form.sales_amount,
@@ -173,6 +174,7 @@ export default function Page() {
       form.remaining.potato,
       form.remaining.tornado,
       form.limited_product_count,
+      form.allstar_count,
     ],
   );
 
@@ -258,6 +260,8 @@ export default function Page() {
           remaining_negishio: 0,
           limited_product_name: limitedName,
           limited_product_count: limitedCount,
+          allstar_count: form.allstar_count || 0,
+          customer_groups: form.customer_groups || 0,
           expenses: form.expenses,
           handover: form.handover,
           line_text: text,
@@ -903,6 +907,22 @@ function Step4({
             </div>
           );
         })}
+
+        {/* オールスター（¥1,300の詰め合わせ商品） */}
+        <CountRow
+          label="オールスター（¥1,300）"
+          unit="個"
+          value={form.allstar_count || 0}
+          onChange={(n) => update("allstar_count", n)}
+        />
+
+        {/* お客さんの組数（客数） */}
+        <CountRow
+          label="組数（お客さんの組数）"
+          unit="組"
+          value={form.customer_groups || 0}
+          onChange={(n) => update("customer_groups", n)}
+        />
       </section>
 
       <section className="card space-y-3 mt-3">
@@ -955,6 +975,7 @@ function TebasakiAutoCalcSection({ form }: { form: FormState }) {
         potato_count: form.remaining.potato || 0,
         tornado_count: form.remaining.tornado || 0,
         limited_count: form.limited_product_count || 0,
+        allstar_count: form.allstar_count || 0,
       }),
     [
       form.sales_amount,
@@ -962,6 +983,7 @@ function TebasakiAutoCalcSection({ form }: { form: FormState }) {
       form.remaining.potato,
       form.remaining.tornado,
       form.limited_product_count,
+      form.allstar_count,
     ],
   );
 
@@ -1402,6 +1424,12 @@ function Step7({
             v={`${form.limited_product_name.trim()}${form.limited_product_count > 0 ? ` ${form.limited_product_count}本` : ""}`}
           />
         )}
+        {form.allstar_count > 0 && (
+          <Row k="オールスター" v={`${form.allstar_count}個`} />
+        )}
+        {form.customer_groups > 0 && (
+          <Row k="組数" v={`${form.customer_groups}組`} />
+        )}
         <Row k="経費件数" v={`${form.expenses.length}件（${yen(expensesTotal)}）`} />
         {form.cash_moves.length > 0 && (
           <Row
@@ -1574,6 +1602,48 @@ function Row({ k, v }: { k: string; v: string }) {
     <div className="flex justify-between text-sm">
       <span className="text-stone-500">{k}</span>
       <span className="font-semibold text-right">{v}</span>
+    </div>
+  );
+}
+
+/* ---------- 数量入力の共通行（＋／−付き） ---------- */
+function CountRow({
+  label,
+  unit,
+  value,
+  onChange,
+}: {
+  label: string;
+  unit: string;
+  value: number;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 bg-stone-50 rounded-xl px-3 py-2">
+      <div className="flex-1 font-semibold">{label}</div>
+      <button
+        type="button"
+        onClick={() => onChange(Math.max(0, value - 1))}
+        className="w-10 h-10 rounded-full bg-stone-200 text-xl font-bold"
+      >
+        −
+      </button>
+      <input
+        type="number"
+        inputMode="numeric"
+        className="field w-20 text-center"
+        value={value || ""}
+        onChange={(e) => onChange(Math.max(0, parseInt(e.target.value || "0", 10)))}
+        placeholder="0"
+      />
+      <span className="text-stone-500">{unit}</span>
+      <button
+        type="button"
+        onClick={() => onChange(value + 1)}
+        className="w-10 h-10 rounded-full bg-stone-200 text-xl font-bold"
+      >
+        ＋
+      </button>
     </div>
   );
 }
