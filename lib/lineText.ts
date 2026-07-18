@@ -93,22 +93,18 @@ export function generateLineText(f: FormState, cumulative: number): string {
     parts.push(SEP, "立替経費", expLines);
   }
 
-  // 現金の増減（売上以外の出入り）
+  // 手出し現金（緒方・川畑が自分の現金を入れた分）
   if (f.cash_moves && f.cash_moves.length > 0) {
-    const net = f.cash_moves.reduce(
-      (s, m) => s + (m.direction === "in" ? m.amount || 0 : -(m.amount || 0)),
-      0,
-    );
+    const total = f.cash_moves.reduce((s, m) => s + (m.amount || 0), 0);
     const cashLines = f.cash_moves.map((m) => {
-      const sign = m.direction === "in" ? "＋" : "−";
       const memo = m.memo?.trim() ? `（${m.memo.trim()}）` : "";
-      return `${sign}${yen(m.amount || 0)} ${m.category}${memo}`;
+      return `＋${yen(m.amount || 0)} ${m.category}${memo}`;
     });
     parts.push(
       SEP,
-      "💰 現金の増減（売上以外）",
+      "💵 手出し現金",
       ...cashLines,
-      `合計：${net >= 0 ? "＋" : "−"}${yen(Math.abs(net))}`,
+      `合計：＋${yen(total)}`,
     );
   }
 

@@ -24,20 +24,17 @@ export type CashLedgerEntry = {
   created_at?: string;
 };
 
-/** よく使うカテゴリのプリセット */
-export const OUT_CATEGORIES = [
-  "銀行に預けた",
-  "経費の支払い",
-  "引き出し",
-  "釣り銭の補充",
-  "その他",
-] as const;
+// 現金が入ってくる経路は「売上（日報から自動）／緒方・川畑の手出し現金」のみ。
+// 売上は自動集計するため、手入力の入金は手出しが中心。
+export const IN_CATEGORIES = ["緒方 手出し", "川畑 手出し", "その他"] as const;
 
-export const IN_CATEGORIES = [
-  "現金を戻した",
-  "つり銭準備金の追加",
-  "その他",
-] as const;
+// 現金が出ていくのは経費が中心（経費は日報の立替経費から自動反映）。
+// ここでは銀行入金・引き出しなど、日報以外の臨時の出金を手入力する。
+export const OUT_CATEGORIES = ["銀行に預けた", "引き出し", "その他"] as const;
+
+// 日報の「手出し現金」ステップで選ぶ人
+export const TEDASHI_PEOPLE = ["緒方", "川畑"] as const;
+export const tedashiCategory = (person: string) => `${person} 手出し`;
 
 /** 期首残高設定を取得（未設定なら null） */
 export async function getCashSettings(): Promise<CashLedgerSettings | null> {
@@ -165,45 +162,42 @@ export async function deleteCashEntry(id: string): Promise<void> {
   if (error) throw error;
 }
 
-/** 指定日以降（その日を含む）の売上合計を daily_reports から取得 */
-export async function getSalesSince(dateInclusive: string): Promise<number> {
-  const { data, error } = await supabase
-    .from("daily_reports")
-    .select("sales_amount")
-    .gte("date", dateInclusive);
-  if (error) throw error;
-  return (data || []).reduce(
-    (s: number, r: any) => s + (r.sales_amount || 0),
-    0,
-  );
-}
-
-/** 現金残高の内訳 */
-export type CashBalanceBreakdown = {
-  openingBalance: number;
-  salesSince: number;
-  inTotal: number;
-  outTotal: number;
-  balance: number;
+/** 日報1件分の現金に関わる情報（売上＝入金、立替経費＝出金の元データ） */
+export type ReportCashRow = {
+  id: string;
+  date: string;
+  location: string | null;
+  staff_name: string | null;
+  sales_amount: number;
+  expenses_total: number;
 };
 
-/** 内訳から残高を計算 */
-export function computeBalance(
-  openingBalance: number,
-  salesSince: number,
-  entries: CashLedgerEntry[],
-): CashBalanceBreakdown {
-  const inTotal = entries
-    .filter((e) => e.direction === "in")
-    .reduce((s, e) => s + (e.amount || 0), 0);
-  const outTotal = entries
-    .filter((e) => e.direction === "out")
-    .reduce((s, e) => s + (e.amount || 0), 0);
-  return {
-    openingBalance,
-    salesSince,
-    inTotal,
-    outTotal,
-    balance: openingBalance + salesSince + inTotal - outTotal,
-  };
+/**
+ * 指定日以降（その日を含む）の日報を、現金集計に必要な形で取得する。
+ * 売上＝入金、立替経費（expenses の合計）＝出金 として扱う。
+ */
+export async function getReportsSince(
+  dateInclusive: string,
+): Promise<ReportCashRow[]> {
+  const { data, error } = await supabase
+    .from("daily_reports")
+    .select("id, date, location, staff_name, sales_amount, expenses")
+    .gte("date", dateInclusive)
+    .order("date", { ascending: false });
+  if (error) throw error;
+  return (data || []).map((r: any) => {
+    const arr = Array.isArray(r.expenses) ? r.expenses : [];
+    const expenses_total = arr.reduce(
+      (t: number, e: any) => t + (e?.amount || 0),
+      0,
+    );
+    return {
+      id: String(r.id),
+      date: r.date,
+      location: r.location ?? null,
+      staff_name: r.staff_name ?? null,
+      sales_amount: r.sales_amount || 0,
+      expenses_total,
+    };
+  });
 }

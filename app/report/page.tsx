@@ -17,8 +17,8 @@ import {
   CLEANUP_TASK_ITEMS,
 } from "@/lib/formState";
 import {
-  IN_CATEGORIES,
-  OUT_CATEGORIES,
+  TEDASHI_PEOPLE,
+  tedashiCategory,
   saveReportCashMoves,
 } from "@/lib/cashLedger";
 import { generateLineText } from "@/lib/lineText";
@@ -151,13 +151,9 @@ export default function Page() {
     [form.expenses]
   );
 
-  // 現金の増減（売上以外）の合計。入金はプラス、出金はマイナス。
-  const cashNet = useMemo(
-    () =>
-      form.cash_moves.reduce(
-        (s, m) => s + (m.direction === "in" ? m.amount || 0 : -(m.amount || 0)),
-        0
-      ),
+  // 手出し現金（緒方・川畑が自分の現金を入れた分）の合計
+  const tedashiTotal = useMemo(
+    () => form.cash_moves.reduce((s, m) => s + (m.amount || 0), 0),
     [form.cash_moves]
   );
 
@@ -346,14 +342,9 @@ export default function Page() {
               </div>
               {form.cash_moves.length > 0 && (
                 <div className="flex justify-between text-sm">
-                  <span className="text-stone-500">💰 現金の増減（売上以外）</span>
-                  <span
-                    className={`font-bold ${
-                      cashNet >= 0 ? "text-blue-600" : "text-red-600"
-                    }`}
-                  >
-                    {cashNet >= 0 ? "＋" : "−"}
-                    {yen(Math.abs(cashNet))}
+                  <span className="text-stone-500">💵 手出し現金</span>
+                  <span className="font-bold text-blue-600">
+                    ＋{yen(tedashiTotal)}
                   </span>
                 </div>
               )}
@@ -447,7 +438,7 @@ export default function Page() {
                 "レジ確認",
                 "使用本数・限定商品",
                 "立替経費",
-                "現金の増減",
+                "手出し現金",
                 "引き継ぎ",
                 "片付けチェック",
                 "確認・提出",
@@ -486,7 +477,7 @@ export default function Page() {
         />
       )}
       {step === 6 && (
-        <StepCash form={form} update={update} cashNet={cashNet} />
+        <StepTedashi form={form} update={update} tedashiTotal={tedashiTotal} />
       )}
       {step === 7 && <Step6 form={form} update={update} />}
       {step === 8 && <StepCleanup form={form} update={update} remainingTasks={remainingTasks} />}
@@ -496,7 +487,7 @@ export default function Page() {
           cumulative={cumulative}
           registerTotal={registerTotal}
           expensesTotal={expensesTotal}
-          cashNet={cashNet}
+          tedashiTotal={tedashiTotal}
           onSave={handleSave}
           saving={saving}
         />
@@ -1207,25 +1198,25 @@ function Step5({
   );
 }
 
-/* ---------- STEP CASH（現金の増減：売上以外の出入り）---------- */
-function StepCash({
+/* ---------- STEP 手出し現金（緒方・川畑が自分の現金を入れた分）---------- */
+function StepTedashi({
   form,
   update,
-  cashNet,
+  tedashiTotal,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
-  cashNet: number;
+  tedashiTotal: number;
 }) {
   const moves = form.cash_moves;
 
-  const addMove = (direction: "in" | "out") =>
+  const addMove = () =>
     update("cash_moves", [
       ...moves,
       {
-        direction,
+        direction: "in",
         amount: 0,
-        category: (direction === "out" ? OUT_CATEGORIES : IN_CATEGORIES)[0],
+        category: tedashiCategory(TEDASHI_PEOPLE[0]),
         memo: "",
       },
     ]);
@@ -1242,85 +1233,62 @@ function StepCash({
       moves.map((m, idx) => (idx === i ? { ...m, ...patch } : m)),
     );
 
-  const setDirection = (i: number, direction: "in" | "out") =>
-    updateMove(i, {
-      direction,
-      category: (direction === "out" ? OUT_CATEGORIES : IN_CATEGORIES)[0],
-    });
-
   return (
     <section className="card space-y-3">
-      <h2 className="text-lg font-bold">現金の増減</h2>
+      <h2 className="text-lg font-bold">手出し現金</h2>
       <div className="bg-blue-50 border-l-4 border-blue-400 rounded p-3 text-xs text-blue-900 leading-relaxed space-y-1">
         <p className="font-bold">
-          売上はここに入力しなくてOKです（自動で記録されます）。
+          緒方さん・川畑さんが自分の現金を手羽屋に入れたときだけ記録します。
         </p>
         <p>
-          「売上以外」で現金が動いたときだけ入力してください。例：銀行にお金を預けた（−）／現金で買い物・支払いをした（−）／釣り銭を足した（−）／お金を戻した（＋）
+          売上と経費（立替経費）は別のステップで入力済みなので、ここには入れません。
+          手出しがなければ、何も入力せずそのまま「次へ」でOKです。
         </p>
-        <p>動きがなければ、何も入力せずそのまま「次へ」でOKです。</p>
       </div>
 
-      {moves.map((m, i) => {
-        const isOut = m.direction === "out";
-        const cats = isOut ? OUT_CATEGORIES : IN_CATEGORIES;
-        return (
-          <div
-            key={i}
-            className={`border rounded-xl p-3 space-y-2 ${
-              isOut ? "border-red-200 bg-red-50/50" : "border-blue-200 bg-blue-50/50"
-            }`}
-          >
-            <div className="flex justify-between items-center">
-              <span className="text-sm font-semibold text-stone-600">
-                #{i + 1}
-              </span>
-              <button
-                type="button"
-                onClick={() => removeMove(i)}
-                className="text-xs text-red-600"
-              >
-                削除
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setDirection(i, "out")}
-                className={`rounded-lg py-2 font-bold border-2 text-sm ${
-                  isOut
-                    ? "bg-red-600 text-white border-red-600"
-                    : "bg-white text-stone-700 border-stone-300"
-                }`}
-              >
-                − 出た（減る）
-              </button>
-              <button
-                type="button"
-                onClick={() => setDirection(i, "in")}
-                className={`rounded-lg py-2 font-bold border-2 text-sm ${
-                  !isOut
-                    ? "bg-blue-600 text-white border-blue-600"
-                    : "bg-white text-stone-700 border-stone-300"
-                }`}
-              >
-                ＋ 入った（増える）
-              </button>
-            </div>
-
-            <select
-              className="field"
-              value={m.category}
-              onChange={(e) => updateMove(i, { category: e.target.value })}
+      {moves.map((m, i) => (
+        <div
+          key={i}
+          className="border border-blue-200 bg-blue-50/50 rounded-xl p-3 space-y-2"
+        >
+          <div className="flex justify-between items-center">
+            <span className="text-sm font-semibold text-stone-600">
+              #{i + 1}
+            </span>
+            <button
+              type="button"
+              onClick={() => removeMove(i)}
+              className="text-xs text-red-600"
             >
-              {cats.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+              削除
+            </button>
+          </div>
 
+          <div>
+            <label className="label">誰の手出し？</label>
+            <div className="grid grid-cols-2 gap-2">
+              {TEDASHI_PEOPLE.map((p) => {
+                const sel = m.category === tedashiCategory(p);
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => updateMove(i, { category: tedashiCategory(p) })}
+                    className={`rounded-lg py-2 font-bold border-2 text-sm ${
+                      sel
+                        ? "bg-blue-600 text-white border-blue-600"
+                        : "bg-white text-stone-700 border-stone-300"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <label className="label">金額</label>
             <div className="relative">
               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-500 text-lg">
                 ¥
@@ -1339,45 +1307,27 @@ function StepCash({
                 }
               />
             </div>
-
-            <input
-              type="text"
-              className="field"
-              placeholder="メモ（任意・例：〇〇銀行に入金）"
-              value={m.memo ?? ""}
-              onChange={(e) => updateMove(i, { memo: e.target.value })}
-            />
           </div>
-        );
-      })}
 
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => addMove("out")}
-          className="btn-secondary text-sm"
-        >
-          − 出た を追加
-        </button>
-        <button
-          type="button"
-          onClick={() => addMove("in")}
-          className="btn-secondary text-sm"
-        >
-          ＋ 入った を追加
-        </button>
-      </div>
+          <input
+            type="text"
+            className="field"
+            placeholder="メモ（任意・例：釣り銭が足りず補充）"
+            value={m.memo ?? ""}
+            onChange={(e) => updateMove(i, { memo: e.target.value })}
+          />
+        </div>
+      ))}
+
+      <button type="button" onClick={addMove} className="btn-secondary w-full">
+        ＋ 手出し現金を追加
+      </button>
 
       {moves.length > 0 && (
         <div className="bg-stone-100 rounded-xl p-4 flex justify-between items-center">
-          <span className="text-stone-600">今日の増減（売上以外）</span>
-          <span
-            className={`text-xl font-bold font-mono ${
-              cashNet >= 0 ? "text-blue-600" : "text-red-600"
-            }`}
-          >
-            {cashNet >= 0 ? "＋" : "−"}
-            {yen(Math.abs(cashNet))}
+          <span className="text-stone-600">手出し現金の合計</span>
+          <span className="text-xl font-bold font-mono text-blue-600">
+            ＋{yen(tedashiTotal)}
           </span>
         </div>
       )}
@@ -1413,7 +1363,7 @@ function Step7({
   cumulative,
   registerTotal,
   expensesTotal,
-  cashNet,
+  tedashiTotal,
   onSave,
   saving,
 }: {
@@ -1421,7 +1371,7 @@ function Step7({
   cumulative: number;
   registerTotal: number;
   expensesTotal: number;
-  cashNet: number;
+  tedashiTotal: number;
   onSave: () => void;
   saving: boolean;
 }) {
@@ -1455,8 +1405,8 @@ function Step7({
         <Row k="経費件数" v={`${form.expenses.length}件（${yen(expensesTotal)}）`} />
         {form.cash_moves.length > 0 && (
           <Row
-            k="現金の増減（売上以外）"
-            v={`${cashNet >= 0 ? "＋" : "−"}${yen(Math.abs(cashNet))}（${form.cash_moves.length}件）`}
+            k="手出し現金"
+            v={`＋${yen(tedashiTotal)}（${form.cash_moves.length}件）`}
           />
         )}
         {form.unit_number && <Row k="番隊" v={`${form.unit_number}番隊`} />}
