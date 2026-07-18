@@ -1,6 +1,6 @@
 import { businessDateStr } from "./format";
 
-export const STAFF_OPTIONS = ["イデ", "じゅん", "かずき", "なぎさ"];
+export const STAFF_OPTIONS = ["イデ", "じゅん", "かずき", "なぎさ", "さとみ", "ゆうや"];
 
 export const STAFF_DAILY_PAY: Record<string, number> = {
   イデ: 9000,
