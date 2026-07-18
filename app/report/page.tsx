@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { yen } from "@/lib/format";
 import {
   FormState,
+  CashMoveRow,
   initialForm,
   STORAGE_KEY,
   laborFor,
@@ -15,13 +16,18 @@ import {
   CLEANUP_INVENTORY_ITEMS,
   CLEANUP_TASK_ITEMS,
 } from "@/lib/formState";
+import {
+  IN_CATEGORIES,
+  OUT_CATEGORIES,
+  saveReportCashMoves,
+} from "@/lib/cashLedger";
 import { generateLineText } from "@/lib/lineText";
 import { getUnitFromStaff } from "@/lib/teamMapping";
 import { getLimitedProductForMonth } from "@/lib/limitedProduct";
 import { calculateTebasakiCount } from "@/lib/calculateTebasakiCount";
 import { PRODUCT_PRICES } from "@/lib/productPrices";
 
-const TOTAL_STEPS = 8;
+const TOTAL_STEPS = 9;
 
 const LOCATION_OPTIONS = [
   "ながやま 鷹尾店",
@@ -145,6 +151,16 @@ export default function Page() {
     [form.expenses]
   );
 
+  // 現金の増減（売上以外）の合計。入金はプラス、出金はマイナス。
+  const cashNet = useMemo(
+    () =>
+      form.cash_moves.reduce(
+        (s, m) => s + (m.direction === "in" ? m.amount || 0 : -(m.amount || 0)),
+        0
+      ),
+    [form.cash_moves]
+  );
+
   // 手羽先使用本数を売上から逆算（リアルタイム）
   const tebasakiCalc = useMemo(
     () =>
@@ -179,7 +195,7 @@ export default function Page() {
     if (step === 1)
       return form.date && form.location.trim() && form.staff_name.trim();
     if (step === 2) return form.sales_amount > 0;
-    if (step === 7) return allTasksCompleted;
+    if (step === 8) return allTasksCompleted;
     return true;
   };
 
@@ -257,6 +273,15 @@ export default function Page() {
         .single();
       if (error) throw error;
       setSavedId(data.id);
+
+      // 現金の増減（売上以外の出入り）を現金出納帳へ保存。
+      // 失敗しても日報提出は成功扱いにする（現金記録は任意項目のため）。
+      try {
+        await saveReportCashMoves(form.date, form.staff_name, form.cash_moves);
+      } catch (e) {
+        console.warn("現金の増減の保存に失敗しました（日報は保存済み）", e);
+      }
+
       sessionStorage.removeItem(STORAGE_KEY);
 
       // LINE自動送信（失敗しても提出は成功とする）
@@ -272,7 +297,7 @@ export default function Page() {
         console.warn("LINE自動送信に失敗しましたが、日報は保存済みです");
       }
 
-      setStep(9);
+      setStep(10);
     } catch (e: any) {
       alert("保存に失敗しました: " + (e?.message || e));
     } finally {
@@ -292,7 +317,7 @@ export default function Page() {
 
   if (!loaded) return null;
 
-  if (step === 9) {
+  if (step === 10) {
     const sales = form.sales_amount || 0;
     if (!lineText) {
       const text = generateLineText(form, cumulative);
@@ -319,6 +344,19 @@ export default function Page() {
                 <span className="text-stone-500">📈 累計売上</span>
                 <span className="font-bold">{yen(cumulative)}</span>
               </div>
+              {form.cash_moves.length > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-stone-500">💰 現金の増減（売上以外）</span>
+                  <span
+                    className={`font-bold ${
+                      cashNet >= 0 ? "text-blue-600" : "text-red-600"
+                    }`}
+                  >
+                    {cashNet >= 0 ? "＋" : "−"}
+                    {yen(Math.abs(cashNet))}
+                  </span>
+                </div>
+              )}
             </div>
             {lineSent && (
               <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-sm text-green-800">
@@ -409,6 +447,7 @@ export default function Page() {
                 "レジ確認",
                 "使用本数・限定商品",
                 "立替経費",
+                "現金の増減",
                 "引き継ぎ",
                 "片付けチェック",
                 "確認・提出",
@@ -446,14 +485,18 @@ export default function Page() {
           expensesTotal={expensesTotal}
         />
       )}
-      {step === 6 && <Step6 form={form} update={update} />}
-      {step === 7 && <StepCleanup form={form} update={update} remainingTasks={remainingTasks} />}
-      {step === 8 && (
+      {step === 6 && (
+        <StepCash form={form} update={update} cashNet={cashNet} />
+      )}
+      {step === 7 && <Step6 form={form} update={update} />}
+      {step === 8 && <StepCleanup form={form} update={update} remainingTasks={remainingTasks} />}
+      {step === 9 && (
         <Step7
           form={form}
           cumulative={cumulative}
           registerTotal={registerTotal}
           expensesTotal={expensesTotal}
+          cashNet={cashNet}
           onSave={handleSave}
           saving={saving}
         />
@@ -1164,6 +1207,184 @@ function Step5({
   );
 }
 
+/* ---------- STEP CASH（現金の増減：売上以外の出入り）---------- */
+function StepCash({
+  form,
+  update,
+  cashNet,
+}: {
+  form: FormState;
+  update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
+  cashNet: number;
+}) {
+  const moves = form.cash_moves;
+
+  const addMove = (direction: "in" | "out") =>
+    update("cash_moves", [
+      ...moves,
+      {
+        direction,
+        amount: 0,
+        category: (direction === "out" ? OUT_CATEGORIES : IN_CATEGORIES)[0],
+        memo: "",
+      },
+    ]);
+
+  const removeMove = (i: number) =>
+    update(
+      "cash_moves",
+      moves.filter((_, idx) => idx !== i),
+    );
+
+  const updateMove = (i: number, patch: Partial<CashMoveRow>) =>
+    update(
+      "cash_moves",
+      moves.map((m, idx) => (idx === i ? { ...m, ...patch } : m)),
+    );
+
+  const setDirection = (i: number, direction: "in" | "out") =>
+    updateMove(i, {
+      direction,
+      category: (direction === "out" ? OUT_CATEGORIES : IN_CATEGORIES)[0],
+    });
+
+  return (
+    <section className="card space-y-3">
+      <h2 className="text-lg font-bold">現金の増減</h2>
+      <div className="bg-blue-50 border-l-4 border-blue-400 rounded p-3 text-xs text-blue-900 leading-relaxed space-y-1">
+        <p className="font-bold">
+          売上はここに入力しなくてOKです（自動で記録されます）。
+        </p>
+        <p>
+          「売上以外」で現金が動いたときだけ入力してください。例：銀行にお金を預けた（−）／現金で買い物・支払いをした（−）／釣り銭を足した（−）／お金を戻した（＋）
+        </p>
+        <p>動きがなければ、何も入力せずそのまま「次へ」でOKです。</p>
+      </div>
+
+      {moves.map((m, i) => {
+        const isOut = m.direction === "out";
+        const cats = isOut ? OUT_CATEGORIES : IN_CATEGORIES;
+        return (
+          <div
+            key={i}
+            className={`border rounded-xl p-3 space-y-2 ${
+              isOut ? "border-red-200 bg-red-50/50" : "border-blue-200 bg-blue-50/50"
+            }`}
+          >
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-semibold text-stone-600">
+                #{i + 1}
+              </span>
+              <button
+                type="button"
+                onClick={() => removeMove(i)}
+                className="text-xs text-red-600"
+              >
+                削除
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setDirection(i, "out")}
+                className={`rounded-lg py-2 font-bold border-2 text-sm ${
+                  isOut
+                    ? "bg-red-600 text-white border-red-600"
+                    : "bg-white text-stone-700 border-stone-300"
+                }`}
+              >
+                − 出た（減る）
+              </button>
+              <button
+                type="button"
+                onClick={() => setDirection(i, "in")}
+                className={`rounded-lg py-2 font-bold border-2 text-sm ${
+                  !isOut
+                    ? "bg-blue-600 text-white border-blue-600"
+                    : "bg-white text-stone-700 border-stone-300"
+                }`}
+              >
+                ＋ 入った（増える）
+              </button>
+            </div>
+
+            <select
+              className="field"
+              value={m.category}
+              onChange={(e) => updateMove(i, { category: e.target.value })}
+            >
+              {cats.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-500 text-lg">
+                ¥
+              </span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                className="field pl-8 text-right text-lg font-bold"
+                placeholder="金額"
+                value={m.amount || ""}
+                onChange={(e) =>
+                  updateMove(i, {
+                    amount: Math.max(0, parseInt(e.target.value || "0", 10)),
+                  })
+                }
+              />
+            </div>
+
+            <input
+              type="text"
+              className="field"
+              placeholder="メモ（任意・例：〇〇銀行に入金）"
+              value={m.memo ?? ""}
+              onChange={(e) => updateMove(i, { memo: e.target.value })}
+            />
+          </div>
+        );
+      })}
+
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => addMove("out")}
+          className="btn-secondary text-sm"
+        >
+          − 出た を追加
+        </button>
+        <button
+          type="button"
+          onClick={() => addMove("in")}
+          className="btn-secondary text-sm"
+        >
+          ＋ 入った を追加
+        </button>
+      </div>
+
+      {moves.length > 0 && (
+        <div className="bg-stone-100 rounded-xl p-4 flex justify-between items-center">
+          <span className="text-stone-600">今日の増減（売上以外）</span>
+          <span
+            className={`text-xl font-bold font-mono ${
+              cashNet >= 0 ? "text-blue-600" : "text-red-600"
+            }`}
+          >
+            {cashNet >= 0 ? "＋" : "−"}
+            {yen(Math.abs(cashNet))}
+          </span>
+        </div>
+      )}
+    </section>
+  );
+}
+
 /* ---------- STEP 6 ---------- */
 function Step6({
   form,
@@ -1192,6 +1413,7 @@ function Step7({
   cumulative,
   registerTotal,
   expensesTotal,
+  cashNet,
   onSave,
   saving,
 }: {
@@ -1199,6 +1421,7 @@ function Step7({
   cumulative: number;
   registerTotal: number;
   expensesTotal: number;
+  cashNet: number;
   onSave: () => void;
   saving: boolean;
 }) {
@@ -1230,6 +1453,12 @@ function Step7({
           />
         )}
         <Row k="経費件数" v={`${form.expenses.length}件（${yen(expensesTotal)}）`} />
+        {form.cash_moves.length > 0 && (
+          <Row
+            k="現金の増減（売上以外）"
+            v={`${cashNet >= 0 ? "＋" : "−"}${yen(Math.abs(cashNet))}（${form.cash_moves.length}件）`}
+          />
+        )}
         {form.unit_number && <Row k="番隊" v={`${form.unit_number}番隊`} />}
       </div>
 

@@ -47,9 +47,19 @@ export default function CashLedgerManager() {
     reload();
   }, []);
 
+  // スタート日以降のみを集計対象にする（それ以前は期首残高に含まれているため）
+  const countedEntries = useMemo(
+    () =>
+      settings
+        ? entries.filter((e) => e.date >= settings.opening_date)
+        : entries,
+    [entries, settings],
+  );
+  const hiddenCount = entries.length - countedEntries.length;
+
   const breakdown = useMemo(
-    () => computeBalance(settings?.opening_balance ?? 0, salesSince, entries),
-    [settings, salesSince, entries],
+    () => computeBalance(settings?.opening_balance ?? 0, salesSince, countedEntries),
+    [settings, salesSince, countedEntries],
   );
 
   return (
@@ -108,7 +118,12 @@ export default function CashLedgerManager() {
           <EntryForm onAdded={reload} />
 
           {/* 履歴 */}
-          <EntryList entries={entries} onDeleted={reload} />
+          <EntryList entries={countedEntries} onDeleted={reload} />
+          {hiddenCount > 0 && (
+            <p className="text-xs text-stone-400">
+              ※ スタート日より前の記録 {hiddenCount} 件は集計に含めていません
+            </p>
+          )}
 
           {/* スタート地点の再設定 */}
           <StartPointSetup settings={settings} onSaved={reload} collapsible />

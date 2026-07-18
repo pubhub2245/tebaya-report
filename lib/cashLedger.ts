@@ -117,6 +117,45 @@ export async function addCashEntry(input: {
   return data as CashLedgerEntry;
 }
 
+/**
+ * 日報から現金の増減をまとめて保存する。
+ * 再提出時の二重計上を防ぐため、同じ日付・同じ担当者の「日報由来」記録
+ * （created_by = 担当者名）を一度削除してから入れ直す。
+ * 管理者ページで手入力した記録（created_by = null）は削除されない。
+ */
+export async function saveReportCashMoves(
+  date: string,
+  staffName: string,
+  moves: {
+    direction: CashDirection;
+    amount: number;
+    category: string;
+    memo?: string;
+  }[],
+): Promise<void> {
+  const { error: delError } = await supabase
+    .from("cash_ledger_entries")
+    .delete()
+    .eq("date", date)
+    .eq("created_by", staffName);
+  if (delError) throw delError;
+
+  const rows = moves
+    .filter((m) => m.amount && m.amount > 0)
+    .map((m) => ({
+      date,
+      direction: m.direction,
+      amount: m.amount,
+      category: m.category,
+      memo: m.memo?.trim() ? m.memo.trim() : null,
+      created_by: staffName,
+    }));
+  if (rows.length === 0) return;
+
+  const { error } = await supabase.from("cash_ledger_entries").insert(rows);
+  if (error) throw error;
+}
+
 /** 手動の入金・出金を1件削除 */
 export async function deleteCashEntry(id: string): Promise<void> {
   const { error } = await supabase
