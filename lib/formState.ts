@@ -1,6 +1,6 @@
 import { businessDateStr } from "./format";
 
-export const STAFF_OPTIONS = ["イデ", "じゅん", "かずき", "なぎさ"];
+export const STAFF_OPTIONS = ["イデ", "じゅん", "かずき", "なぎさ", "さとみ", "ゆうや"];
 
 export const STAFF_DAILY_PAY: Record<string, number> = {
   イデ: 9000,
@@ -20,6 +20,14 @@ export type ExpenseRow = {
   description: string;
   amount: number;
   receipt_image_url?: string | null;
+};
+
+/** 現金の増減（売上以外の出入り）1件 */
+export type CashMoveRow = {
+  direction: "in" | "out"; // in=入った(増える) / out=出た(減る)
+  amount: number;
+  category: string;
+  memo?: string;
 };
 
 export type InventoryStatus = "○" | "△" | "×" | "";
@@ -91,6 +99,8 @@ export type FormState = {
   limited_product_name: string;
   limited_product_count: number;
   expenses: ExpenseRow[];
+  /** 現金の増減（売上以外の出入り）。管理者の現金残高に反映される。 */
+  cash_moves: CashMoveRow[];
   handover: string;
   unit_number: string;
   cleanup_inventory: CleanupInventory;
@@ -110,6 +120,7 @@ export const initialForm = (): FormState => ({
   limited_product_name: "",
   limited_product_count: 0,
   expenses: [],
+  cash_moves: [],
   handover: "",
   unit_number: "",
   cleanup_inventory: initialCleanupInventory(),

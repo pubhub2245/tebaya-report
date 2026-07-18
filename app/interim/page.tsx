@@ -79,6 +79,11 @@ export default function InterimPage() {
   const [isStaffOther, setIsStaffOther] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
   const [locId, setLocId] = useState<string>("");
+  // 店舗の手入力（一覧にない新規出店先）
+  const [isLocOther, setIsLocOther] = useState(false);
+  const [customLocName, setCustomLocName] = useState("");
+  const [customLocRank, setCustomLocRank] = useState("");
+  const [customLocTarget, setCustomLocTarget] = useState(0);
   const [weather, setWeather] = useState<string[]>([]);
   const [openTime, setOpenTime] = useState("10:00");
   const [closeTime, setCloseTime] = useState("19:00");
@@ -104,10 +109,20 @@ export default function InterimPage() {
     })();
   }, []);
 
-  const selectedLoc = useMemo(
-    () => locations.find((l) => String(l.id) === locId) || null,
-    [locations, locId]
-  );
+  const selectedLoc = useMemo(() => {
+    if (isLocOther) {
+      // 手入力の場合は名前と目標金額が入っていれば有効
+      if (!customLocName.trim() || customLocTarget <= 0) return null;
+      return {
+        id: "__other__",
+        name: customLocName.trim(),
+        rank: customLocRank.trim() || "-",
+        target: customLocTarget,
+        is_active: true,
+      } as Location;
+    }
+    return locations.find((l) => String(l.id) === locId) || null;
+  }, [isLocOther, customLocName, customLocRank, customLocTarget, locations, locId]);
 
   // Auto-set closeTime to openTime + 9 hours when openTime changes
   const updateCloseTimeFromOpen = (newOpen: string) => {
@@ -291,6 +306,10 @@ export default function InterimPage() {
     setStaff("");
     setIsStaffOther(false);
     setLocId("");
+    setIsLocOther(false);
+    setCustomLocName("");
+    setCustomLocRank("");
+    setCustomLocTarget(0);
     setWeather([]);
     setOpenTime("10:00");
     setCloseTime("19:00");
@@ -385,8 +404,17 @@ export default function InterimPage() {
           <h2 className="text-lg font-bold">店舗</h2>
           <select
             className="field"
-            value={locId}
-            onChange={(e) => setLocId(e.target.value)}
+            value={isLocOther ? "__other__" : locId}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === "__other__") {
+                setIsLocOther(true);
+                setLocId("");
+              } else {
+                setIsLocOther(false);
+                setLocId(v);
+              }
+            }}
           >
             <option value="">選択してください</option>
             {locations.map((l) => (
@@ -394,7 +422,56 @@ export default function InterimPage() {
                 {l.name}
               </option>
             ))}
+            <option value="__other__">✏️ その他（手入力）</option>
           </select>
+
+          {isLocOther && (
+            <div className="space-y-3 border border-brand/30 bg-amber-50 rounded-xl p-3">
+              <div>
+                <label className="label">店舗名（手入力）</label>
+                <input
+                  className="field"
+                  value={customLocName}
+                  onChange={(e) => setCustomLocName(e.target.value)}
+                  placeholder="例：〇〇マルシェ"
+                />
+              </div>
+              <div>
+                <label className="label">目標金額</label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-500 text-lg">
+                    ¥
+                  </span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    className="field pl-8 text-right"
+                    value={customLocTarget || ""}
+                    onChange={(e) =>
+                      setCustomLocTarget(
+                        Math.max(0, parseInt(e.target.value || "0", 10))
+                      )
+                    }
+                    placeholder="例：40000"
+                  />
+                </div>
+                <p className="text-xs text-stone-500 mt-1">
+                  「目安・達成率」を計算するために必要です
+                </p>
+              </div>
+              <div>
+                <label className="label">ランク（任意）</label>
+                <input
+                  className="field"
+                  value={customLocRank}
+                  onChange={(e) => setCustomLocRank(e.target.value)}
+                  placeholder="例：A / B / C"
+                />
+              </div>
+            </div>
+          )}
+
           {selectedLoc && (
             <div className="bg-stone-50 rounded-xl p-3 space-y-1 text-sm">
               <div className="flex justify-between">

@@ -4,7 +4,7 @@
  *  1. 他商品売上 = 餃子×250 + ポテト×300 + トルネード×500 + 限定×200
  *  2. 手羽先売上 = sales_amount − 他商品売上
  *  3. 手羽先売上 < 0 なら警告
- *  4. 手羽先本数 = Math.floor(手羽先売上 / 150)
+ *  4. 手羽先本数 = Math.floor(手羽先売上 / PRODUCT_PRICES.TEBASAKI)
  */
 
 import { PRODUCT_PRICES } from "./productPrices";

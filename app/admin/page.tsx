@@ -13,6 +13,8 @@ import FeedbackBoxAdmin from "@/app/components/FeedbackBoxAdmin";
 import PrepProductManager from "@/app/components/PrepProductManager";
 import PrepReportDashboard from "@/app/components/PrepReportDashboard";
 import PrepSettingsManager from "@/app/components/PrepSettingsManager";
+import CashLedgerManager from "@/app/components/CashLedgerManager";
+import LineDiagnostics from "@/app/components/LineDiagnostics";
 import AdminGate from "@/app/components/AdminGate";
 
 type Report = {
@@ -333,6 +335,8 @@ export default function AdminPage() {
 
       <MonthlyDashboard />
 
+      <CashLedgerManager />
+
       <TaskAdminDashboard />
 
       <section className="space-y-3">
@@ -404,6 +408,8 @@ export default function AdminPage() {
           </div>
         )}
       </section>
+
+      <LineDiagnostics />
 
       <AchievementRateDashboard />
 
