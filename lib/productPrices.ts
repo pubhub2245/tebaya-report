@@ -6,7 +6,7 @@
  */
 
 export const PRODUCT_PRICES = {
-  TEBASAKI: 150,
+  TEBASAKI: 200,
   GYOZA: 250,
   POTATO: 300,
   TORNADO: 500,

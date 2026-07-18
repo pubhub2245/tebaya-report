@@ -105,6 +105,7 @@ export default function ShiftFormModal({
   defaultStatus = "draft",
   onClose,
   onSave,
+  onDelete,
 }: {
   shift: Shift | null;
   defaultDate: string;
@@ -113,6 +114,7 @@ export default function ShiftFormModal({
   defaultStatus?: string;
   onClose: () => void;
   onSave: (data: ShiftFormPayload) => void;
+  onDelete?: () => void;
 }) {
   const isNew = !shift;
   const initialFreeVenue = extractFreeVenueName(shift?.note) || "";
@@ -427,6 +429,16 @@ export default function ShiftFormModal({
               {saving ? "保存中…" : "保存"}
             </button>
           </div>
+
+          {shift && onDelete && (
+            <button
+              onClick={onDelete}
+              disabled={saving}
+              className="w-full mt-1 text-sm font-bold text-red-600 border border-red-300 rounded-xl py-2.5 hover:bg-red-50 disabled:opacity-40"
+            >
+              🗑️ このシフトを取り消し（削除）
+            </button>
+          )}
         </div>
       </div>
     </div>

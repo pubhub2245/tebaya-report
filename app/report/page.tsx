@@ -840,7 +840,7 @@ function Step4({
             <ol className="list-decimal pl-5 space-y-0.5">
               <li>数えた本数 × 単価 = 他商品の合計売上</li>
               <li>その日の売上 − 他商品の合計売上 = 手羽先の売上</li>
-              <li>手羽先の売上 ÷ 150円 = 手羽先の本数（端数切り捨て）</li>
+              <li>手羽先の売上 ÷ {PRODUCT_PRICES.TEBASAKI}円 = 手羽先の本数（端数切り捨て）</li>
             </ol>
           </div>
           <div>

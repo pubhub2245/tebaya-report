@@ -247,15 +247,17 @@ export default function ShiftsPage() {
   };
 
   // シフト削除
-  const handleDelete = async (id: number) => {
-    if (!confirm("このシフトを削除しますか？")) return;
+  const handleDelete = async (id: number): Promise<boolean> => {
+    if (!confirm("このシフトを削除しますか？")) return false;
     setDeletingId(id);
     try {
       const { error } = await supabase.from("shifts").delete().eq("id", id);
       if (error) throw error;
       setShifts((prev) => prev.filter((s) => s.id !== id));
+      return true;
     } catch (e: any) {
       alert("削除失敗: " + (e?.message || e));
+      return false;
     } finally {
       setDeletingId(null);
     }
@@ -501,6 +503,17 @@ export default function ShiftsPage() {
               setShowAddModal(false);
               setEditingShift(null);
             }}
+            onDelete={
+              editingShift
+                ? async () => {
+                    const ok = await handleDelete(editingShift.id);
+                    if (ok) {
+                      setShowAddModal(false);
+                      setEditingShift(null);
+                    }
+                  }
+                : undefined
+            }
             onSave={async (data) => {
               setSaving(true);
               try {
