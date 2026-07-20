@@ -3,10 +3,6 @@
     {
       "path": "/api/cron/calculate-achievement-rates",
       "schedule": "0 19 * * *"
-    },
-    {
-      "path": "/api/cron/notify-tasks",
-      "schedule": "0 0 * * *"
     }
   ]
 }
