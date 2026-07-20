@@ -22,13 +22,6 @@ export type ExpenseRow = {
   receipt_image_url?: string | null;
 };
 
-/** 現金の増減（売上以外の出入り）1件 */
-export type CashMoveRow = {
-  direction: "in" | "out"; // in=入った(増える) / out=出た(減る)
-  amount: number;
-  category: string;
-  memo?: string;
-};
 
 export type InventoryStatus = "○" | "△" | "×" | "";
 
@@ -103,8 +96,6 @@ export type FormState = {
   /** お客さんの組数（客数） */
   customer_groups: number;
   expenses: ExpenseRow[];
-  /** 現金の増減（売上以外の出入り）。管理者の現金残高に反映される。 */
-  cash_moves: CashMoveRow[];
   handover: string;
   unit_number: string;
   cleanup_inventory: CleanupInventory;
@@ -126,7 +117,6 @@ export const initialForm = (): FormState => ({
   allstar_count: 0,
   customer_groups: 0,
   expenses: [],
-  cash_moves: [],
   handover: "",
   unit_number: "",
   cleanup_inventory: initialCleanupInventory(),

@@ -5,7 +5,6 @@ import { supabase } from "@/lib/supabase";
 import { yen } from "@/lib/format";
 import {
   FormState,
-  CashMoveRow,
   initialForm,
   STORAGE_KEY,
   laborFor,
@@ -16,18 +15,13 @@ import {
   CLEANUP_INVENTORY_ITEMS,
   CLEANUP_TASK_ITEMS,
 } from "@/lib/formState";
-import {
-  TEDASHI_PEOPLE,
-  tedashiCategory,
-  saveReportCashMoves,
-} from "@/lib/cashLedger";
 import { generateLineText } from "@/lib/lineText";
 import { getUnitFromStaff } from "@/lib/teamMapping";
 import { getLimitedProductForMonth } from "@/lib/limitedProduct";
 import { calculateTebasakiCount } from "@/lib/calculateTebasakiCount";
 import { PRODUCT_PRICES } from "@/lib/productPrices";
 
-const TOTAL_STEPS = 9;
+const TOTAL_STEPS = 8;
 
 const LOCATION_OPTIONS = [
   "ながやま 鷹尾店",
@@ -151,12 +145,6 @@ export default function Page() {
     [form.expenses]
   );
 
-  // 手出し現金（緒方・川畑が自分の現金を入れた分）の合計
-  const tedashiTotal = useMemo(
-    () => form.cash_moves.reduce((s, m) => s + (m.amount || 0), 0),
-    [form.cash_moves]
-  );
-
   // 手羽先使用本数を売上から逆算（リアルタイム）
   const tebasakiCalc = useMemo(
     () =>
@@ -193,7 +181,7 @@ export default function Page() {
     if (step === 1)
       return form.date && form.location.trim() && form.staff_name.trim();
     if (step === 2) return form.sales_amount > 0;
-    if (step === 8) return allTasksCompleted;
+    if (step === 7) return allTasksCompleted;
     return true;
   };
 
@@ -273,15 +261,6 @@ export default function Page() {
         .single();
       if (error) throw error;
       setSavedId(data.id);
-
-      // 現金の増減（売上以外の出入り）を現金出納帳へ保存。
-      // 失敗しても日報提出は成功扱いにする（現金記録は任意項目のため）。
-      try {
-        await saveReportCashMoves(form.date, form.staff_name, form.cash_moves);
-      } catch (e) {
-        console.warn("現金の増減の保存に失敗しました（日報は保存済み）", e);
-      }
-
       sessionStorage.removeItem(STORAGE_KEY);
 
       // LINE自動送信（失敗しても提出は成功とする）
@@ -297,7 +276,7 @@ export default function Page() {
         console.warn("LINE自動送信に失敗しましたが、日報は保存済みです");
       }
 
-      setStep(10);
+      setStep(9);
     } catch (e: any) {
       alert("保存に失敗しました: " + (e?.message || e));
     } finally {
@@ -317,7 +296,7 @@ export default function Page() {
 
   if (!loaded) return null;
 
-  if (step === 10) {
+  if (step === 9) {
     const sales = form.sales_amount || 0;
     if (!lineText) {
       const text = generateLineText(form, cumulative);
@@ -344,14 +323,6 @@ export default function Page() {
                 <span className="text-stone-500">📈 累計売上</span>
                 <span className="font-bold">{yen(cumulative)}</span>
               </div>
-              {form.cash_moves.length > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-stone-500">💵 手出し現金</span>
-                  <span className="font-bold text-blue-600">
-                    ＋{yen(tedashiTotal)}
-                  </span>
-                </div>
-              )}
             </div>
             {lineSent && (
               <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-sm text-green-800">
@@ -442,7 +413,6 @@ export default function Page() {
                 "レジ確認",
                 "使用本数・限定商品",
                 "立替経費",
-                "手出し現金",
                 "引き継ぎ",
                 "片付けチェック",
                 "確認・提出",
@@ -480,18 +450,14 @@ export default function Page() {
           expensesTotal={expensesTotal}
         />
       )}
-      {step === 6 && (
-        <StepTedashi form={form} update={update} tedashiTotal={tedashiTotal} />
-      )}
-      {step === 7 && <Step6 form={form} update={update} />}
-      {step === 8 && <StepCleanup form={form} update={update} remainingTasks={remainingTasks} />}
-      {step === 9 && (
+      {step === 6 && <Step6 form={form} update={update} />}
+      {step === 7 && <StepCleanup form={form} update={update} remainingTasks={remainingTasks} />}
+      {step === 8 && (
         <Step7
           form={form}
           cumulative={cumulative}
           registerTotal={registerTotal}
           expensesTotal={expensesTotal}
-          tedashiTotal={tedashiTotal}
           onSave={handleSave}
           saving={saving}
         />
@@ -1220,143 +1186,6 @@ function Step5({
   );
 }
 
-/* ---------- STEP 手出し現金（緒方・川畑が自分の現金を入れた分）---------- */
-function StepTedashi({
-  form,
-  update,
-  tedashiTotal,
-}: {
-  form: FormState;
-  update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
-  tedashiTotal: number;
-}) {
-  const moves = form.cash_moves;
-
-  const addMove = () =>
-    update("cash_moves", [
-      ...moves,
-      {
-        direction: "in",
-        amount: 0,
-        category: tedashiCategory(TEDASHI_PEOPLE[0]),
-        memo: "",
-      },
-    ]);
-
-  const removeMove = (i: number) =>
-    update(
-      "cash_moves",
-      moves.filter((_, idx) => idx !== i),
-    );
-
-  const updateMove = (i: number, patch: Partial<CashMoveRow>) =>
-    update(
-      "cash_moves",
-      moves.map((m, idx) => (idx === i ? { ...m, ...patch } : m)),
-    );
-
-  return (
-    <section className="card space-y-3">
-      <h2 className="text-lg font-bold">手出し現金</h2>
-      <div className="bg-blue-50 border-l-4 border-blue-400 rounded p-3 text-xs text-blue-900 leading-relaxed space-y-1">
-        <p className="font-bold">
-          緒方さん・川畑さんが自分の現金を手羽屋に入れたときだけ記録します。
-        </p>
-        <p>
-          売上と経費（立替経費）は別のステップで入力済みなので、ここには入れません。
-          手出しがなければ、何も入力せずそのまま「次へ」でOKです。
-        </p>
-      </div>
-
-      {moves.map((m, i) => (
-        <div
-          key={i}
-          className="border border-blue-200 bg-blue-50/50 rounded-xl p-3 space-y-2"
-        >
-          <div className="flex justify-between items-center">
-            <span className="text-sm font-semibold text-stone-600">
-              #{i + 1}
-            </span>
-            <button
-              type="button"
-              onClick={() => removeMove(i)}
-              className="text-xs text-red-600"
-            >
-              削除
-            </button>
-          </div>
-
-          <div>
-            <label className="label">誰の手出し？</label>
-            <div className="grid grid-cols-2 gap-2">
-              {TEDASHI_PEOPLE.map((p) => {
-                const sel = m.category === tedashiCategory(p);
-                return (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => updateMove(i, { category: tedashiCategory(p) })}
-                    className={`rounded-lg py-2 font-bold border-2 text-sm ${
-                      sel
-                        ? "bg-blue-600 text-white border-blue-600"
-                        : "bg-white text-stone-700 border-stone-300"
-                    }`}
-                  >
-                    {p}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <label className="label">金額</label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-500 text-lg">
-                ¥
-              </span>
-              <input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                className="field pl-8 text-right text-lg font-bold"
-                placeholder="金額"
-                value={m.amount || ""}
-                onChange={(e) =>
-                  updateMove(i, {
-                    amount: Math.max(0, parseInt(e.target.value || "0", 10)),
-                  })
-                }
-              />
-            </div>
-          </div>
-
-          <input
-            type="text"
-            className="field"
-            placeholder="メモ（任意・例：釣り銭が足りず補充）"
-            value={m.memo ?? ""}
-            onChange={(e) => updateMove(i, { memo: e.target.value })}
-          />
-        </div>
-      ))}
-
-      <button type="button" onClick={addMove} className="btn-secondary w-full">
-        ＋ 手出し現金を追加
-      </button>
-
-      {moves.length > 0 && (
-        <div className="bg-stone-100 rounded-xl p-4 flex justify-between items-center">
-          <span className="text-stone-600">手出し現金の合計</span>
-          <span className="text-xl font-bold font-mono text-blue-600">
-            ＋{yen(tedashiTotal)}
-          </span>
-        </div>
-      )}
-    </section>
-  );
-}
-
 /* ---------- STEP 6 ---------- */
 function Step6({
   form,
@@ -1385,7 +1214,6 @@ function Step7({
   cumulative,
   registerTotal,
   expensesTotal,
-  tedashiTotal,
   onSave,
   saving,
 }: {
@@ -1393,7 +1221,6 @@ function Step7({
   cumulative: number;
   registerTotal: number;
   expensesTotal: number;
-  tedashiTotal: number;
   onSave: () => void;
   saving: boolean;
 }) {
@@ -1431,12 +1258,6 @@ function Step7({
           <Row k="組数" v={`${form.customer_groups}組`} />
         )}
         <Row k="経費件数" v={`${form.expenses.length}件（${yen(expensesTotal)}）`} />
-        {form.cash_moves.length > 0 && (
-          <Row
-            k="手出し現金"
-            v={`＋${yen(tedashiTotal)}（${form.cash_moves.length}件）`}
-          />
-        )}
         {form.unit_number && <Row k="番隊" v={`${form.unit_number}番隊`} />}
       </div>
 

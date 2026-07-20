@@ -104,21 +104,6 @@ export function generateLineText(f: FormState, cumulative: number): string {
     parts.push(SEP, "立替経費", expLines);
   }
 
-  // 手出し現金（緒方・川畑が自分の現金を入れた分）
-  if (f.cash_moves && f.cash_moves.length > 0) {
-    const total = f.cash_moves.reduce((s, m) => s + (m.amount || 0), 0);
-    const cashLines = f.cash_moves.map((m) => {
-      const memo = m.memo?.trim() ? `（${m.memo.trim()}）` : "";
-      return `＋${yen(m.amount || 0)} ${m.category}${memo}`;
-    });
-    parts.push(
-      SEP,
-      "💵 手出し現金",
-      ...cashLines,
-      `合計：＋${yen(total)}`,
-    );
-  }
-
   if (f.handover && f.handover.trim()) {
     parts.push(SEP, "引き継ぎ事項", f.handover.trim());
   }
