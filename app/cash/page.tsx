@@ -21,6 +21,13 @@ type ReportRow = {
   expenses: unknown;
 };
 
+type AdvanceRow = {
+  amount: number;
+  settled: boolean;
+  settled_date: string | null;
+  date: string;
+};
+
 /** expenses(jsonb 配列) から amount を積み上げる。expenses_total 列はバグのため使わない。 */
 function sumExpenses(expenses: unknown): number {
   if (!Array.isArray(expenses)) return 0;
@@ -38,6 +45,7 @@ export default function CashPage() {
 function CashInner() {
   const [settings, setSettings] = useState<CashSettings | null>(null);
   const [reports, setReports] = useState<ReportRow[]>([]);
+  const [advances, setAdvances] = useState<AdvanceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,6 +73,13 @@ function CashInner() {
       const { data: reps, error: rErr } = await query;
       if (rErr) throw rErr;
       setReports((reps as ReportRow[]) ?? []);
+
+      // 立替（別枠）：精算済みは手元現金から引く／未精算は「返すべきお金」として表示
+      const { data: adv, error: aErr } = await supabase
+        .from("advance_expenses")
+        .select("amount, settled, settled_date, date");
+      if (aErr) throw aErr;
+      setAdvances((adv as AdvanceRow[]) ?? []);
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
@@ -87,7 +102,31 @@ function CashInner() {
     () => reports.reduce((s, r) => s + sumExpenses(r.expenses), 0),
     [reports],
   );
-  const balance = openingBalance + salesTotal - expensesTotal;
+
+  // 精算済みの立替（起点日以降に返金した分）を手元現金から引く
+  const settledAdvancesTotal = useMemo(
+    () =>
+      advances
+        .filter((a) => a.settled)
+        .filter((a) => {
+          if (!startDate) return true;
+          const when = a.settled_date || a.date;
+          return when >= startDate;
+        })
+        .reduce((s, a) => s + (Number(a.amount) || 0), 0),
+    [advances, startDate],
+  );
+  // 未精算の立替（＝これから返すべきお金）。手元現金には含めない。
+  const unsettledAdvancesTotal = useMemo(
+    () =>
+      advances
+        .filter((a) => !a.settled)
+        .reduce((s, a) => s + (Number(a.amount) || 0), 0),
+    [advances],
+  );
+
+  const balance =
+    openingBalance + salesTotal - expensesTotal - settledAdvancesTotal;
 
   const periodLabel = startDate
     ? `${slashDate(startDate)} 〜 ${slashDate(todayStr())}`
@@ -147,6 +186,12 @@ function CashInner() {
               <span>− 経費合計</span>
               <span className="font-mono">−{yen(expensesTotal)}</span>
             </div>
+            {settledAdvancesTotal > 0 && (
+              <div className="flex justify-between text-stone-700">
+                <span>− 立替の精算（返金済み）</span>
+                <span className="font-mono">−{yen(settledAdvancesTotal)}</span>
+              </div>
+            )}
             <div className="flex justify-between border-t border-stone-300 pt-2 mt-1 font-bold">
               <span>= 手元現金</span>
               <span className="font-mono">{yen(balance)}</span>
@@ -155,6 +200,26 @@ function CashInner() {
               ※ 対象は日報{reports.length}件（起点日以降）。売上は日報の売上、経費は日報の立替経費の明細から集計しています。
             </p>
           </div>
+
+          {/* 立替（別枠）：これから返すべきお金 */}
+          <Link
+            href="/cash/advances"
+            className="block rounded-2xl border border-amber-200 bg-amber-50 p-4 hover:bg-amber-100 transition-colors"
+          >
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="text-sm font-semibold text-amber-900">
+                  🧾 これから返すべき立替
+                </div>
+                <div className="text-[11px] text-amber-700">
+                  タップして立替・精算を管理 →
+                </div>
+              </div>
+              <div className="text-xl font-bold font-mono text-amber-700">
+                {yen(unsettledAdvancesTotal)}
+              </div>
+            </div>
+          </Link>
 
           {/* 設定 */}
           <SettingsForm settings={settings} onSaved={load} />
