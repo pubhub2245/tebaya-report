@@ -13,7 +13,6 @@ import FeedbackBoxAdmin from "@/app/components/FeedbackBoxAdmin";
 import PrepProductManager from "@/app/components/PrepProductManager";
 import PrepReportDashboard from "@/app/components/PrepReportDashboard";
 import PrepSettingsManager from "@/app/components/PrepSettingsManager";
-import CashLedgerManager from "@/app/components/CashLedgerManager";
 import LineDiagnostics from "@/app/components/LineDiagnostics";
 import AdminGate from "@/app/components/AdminGate";
 
@@ -334,8 +333,6 @@ export default function AdminPage() {
       </Link>
 
       <MonthlyDashboard />
-
-      <CashLedgerManager />
 
       <TaskAdminDashboard />
 
