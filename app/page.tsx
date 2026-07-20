@@ -56,13 +56,6 @@ export default function MenuPage() {
           <span>シフト・出店先問い合わせ</span>
         </Link>
         <Link
-          href="/stats"
-          className="flex items-center justify-center gap-3 w-full h-20 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xl shadow-md transition"
-        >
-          <span className="text-2xl">📊</span>
-          <span>チーム成績を見る</span>
-        </Link>
-        <Link
           href="/feedback"
           className="flex items-center justify-center gap-3 w-full h-20 rounded-2xl bg-pink-500 hover:bg-pink-600 active:bg-pink-700 text-white font-bold text-xl shadow-md transition"
         >
