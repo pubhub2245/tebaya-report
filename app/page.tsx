@@ -53,7 +53,7 @@ export default function MenuPage() {
           className="flex items-center justify-center gap-3 w-full h-20 rounded-2xl bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-bold text-xl shadow-md transition"
         >
           <span className="text-2xl">📅</span>
-          <span>自分のシフトを確認</span>
+          <span>シフト・出店先問い合わせ</span>
         </Link>
         <Link
           href="/stats"
@@ -61,13 +61,6 @@ export default function MenuPage() {
         >
           <span className="text-2xl">📊</span>
           <span>チーム成績を見る</span>
-        </Link>
-        <Link
-          href="/venues"
-          className="flex items-center justify-center gap-3 w-full h-20 rounded-2xl bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white font-bold text-xl shadow-md transition"
-        >
-          <span className="text-2xl">📞</span>
-          <span>出店先 問い合わせ管理</span>
         </Link>
         <Link
           href="/feedback"
