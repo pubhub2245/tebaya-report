@@ -97,12 +97,22 @@ const RANK_TARGET: Record<string, number> = {
   D: 30000,
 };
 
+/** 新規登録時だけ使う初期値（問い合わせ→出店予定への引き継ぎ用）。編集時は無視される。 */
+export type ShiftPrefill = {
+  date?: string;
+  location_id?: number;
+  freeVenue?: string;
+  rank?: string;
+  target?: number;
+};
+
 export default function ShiftFormModal({
   shift,
   defaultDate,
   locations,
   saving,
   defaultStatus = "draft",
+  prefill,
   onClose,
   onSave,
   onDelete,
@@ -112,28 +122,38 @@ export default function ShiftFormModal({
   locations: ShiftLocation[];
   saving: boolean;
   defaultStatus?: string;
+  prefill?: ShiftPrefill;
   onClose: () => void;
   onSave: (data: ShiftFormPayload) => void;
   onDelete?: () => void;
 }) {
   const isNew = !shift;
-  const initialFreeVenue = extractFreeVenueName(shift?.note) || "";
-  const initialVenueMode: "master" | "free" =
-    shift && shift.location_id === FREE_VENUE_LOCATION_ID ? "free" : "master";
+  // prefill は新規登録のときだけ効かせる（編集時は shift の値が優先）
+  const pf = isNew ? prefill : undefined;
+  const initialFreeVenue = extractFreeVenueName(shift?.note) || pf?.freeVenue || "";
+  const initialVenueMode: "master" | "free" = shift
+    ? shift.location_id === FREE_VENUE_LOCATION_ID
+      ? "free"
+      : "master"
+    : pf?.freeVenue
+      ? "free"
+      : "master";
   const initialBaseNote = stripFreeVenueFromNote(shift?.note);
 
-  const [date, setDate] = useState(shift?.date || defaultDate);
+  const [date, setDate] = useState(shift?.date || pf?.date || defaultDate);
   const [venueMode, setVenueMode] = useState<"master" | "free">(
     initialVenueMode,
   );
   const [locationId, setLocationId] = useState(
     initialVenueMode === "master"
-      ? shift?.location_id?.toString() || ""
+      ? shift?.location_id?.toString() || pf?.location_id?.toString() || ""
       : "",
   );
   const [freeVenue, setFreeVenue] = useState(initialFreeVenue);
-  const [rank, setRank] = useState(shift?.rank || "C");
-  const [target, setTarget] = useState(shift?.target?.toString() || "40000");
+  const [rank, setRank] = useState(shift?.rank || pf?.rank || "C");
+  const [target, setTarget] = useState(
+    shift?.target?.toString() || pf?.target?.toString() || "40000",
+  );
   const [staffName, setStaffName] = useState(shift?.staff_name || "");
   const [openTime, setOpenTime] = useState(
     isNew ? "11:00" : shift?.planned_open_time || "",
