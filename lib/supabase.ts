@@ -31,6 +31,8 @@ export type DailyReport = {
   remaining_potato: number;
   remaining_tornado: number;
   remaining_negishio: number;
+  allstar_count?: number;
+  customer_groups?: number;
   expenses: Expense[];
   handover: string;
   line_text: string;

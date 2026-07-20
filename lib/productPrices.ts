@@ -11,6 +11,7 @@ export const PRODUCT_PRICES = {
   POTATO: 300,
   TORNADO: 500,
   LIMITED: 200,
+  ALLSTAR: 1300,
 } as const;
 
 export type ProductPriceKey = keyof typeof PRODUCT_PRICES;

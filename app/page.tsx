@@ -90,10 +90,16 @@ export default function MenuPage() {
         </Link>
       </section>
 
-      <footer className="mt-8 text-center">
+      <footer className="mt-8 text-center space-y-2">
+        <Link
+          href="/cash"
+          className="block text-sm text-stone-500 underline hover:text-stone-700"
+        >
+          💰 現金残高（管理者） →
+        </Link>
         <Link
           href="/admin"
-          className="text-sm text-stone-500 underline hover:text-stone-700"
+          className="block text-sm text-stone-500 underline hover:text-stone-700"
         >
           管理者ページ →
         </Link>

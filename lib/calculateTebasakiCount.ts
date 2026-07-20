@@ -1,7 +1,7 @@
 /**
  * 売上から逆算した手羽先使用本数の計算。
  *
- *  1. 他商品売上 = 餃子×250 + ポテト×300 + トルネード×500 + 限定×200
+ *  1. 他商品売上 = 餃子×250 + ポテト×300 + トルネード×500 + 限定×200 + オールスター×1300
  *  2. 手羽先売上 = sales_amount − 他商品売上
  *  3. 手羽先売上 < 0 なら警告
  *  4. 手羽先本数 = Math.floor(手羽先売上 / PRODUCT_PRICES.TEBASAKI)
@@ -15,6 +15,7 @@ export type TebasakiCalcInput = {
   potato_count: number;
   tornado_count: number;
   limited_count: number;
+  allstar_count?: number;
 };
 
 export type TebasakiCalcResult = {
@@ -41,12 +42,15 @@ export function calculateTebasakiCount(
   const potato = Math.max(0, Math.round(input.potato_count || 0));
   const tornado = Math.max(0, Math.round(input.tornado_count || 0));
   const limited = Math.max(0, Math.round(input.limited_count || 0));
+  const allstar = Math.max(0, Math.round(input.allstar_count || 0));
 
   const gyozaSales = gyoza * PRODUCT_PRICES.GYOZA;
   const potatoSales = potato * PRODUCT_PRICES.POTATO;
   const tornadoSales = tornado * PRODUCT_PRICES.TORNADO;
   const limitedSales = limited * PRODUCT_PRICES.LIMITED;
-  const otherSales = gyozaSales + potatoSales + tornadoSales + limitedSales;
+  const allstarSales = allstar * PRODUCT_PRICES.ALLSTAR;
+  const otherSales =
+    gyozaSales + potatoSales + tornadoSales + limitedSales + allstarSales;
 
   const tebasakiSales = sales - otherSales;
 
@@ -56,6 +60,7 @@ export function calculateTebasakiCount(
   if (potato > 0) parts.push(`ポテト${yenStr(potatoSales)}`);
   if (tornado > 0) parts.push(`トルネード${yenStr(tornadoSales)}`);
   if (limited > 0) parts.push(`限定${yenStr(limitedSales)}`);
+  if (allstar > 0) parts.push(`オールスター${yenStr(allstarSales)}`);
   const subtractExpr =
     parts.length === 1 ? parts[0] : `${parts[0]} − ${parts.slice(1).join(" − ")}`;
 

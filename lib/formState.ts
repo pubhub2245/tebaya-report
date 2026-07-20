@@ -22,13 +22,6 @@ export type ExpenseRow = {
   receipt_image_url?: string | null;
 };
 
-/** 現金の増減（売上以外の出入り）1件 */
-export type CashMoveRow = {
-  direction: "in" | "out"; // in=入った(増える) / out=出た(減る)
-  amount: number;
-  category: string;
-  memo?: string;
-};
 
 export type InventoryStatus = "○" | "△" | "×" | "";
 
@@ -98,9 +91,11 @@ export type FormState = {
   /** 月次限定商品（例：チキン南蛮）。商品名空欄なら DB は両方 NULL 保存。 */
   limited_product_name: string;
   limited_product_count: number;
+  /** オールスター（¥1,300の詰め合わせ商品）の販売本数 */
+  allstar_count: number;
+  /** お客さんの組数（客数） */
+  customer_groups: number;
   expenses: ExpenseRow[];
-  /** 現金の増減（売上以外の出入り）。管理者の現金残高に反映される。 */
-  cash_moves: CashMoveRow[];
   handover: string;
   unit_number: string;
   cleanup_inventory: CleanupInventory;
@@ -119,8 +114,9 @@ export const initialForm = (): FormState => ({
   remaining: { tebasaki: 0, gyoza: 0, potato: 0, tornado: 0, negishio: 0 },
   limited_product_name: "",
   limited_product_count: 0,
+  allstar_count: 0,
+  customer_groups: 0,
   expenses: [],
-  cash_moves: [],
   handover: "",
   unit_number: "",
   cleanup_inventory: initialCleanupInventory(),
