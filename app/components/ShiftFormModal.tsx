@@ -176,6 +176,11 @@ export default function ShiftFormModal({
   };
 
   const handleLocationChange = (locId: string) => {
+    // 「リストにない店（手入力）」を選んだら手入力モードへ切り替え
+    if (locId === "__free__") {
+      setVenueMode("free");
+      return;
+    }
     setLocationId(locId);
     const loc = locations.find((l) => l.id === parseInt(locId));
     if (loc) {
@@ -290,7 +295,7 @@ export default function ShiftFormModal({
                     : "bg-white text-stone-600 border-stone-300"
                 }`}
               >
-                自由入力（祭り等）
+                ✍️ 手入力（リストにない店・祭り等）
               </button>
             </div>
             {venueMode === "master" ? (
@@ -305,6 +310,7 @@ export default function ShiftFormModal({
                     {l.name}（{l.rank}）
                   </option>
                 ))}
+                <option value="__free__">✍️ リストにない店（手入力する）</option>
               </select>
             ) : (
               <input
@@ -312,7 +318,7 @@ export default function ShiftFormModal({
                 className="field"
                 value={freeVenue}
                 onChange={(e) => setFreeVenue(e.target.value)}
-                placeholder="例：神柱公園 夏祭り特設会場"
+                placeholder="例：〇〇店、お祭りの特設会場など"
               />
             )}
           </div>
