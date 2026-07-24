@@ -230,6 +230,30 @@ export default function ShiftsView({
     }
   };
 
+  // 出店予定の取り消し（削除）。間違い・重複時に消せるように。
+  const handleDelete = async () => {
+    if (!editingShift) return;
+    if (!window.confirm("この出店予定を取り消し（削除）しますか？")) return;
+    setSaving(true);
+    setActionResult(null);
+    try {
+      const { error } = await supabase
+        .from("shifts")
+        .delete()
+        .eq("id", editingShift.id);
+      if (error) throw error;
+      setActionResult("✅ 出店予定を取り消しました");
+      setShowFormModal(false);
+      setEditingShift(null);
+      setPrefill(undefined);
+      load();
+    } catch (e: any) {
+      setActionResult(`❌ 取り消し失敗：${e?.message || e}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div>
       {/* 出店予定の登録ボタン（誰でも入力可） */}
@@ -501,6 +525,7 @@ export default function ShiftsView({
             setPrefill(undefined);
           }}
           onSave={handleSave}
+          onDelete={editingShift ? handleDelete : undefined}
         />
       )}
     </div>

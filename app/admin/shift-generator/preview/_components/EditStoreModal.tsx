@@ -11,7 +11,14 @@ type Location = {
   target: number | null;
 };
 
-const STAFF_OPTIONS = ["かずき", "なぎさ", "イデ", "じゅん"] as const;
+const STAFF_OPTIONS = [
+  "かずき",
+  "なぎさ",
+  "イデ",
+  "じゅん",
+  "さとみ",
+  "ゆうや",
+] as const;
 const NOTE_OPTIONS: Array<{ value: string | null; label: string }> = [
   { value: null, label: "確定枠（note なし）" },
   { value: "【未確定】", label: "【未確定】" },
