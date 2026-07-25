@@ -65,6 +65,14 @@ export const initialCleanupTasks = (): CleanupTasks => ({
 });
 
 export type FormState = {
+  /** お店区分（手羽屋 / もも屋）。既定は手羽屋。 */
+  shop: string;
+  /** もも屋の通常商品の本数（商品名→本数）。商品マスタ連動。 */
+  momo_counts: Record<string, number>;
+  /** もも屋の主力（もも焼き）の逆算本数（表示・保存用） */
+  momo_primary_count: number;
+  /** もも屋の主力商品名（表示用） */
+  momo_primary_name: string;
   date: string;
   location: string;
   staff_name: string;
@@ -105,6 +113,10 @@ export type FormState = {
 };
 
 export const initialForm = (): FormState => ({
+  shop: "手羽屋",
+  momo_counts: {},
+  momo_primary_count: 0,
+  momo_primary_name: "",
   date: businessDateStr(),
   location: "",
   staff_name: "",

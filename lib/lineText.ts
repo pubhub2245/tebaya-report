@@ -43,8 +43,10 @@ export function generateLineText(f: FormState, cumulative: number): string {
 
   const unitInfo = f.unit_number ? ` ${f.unit_number}番隊` : "";
 
+  const shopLabel = f.shop === "もも屋" ? "🍖 もも屋" : "🍗 手羽屋";
+
   const parts = [
-    `🍗 手羽屋 業務報告（${slashDate(f.date)}${unitInfo}）`,
+    `${shopLabel} 業務報告（${slashDate(f.date)}${unitInfo}）`,
     SEP,
     `👤 担当：${f.staff_name}`,
     `📍 出店：${f.location}`,
@@ -65,27 +67,45 @@ export function generateLineText(f: FormState, cumulative: number): string {
     `レジ合計：${yen(registerTotal)}（${f.register_ok ? "確認OK" : "差異あり"}）`,
     SEP,
     "📦 使用本数",
-    `・餃子：${f.remaining.gyoza}個`,
-    `・ポテト：${f.remaining.potato}袋`,
-    `・トルネード：${f.remaining.tornado}本`,
   ];
 
-  // 手羽先 使用本数（売上から自動計算）
-  const tebasakiCalc = calculateTebasakiCount({
-    sales_amount: sales,
-    gyoza_count: f.remaining.gyoza || 0,
-    potato_count: f.remaining.potato || 0,
-    tornado_count: f.remaining.tornado || 0,
-    limited_count: f.limited_product_count || 0,
-    allstar_count: f.allstar_count || 0,
-  });
-  parts.push(
-    `・手羽先：${tebasakiCalc.count}本（売上から自動計算）`,
-  );
-
-  // オールスター（¥1,300の詰め合わせ商品）
-  if ((f.allstar_count || 0) > 0) {
-    parts.push(`・オールスター：${f.allstar_count}個`);
+  if (f.shop === "もも屋") {
+    // もも屋：主力（もも焼き）＋通常商品（商品マスタ連動）
+    if (f.momo_primary_name) {
+      parts.push(
+        `・${f.momo_primary_name}：${f.momo_primary_count}本（売上から自動計算）`,
+      );
+    }
+    for (const [name, n] of Object.entries(f.momo_counts || {})) {
+      if ((n as number) > 0) parts.push(`・${name}：${n}個`);
+    }
+  } else {
+    // 手羽屋：既存
+    parts.push(
+      `・餃子：${f.remaining.gyoza}個`,
+      `・ポテト：${f.remaining.potato}袋`,
+      `・トルネード：${f.remaining.tornado}本`,
+    );
+    const tebasakiCalc = calculateTebasakiCount({
+      sales_amount: sales,
+      gyoza_count: f.remaining.gyoza || 0,
+      potato_count: f.remaining.potato || 0,
+      tornado_count: f.remaining.tornado || 0,
+      limited_count: f.limited_product_count || 0,
+      allstar_count: f.allstar_count || 0,
+    });
+    parts.push(`・手羽先：${tebasakiCalc.count}本（売上から自動計算）`);
+    if ((f.allstar_count || 0) > 0) {
+      parts.push(`・オールスター：${f.allstar_count}個`);
+    }
+    const limitedName = (f.limited_product_name ?? "").trim();
+    if (limitedName) {
+      const cnt =
+        f.limited_product_count > 0
+          ? `${f.limited_product_count}本`
+          : "（本数未入力）";
+      parts.push(`・限定商品 ${limitedName}：${cnt}`);
+    }
   }
 
   // お客さんの組数
@@ -96,13 +116,6 @@ export function generateLineText(f: FormState, cumulative: number): string {
   // お酒（本数のみ）
   if ((f.alcohol_count || 0) > 0) {
     parts.push(`・お酒：${f.alcohol_count}本`);
-  }
-
-  // 限定商品（任意項目、商品名がある場合のみ）
-  const limitedName = (f.limited_product_name ?? "").trim();
-  if (limitedName) {
-    const cnt = f.limited_product_count > 0 ? `${f.limited_product_count}本` : "（本数未入力）";
-    parts.push(`・限定商品 ${limitedName}：${cnt}`);
   }
 
   if (expLines) {
