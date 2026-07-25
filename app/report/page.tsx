@@ -20,6 +20,9 @@ import { getUnitFromStaff } from "@/lib/teamMapping";
 import { getLimitedProductForMonth } from "@/lib/limitedProduct";
 import { calculateTebasakiCount } from "@/lib/calculateTebasakiCount";
 import { PRODUCT_PRICES } from "@/lib/productPrices";
+import { computeMomoPrimary, type SaleProduct } from "@/lib/momoCalc";
+
+const SHOP_OPTIONS = ["手羽屋", "もも屋"] as const;
 
 const TOTAL_STEPS = 8;
 
@@ -231,6 +234,7 @@ export default function Page() {
         .from("daily_reports")
         .insert({
           date: form.date,
+          shop: form.shop,
           location: form.location,
           staff_name: form.staff_name,
           sales_amount: form.sales_amount,
@@ -241,7 +245,7 @@ export default function Page() {
           labor: form.labor || 10000,
           // ねぎ塩はフォームから削除済み。互換性のため0で送信
           // 手羽先は売上から逆算した自動計算値（calculateTebasakiCount）を保存
-          remaining_tebasaki: tebasakiCalc.count,
+          remaining_tebasaki: form.shop === "もも屋" ? 0 : tebasakiCalc.count,
           remaining_gyoza: form.remaining.gyoza,
           remaining_potato: form.remaining.potato,
           remaining_tornado: form.remaining.tornado,
@@ -251,6 +255,15 @@ export default function Page() {
           allstar_count: form.allstar_count || 0,
           customer_groups: form.customer_groups || 0,
           alcohol_count: form.alcohol_count || 0,
+          product_counts:
+            form.shop === "もも屋"
+              ? {
+                  ...(form.momo_counts || {}),
+                  ...(form.momo_primary_name
+                    ? { [form.momo_primary_name]: form.momo_primary_count }
+                    : {}),
+                }
+              : {},
           expenses: form.expenses,
           handover: form.handover,
           line_text: text,
@@ -506,6 +519,25 @@ function Step1({
     <>
     <section className="card space-y-4">
       <h2 className="text-lg font-bold">基本情報</h2>
+      <div>
+        <label className="label">お店</label>
+        <div className="flex gap-2">
+          {SHOP_OPTIONS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => update("shop", s)}
+              className={`flex-1 py-3 rounded-xl border font-bold ${
+                form.shop === s
+                  ? "bg-brand text-white border-brand"
+                  : "bg-white text-stone-600 border-stone-300"
+              }`}
+            >
+              {s === "もも屋" ? "🍖 もも屋" : "🍗 手羽屋"}
+            </button>
+          ))}
+        </div>
+      </div>
       <div>
         <label className="label">日付</label>
         <input
@@ -778,6 +810,125 @@ function Step3({
   );
 }
 
+/* ---------- STEP 4（もも屋）商品マスタ連動 ---------- */
+function MomoStep({
+  form,
+  update,
+}: {
+  form: FormState;
+  update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
+}) {
+  const [products, setProducts] = useState<SaleProduct[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("sale_products")
+        .select("id, shop, name, price, kind, is_active, sort_order")
+        .eq("shop", "もも屋")
+        .eq("is_active", true)
+        .order("sort_order")
+        .order("id");
+      setProducts((data as SaleProduct[]) ?? []);
+      setLoading(false);
+    })();
+  }, []);
+
+  const normals = products.filter((p) => p.kind === "normal");
+  const hasPrimary = products.some((p) => p.kind === "primary");
+  const calc = useMemo(
+    () =>
+      computeMomoPrimary(
+        form.sales_amount || 0,
+        products,
+        form.momo_counts || {},
+      ),
+    [form.sales_amount, products, form.momo_counts],
+  );
+
+  // 逆算結果をフォームへ反映（保存・確認・LINEで使う）
+  useEffect(() => {
+    if (
+      form.momo_primary_count !== calc.count ||
+      form.momo_primary_name !== calc.primaryName
+    ) {
+      update("momo_primary_count", calc.count);
+      update("momo_primary_name", calc.primaryName);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calc.count, calc.primaryName]);
+
+  const setCount = (name: string, n: number) => {
+    update("momo_counts", { ...(form.momo_counts || {}), [name]: n });
+  };
+
+  if (loading) {
+    return (
+      <section className="card">
+        <p className="text-sm text-stone-500">商品を読み込み中…</p>
+      </section>
+    );
+  }
+
+  return (
+    <>
+      <section className="card space-y-3">
+        <h2 className="text-lg font-bold">🍖 もも屋 使用本数</h2>
+        <p className="text-xs text-stone-500">
+          今日売った本数を入力してください。もも焼き（主力）は売上から自動計算します。
+        </p>
+
+        {!hasPrimary && normals.length === 0 && (
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+            もも屋の商品がまだ登録されていません。管理者ページの「商品マスタ管理」で「もも焼き（主力）」などを登録してください。
+          </p>
+        )}
+
+        {normals.map((p) => (
+          <CountRow
+            key={p.id}
+            label={`${p.name}（¥${p.price}）`}
+            unit="個"
+            value={form.momo_counts?.[p.name] || 0}
+            onChange={(n) => setCount(p.name, n)}
+          />
+        ))}
+
+        <CountRow
+          label="組数（お客さんの組数）"
+          unit="組"
+          value={form.customer_groups || 0}
+          onChange={(n) => update("customer_groups", n)}
+        />
+        <CountRow
+          label="お酒（本数）"
+          unit="本"
+          value={form.alcohol_count || 0}
+          onChange={(n) => update("alcohol_count", n)}
+        />
+      </section>
+
+      <section className="card space-y-2 mt-3 bg-orange-50 border border-orange-200">
+        <h2 className="text-lg font-bold text-orange-900">
+          🍖 {calc.primaryName || "もも焼き"} 使用本数（自動計算）
+        </h2>
+        {calc.warning ? (
+          <p className="text-sm font-bold text-red-600">{calc.warning}</p>
+        ) : (
+          <p className="text-3xl font-extrabold text-orange-700">
+            {calc.count}本
+          </p>
+        )}
+        <p className="text-[11px] text-stone-500">
+          売上 {yen(form.sales_amount || 0)} − 他商品 {yen(calc.otherSales)} ={" "}
+          {yen(Math.max(0, calc.primarySales))} ÷ ¥{calc.primaryPrice || 0}
+        </p>
+      </section>
+    </>
+  );
+}
+
 /* ---------- STEP 4 ---------- */
 function Step4({
   form,
@@ -786,6 +937,10 @@ function Step4({
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
 }) {
+  // もも屋は商品マスタ連動の別UI
+  if (form.shop === "もも屋") {
+    return <MomoStep form={form} update={update} />;
+  }
   // DBカラム名は維持。表示ラベルだけ「使用本数」。手羽先・ねぎ塩は廃止。
   const items: { key: keyof FormState["remaining"]; label: string }[] = [
     { key: "gyoza", label: "餃子の使用本数" },
@@ -1245,23 +1400,40 @@ function Step7({
       <div className="card space-y-2">
         <h2 className="text-lg font-bold">確認</h2>
         <Row k="日付" v={form.date} />
+        <Row k="お店" v={form.shop === "もも屋" ? "🍖 もも屋" : "🍗 手羽屋"} />
         <Row k="場所" v={form.location} />
         <Row k="担当" v={form.staff_name} />
         <Row k="本日売上" v={yen(sales)} />
         <Row k="累計売上" v={yen(cumulative)} />
         <Row k="レジ合計" v={`${yen(registerTotal)}（${form.register_ok ? "OK" : "差異あり"}）`} />
-        <Row
-          k="使用本数"
-          v={`餃子${form.remaining.gyoza} / ポテト${form.remaining.potato} / トルネード${form.remaining.tornado}`}
-        />
-        {form.limited_product_name.trim() && (
-          <Row
-            k="限定商品"
-            v={`${form.limited_product_name.trim()}${form.limited_product_count > 0 ? ` ${form.limited_product_count}本` : ""}`}
-          />
-        )}
-        {form.allstar_count > 0 && (
-          <Row k="オールスター" v={`${form.allstar_count}個`} />
+        {form.shop === "もも屋" ? (
+          <>
+            <Row
+              k={form.momo_primary_name || "もも焼き"}
+              v={`${form.momo_primary_count}本（自動計算）`}
+            />
+            {Object.entries(form.momo_counts || {})
+              .filter(([, n]) => (n as number) > 0)
+              .map(([name, n]) => (
+                <Row key={name} k={name} v={`${n}個`} />
+              ))}
+          </>
+        ) : (
+          <>
+            <Row
+              k="使用本数"
+              v={`餃子${form.remaining.gyoza} / ポテト${form.remaining.potato} / トルネード${form.remaining.tornado}`}
+            />
+            {form.limited_product_name.trim() && (
+              <Row
+                k="限定商品"
+                v={`${form.limited_product_name.trim()}${form.limited_product_count > 0 ? ` ${form.limited_product_count}本` : ""}`}
+              />
+            )}
+            {form.allstar_count > 0 && (
+              <Row k="オールスター" v={`${form.allstar_count}個`} />
+            )}
+          </>
         )}
         {form.customer_groups > 0 && (
           <Row k="組数" v={`${form.customer_groups}組`} />
