@@ -93,6 +93,11 @@ export function generateLineText(f: FormState, cumulative: number): string {
     parts.push(`・組数：${f.customer_groups}組`);
   }
 
+  // お酒（本数のみ）
+  if ((f.alcohol_count || 0) > 0) {
+    parts.push(`・お酒：${f.alcohol_count}本`);
+  }
+
   // 限定商品（任意項目、商品名がある場合のみ）
   const limitedName = (f.limited_product_name ?? "").trim();
   if (limitedName) {

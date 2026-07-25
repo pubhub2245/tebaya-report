@@ -95,6 +95,8 @@ export type FormState = {
   allstar_count: number;
   /** お客さんの組数（客数） */
   customer_groups: number;
+  /** お酒の本数（記録のみ・売上計算には影響しない） */
+  alcohol_count: number;
   expenses: ExpenseRow[];
   handover: string;
   unit_number: string;
@@ -116,6 +118,7 @@ export const initialForm = (): FormState => ({
   limited_product_count: 0,
   allstar_count: 0,
   customer_groups: 0,
+  alcohol_count: 0,
   expenses: [],
   handover: "",
   unit_number: "",

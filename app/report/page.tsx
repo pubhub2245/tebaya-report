@@ -250,6 +250,7 @@ export default function Page() {
           limited_product_count: limitedCount,
           allstar_count: form.allstar_count || 0,
           customer_groups: form.customer_groups || 0,
+          alcohol_count: form.alcohol_count || 0,
           expenses: form.expenses,
           handover: form.handover,
           line_text: text,
@@ -889,6 +890,14 @@ function Step4({
           value={form.customer_groups || 0}
           onChange={(n) => update("customer_groups", n)}
         />
+
+        {/* お酒（本数だけ記録・売上計算には影響しない） */}
+        <CountRow
+          label="お酒（本数）"
+          unit="本"
+          value={form.alcohol_count || 0}
+          onChange={(n) => update("alcohol_count", n)}
+        />
       </section>
 
       <section className="card space-y-3 mt-3">
@@ -1256,6 +1265,9 @@ function Step7({
         )}
         {form.customer_groups > 0 && (
           <Row k="組数" v={`${form.customer_groups}組`} />
+        )}
+        {form.alcohol_count > 0 && (
+          <Row k="お酒" v={`${form.alcohol_count}本`} />
         )}
         <Row k="経費件数" v={`${form.expenses.length}件（${yen(expensesTotal)}）`} />
         {form.unit_number && <Row k="番隊" v={`${form.unit_number}番隊`} />}
