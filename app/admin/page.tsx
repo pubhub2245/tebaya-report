@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { yen, slashDate } from "@/lib/format";
 import { laborFor } from "@/lib/formState";
 import MonthlyDashboard from "@/app/components/MonthlyDashboard";
+import ProductMaster from "@/app/components/ProductMaster";
 import AchievementRateDashboard from "@/app/components/AchievementRateDashboard";
 import MonthlyLimitedProductManager from "@/app/components/MonthlyLimitedProductManager";
 import FeedbackBoxAdmin from "@/app/components/FeedbackBoxAdmin";
@@ -329,6 +330,8 @@ export default function AdminPage() {
       </Link>
 
       <MonthlyDashboard />
+
+      <ProductMaster />
 
       <section className="space-y-3">
         <h2 className="text-xl font-bold text-brand-dark">🌤️ 天気予報通知</h2>
