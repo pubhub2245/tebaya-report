@@ -64,6 +64,9 @@ export default function Page() {
   const [copied, setCopied] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [lineSent, setLineSent] = useState(false);
+  // マスタ（設定センターで追加した分）を日報の選択肢に反映
+  const [masterLocations, setMasterLocations] = useState<string[]>([]);
+  const [masterStaff, setMasterStaff] = useState<string[]>([]);
 
   // Load draft from sessionStorage
   useEffect(() => {
@@ -96,6 +99,36 @@ export default function Page() {
       console.warn("sessionStorage persist failed", err);
     }
   }, [form, step, loaded]);
+
+  // マスタ（出店場所・担当者）を読み込み、選択肢に反映
+  useEffect(() => {
+    (async () => {
+      try {
+        const [locRes, staffRes] = await Promise.all([
+          supabase
+            .from("locations")
+            .select("name")
+            .eq("is_active", true)
+            .order("name"),
+          supabase
+            .from("staff_members")
+            .select("name")
+            .eq("is_active", true)
+            .order("name"),
+        ]);
+        setMasterLocations(
+          ((locRes.data as { name: string }[]) || [])
+            .map((l) => l.name)
+            .filter(Boolean),
+        );
+        setMasterStaff(
+          ((staffRes.data as { name: string }[]) || [])
+            .map((s) => s.name)
+            .filter(Boolean),
+        );
+      } catch {}
+    })();
+  }, []);
 
   // Fetch cumulative sales
   useEffect(() => {
@@ -443,7 +476,18 @@ export default function Page() {
       </header>
 
       {step === 1 && (
-        <Step1 form={form} update={update} />
+        <Step1
+          form={form}
+          update={update}
+          locationOptions={[
+            ...LOCATION_OPTIONS,
+            ...masterLocations.filter((n) => !LOCATION_OPTIONS.includes(n)),
+          ]}
+          staffOptions={[
+            ...STAFF_OPTIONS,
+            ...masterStaff.filter((n) => !STAFF_OPTIONS.includes(n)),
+          ]}
+        />
       )}
       {step === 2 && (
         <Step2 form={form} update={update} cumulative={cumulative} />
@@ -505,15 +549,19 @@ export default function Page() {
 function Step1({
   form,
   update,
+  locationOptions,
+  staffOptions,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
+  locationOptions: string[];
+  staffOptions: string[];
 }) {
   const [isOther, setIsOther] = useState(
-    form.location.length > 0 && !LOCATION_OPTIONS.includes(form.location)
+    form.location.length > 0 && !locationOptions.includes(form.location)
   );
   const [isStaffOther, setIsStaffOther] = useState(
-    form.staff_name.length > 0 && !STAFF_OPTIONS.includes(form.staff_name)
+    form.staff_name.length > 0 && !staffOptions.includes(form.staff_name)
   );
   return (
     <>
@@ -564,7 +612,7 @@ function Step1({
           }}
         >
           <option value="">選択してください</option>
-          {LOCATION_OPTIONS.map((loc) => (
+          {locationOptions.map((loc) => (
             <option key={loc} value={loc}>
               {loc}
             </option>
@@ -602,7 +650,7 @@ function Step1({
           }}
         >
           <option value="">選択してください</option>
-          {STAFF_OPTIONS.map((name) => (
+          {staffOptions.map((name) => (
             <option key={name} value={name}>
               {name}
             </option>
