@@ -18,9 +18,21 @@ import {
 import { generateLineText } from "@/lib/lineText";
 import { getUnitFromStaff } from "@/lib/teamMapping";
 import { getLimitedProductForMonth } from "@/lib/limitedProduct";
-import { calculateTebasakiCount } from "@/lib/calculateTebasakiCount";
+import {
+  calculateTebasakiCount,
+  type TebasakiPrices,
+} from "@/lib/calculateTebasakiCount";
 import { PRODUCT_PRICES } from "@/lib/productPrices";
 import { computeMomoPrimary, type SaleProduct } from "@/lib/momoCalc";
+
+/** 手羽屋の商品名 → 単価キーの対応（商品マスタから単価を反映するため） */
+const TEBA_NAME_TO_KEY: Record<string, keyof TebasakiPrices> = {
+  手羽先: "TEBASAKI",
+  餃子: "GYOZA",
+  ポテト: "POTATO",
+  トルネード: "TORNADO",
+  オールスター: "ALLSTAR",
+};
 
 const SHOP_OPTIONS = ["手羽屋", "もも屋"] as const;
 
@@ -67,6 +79,10 @@ export default function Page() {
   // マスタ（設定センターで追加した分）を日報の選択肢に反映
   const [masterLocations, setMasterLocations] = useState<string[]>([]);
   const [masterStaff, setMasterStaff] = useState<string[]>([]);
+  // 手羽屋の単価（商品マスタ反映。未設定はハードコード既定値）
+  const [hatePrices, setHatePrices] = useState<TebasakiPrices>({
+    ...PRODUCT_PRICES,
+  });
 
   // Load draft from sessionStorage
   useEffect(() => {
@@ -104,7 +120,7 @@ export default function Page() {
   useEffect(() => {
     (async () => {
       try {
-        const [locRes, staffRes] = await Promise.all([
+        const [locRes, staffRes, prodRes] = await Promise.all([
           supabase
             .from("locations")
             .select("name")
@@ -115,6 +131,11 @@ export default function Page() {
             .select("name")
             .eq("is_active", true)
             .order("name"),
+          supabase
+            .from("sale_products")
+            .select("name, price")
+            .eq("shop", "手羽屋")
+            .eq("is_active", true),
         ]);
         setMasterLocations(
           ((locRes.data as { name: string }[]) || [])
@@ -126,6 +147,14 @@ export default function Page() {
             .map((s) => s.name)
             .filter(Boolean),
         );
+        // 手羽屋の単価を商品マスタから反映（該当名のみ上書き）
+        const p: TebasakiPrices = { ...PRODUCT_PRICES };
+        for (const row of (prodRes.data as { name: string; price: number }[]) ||
+          []) {
+          const key = TEBA_NAME_TO_KEY[row.name];
+          if (key) p[key] = row.price;
+        }
+        setHatePrices(p);
       } catch {}
     })();
   }, []);
@@ -184,14 +213,17 @@ export default function Page() {
   // 手羽先使用本数を売上から逆算（リアルタイム）
   const tebasakiCalc = useMemo(
     () =>
-      calculateTebasakiCount({
-        sales_amount: form.sales_amount || 0,
-        gyoza_count: form.remaining.gyoza || 0,
-        potato_count: form.remaining.potato || 0,
-        tornado_count: form.remaining.tornado || 0,
-        limited_count: form.limited_product_count || 0,
-        allstar_count: form.allstar_count || 0,
-      }),
+      calculateTebasakiCount(
+        {
+          sales_amount: form.sales_amount || 0,
+          gyoza_count: form.remaining.gyoza || 0,
+          potato_count: form.remaining.potato || 0,
+          tornado_count: form.remaining.tornado || 0,
+          limited_count: form.limited_product_count || 0,
+          allstar_count: form.allstar_count || 0,
+        },
+        hatePrices,
+      ),
     [
       form.sales_amount,
       form.remaining.gyoza,
@@ -199,6 +231,7 @@ export default function Page() {
       form.remaining.tornado,
       form.limited_product_count,
       form.allstar_count,
+      hatePrices,
     ],
   );
 
@@ -222,7 +255,7 @@ export default function Page() {
   };
 
   const handleGenerate = () => {
-    const text = generateLineText(form, cumulative);
+    const text = generateLineText(form, cumulative, hatePrices);
     setLineText(text);
   };
 
@@ -237,7 +270,7 @@ export default function Page() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const text = lineText || generateLineText(form, cumulative);
+      const text = lineText || generateLineText(form, cumulative, hatePrices);
       if (!lineText) setLineText(text);
 
       // 代理INSERT（line_textに「【代理INSERT】」マーカー付き）が同じ
@@ -346,7 +379,7 @@ export default function Page() {
   if (step === 9) {
     const sales = form.sales_amount || 0;
     if (!lineText) {
-      const text = generateLineText(form, cumulative);
+      const text = generateLineText(form, cumulative, hatePrices);
       setLineText(text);
     }
     return (
@@ -499,7 +532,7 @@ export default function Page() {
           registerTotal={registerTotal}
         />
       )}
-      {step === 4 && <Step4 form={form} update={update} />}
+      {step === 4 && <Step4 form={form} update={update} prices={hatePrices} />}
       {step === 5 && (
         <Step5
           form={form}
@@ -981,9 +1014,11 @@ function MomoStep({
 function Step4({
   form,
   update,
+  prices,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
+  prices: TebasakiPrices;
 }) {
   // もも屋は商品マスタ連動の別UI
   if (form.shop === "もも屋") {
@@ -1014,12 +1049,12 @@ function Step4({
             <ol className="list-decimal pl-5 space-y-0.5">
               <li>数えた本数 × 単価 = 他商品の合計売上</li>
               <li>その日の売上 − 他商品の合計売上 = 手羽先の売上</li>
-              <li>手羽先の売上 ÷ {PRODUCT_PRICES.TEBASAKI}円 = 手羽先の本数（端数切り捨て）</li>
+              <li>手羽先の売上 ÷ {prices.TEBASAKI}円 = 手羽先の本数（端数切り捨て）</li>
             </ol>
           </div>
           <div>
             <div className="font-bold">【単価】</div>
-            餃子 ¥{PRODUCT_PRICES.GYOZA}、ポテト ¥{PRODUCT_PRICES.POTATO}、トルネード ¥{PRODUCT_PRICES.TORNADO}、限定商品 ¥{PRODUCT_PRICES.LIMITED}、手羽先 ¥{PRODUCT_PRICES.TEBASAKI}
+            餃子 ¥{prices.GYOZA}、ポテト ¥{prices.POTATO}、トルネード ¥{prices.TORNADO}、限定商品 ¥{prices.LIMITED}、手羽先 ¥{prices.TEBASAKI}
           </div>
         </div>
       </details>
@@ -1078,9 +1113,9 @@ function Step4({
           );
         })}
 
-        {/* オールスター（¥1,300の詰め合わせ商品） */}
+        {/* オールスター（詰め合わせ商品） */}
         <CountRow
-          label="オールスター（¥1,300）"
+          label={`オールスター（¥${prices.ALLSTAR}）`}
           unit="個"
           value={form.allstar_count || 0}
           onChange={(n) => update("allstar_count", n)}
@@ -1138,23 +1173,32 @@ function Step4({
         </div>
       </section>
 
-      <TebasakiAutoCalcSection form={form} />
+      <TebasakiAutoCalcSection form={form} prices={prices} />
     </>
   );
 }
 
 /* ---------- 手羽先 自動計算セクション ---------- */
-function TebasakiAutoCalcSection({ form }: { form: FormState }) {
+function TebasakiAutoCalcSection({
+  form,
+  prices,
+}: {
+  form: FormState;
+  prices: TebasakiPrices;
+}) {
   const calc = useMemo(
     () =>
-      calculateTebasakiCount({
-        sales_amount: form.sales_amount || 0,
-        gyoza_count: form.remaining.gyoza || 0,
-        potato_count: form.remaining.potato || 0,
-        tornado_count: form.remaining.tornado || 0,
-        limited_count: form.limited_product_count || 0,
-        allstar_count: form.allstar_count || 0,
-      }),
+      calculateTebasakiCount(
+        {
+          sales_amount: form.sales_amount || 0,
+          gyoza_count: form.remaining.gyoza || 0,
+          potato_count: form.remaining.potato || 0,
+          tornado_count: form.remaining.tornado || 0,
+          limited_count: form.limited_product_count || 0,
+          allstar_count: form.allstar_count || 0,
+        },
+        prices,
+      ),
     [
       form.sales_amount,
       form.remaining.gyoza,
@@ -1162,6 +1206,7 @@ function TebasakiAutoCalcSection({ form }: { form: FormState }) {
       form.remaining.tornado,
       form.limited_product_count,
       form.allstar_count,
+      prices,
     ],
   );
 

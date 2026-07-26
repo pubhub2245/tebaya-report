@@ -1,10 +1,17 @@
 import { yen, slashDate } from "./format";
 import type { FormState, InventoryStatus } from "./formState";
-import { calculateTebasakiCount } from "./calculateTebasakiCount";
+import {
+  calculateTebasakiCount,
+  type TebasakiPrices,
+} from "./calculateTebasakiCount";
 
 const SEP = "━━━━━━━━━━━━━━";
 
-export function generateLineText(f: FormState, cumulative: number): string {
+export function generateLineText(
+  f: FormState,
+  cumulative: number,
+  prices?: TebasakiPrices,
+): string {
   const sales = f.sales_amount || 0;
   const food = Math.round(sales * 0.25);
   const labor = f.labor || 10000;
@@ -86,14 +93,17 @@ export function generateLineText(f: FormState, cumulative: number): string {
       `・ポテト：${f.remaining.potato}袋`,
       `・トルネード：${f.remaining.tornado}本`,
     );
-    const tebasakiCalc = calculateTebasakiCount({
-      sales_amount: sales,
-      gyoza_count: f.remaining.gyoza || 0,
-      potato_count: f.remaining.potato || 0,
-      tornado_count: f.remaining.tornado || 0,
-      limited_count: f.limited_product_count || 0,
-      allstar_count: f.allstar_count || 0,
-    });
+    const tebasakiCalc = calculateTebasakiCount(
+      {
+        sales_amount: sales,
+        gyoza_count: f.remaining.gyoza || 0,
+        potato_count: f.remaining.potato || 0,
+        tornado_count: f.remaining.tornado || 0,
+        limited_count: f.limited_product_count || 0,
+        allstar_count: f.allstar_count || 0,
+      },
+      prices,
+    );
     parts.push(`・手羽先：${tebasakiCalc.count}本（売上から自動計算）`);
     if ((f.allstar_count || 0) > 0) {
       parts.push(`・オールスター：${f.allstar_count}個`);
