@@ -18,6 +18,16 @@ export type TebasakiCalcInput = {
   allstar_count?: number;
 };
 
+/** 単価セット。省略時はハードコード既定値（商品マスタ未設定時のフォールバック） */
+export type TebasakiPrices = {
+  TEBASAKI: number;
+  GYOZA: number;
+  POTATO: number;
+  TORNADO: number;
+  LIMITED: number;
+  ALLSTAR: number;
+};
+
 export type TebasakiCalcResult = {
   count: number;
   /** 計算過程の文字列（UI に表示用） */
@@ -36,6 +46,7 @@ function yenStr(n: number): string {
 
 export function calculateTebasakiCount(
   input: TebasakiCalcInput,
+  prices: TebasakiPrices = PRODUCT_PRICES,
 ): TebasakiCalcResult {
   const sales = Math.max(0, Math.round(input.sales_amount || 0));
   const gyoza = Math.max(0, Math.round(input.gyoza_count || 0));
@@ -44,11 +55,11 @@ export function calculateTebasakiCount(
   const limited = Math.max(0, Math.round(input.limited_count || 0));
   const allstar = Math.max(0, Math.round(input.allstar_count || 0));
 
-  const gyozaSales = gyoza * PRODUCT_PRICES.GYOZA;
-  const potatoSales = potato * PRODUCT_PRICES.POTATO;
-  const tornadoSales = tornado * PRODUCT_PRICES.TORNADO;
-  const limitedSales = limited * PRODUCT_PRICES.LIMITED;
-  const allstarSales = allstar * PRODUCT_PRICES.ALLSTAR;
+  const gyozaSales = gyoza * prices.GYOZA;
+  const potatoSales = potato * prices.POTATO;
+  const tornadoSales = tornado * prices.TORNADO;
+  const limitedSales = limited * prices.LIMITED;
+  const allstarSales = allstar * prices.ALLSTAR;
   const otherSales =
     gyozaSales + potatoSales + tornadoSales + limitedSales + allstarSales;
 
@@ -75,8 +86,8 @@ export function calculateTebasakiCount(
     };
   }
 
-  const count = Math.floor(tebasakiSales / PRODUCT_PRICES.TEBASAKI);
-  const breakdown = `${subtractExpr} = 手羽先${yenStr(tebasakiSales)} ÷ ${yenStr(PRODUCT_PRICES.TEBASAKI)} = ${count}本`;
+  const count = Math.floor(tebasakiSales / prices.TEBASAKI);
+  const breakdown = `${subtractExpr} = 手羽先${yenStr(tebasakiSales)} ÷ ${yenStr(prices.TEBASAKI)} = ${count}本`;
 
   return {
     count,
