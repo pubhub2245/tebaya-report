@@ -725,7 +725,7 @@ function Step1({
         </div>
       </div>
       <div>
-        <label className="label">日当（自動）</label>
+        <label className="label">日当（自動・手入力できます）</label>
         <div className="relative">
           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-500 text-lg">
             ¥
@@ -733,14 +733,18 @@ function Step1({
           <input
             type="number"
             inputMode="numeric"
+            min={0}
             className="field pl-8 text-right"
             value={form.labor || ""}
             onChange={(e) =>
-              update("labor", parseInt(e.target.value || "0", 10))
+              update("labor", Math.max(0, parseInt(e.target.value || "0", 10)))
             }
             placeholder="10000"
           />
         </div>
+        <p className="text-[11px] text-stone-400 mt-1">
+          担当者に応じて自動で入ります。金額はここで手入力に書き換えられます（担当者を変えると自動の金額に戻ります）。
+        </p>
       </div>
     </section>
     </>
