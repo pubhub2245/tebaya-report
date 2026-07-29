@@ -72,6 +72,12 @@ export default function MenuPage() {
           💰 現金残高（管理者） →
         </Link>
         <Link
+          href="/sales-report"
+          className="block text-sm text-stone-500 underline hover:text-stone-700"
+        >
+          💹 売上報告（管理者） →
+        </Link>
+        <Link
           href="/admin"
           className="block text-sm text-stone-500 underline hover:text-stone-700"
         >
