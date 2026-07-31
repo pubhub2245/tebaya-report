@@ -89,9 +89,8 @@ export function generateLineText(
   } else {
     // 手羽屋：既存
     parts.push(
-      `・餃子：${f.remaining.gyoza}個`,
+      `・手羽餃子：${f.remaining.gyoza}個`,
       `・ポテト：${f.remaining.potato}袋`,
-      `・トルネード：${f.remaining.tornado}本`,
     );
     const tebasakiCalc = calculateTebasakiCount(
       {

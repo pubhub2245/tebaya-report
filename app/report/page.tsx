@@ -28,9 +28,9 @@ import { computeMomoPrimary, type SaleProduct } from "@/lib/momoCalc";
 /** 手羽屋の商品名 → 単価キーの対応（商品マスタから単価を反映するため） */
 const TEBA_NAME_TO_KEY: Record<string, keyof TebasakiPrices> = {
   手羽先: "TEBASAKI",
-  餃子: "GYOZA",
+  手羽餃子: "GYOZA",
+  餃子: "GYOZA", // 旧名互換
   ポテト: "POTATO",
-  トルネード: "TORNADO",
   オールスター: "ALLSTAR",
 };
 
@@ -1028,11 +1028,10 @@ function Step4({
   if (form.shop === "もも屋") {
     return <MomoStep form={form} update={update} />;
   }
-  // DBカラム名は維持。表示ラベルだけ「使用本数」。手羽先・ねぎ塩は廃止。
+  // DBカラム名は維持（gyoza列＝手羽餃子）。表示ラベルのみ実態に合わせる。
   const items: { key: keyof FormState["remaining"]; label: string }[] = [
-    { key: "gyoza", label: "餃子の使用本数" },
+    { key: "gyoza", label: "手羽餃子の使用本数" },
     { key: "potato", label: "ポテトの使用本数" },
-    { key: "tornado", label: "トルネードの使用本数" },
   ];
   return (
     <>
@@ -1046,7 +1045,7 @@ function Step4({
         <div className="text-xs text-orange-900 mt-2 leading-relaxed space-y-2">
           <p>
             このアプリでは、手羽先の使用本数は「売上から逆算」して自動計算します。
-            スタッフが数えるのは餃子・ポテト・トルネード・限定商品の本数だけです。
+            スタッフが数えるのは手羽餃子・ポテト・限定商品の本数だけです。
           </p>
           <div>
             <div className="font-bold">【計算の仕組み】</div>
@@ -1058,7 +1057,7 @@ function Step4({
           </div>
           <div>
             <div className="font-bold">【単価】</div>
-            餃子 ¥{prices.GYOZA}、ポテト ¥{prices.POTATO}、トルネード ¥{prices.TORNADO}、限定商品 ¥{prices.LIMITED}、手羽先 ¥{prices.TEBASAKI}
+            手羽餃子 ¥{prices.GYOZA}、ポテト ¥{prices.POTATO}、限定商品 ¥{prices.LIMITED}、手羽先 ¥{prices.TEBASAKI}
           </div>
         </div>
       </details>
@@ -1519,7 +1518,7 @@ function Step7({
           <>
             <Row
               k="使用本数"
-              v={`餃子${form.remaining.gyoza} / ポテト${form.remaining.potato} / トルネード${form.remaining.tornado}`}
+              v={`手羽餃子${form.remaining.gyoza} / ポテト${form.remaining.potato}`}
             />
             {form.limited_product_name.trim() && (
               <Row
