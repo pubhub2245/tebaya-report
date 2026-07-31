@@ -29,15 +29,18 @@ export function computeMomoPrimary(
   sales: number,
   products: SaleProduct[],
   counts: Record<string, number>,
+  /** 商品マスタ外で売上から差し引く額（例：手羽屋の限定商品売上） */
+  extraOtherSales = 0,
 ): MomoCalcResult {
   const s = Math.max(0, Math.round(sales || 0));
   const primary = products.find((p) => p.kind === "primary");
   const normals = products.filter((p) => p.kind === "normal");
 
-  const otherSales = normals.reduce(
-    (sum, p) => sum + p.price * Math.max(0, counts[p.name] || 0),
-    0,
-  );
+  const otherSales =
+    normals.reduce(
+      (sum, p) => sum + p.price * Math.max(0, counts[p.name] || 0),
+      0,
+    ) + Math.max(0, Math.round(extraOtherSales || 0));
   const rawPrimarySales = s - otherSales;
   const primarySales = Math.max(0, rawPrimarySales);
   const count =

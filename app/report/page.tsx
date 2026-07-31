@@ -18,21 +18,8 @@ import {
 import { generateLineText } from "@/lib/lineText";
 import { getUnitFromStaff } from "@/lib/teamMapping";
 import { getLimitedProductForMonth } from "@/lib/limitedProduct";
-import {
-  calculateTebasakiCount,
-  type TebasakiPrices,
-} from "@/lib/calculateTebasakiCount";
 import { PRODUCT_PRICES } from "@/lib/productPrices";
 import { computeMomoPrimary, type SaleProduct } from "@/lib/momoCalc";
-
-/** 手羽屋の商品名 → 単価キーの対応（商品マスタから単価を反映するため） */
-const TEBA_NAME_TO_KEY: Record<string, keyof TebasakiPrices> = {
-  手羽先: "TEBASAKI",
-  手羽餃子: "GYOZA",
-  餃子: "GYOZA", // 旧名互換
-  ポテト: "POTATO",
-  オールスター: "ALLSTAR",
-};
 
 const SHOP_OPTIONS = ["手羽屋", "もも屋"] as const;
 
@@ -79,10 +66,6 @@ export default function Page() {
   // マスタ（設定センターで追加した分）を日報の選択肢に反映
   const [masterLocations, setMasterLocations] = useState<string[]>([]);
   const [masterStaff, setMasterStaff] = useState<string[]>([]);
-  // 手羽屋の単価（商品マスタ反映。未設定はハードコード既定値）
-  const [hatePrices, setHatePrices] = useState<TebasakiPrices>({
-    ...PRODUCT_PRICES,
-  });
 
   // Load draft from sessionStorage
   useEffect(() => {
@@ -120,7 +103,7 @@ export default function Page() {
   useEffect(() => {
     (async () => {
       try {
-        const [locRes, staffRes, prodRes] = await Promise.all([
+        const [locRes, staffRes] = await Promise.all([
           supabase
             .from("locations")
             .select("name")
@@ -131,11 +114,6 @@ export default function Page() {
             .select("name")
             .eq("is_active", true)
             .order("name"),
-          supabase
-            .from("sale_products")
-            .select("name, price")
-            .eq("shop", "手羽屋")
-            .eq("is_active", true),
         ]);
         setMasterLocations(
           ((locRes.data as { name: string }[]) || [])
@@ -147,14 +125,6 @@ export default function Page() {
             .map((s) => s.name)
             .filter(Boolean),
         );
-        // 手羽屋の単価を商品マスタから反映（該当名のみ上書き）
-        const p: TebasakiPrices = { ...PRODUCT_PRICES };
-        for (const row of (prodRes.data as { name: string; price: number }[]) ||
-          []) {
-          const key = TEBA_NAME_TO_KEY[row.name];
-          if (key) p[key] = row.price;
-        }
-        setHatePrices(p);
       } catch {}
     })();
   }, []);
@@ -210,31 +180,6 @@ export default function Page() {
     [form.expenses]
   );
 
-  // 手羽先使用本数を売上から逆算（リアルタイム）
-  const tebasakiCalc = useMemo(
-    () =>
-      calculateTebasakiCount(
-        {
-          sales_amount: form.sales_amount || 0,
-          gyoza_count: form.remaining.gyoza || 0,
-          potato_count: form.remaining.potato || 0,
-          tornado_count: form.remaining.tornado || 0,
-          limited_count: form.limited_product_count || 0,
-          allstar_count: form.allstar_count || 0,
-        },
-        hatePrices,
-      ),
-    [
-      form.sales_amount,
-      form.remaining.gyoza,
-      form.remaining.potato,
-      form.remaining.tornado,
-      form.limited_product_count,
-      form.allstar_count,
-      hatePrices,
-    ],
-  );
-
   const update = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
@@ -255,7 +200,7 @@ export default function Page() {
   };
 
   const handleGenerate = () => {
-    const text = generateLineText(form, cumulative, hatePrices);
+    const text = generateLineText(form, cumulative);
     setLineText(text);
   };
 
@@ -270,7 +215,7 @@ export default function Page() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const text = lineText || generateLineText(form, cumulative, hatePrices);
+      const text = lineText || generateLineText(form, cumulative);
       if (!lineText) setLineText(text);
 
       // 代理INSERT（line_textに「【代理INSERT】」マーカー付き）が同じ
@@ -309,27 +254,25 @@ export default function Page() {
           register_ok: form.register_ok,
           register_diff: form.register_diff || 0,
           labor: form.labor || 10000,
-          // ねぎ塩はフォームから削除済み。互換性のため0で送信
-          // 手羽先は売上から逆算した自動計算値（calculateTebasakiCount）を保存
-          remaining_tebasaki: form.shop === "もも屋" ? 0 : tebasakiCalc.count,
-          remaining_gyoza: form.remaining.gyoza,
-          remaining_potato: form.remaining.potato,
-          remaining_tornado: form.remaining.tornado,
+          // 手羽屋・もも屋とも商品マスタ連動。本数は product_counts(jsonb) に保存し、
+          // 既知商品は互換のため従来カラムにも保存（仕込み計算が remaining_tebasaki/gyoza を参照）
+          remaining_tebasaki:
+            form.shop === "もも屋" ? 0 : form.momo_primary_count || 0,
+          remaining_gyoza: form.momo_counts?.["手羽餃子"] || 0,
+          remaining_potato: form.momo_counts?.["ポテト"] || 0,
+          remaining_tornado: 0,
           remaining_negishio: 0,
           limited_product_name: limitedName,
           limited_product_count: limitedCount,
-          allstar_count: form.allstar_count || 0,
+          allstar_count: form.momo_counts?.["オールスター"] || 0,
           customer_groups: form.customer_groups || 0,
           alcohol_count: form.alcohol_count || 0,
-          product_counts:
-            form.shop === "もも屋"
-              ? {
-                  ...(form.momo_counts || {}),
-                  ...(form.momo_primary_name
-                    ? { [form.momo_primary_name]: form.momo_primary_count }
-                    : {}),
-                }
-              : {},
+          product_counts: {
+            ...(form.momo_counts || {}),
+            ...(form.momo_primary_name
+              ? { [form.momo_primary_name]: form.momo_primary_count }
+              : {}),
+          },
           expenses: form.expenses,
           handover: form.handover,
           line_text: text,
@@ -379,7 +322,7 @@ export default function Page() {
   if (step === 9) {
     const sales = form.sales_amount || 0;
     if (!lineText) {
-      const text = generateLineText(form, cumulative, hatePrices);
+      const text = generateLineText(form, cumulative);
       setLineText(text);
     }
     return (
@@ -532,7 +475,7 @@ export default function Page() {
           registerTotal={registerTotal}
         />
       )}
-      {step === 4 && <Step4 form={form} update={update} prices={hatePrices} />}
+      {step === 4 && <Step4 form={form} update={update} />}
       {step === 5 && (
         <Step5
           form={form}
@@ -607,7 +550,14 @@ function Step1({
             <button
               key={s}
               type="button"
-              onClick={() => update("shop", s)}
+              onClick={() => {
+                if (s === form.shop) return;
+                update("shop", s);
+                // お店が変わったら商品本数はリセット（店ごとに商品が異なるため）
+                update("momo_counts", {});
+                update("momo_primary_count", 0);
+                update("momo_primary_name", "");
+              }}
               className={`flex-1 py-3 rounded-xl border font-bold ${
                 form.shop === s
                   ? "bg-brand text-white border-brand"
@@ -895,41 +845,50 @@ function Step3({
   );
 }
 
-/* ---------- STEP 4（もも屋）商品マスタ連動 ---------- */
-function MomoStep({
+/* ---------- STEP 4：商品マスタ連動（手羽屋・もも屋 共通） ---------- */
+function ProductsStep({
   form,
   update,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
 }) {
+  const isTebaya = form.shop !== "もも屋";
   const [products, setProducts] = useState<SaleProduct[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     (async () => {
       const { data } = await supabase
         .from("sale_products")
         .select("id, shop, name, price, kind, is_active, sort_order")
-        .eq("shop", "もも屋")
+        .eq("shop", form.shop)
         .eq("is_active", true)
         .order("sort_order")
         .order("id");
       setProducts((data as SaleProduct[]) ?? []);
       setLoading(false);
     })();
-  }, []);
+  }, [form.shop]);
 
   const normals = products.filter((p) => p.kind === "normal");
   const hasPrimary = products.some((p) => p.kind === "primary");
+
+  // 手羽屋のみ：限定商品売上を逆算で差し引く
+  const limitedSales = isTebaya
+    ? (form.limited_product_count || 0) * PRODUCT_PRICES.LIMITED
+    : 0;
+
   const calc = useMemo(
     () =>
       computeMomoPrimary(
         form.sales_amount || 0,
         products,
         form.momo_counts || {},
+        limitedSales,
       ),
-    [form.sales_amount, products, form.momo_counts],
+    [form.sales_amount, products, form.momo_counts, limitedSales],
   );
 
   // 逆算結果をフォームへ反映（保存・確認・LINEで使う）
@@ -959,14 +918,17 @@ function MomoStep({
   return (
     <>
       <section className="card space-y-3">
-        <h2 className="text-lg font-bold">🍖 もも屋 使用本数</h2>
+        <h2 className="text-lg font-bold">{isTebaya ? "🍗" : "🍖"} 使用本数</h2>
         <p className="text-xs text-stone-500">
-          今日売った本数を入力してください。もも焼き（主力）は売上から自動計算します。
+          今日売った本数を入力してください。
+          {calc.primaryName || "主力商品"}は売上から自動計算します。
+          <br />
+          商品の追加・削除は「管理者ページ → 設定センター → 商品マスタ」で行えます。
         </p>
 
         {!hasPrimary && normals.length === 0 && (
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-            もも屋の商品がまだ登録されていません。管理者ページの「商品マスタ管理」で「もも焼き（主力）」などを登録してください。
+            このお店の商品がまだ登録されていません。管理者ページの「商品マスタ管理」で登録してください。
           </p>
         )}
 
@@ -994,16 +956,60 @@ function MomoStep({
         />
       </section>
 
+      {/* 限定商品（手羽屋のみ・任意） */}
+      {isTebaya && (
+        <section className="card space-y-3 mt-3">
+          <h2 className="text-lg font-bold">限定商品</h2>
+          <p className="text-xs text-stone-500">
+            今月の限定商品を販売した場合のみ入力してください（任意）
+          </p>
+          <div>
+            <label className="label">商品名</label>
+            <input
+              type="text"
+              className="field"
+              value={form.limited_product_name}
+              onChange={(e) => update("limited_product_name", e.target.value)}
+              placeholder="例：チキン南蛮"
+            />
+          </div>
+          <div>
+            <label className="label">販売本数</label>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              className="field text-right"
+              value={form.limited_product_count || ""}
+              onChange={(e) =>
+                update(
+                  "limited_product_count",
+                  Math.max(0, parseInt(e.target.value || "0", 10)),
+                )
+              }
+              placeholder="例：12"
+            />
+          </div>
+        </section>
+      )}
+
+      {/* 主力商品 自動計算 */}
       <section className="card space-y-2 mt-3 bg-orange-50 border border-orange-200">
         <h2 className="text-lg font-bold text-orange-900">
-          🍖 {calc.primaryName || "もも焼き"} 使用本数（自動計算）
+          {isTebaya ? "🍗" : "🍖"}{" "}
+          {calc.primaryName || (isTebaya ? "手羽先" : "もも焼き")}{" "}
+          使用本数（自動計算）
         </h2>
         {calc.warning ? (
-          <p className="text-sm font-bold text-red-600">{calc.warning}</p>
+          <div className="bg-red-100 text-red-800 border border-red-300 rounded-lg px-3 py-2 text-sm font-semibold">
+            ⚠️ {calc.warning}
+          </div>
         ) : (
-          <p className="text-3xl font-extrabold text-orange-700">
-            {calc.count}本
-          </p>
+          <div className="text-center py-2">
+            <div className="text-4xl font-bold text-orange-900">
+              {calc.count} 本
+            </div>
+          </div>
         )}
         <p className="text-[11px] text-stone-500">
           売上 {yen(form.sales_amount || 0)} − 他商品 {yen(calc.otherSales)} ={" "}
@@ -1018,222 +1024,11 @@ function MomoStep({
 function Step4({
   form,
   update,
-  prices,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
-  prices: TebasakiPrices;
 }) {
-  // もも屋は商品マスタ連動の別UI
-  if (form.shop === "もも屋") {
-    return <MomoStep form={form} update={update} />;
-  }
-  // DBカラム名は維持（gyoza列＝手羽餃子）。表示ラベルのみ実態に合わせる。
-  const items: { key: keyof FormState["remaining"]; label: string }[] = [
-    { key: "gyoza", label: "手羽餃子の使用本数" },
-    { key: "potato", label: "ポテトの使用本数" },
-  ];
-  return (
-    <>
-      <details
-        open
-        className="bg-orange-50 border-l-4 border-orange-400 rounded p-3 mb-3"
-      >
-        <summary className="font-bold text-sm cursor-pointer text-orange-900">
-          🟧 手羽先の本数について（タップで開閉）
-        </summary>
-        <div className="text-xs text-orange-900 mt-2 leading-relaxed space-y-2">
-          <p>
-            このアプリでは、手羽先の使用本数は「売上から逆算」して自動計算します。
-            スタッフが数えるのは手羽餃子・ポテト・限定商品の本数だけです。
-          </p>
-          <div>
-            <div className="font-bold">【計算の仕組み】</div>
-            <ol className="list-decimal pl-5 space-y-0.5">
-              <li>数えた本数 × 単価 = 他商品の合計売上</li>
-              <li>その日の売上 − 他商品の合計売上 = 手羽先の売上</li>
-              <li>手羽先の売上 ÷ {prices.TEBASAKI}円 = 手羽先の本数（端数切り捨て）</li>
-            </ol>
-          </div>
-          <div>
-            <div className="font-bold">【単価】</div>
-            手羽餃子 ¥{prices.GYOZA}、ポテト ¥{prices.POTATO}、限定商品 ¥{prices.LIMITED}、手羽先 ¥{prices.TEBASAKI}
-          </div>
-        </div>
-      </details>
-      <section className="card space-y-3">
-        <h2 className="text-lg font-bold">使用本数</h2>
-        <p className="text-xs text-stone-500">
-          今日使った本数を入力してください
-        </p>
-        {items.map((it) => {
-          const v = form.remaining[it.key] || 0;
-          return (
-            <div
-              key={it.key}
-              className="flex items-center gap-3 bg-stone-50 rounded-xl px-3 py-2"
-            >
-              <div className="flex-1 font-semibold">{it.label}</div>
-              <button
-                type="button"
-                onClick={() =>
-                  update("remaining", {
-                    ...form.remaining,
-                    [it.key]: Math.max(0, v - 1),
-                  })
-                }
-                className="w-10 h-10 rounded-full bg-stone-200 text-xl font-bold"
-              >
-                −
-              </button>
-              <input
-                type="number"
-                inputMode="numeric"
-                className="field w-20 text-center"
-                value={v || ""}
-                onChange={(e) =>
-                  update("remaining", {
-                    ...form.remaining,
-                    [it.key]: parseInt(e.target.value || "0", 10),
-                  })
-                }
-                placeholder="0"
-              />
-              <span className="text-stone-500">本</span>
-              <button
-                type="button"
-                onClick={() =>
-                  update("remaining", {
-                    ...form.remaining,
-                    [it.key]: v + 1,
-                  })
-                }
-                className="w-10 h-10 rounded-full bg-stone-200 text-xl font-bold"
-              >
-                ＋
-              </button>
-            </div>
-          );
-        })}
-
-        {/* オールスター（詰め合わせ商品） */}
-        <CountRow
-          label={`オールスター（¥${prices.ALLSTAR}）`}
-          unit="個"
-          value={form.allstar_count || 0}
-          onChange={(n) => update("allstar_count", n)}
-        />
-
-        {/* お客さんの組数（客数） */}
-        <CountRow
-          label="組数（お客さんの組数）"
-          unit="組"
-          value={form.customer_groups || 0}
-          onChange={(n) => update("customer_groups", n)}
-        />
-
-        {/* お酒（本数だけ記録・売上計算には影響しない） */}
-        <CountRow
-          label="お酒（本数）"
-          unit="本"
-          value={form.alcohol_count || 0}
-          onChange={(n) => update("alcohol_count", n)}
-        />
-      </section>
-
-      <section className="card space-y-3 mt-3">
-        <h2 className="text-lg font-bold">限定商品</h2>
-        <p className="text-xs text-stone-500">
-          今月の限定商品を販売した場合のみ入力してください（任意）
-        </p>
-        <div>
-          <label className="label">商品名</label>
-          <input
-            type="text"
-            className="field"
-            value={form.limited_product_name}
-            onChange={(e) => update("limited_product_name", e.target.value)}
-            placeholder="例：チキン南蛮"
-          />
-        </div>
-        <div>
-          <label className="label">販売本数</label>
-          <input
-            type="number"
-            inputMode="numeric"
-            min={0}
-            step={1}
-            className="field text-right"
-            value={form.limited_product_count || ""}
-            onChange={(e) =>
-              update(
-                "limited_product_count",
-                Math.max(0, parseInt(e.target.value || "0", 10)),
-              )
-            }
-            placeholder="例：12"
-          />
-        </div>
-      </section>
-
-      <TebasakiAutoCalcSection form={form} prices={prices} />
-    </>
-  );
-}
-
-/* ---------- 手羽先 自動計算セクション ---------- */
-function TebasakiAutoCalcSection({
-  form,
-  prices,
-}: {
-  form: FormState;
-  prices: TebasakiPrices;
-}) {
-  const calc = useMemo(
-    () =>
-      calculateTebasakiCount(
-        {
-          sales_amount: form.sales_amount || 0,
-          gyoza_count: form.remaining.gyoza || 0,
-          potato_count: form.remaining.potato || 0,
-          tornado_count: form.remaining.tornado || 0,
-          limited_count: form.limited_product_count || 0,
-          allstar_count: form.allstar_count || 0,
-        },
-        prices,
-      ),
-    [
-      form.sales_amount,
-      form.remaining.gyoza,
-      form.remaining.potato,
-      form.remaining.tornado,
-      form.limited_product_count,
-      form.allstar_count,
-      prices,
-    ],
-  );
-
-  return (
-    <section className="card space-y-2 mt-3 bg-orange-50 border border-orange-200">
-      <h2 className="text-lg font-bold text-orange-900">
-        🍗 手羽先 使用本数（自動計算）
-      </h2>
-      {calc.warning ? (
-        <div className="bg-red-100 text-red-800 border border-red-300 rounded-lg px-3 py-2 text-sm font-semibold">
-          ⚠️ {calc.warning}
-        </div>
-      ) : null}
-      <div className="text-center py-2">
-        <div className="text-4xl font-bold text-orange-900">{calc.count} 本</div>
-      </div>
-      <div className="text-xs text-stone-700 bg-white rounded-lg p-2 leading-relaxed break-all">
-        {calc.calculation_breakdown}
-      </div>
-      <p className="text-[11px] text-stone-500">
-        ※ 売上と他商品の本数を入力すると自動で計算されます。手動入力は不要です。
-      </p>
-    </section>
-  );
+  return <ProductsStep form={form} update={update} />;
 }
 
 /* ---------- STEP 5 ---------- */
@@ -1502,34 +1297,22 @@ function Step7({
         <Row k="本日売上" v={yen(sales)} />
         <Row k="累計売上" v={yen(cumulative)} />
         <Row k="レジ合計" v={`${yen(registerTotal)}（${form.register_ok ? "OK" : "差異あり"}）`} />
-        {form.shop === "もも屋" ? (
-          <>
-            <Row
-              k={form.momo_primary_name || "もも焼き"}
-              v={`${form.momo_primary_count}本（自動計算）`}
-            />
-            {Object.entries(form.momo_counts || {})
-              .filter(([, n]) => (n as number) > 0)
-              .map(([name, n]) => (
-                <Row key={name} k={name} v={`${n}個`} />
-              ))}
-          </>
-        ) : (
-          <>
-            <Row
-              k="使用本数"
-              v={`手羽餃子${form.remaining.gyoza} / ポテト${form.remaining.potato}`}
-            />
-            {form.limited_product_name.trim() && (
-              <Row
-                k="限定商品"
-                v={`${form.limited_product_name.trim()}${form.limited_product_count > 0 ? ` ${form.limited_product_count}本` : ""}`}
-              />
-            )}
-            {form.allstar_count > 0 && (
-              <Row k="オールスター" v={`${form.allstar_count}個`} />
-            )}
-          </>
+        {form.momo_primary_name && (
+          <Row
+            k={form.momo_primary_name}
+            v={`${form.momo_primary_count}本（自動計算）`}
+          />
+        )}
+        {Object.entries(form.momo_counts || {})
+          .filter(([, n]) => (n as number) > 0)
+          .map(([name, n]) => (
+            <Row key={name} k={name} v={`${n}個`} />
+          ))}
+        {form.shop !== "もも屋" && form.limited_product_name.trim() && (
+          <Row
+            k="限定商品"
+            v={`${form.limited_product_name.trim()}${form.limited_product_count > 0 ? ` ${form.limited_product_count}本` : ""}`}
+          />
         )}
         {form.customer_groups > 0 && (
           <Row k="組数" v={`${form.customer_groups}組`} />

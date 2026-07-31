@@ -1,17 +1,9 @@
 import { yen, slashDate } from "./format";
 import type { FormState, InventoryStatus } from "./formState";
-import {
-  calculateTebasakiCount,
-  type TebasakiPrices,
-} from "./calculateTebasakiCount";
 
 const SEP = "━━━━━━━━━━━━━━";
 
-export function generateLineText(
-  f: FormState,
-  cumulative: number,
-  prices?: TebasakiPrices,
-): string {
+export function generateLineText(f: FormState, cumulative: number): string {
   const sales = f.sales_amount || 0;
   const food = Math.round(sales * 0.25);
   const labor = f.labor || 10000;
@@ -76,37 +68,17 @@ export function generateLineText(
     "📦 使用本数",
   ];
 
-  if (f.shop === "もも屋") {
-    // もも屋：主力（もも焼き）＋通常商品（商品マスタ連動）
-    if (f.momo_primary_name) {
-      parts.push(
-        `・${f.momo_primary_name}：${f.momo_primary_count}本（売上から自動計算）`,
-      );
-    }
-    for (const [name, n] of Object.entries(f.momo_counts || {})) {
-      if ((n as number) > 0) parts.push(`・${name}：${n}個`);
-    }
-  } else {
-    // 手羽屋：既存
+  // 主力（手羽先／もも焼き）＋通常商品（商品マスタ連動・両店共通）
+  if (f.momo_primary_name) {
     parts.push(
-      `・手羽餃子：${f.remaining.gyoza}個`,
-      `・ポテト：${f.remaining.potato}袋`,
+      `・${f.momo_primary_name}：${f.momo_primary_count}本（売上から自動計算）`,
     );
-    const tebasakiCalc = calculateTebasakiCount(
-      {
-        sales_amount: sales,
-        gyoza_count: f.remaining.gyoza || 0,
-        potato_count: f.remaining.potato || 0,
-        tornado_count: f.remaining.tornado || 0,
-        limited_count: f.limited_product_count || 0,
-        allstar_count: f.allstar_count || 0,
-      },
-      prices,
-    );
-    parts.push(`・手羽先：${tebasakiCalc.count}本（売上から自動計算）`);
-    if ((f.allstar_count || 0) > 0) {
-      parts.push(`・オールスター：${f.allstar_count}個`);
-    }
+  }
+  for (const [name, n] of Object.entries(f.momo_counts || {})) {
+    if ((n as number) > 0) parts.push(`・${name}：${n}個`);
+  }
+  // 限定商品（手羽屋のみ・任意）
+  if (f.shop !== "もも屋") {
     const limitedName = (f.limited_product_name ?? "").trim();
     if (limitedName) {
       const cnt =
