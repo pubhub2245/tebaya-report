@@ -60,7 +60,22 @@ function OutletCard({ s }: { s: OutletStats }) {
         </div>
       </div>
 
-      {/* 出店回数 + ランクの目標/上限 */}
+      {/* ★ 出店可能数（強調表示） */}
+      {s.rankDef && (
+        <div className="flex items-center gap-3 rounded-xl bg-indigo-50 border-2 border-indigo-300 px-4 py-3">
+          <span className="text-3xl leading-none">📅</span>
+          <div className="min-w-0">
+            <div className="text-xs font-bold text-indigo-500">
+              今月の出店可能数
+            </div>
+            <div className="text-2xl font-extrabold text-indigo-800 leading-tight">
+              {s.rankDef.monthlyLimitLabel}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 出店回数 + ランクの目標 */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-stone-600">
         <span>
           出店回数{" "}
@@ -70,15 +85,12 @@ function OutletCard({ s }: { s: OutletStats }) {
           )}
         </span>
         {s.rankDef && (
-          <>
-            <span>
-              目標{" "}
-              <span className="font-bold text-stone-800">
-                {yen(s.rankDef.target)}
-              </span>
+          <span>
+            目標{" "}
+            <span className="font-bold text-stone-800">
+              {yen(s.rankDef.target)}
             </span>
-            <span className="text-stone-500">{s.rankDef.monthlyLimitLabel}</span>
-          </>
+          </span>
         )}
       </div>
 
