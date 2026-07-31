@@ -111,12 +111,22 @@ export type OutletStats = {
   aboveBreakEven: boolean;
   /** 曜日別平均 */
   weekday: WeekdayAverage;
-  /** 今月その店に出店した回数（yearMonth 指定時のみ集計） */
+  /** 今月の消化回数＝実績＋予定（同じ日は二重に数えない）。yearMonth 指定時のみ */
   usedThisMonth: number;
+  /** 今月の実績出店回数（日報ベース） */
+  actualThisMonth: number;
+  /** 今月の予定回数（シフトのうち日報と重複しない日数） */
+  plannedThisMonth: number;
   /** 今月の残り出店可能回数（rankDef があり yearMonth 指定時のみ。無ければ null） */
   remaining: number | null;
   /** 上限が「同ランク全店の合計」で判定されるか（D=チャレンジ枠） */
   isAggregateLimit: boolean;
+};
+
+/** シフト等の「予定出店」1件（名寄せ前の会場名と日付） */
+export type PlannedOutlet = {
+  date: string;
+  location: string;
 };
 
 type ReportRow = {
@@ -164,7 +174,22 @@ export function computeOutletStats(
   reports: ReportRow[],
   /** 残り回数集計の対象月 'YYYY-MM'。省略時は残りを算出しない（null） */
   yearMonth?: string,
+  /** 予定出店（シフト等）。対象月ぶんを渡すと残り回数に反映する */
+  planned: PlannedOutlet[] = [],
 ): OutletStats[] {
+  // 予定出店を名寄せ名ごとの日付集合に（対象月のみ）
+  const plannedByName = new Map<string, Set<string>>();
+  if (yearMonth) {
+    for (const p of planned) {
+      if ((p.date || "").slice(0, 7) !== yearMonth) continue;
+      const nm = normalizeOutletName(p.location);
+      if (!nm) continue;
+      const set = plannedByName.get(nm) || new Set<string>();
+      set.add(p.date);
+      plannedByName.set(nm, set);
+    }
+  }
+
   // 名寄せ後の名前でグループ化
   const groups = new Map<string, ReportRow[]>();
   for (const r of reports) {
@@ -198,10 +223,19 @@ export function computeOutletStats(
       rankKind = rankDef.code;
     }
 
-    // 今月その店に出店した回数（対象月の日報件数）
-    const usedThisMonth = yearMonth
-      ? all.filter((r) => (r.date || "").slice(0, 7) === yearMonth).length
-      : 0;
+    // 今月の消化＝実績(日報)＋予定(シフト)。同じ日は二重に数えない。
+    const actualDates = new Set<string>();
+    if (yearMonth) {
+      for (const r of all) {
+        if ((r.date || "").slice(0, 7) === yearMonth) actualDates.add(r.date);
+      }
+    }
+    const plannedDates = plannedByName.get(name) || new Set<string>();
+    const unionDates = new Set<string>(actualDates);
+    for (const d of plannedDates) unionDates.add(d);
+    const actualThisMonth = actualDates.size;
+    const usedThisMonth = unionDates.size;
+    const plannedThisMonth = usedThisMonth - actualThisMonth;
 
     result.push({
       name,
@@ -214,6 +248,8 @@ export function computeOutletStats(
       aboveBreakEven: avg >= BREAK_EVEN_LINE,
       weekday: buildWeekdayAverage(effective),
       usedThisMonth,
+      actualThisMonth,
+      plannedThisMonth,
       remaining: null,
       isAggregateLimit: !!rankDef?.aggregate,
     });
@@ -259,11 +295,40 @@ export function computeOutletStats(
  * 手羽屋の規模なら全件取得でも十分速い。
  */
 export async function getOutletAnalytics(): Promise<OutletStats[]> {
-  const { data, error } = await supabase
-    .from("daily_reports")
-    .select("date, location, sales_amount");
-  if (error) throw error;
   const now = new Date();
   const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  return computeOutletStats((data as ReportRow[]) || [], yearMonth);
+
+  const [repRes, shiftRes] = await Promise.all([
+    supabase.from("daily_reports").select("date, location, sales_amount"),
+    // 当月の予定出店（シフト）。中止は除く。
+    supabase
+      .from("shifts")
+      .select("date, status, note, locations(name)")
+      .neq("status", "cancelled")
+      .gte("date", `${yearMonth}-01`)
+      .lte("date", `${yearMonth}-31`),
+  ]);
+  if (repRes.error) throw repRes.error;
+
+  const FREE_VENUE_PREFIX = "会場名｜";
+  const planned: PlannedOutlet[] = ((shiftRes.data as any[]) || [])
+    .map((s) => {
+      // 自由入力会場は note の「会場名｜◯◯」から、それ以外は locations.name
+      let name = "";
+      const note: string | null = s.note ?? null;
+      if (note && note.startsWith(FREE_VENUE_PREFIX)) {
+        const rest = note.slice(FREE_VENUE_PREFIX.length);
+        const nl = rest.indexOf("\n");
+        name = (nl === -1 ? rest : rest.slice(0, nl)).trim();
+      }
+      if (!name) name = s.locations?.name ?? "";
+      return { date: s.date as string, location: name };
+    })
+    .filter((p) => p.location);
+
+  return computeOutletStats(
+    (repRes.data as ReportRow[]) || [],
+    yearMonth,
+    planned,
+  );
 }
