@@ -337,17 +337,18 @@ function buildReportText(
 
   // 商品内訳
   const naiyaku: string[] = [];
-  if (shop === "もも屋") {
-    const agg: Record<string, number> = {};
-    for (const r of reports) {
-      for (const [name, n] of Object.entries(r.product_counts || {})) {
-        agg[name] = (agg[name] || 0) + (Number(n) || 0);
-      }
+  // 商品内訳は product_counts（商品マスタ連動）を集計。両店共通。
+  const agg: Record<string, number> = {};
+  for (const r of reports) {
+    for (const [name, n] of Object.entries(r.product_counts || {})) {
+      agg[name] = (agg[name] || 0) + (Number(n) || 0);
     }
-    for (const [name, n] of Object.entries(agg)) {
-      if (n > 0) naiyaku.push(`・${name}：${n}`);
-    }
-  } else {
+  }
+  const aggEntries = Object.entries(agg).filter(([, n]) => n > 0);
+  if (aggEntries.length > 0) {
+    for (const [name, n] of aggEntries) naiyaku.push(`・${name}：${n}`);
+  } else if (shop !== "もも屋") {
+    // 旧データ（product_counts 未保存）の手羽屋は従来カラムから
     const teba = reports.reduce(
       (s, r) => s + (Number(r.remaining_tebasaki) || 0),
       0,
