@@ -38,6 +38,10 @@ export type RankDef = {
   minAverage: number;
   /** 1出店あたり目標（円） */
   target: number;
+  /** 月の出店上限（回） */
+  monthlyLimit: number;
+  /** true の場合、上限は「同ランク全店の合計」で判定（D=チャレンジ枠） */
+  aggregate?: boolean;
   /** 月の出店上限の目安テキスト */
   monthlyLimitLabel: string;
 };
@@ -50,13 +54,15 @@ export type RankDef = {
  *  D: 平均 2万以下 ／目標2万／チャレンジ（全店合計 月2回まで）
  */
 export const RANK_DEFS: RankDef[] = [
-  { code: "A", minAverage: 30000, target: 40000, monthlyLimitLabel: "月6回まで" },
-  { code: "B", minAverage: 25000, target: 30000, monthlyLimitLabel: "月4回まで" },
-  { code: "C", minAverage: 20000, target: 25000, monthlyLimitLabel: "月4回まで" },
+  { code: "A", minAverage: 30000, target: 40000, monthlyLimit: 6, monthlyLimitLabel: "月6回まで" },
+  { code: "B", minAverage: 25000, target: 30000, monthlyLimit: 4, monthlyLimitLabel: "月4回まで" },
+  { code: "C", minAverage: 20000, target: 25000, monthlyLimit: 4, monthlyLimitLabel: "月4回まで" },
   {
     code: "D",
     minAverage: 0,
     target: 20000,
+    monthlyLimit: 2,
+    aggregate: true,
     monthlyLimitLabel: "チャレンジ枠（全店合計 月2回まで）",
   },
 ];
@@ -105,6 +111,12 @@ export type OutletStats = {
   aboveBreakEven: boolean;
   /** 曜日別平均 */
   weekday: WeekdayAverage;
+  /** 今月その店に出店した回数（yearMonth 指定時のみ集計） */
+  usedThisMonth: number;
+  /** 今月の残り出店可能回数（rankDef があり yearMonth 指定時のみ。無ければ null） */
+  remaining: number | null;
+  /** 上限が「同ランク全店の合計」で判定されるか（D=チャレンジ枠） */
+  isAggregateLimit: boolean;
 };
 
 type ReportRow = {
@@ -148,7 +160,11 @@ function buildWeekdayAverage(reports: ReportRow[]): WeekdayAverage {
  * 名寄せ済みの店舗ごとに OutletStats を組み立てる純関数。
  * テストしやすいよう、DB取得とは分離している。
  */
-export function computeOutletStats(reports: ReportRow[]): OutletStats[] {
+export function computeOutletStats(
+  reports: ReportRow[],
+  /** 残り回数集計の対象月 'YYYY-MM'。省略時は残りを算出しない（null） */
+  yearMonth?: string,
+): OutletStats[] {
   // 名寄せ後の名前でグループ化
   const groups = new Map<string, ReportRow[]>();
   for (const r of reports) {
@@ -182,6 +198,11 @@ export function computeOutletStats(reports: ReportRow[]): OutletStats[] {
       rankKind = rankDef.code;
     }
 
+    // 今月その店に出店した回数（対象月の日報件数）
+    const usedThisMonth = yearMonth
+      ? all.filter((r) => (r.date || "").slice(0, 7) === yearMonth).length
+      : 0;
+
     result.push({
       name,
       rankKind,
@@ -192,7 +213,31 @@ export function computeOutletStats(reports: ReportRow[]): OutletStats[] {
       totalReportCount,
       aboveBreakEven: avg >= BREAK_EVEN_LINE,
       weekday: buildWeekdayAverage(effective),
+      usedThisMonth,
+      remaining: null,
+      isAggregateLimit: !!rankDef?.aggregate,
     });
+  }
+
+  // 残り出店可能回数を算出（yearMonth 指定時のみ）
+  if (yearMonth) {
+    // 集計上限（D=チャレンジ枠）は「同ランク全店の今月合計」で判定する
+    const aggregateUsed = new Map<RankCode, number>();
+    for (const s of result) {
+      if (s.rankDef?.aggregate) {
+        aggregateUsed.set(
+          s.rankDef.code,
+          (aggregateUsed.get(s.rankDef.code) || 0) + s.usedThisMonth,
+        );
+      }
+    }
+    for (const s of result) {
+      if (!s.rankDef) continue;
+      const used = s.rankDef.aggregate
+        ? aggregateUsed.get(s.rankDef.code) || 0
+        : s.usedThisMonth;
+      s.remaining = Math.max(0, s.rankDef.monthlyLimit - used);
+    }
   }
 
   // 並び順:
@@ -218,5 +263,7 @@ export async function getOutletAnalytics(): Promise<OutletStats[]> {
     .from("daily_reports")
     .select("date, location, sales_amount");
   if (error) throw error;
-  return computeOutletStats((data as ReportRow[]) || []);
+  const now = new Date();
+  const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  return computeOutletStats((data as ReportRow[]) || [], yearMonth);
 }
