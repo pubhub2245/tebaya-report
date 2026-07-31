@@ -8,7 +8,7 @@ import VenuesView from "@/app/venues/VenuesView";
 type Tab = "shifts" | "venues";
 
 export default function CombinedClient({
-  initialTab = "shifts",
+  initialTab = "venues",
 }: {
   initialTab?: Tab;
 }) {
