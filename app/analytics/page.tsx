@@ -91,7 +91,8 @@ function OutletCard({ s }: { s: OutletStats }) {
                 <>今月は上限に達しています</>
               )}
               <div className="text-[11px] font-normal text-stone-500 mt-0.5">
-                今月{s.usedThisMonth}回出店
+                今月 実績{s.actualThisMonth}回
+                {s.plannedThisMonth > 0 && ` ＋ 予定${s.plannedThisMonth}回`}
                 {s.isAggregateLimit && "（Dランク全店 合計で判定）"}
               </div>
             </div>
