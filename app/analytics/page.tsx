@@ -60,18 +60,42 @@ function OutletCard({ s }: { s: OutletStats }) {
         </div>
       </div>
 
-      {/* ★ 出店可能数（強調表示） */}
+      {/* ★ 出店可能数（強調表示）＋ 今月の残り回数 */}
       {s.rankDef && (
-        <div className="flex items-center gap-3 rounded-xl bg-indigo-50 border-2 border-indigo-300 px-4 py-3">
-          <span className="text-3xl leading-none">📅</span>
-          <div className="min-w-0">
-            <div className="text-xs font-bold text-indigo-500">
-              今月の出店可能数
-            </div>
-            <div className="text-2xl font-extrabold text-indigo-800 leading-tight">
-              {s.rankDef.monthlyLimitLabel}
+        <div className="rounded-xl bg-indigo-50 border-2 border-indigo-300 px-4 py-3 space-y-2">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl leading-none">📅</span>
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-indigo-500">
+                今月の出店可能数
+              </div>
+              <div className="text-2xl font-extrabold text-indigo-800 leading-tight">
+                {s.rankDef.monthlyLimitLabel}
+              </div>
             </div>
           </div>
+          {s.remaining !== null && (
+            <div
+              className={`rounded-lg px-3 py-2 text-center font-extrabold ${
+                s.remaining > 0
+                  ? "bg-emerald-100 text-emerald-800"
+                  : "bg-red-100 text-red-700"
+              }`}
+            >
+              {s.remaining > 0 ? (
+                <>
+                  残り あと<span className="text-2xl mx-1">{s.remaining}</span>回
+                  出店できます
+                </>
+              ) : (
+                <>今月は上限に達しています</>
+              )}
+              <div className="text-[11px] font-normal text-stone-500 mt-0.5">
+                今月{s.usedThisMonth}回出店
+                {s.isAggregateLimit && "（Dランク全店 合計で判定）"}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
