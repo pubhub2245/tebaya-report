@@ -62,6 +62,13 @@ export default function MenuPage() {
           <span className="text-2xl">💡</span>
           <span>意見箱</span>
         </Link>
+        <Link
+          href="/agenda"
+          className="flex items-center justify-center gap-3 w-full h-20 rounded-2xl bg-cyan-600 hover:bg-cyan-700 active:bg-cyan-800 text-white font-bold text-xl shadow-md transition"
+        >
+          <span className="text-2xl">🗣️</span>
+          <span>ミーティング議題</span>
+        </Link>
       </section>
 
       <footer className="mt-8 text-center space-y-2">
