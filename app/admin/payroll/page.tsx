@@ -77,6 +77,7 @@ function PayrollInner() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [openStaff, setOpenStaff] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const monthStr = `${year}-${String(month).padStart(2, "0")}`;
 
@@ -145,6 +146,22 @@ function PayrollInner() {
 
   const totalPay = summaries.reduce((s, x) => s + x.estimatePay, 0);
 
+  const copySummary = async () => {
+    const lines = [
+      `【${year}年${month}月 スタッフ稼働まとめ】`,
+      ...summaries.map(
+        (s) => `${s.name}：${s.days}日（概算 ${yen(s.estimatePay)}）`,
+      ),
+      `合計 概算日当：${yen(totalPay)}`,
+      "※ 実働日数は日報ベース。イベント日当は別途調整。",
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {}
+  };
+
   const prevMonth = () => {
     if (month === 1) {
       setYear(year - 1);
@@ -210,6 +227,10 @@ function PayrollInner() {
               {yen(totalPay)}
             </span>
           </div>
+
+          <button onClick={copySummary} className="btn-secondary w-full">
+            {copied ? "✅ コピーしました" : "📋 この月のまとめをコピー"}
+          </button>
 
           <div className="space-y-2">
             {summaries.map((s) => (
