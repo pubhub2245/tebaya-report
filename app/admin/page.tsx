@@ -335,6 +335,13 @@ export default function AdminPage() {
         ⚙️ 設定センター（商品・担当者・出店場所）
       </Link>
 
+      <Link
+        href="/admin/payroll"
+        className="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold text-base px-6 py-4 rounded-xl shadow-md text-center transition-colors"
+      >
+        👥 スタッフ別 稼働（給与計算の補助）
+      </Link>
+
       <MonthlyDashboard />
 
       <section className="space-y-3">
