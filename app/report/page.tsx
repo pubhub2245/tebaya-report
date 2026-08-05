@@ -231,6 +231,29 @@ export default function Page() {
         console.warn("代理INSERTの自動削除でエラー（無視して続行）", e);
       }
 
+      // 二重登録の防止：同じ日付・担当・お店の日報が既にあれば確認する
+      // （別のお店＝手羽屋/もも屋は別扱いなので二重にはならない）
+      try {
+        const { data: dup } = await supabase
+          .from("daily_reports")
+          .select("id")
+          .eq("date", form.date)
+          .eq("staff_name", form.staff_name)
+          .eq("shop", form.shop)
+          .limit(1);
+        if (dup && dup.length > 0) {
+          const ok = window.confirm(
+            "同じ日付・担当・お店の日報がすでに登録されています。\n二重登録になるかもしれません。それでも提出しますか？",
+          );
+          if (!ok) {
+            setSaving(false);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn("二重登録チェックでエラー（無視して続行）", e);
+      }
+
       // 限定商品: 商品名が空欄なら両方 NULL、本数のみ未入力なら本数のみ NULL
       const limitedNameTrim = form.limited_product_name.trim();
       const limitedName = limitedNameTrim === "" ? null : limitedNameTrim;
