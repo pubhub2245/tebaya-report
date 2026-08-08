@@ -9,10 +9,15 @@ import AdminGate from "@/app/components/AdminGate";
 
 /**
  * スタッフ別 月間稼働集計（給与計算の補助）。
- * daily_reports から、月ごとに各スタッフの「実働日数」を集計する。
- * - 共同出店（「A、B」）は分解して各人にカウント
+ * daily_reports から、月ごとに各スタッフの「実働日数」と「給与額」を集計する。
+ * - 共同出店（「A、B」）は分解して各人にカウント。日当（labor）も人数で割って各人ぶんに。
  * - カタカナ/ひらがなの表記ゆれ（カズキ↔かずき）はひらがなに正規化して名寄せ
  * - 同じ日に複数店（手羽屋＋もも屋）や重複があっても「1日」で数える
+ *   （その日の日当は複数行のうち一番高い額を1日ぶんとして採用＝二重計上を防ぐ）
+ *
+ * 給与額は2通り出す:
+ *   ① 実給与  … 日報に実際に入力された日当（labor）ベース。イベント日当なども反映。
+ *   ② 概算    … 稼働日数 × 標準日当（1万円等）。ざっくり確認用。
  * データは読み取りのみ。
  */
 
@@ -48,18 +53,21 @@ type DayEntry = {
   shops: Set<string>;
   locations: Set<string>;
   groupSize: number;
+  /** その日の1人ぶん日当（複数行あれば最大額。日当未入力なら null） */
+  laborShare: number | null;
 };
 
 type StaffSummary = {
   name: string;
   days: number;
+  /** ① 実給与：日報の日当（labor）ベースの合計 */
+  actualPay: number;
+  /** ② 概算：稼働日数 × 標準日当 */
   estimatePay: number;
+  /** 日当が未入力で標準日当で補った日数 */
+  missingLaborDays: number;
   entries: DayEntry[];
 };
-
-function ym(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
 
 export default function PayrollPage() {
   return (
@@ -105,6 +113,9 @@ function PayrollInner() {
     for (const r of rows) {
       const names = splitStaff(r.staff_name);
       const groupSize = names.length || 1;
+      // その行の1人ぶん日当（人数で割る）。未入力(null/0)なら null。
+      const share =
+        r.labor != null && r.labor > 0 ? r.labor / groupSize : null;
       for (const name of names) {
         let dayMap = byStaff.get(name);
         if (!dayMap) {
@@ -118,12 +129,20 @@ function PayrollInner() {
             shops: new Set(),
             locations: new Set(),
             groupSize,
+            laborShare: null,
           };
           dayMap.set(r.date, entry);
         }
         if (r.shop) entry.shops.add(r.shop);
         if (r.location) entry.locations.add(r.location);
         entry.groupSize = Math.max(entry.groupSize, groupSize);
+        // 同じ日に複数行（手羽屋＋もも屋など）あれば、一番高い額を1日ぶんに。
+        if (share != null) {
+          entry.laborShare =
+            entry.laborShare == null
+              ? share
+              : Math.max(entry.laborShare, share);
+        }
       }
     }
 
@@ -133,27 +152,39 @@ function PayrollInner() {
         a.date < b.date ? -1 : 1,
       );
       const days = entries.length;
+      const std = laborFor(name);
+      // 日当が入っていない日は標準日当で補う。
+      const actualPay = entries.reduce(
+        (s, e) => s + (e.laborShare ?? std),
+        0,
+      );
+      const missingLaborDays = entries.filter(
+        (e) => e.laborShare == null,
+      ).length;
       result.push({
         name,
         days,
-        estimatePay: days * laborFor(name),
+        actualPay,
+        estimatePay: days * std,
+        missingLaborDays,
         entries,
       });
     }
-    result.sort((a, b) => b.days - a.days);
+    result.sort((a, b) => b.actualPay - a.actualPay);
     return result;
   }, [rows]);
 
-  const totalPay = summaries.reduce((s, x) => s + x.estimatePay, 0);
+  const totalActual = summaries.reduce((s, x) => s + x.actualPay, 0);
+  const totalEstimate = summaries.reduce((s, x) => s + x.estimatePay, 0);
 
   const copySummary = async () => {
     const lines = [
-      `【${year}年${month}月 スタッフ稼働まとめ】`,
+      `【${year}年${month}月 スタッフ給与まとめ】`,
       ...summaries.map(
-        (s) => `${s.name}：${s.days}日（概算 ${yen(s.estimatePay)}）`,
+        (s) => `${s.name}：${s.days}日／${yen(s.actualPay)}`,
       ),
-      `合計 概算日当：${yen(totalPay)}`,
-      "※ 実働日数は日報ベース。イベント日当は別途調整。",
+      `合計：${yen(totalActual)}`,
+      "※ 日報に入力された日当ベース。同じ日に複数店は1日分に調整。",
     ];
     try {
       await navigator.clipboard.writeText(lines.join("\n"));
@@ -178,7 +209,7 @@ function PayrollInner() {
   return (
     <main className="max-w-md mx-auto px-4 py-6 space-y-4">
       <header className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold text-brand-dark">👥 スタッフ別 稼働</h1>
+        <h1 className="text-2xl font-bold text-brand-dark">👥 スタッフ別 給与</h1>
         <div className="flex gap-2">
           <Link href="/admin" className="btn-secondary text-sm">
             管理者ページ
@@ -190,7 +221,7 @@ function PayrollInner() {
       </header>
 
       <p className="text-xs text-stone-500">
-        日報から各スタッフの実働日数を自動集計します（給与計算の補助）。共同出店・表記ゆれ・同日複数店もまとめて1日で数えます。
+        日報から各スタッフの実働日数と給与額を自動集計します。金額は日報に入力された日当（イベント日当なども反映）ベースです。共同出店・表記ゆれ・同日複数店もまとめて1日で数えます。
       </p>
 
       {/* 月切替 */}
@@ -219,13 +250,19 @@ function PayrollInner() {
 
       {!loading && summaries.length > 0 && (
         <>
-          <div className="card flex justify-between items-center bg-emerald-50 border border-emerald-200">
-            <span className="text-sm font-bold text-emerald-800">
-              全スタッフ 概算日当合計
-            </span>
-            <span className="text-xl font-extrabold font-mono text-emerald-700">
-              {yen(totalPay)}
-            </span>
+          <div className="card bg-emerald-50 border border-emerald-200 space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-bold text-emerald-800">
+                全スタッフ 給与合計
+              </span>
+              <span className="text-2xl font-extrabold font-mono text-emerald-700">
+                {yen(totalActual)}
+              </span>
+            </div>
+            <div className="flex justify-between items-center text-[11px] text-emerald-700/70">
+              <span>（参考）日数×標準日当の概算</span>
+              <span className="font-mono">{yen(totalEstimate)}</span>
+            </div>
           </div>
 
           <button onClick={copySummary} className="btn-secondary w-full">
@@ -247,13 +284,13 @@ function PayrollInner() {
                   <span className="flex items-center gap-3">
                     <span className="text-sm text-stone-600">
                       稼働{" "}
-                      <span className="text-xl font-extrabold text-brand-dark">
+                      <span className="text-lg font-extrabold text-brand-dark">
                         {s.days}
                       </span>
                       日
                     </span>
-                    <span className="text-sm font-mono text-emerald-700">
-                      {yen(s.estimatePay)}
+                    <span className="text-base font-extrabold font-mono text-emerald-700">
+                      {yen(s.actualPay)}
                     </span>
                     <span className="text-stone-400 text-xs">
                       {openStaff === s.name ? "▲" : "▼"}
@@ -269,27 +306,33 @@ function PayrollInner() {
                       return (
                         <div
                           key={e.date}
-                          className="flex items-center justify-between text-xs text-stone-600 py-0.5"
+                          className="flex items-center justify-between text-xs text-stone-600 py-0.5 gap-2"
                         >
-                          <span className="font-mono">
+                          <span className="font-mono whitespace-nowrap">
                             {parseInt(m)}/{parseInt(dd)}（{DOW[d.getDay()]}）
                           </span>
-                          <span className="flex-1 px-2 truncate text-stone-500">
+                          <span className="flex-1 px-1 truncate text-stone-500">
                             {Array.from(e.shops).join("・")}
                             {e.locations.size > 0 &&
                               `｜${Array.from(e.locations).join("・")}`}
                           </span>
                           {e.groupSize > 1 && (
-                            <span className="text-stone-400">
+                            <span className="text-stone-400 whitespace-nowrap">
                               {e.groupSize}人
                             </span>
                           )}
+                          <span className="font-mono whitespace-nowrap text-emerald-700">
+                            {e.laborShare != null
+                              ? yen(e.laborShare)
+                              : `${yen(laborFor(s.name))}※`}
+                          </span>
                         </div>
                       );
                     })}
-                    <p className="text-[11px] text-stone-400 pt-1">
-                      概算日当 = 稼働{s.days}日 × 標準日当{yen(laborFor(s.name))}
-                      。イベント等で日当が違う日は別途調整してください。
+                    <p className="text-[11px] text-stone-400 pt-1 leading-relaxed">
+                      合計 {yen(s.actualPay)}（{s.days}日）。金額は日報に入力された日当です。
+                      {s.missingLaborDays > 0 &&
+                        ` ※印の${s.missingLaborDays}日は日当未入力のため標準日当${yen(laborFor(s.name))}で計算。`}
                     </p>
                   </div>
                 )}
@@ -298,8 +341,9 @@ function PayrollInner() {
           </div>
 
           <p className="text-[11px] text-stone-400 leading-relaxed pt-1">
-            ※ 「稼働日数」は日報の日付で数えた実働日数です（同じ日に複数店・重複があっても1日）。
-            日当は各スタッフの標準日当×日数の概算で、イベント日当などは反映していません。
+            ※「稼働日数」は日報の日付で数えた実働日数です（同じ日に複数店・重複があっても1日）。
+            給与額は各日の日報に入力された日当の合計で、共同出店は人数で割って各人ぶんにしています。
+            同じ日に複数行がある場合は一番高い日当を1日ぶんとして採用します（二重計上を防ぐため）。
             表記ゆれ（カズキ↔かずき等）はひらがなに揃えて集計しています。
           </p>
         </>
