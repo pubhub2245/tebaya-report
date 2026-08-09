@@ -68,7 +68,14 @@ const tebasakiPrices = {
 test("calculateTebasakiCount: 手羽先本数を正しく計算する", () => {
   // 売上10000 − 餃子2(500) − ポテト1(300) = 9200 ÷ 200 = 46本
   const r = calculateTebasakiCount(
-    { sales_amount: 10000, gyoza_count: 2, potato_count: 1 },
+    {
+      sales_amount: 10000,
+      gyoza_count: 2,
+      potato_count: 1,
+      tornado_count: 0,
+      limited_count: 0,
+      allstar_count: 0,
+    },
     tebasakiPrices,
   );
   assert.equal(r.other_sales, 800);
@@ -79,7 +86,14 @@ test("calculateTebasakiCount: 手羽先本数を正しく計算する", () => {
 
 test("calculateTebasakiCount: 他商品売上が上回ったら警告し0本", () => {
   const r = calculateTebasakiCount(
-    { sales_amount: 100, gyoza_count: 2 },
+    {
+      sales_amount: 100,
+      gyoza_count: 2,
+      potato_count: 0,
+      tornado_count: 0,
+      limited_count: 0,
+      allstar_count: 0,
+    },
     tebasakiPrices,
   );
   assert.equal(r.count, 0);
