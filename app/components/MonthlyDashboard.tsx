@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { yen } from "@/lib/format";
 import MonthlySummary from "./MonthlySummary";
+import SalesBreakdown from "./SalesBreakdown";
 import {
   LineChart,
   Line,
@@ -218,6 +219,8 @@ export default function MonthlyDashboard() {
       </div>
 
       <MonthlySummary yearMonth={ym} variant="large" />
+
+      <SalesBreakdown yearMonth={ym} />
 
       <div className="card">
         <h3 className="text-base font-bold mb-3">日別累積グラフ</h3>
