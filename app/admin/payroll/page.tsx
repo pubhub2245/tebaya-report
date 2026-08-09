@@ -18,6 +18,8 @@ import AdminGate from "@/app/components/AdminGate";
  * 給与額は2通り出す:
  *   ① 実給与  … 日報に実際に入力された日当（labor）ベース。イベント日当なども反映。
  *   ② 概算    … 稼働日数 × 標準日当（1万円等）。ざっくり確認用。
+ *
+ * さらに「要確認」として、日当未入力・重複の可能性がある日報を検知して表示する。
  * データは読み取りのみ。
  */
 
@@ -46,6 +48,13 @@ function splitStaff(name: string | null): string[] {
     .split(/[、,＆&・\/／\s]+/)
     .map((x) => x.trim())
     .filter(Boolean);
+}
+
+/** "2026-07-08" → "7/8（水）" */
+function fmtMD(date: string): string {
+  const d = new Date(date + "T00:00:00");
+  const [, m, dd] = date.split("-");
+  return `${parseInt(m)}/${parseInt(dd)}（${DOW[d.getDay()]}）`;
 }
 
 type DayEntry = {
@@ -86,6 +95,7 @@ function PayrollInner() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [openStaff, setOpenStaff] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedStaff, setCopiedStaff] = useState<string | null>(null);
 
   const monthStr = `${year}-${String(month).padStart(2, "0")}`;
 
@@ -174,22 +184,74 @@ function PayrollInner() {
     return result;
   }, [rows]);
 
+  // ---- ③ 入力ミス検知（日当未入力・重複の可能性） ----
+  const warnings = useMemo(() => {
+    // 日当未入力
+    const missingLabor = rows.filter(
+      (r) => r.labor == null || r.labor <= 0,
+    );
+    // 重複候補: 同じ日・同じ店・同じ担当（正規化）で2件以上
+    const groups = new Map<string, Row[]>();
+    for (const r of rows) {
+      const key = `${r.date}|${r.shop ?? ""}|${splitStaff(r.staff_name)
+        .sort()
+        .join("&")}`;
+      const arr = groups.get(key);
+      if (arr) arr.push(r);
+      else groups.set(key, [r]);
+    }
+    const dupGroups = Array.from(groups.values()).filter(
+      (g) => g.length > 1,
+    );
+    return { missingLabor, dupGroups };
+  }, [rows]);
+
   const totalActual = summaries.reduce((s, x) => s + x.actualPay, 0);
   const totalEstimate = summaries.reduce((s, x) => s + x.estimatePay, 0);
 
   const copySummary = async () => {
     const lines = [
       `【${year}年${month}月 スタッフ給与まとめ】`,
+      "",
       ...summaries.map(
-        (s) => `${s.name}：${s.days}日／${yen(s.actualPay)}`,
+        (s) => `${s.name}　${s.days}日　${yen(s.actualPay)}`,
       ),
-      `合計：${yen(totalActual)}`,
-      "※ 日報に入力された日当ベース。同じ日に複数店は1日分に調整。",
+      "――――――――――",
+      `合計　${yen(totalActual)}`,
+      "",
+      "※日報に入力された日当ベース。同じ日に複数店は1日分に調整。",
     ];
     try {
       await navigator.clipboard.writeText(lines.join("\n"));
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
+    } catch {}
+  };
+
+  const copyStaff = async (s: StaffSummary) => {
+    const lines = [
+      `【${year}年${month}月 ${s.name} 給与明細】`,
+      "",
+      ...s.entries.map((e) => {
+        const pay = e.laborShare ?? laborFor(s.name);
+        const place =
+          Array.from(e.shops).join("・") +
+          (e.locations.size > 0
+            ? `／${Array.from(e.locations).join("・")}`
+            : "");
+        const mark = e.laborShare == null ? "※" : "";
+        return `${fmtMD(e.date)}　${place}　${yen(pay)}${mark}`;
+      }),
+      "――――――――――",
+      `稼働 ${s.days}日　合計 ${yen(s.actualPay)}`,
+      ...(s.missingLaborDays > 0
+        ? [`※${s.missingLaborDays}日は日当未入力のため標準日当で計算`]
+        : []),
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setCopiedStaff(s.name);
+      setTimeout(() => setCopiedStaff(null), 1800);
     } catch {}
   };
 
@@ -205,6 +267,9 @@ function PayrollInner() {
       setMonth(1);
     } else setMonth(month + 1);
   };
+
+  const hasWarnings =
+    warnings.missingLabor.length > 0 || warnings.dupGroups.length > 0;
 
   return (
     <main className="max-w-md mx-auto px-4 py-6 space-y-4">
@@ -265,6 +330,62 @@ function PayrollInner() {
             </div>
           </div>
 
+          {/* ③ 要確認（入力ミス検知） */}
+          {hasWarnings && (
+            <div className="card bg-amber-50 border border-amber-300 space-y-2">
+              <p className="text-sm font-bold text-amber-800">
+                ⚠️ 要確認（{warnings.missingLabor.length + warnings.dupGroups.length}件）
+              </p>
+
+              {warnings.dupGroups.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-bold text-amber-700">
+                    重複の可能性（同じ日・同じ店・同じ担当）
+                  </p>
+                  {warnings.dupGroups.map((g, i) => (
+                    <div
+                      key={`dup-${i}`}
+                      className="text-xs text-amber-800 bg-amber-100/60 rounded px-2 py-1"
+                    >
+                      <span className="font-mono">{fmtMD(g[0].date)}</span>{" "}
+                      {g[0].shop}／{g[0].staff_name}
+                      <span className="text-amber-700">
+                        {g.length}件（
+                        {g
+                          .map((r) => yen(r.sales_amount ?? 0))
+                          .join("・")}
+                        ）
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {warnings.missingLabor.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-bold text-amber-700">
+                    日当が未入力
+                  </p>
+                  {warnings.missingLabor.map((r, i) => (
+                    <div
+                      key={`ml-${i}`}
+                      className="text-xs text-amber-800 bg-amber-100/60 rounded px-2 py-1"
+                    >
+                      <span className="font-mono">{fmtMD(r.date)}</span>{" "}
+                      {r.shop}／{r.staff_name}
+                      {r.location ? `／${r.location}` : ""}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <p className="text-[11px] text-amber-600 leading-relaxed">
+                ※重複候補は「本当に2枚必要か」をご確認ください（手羽屋＋もも屋の併売は別店なので重複には出ません）。
+                日当未入力の日は、上の給与額では標準日当で仮計算しています。
+              </p>
+            </div>
+          )}
+
           <button onClick={copySummary} className="btn-secondary w-full">
             {copied ? "✅ コピーしました" : "📋 この月のまとめをコピー"}
           </button>
@@ -300,40 +421,44 @@ function PayrollInner() {
 
                 {openStaff === s.name && (
                   <div className="space-y-1 pt-1 border-t border-stone-100">
-                    {s.entries.map((e) => {
-                      const d = new Date(e.date + "T00:00:00");
-                      const [, m, dd] = e.date.split("-");
-                      return (
-                        <div
-                          key={e.date}
-                          className="flex items-center justify-between text-xs text-stone-600 py-0.5 gap-2"
-                        >
-                          <span className="font-mono whitespace-nowrap">
-                            {parseInt(m)}/{parseInt(dd)}（{DOW[d.getDay()]}）
+                    {s.entries.map((e) => (
+                      <div
+                        key={e.date}
+                        className="flex items-center justify-between text-xs text-stone-600 py-0.5 gap-2"
+                      >
+                        <span className="font-mono whitespace-nowrap">
+                          {fmtMD(e.date)}
+                        </span>
+                        <span className="flex-1 px-1 truncate text-stone-500">
+                          {Array.from(e.shops).join("・")}
+                          {e.locations.size > 0 &&
+                            `｜${Array.from(e.locations).join("・")}`}
+                        </span>
+                        {e.groupSize > 1 && (
+                          <span className="text-stone-400 whitespace-nowrap">
+                            {e.groupSize}人
                           </span>
-                          <span className="flex-1 px-1 truncate text-stone-500">
-                            {Array.from(e.shops).join("・")}
-                            {e.locations.size > 0 &&
-                              `｜${Array.from(e.locations).join("・")}`}
-                          </span>
-                          {e.groupSize > 1 && (
-                            <span className="text-stone-400 whitespace-nowrap">
-                              {e.groupSize}人
-                            </span>
-                          )}
-                          <span className="font-mono whitespace-nowrap text-emerald-700">
-                            {e.laborShare != null
-                              ? yen(e.laborShare)
-                              : `${yen(laborFor(s.name))}※`}
-                          </span>
-                        </div>
-                      );
-                    })}
+                        )}
+                        <span className="font-mono whitespace-nowrap text-emerald-700">
+                          {e.laborShare != null
+                            ? yen(e.laborShare)
+                            : `${yen(laborFor(s.name))}※`}
+                        </span>
+                      </div>
+                    ))}
                     <p className="text-[11px] text-stone-400 pt-1 leading-relaxed">
                       合計 {yen(s.actualPay)}（{s.days}日）。金額は日報に入力された日当です。
                       {s.missingLaborDays > 0 &&
                         ` ※印の${s.missingLaborDays}日は日当未入力のため標準日当${yen(laborFor(s.name))}で計算。`}
                     </p>
+                    <button
+                      onClick={() => copyStaff(s)}
+                      className="btn-secondary w-full text-xs mt-1"
+                    >
+                      {copiedStaff === s.name
+                        ? "✅ コピーしました"
+                        : `📋 ${s.name}の明細をコピー`}
+                    </button>
                   </div>
                 )}
               </div>
