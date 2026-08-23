@@ -47,6 +47,7 @@ export default function MonthlyLimitedProductManager() {
 
   const [records, setRecords] = useState<MonthlyLimitedProduct[]>([]);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const [editPrices, setEditPrices] = useState<Record<string, number>>({});
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{
     kind: "ok" | "err";
@@ -75,6 +76,17 @@ export default function MonthlyLimitedProductManager() {
       }
       return next;
     });
+    setEditPrices((prev) => {
+      const next = { ...prev };
+      for (const m of editableMonths) {
+        const k = keyOf(m.year, m.month);
+        if (next[k] === undefined) {
+          const r = rows.find((x) => x.year === m.year && x.month === m.month);
+          next[k] = r?.price ?? 0;
+        }
+      }
+      return next;
+    });
     setLoading(false);
   };
 
@@ -86,10 +98,19 @@ export default function MonthlyLimitedProductManager() {
   const handleSave = async (m: EditableMonth) => {
     const k = keyOf(m.year, m.month);
     const value = editValues[k] ?? "";
+    const price = editPrices[k] ?? 0;
+    if (value.trim() !== "" && price <= 0) {
+      setFeedback({
+        kind: "err",
+        text: "単価を入れてください。0円のままだと日報の内訳に金額が入りません",
+      });
+      setTimeout(() => setFeedback(null), 4000);
+      return;
+    }
     setSavingKey(k);
     setFeedback(null);
     try {
-      const res = await upsertLimitedProduct(m.year, m.month, value);
+      const res = await upsertLimitedProduct(m.year, m.month, value, price);
       if (!res.success) throw new Error(res.error || "保存失敗");
       setFeedback({
         kind: "ok",
@@ -108,8 +129,9 @@ export default function MonthlyLimitedProductManager() {
     <section className="card space-y-3">
       <h2 className="text-xl font-bold text-brand-dark">🍴 月次限定商品設定</h2>
       <p className="text-xs text-stone-600">
-        当月・翌月の限定商品名をここで設定すると、日報フォームの限定商品欄に自動入力されます。
-        空欄で保存すると設定が削除されます。
+        当月・翌月の限定商品名と単価をここで設定すると、日報フォームの限定商品欄に自動入力されます。
+        単価は月ごとに持てるので、月によって値段が変わっても大丈夫です。
+        商品名を空欄で保存すると設定が削除されます。
       </p>
 
       {feedback && (
@@ -143,7 +165,7 @@ export default function MonthlyLimitedProductManager() {
               <div className="text-sm font-bold text-stone-700 mb-2">
                 {m.label}
               </div>
-              <div className="flex gap-2">
+              <div className="space-y-2">
                 <input
                   type="text"
                   value={value}
@@ -154,17 +176,42 @@ export default function MonthlyLimitedProductManager() {
                     }))
                   }
                   placeholder="例：チキン南蛮（空欄で設定削除）"
-                  className="field flex-1"
+                  className="field w-full"
                   disabled={isSaving}
                 />
-                <button
-                  type="button"
-                  onClick={() => handleSave(m)}
-                  disabled={isSaving}
-                  className="btn-primary px-4 py-2 text-sm"
-                >
-                  {isSaving ? "保存中…" : "保存"}
-                </button>
+                <div className="flex gap-2">
+                  <div className="flex items-center gap-1 flex-1">
+                    <span className="text-sm text-stone-600">単価</span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      step={10}
+                      value={editPrices[k] || ""}
+                      onChange={(e) =>
+                        setEditPrices((prev) => ({
+                          ...prev,
+                          [k]: Math.max(
+                            0,
+                            parseInt(e.target.value || "0", 10),
+                          ),
+                        }))
+                      }
+                      placeholder="例：250"
+                      className="field flex-1 text-right"
+                      disabled={isSaving}
+                    />
+                    <span className="text-sm text-stone-600">円</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleSave(m)}
+                    disabled={isSaving}
+                    className="btn-primary px-4 py-2 text-sm"
+                  >
+                    {isSaving ? "保存中…" : "保存"}
+                  </button>
+                </div>
               </div>
             </div>
           );
@@ -186,7 +233,7 @@ export default function MonthlyLimitedProductManager() {
                 <li key={keyOf(m.year, m.month)} className="text-stone-700">
                   {m.label}：
                   <span className={r ? "font-semibold" : "text-stone-400"}>
-                    {r ? r.product_name : "—"}
+                    {r ? `${r.product_name}${r.price > 0 ? `（¥${r.price}）` : "（単価未設定）"}` : "—"}
                   </span>
                 </li>
               );

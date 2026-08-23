@@ -24,9 +24,9 @@ type Product = {
 const SHOPS = ["手羽屋", "もも屋"] as const;
 
 const KIND_LABEL: Record<Kind, string> = {
-  primary: "主力（売上から本数を逆算）",
-  normal: "通常（単価×数を売上から引く）",
-  count_only: "記録のみ（お酒など）",
+  primary: "主力（手羽先・もも焼き。仕込み計算に使う）",
+  normal: "通常（単価×本数を売上の内訳に入れる）",
+  count_only: "記録のみ（本数だけ数え、金額には入れない）",
 };
 
 const KIND_BADGE: Record<Kind, string> = {
@@ -81,7 +81,7 @@ export default function ProductMaster() {
     if (newKind === "primary" && hasPrimary) {
       if (
         !window.confirm(
-          "このお店には既に「主力（逆算対象）」商品があります。主力は1つだけにするのがおすすめです。それでも追加しますか？",
+          "このお店には既に「主力」商品があります。主力は1つだけにするのがおすすめです。それでも追加しますか？",
         )
       )
         return;
@@ -129,7 +129,9 @@ export default function ProductMaster() {
     <section className="space-y-3">
       <h2 className="text-xl font-bold text-brand-dark">🍗 商品マスタ管理</h2>
       <p className="text-xs text-stone-500">
-        お店ごとに商品名と単価を登録します。ここで追加した商品が日報の入力・売上計算に使われます。
+        お店ごとに商品名と単価を登録します。ここで追加した商品が日報の入力欄になり、
+        「単価 × 本数」の合計が売上と合うかの確認に使われます。
+        単価が0円のままだと内訳に金額が入らないので、売る商品には必ず単価を入れてください。
       </p>
 
       {/* お店切替 */}

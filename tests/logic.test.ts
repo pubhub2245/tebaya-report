@@ -7,97 +7,179 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { computeMomoPrimary, type SaleProduct } from "../lib/momoCalc";
-import { calculateTebasakiCount } from "../lib/calculateTebasakiCount";
+import {
+  computeSalesBreakdown,
+  isBreakdownResolved,
+  priceSnapshot,
+  diffMessage,
+  type SaleProduct,
+} from "../lib/salesBreakdown";
 import { yen } from "../lib/format";
 
 // ---------- テスト用の商品マスタ ----------
-const products: SaleProduct[] = [
-  { id: 1, shop: "もも屋", name: "もも焼き", price: 800, kind: "primary", is_active: true, sort_order: 1 },
-  { id: 2, shop: "もも屋", name: "ポテト", price: 300, kind: "normal", is_active: true, sort_order: 2 },
-  { id: 3, shop: "もも屋", name: "生ビール", price: 500, kind: "count_only", is_active: true, sort_order: 3 },
+const tebaya: SaleProduct[] = [
+  { id: 1, shop: "手羽屋", name: "手羽先", price: 200, kind: "primary", is_active: true, sort_order: 0 },
+  { id: 2, shop: "手羽屋", name: "手羽餃子", price: 300, kind: "normal", is_active: true, sort_order: 1 },
+  { id: 3, shop: "手羽屋", name: "ポテト", price: 350, kind: "normal", is_active: true, sort_order: 2 },
+  { id: 5, shop: "手羽屋", name: "オールスター", price: 2000, kind: "normal", is_active: true, sort_order: 4 },
+  { id: 6, shop: "手羽屋", name: "お酒", price: 0, kind: "count_only", is_active: true, sort_order: 90 },
 ];
 
-test("computeMomoPrimary: 主力本数を売上から正しく逆算する", () => {
-  // 売上10000, ポテト2本(600円) → 主力売上9400 ÷ 800 = 11本
-  const r = computeMomoPrimary(10000, products, { ポテト: 2 });
-  assert.equal(r.otherSales, 600);
-  assert.equal(r.primarySales, 9400);
-  assert.equal(r.count, 11);
-  assert.equal(r.warning, null);
-  assert.equal(r.primaryName, "もも焼き");
+// ---------- 売上の内訳 ----------
+
+test("computeSalesBreakdown: 単価×本数の合計が売上と一致する", () => {
+  // 手羽先56×200 + 手羽餃子19×300 + ポテト4×350 + オールスター2×2000 = 22,300
+  const b = computeSalesBreakdown({
+    sales: 22300,
+    products: tebaya,
+    counts: { 手羽先: 56, 手羽餃子: 19, ポテト: 4, オールスター: 2 },
+  });
+  assert.equal(b.total, 22300);
+  assert.equal(b.diff, 0);
+  assert.equal(b.matched, true);
 });
 
-test("computeMomoPrimary: お酒(count_only)は他商品売上に含めない", () => {
-  // 生ビールの本数を入れても otherSales は変わらない
-  const r = computeMomoPrimary(10000, products, { ポテト: 2, 生ビール: 5 });
-  assert.equal(r.otherSales, 600);
-  assert.equal(r.count, 11);
+test("computeSalesBreakdown: 数え漏れがあると売上のほうが多くなる", () => {
+  // 手羽先を1本ぶん入れ忘れた状態
+  const b = computeSalesBreakdown({
+    sales: 22300,
+    products: tebaya,
+    counts: { 手羽先: 55, 手羽餃子: 19, ポテト: 4, オールスター: 2 },
+  });
+  assert.equal(b.diff, 200);
+  assert.equal(b.matched, false);
+  assert.match(diffMessage(b), /売上のほうが/);
 });
 
-test("computeMomoPrimary: 他商品売上が売上を超えたら警告", () => {
-  const r = computeMomoPrimary(500, products, { ポテト: 2 }); // 600 > 500
-  assert.ok(r.warning);
-  assert.equal(r.count, 0);
+test("computeSalesBreakdown: 本数を入れすぎると内訳のほうが多くなる", () => {
+  const b = computeSalesBreakdown({
+    sales: 22300,
+    products: tebaya,
+    counts: { 手羽先: 57, 手羽餃子: 19, ポテト: 4, オールスター: 2 },
+  });
+  assert.equal(b.diff, -200);
+  assert.match(diffMessage(b), /内訳のほうが/);
 });
 
-test("computeMomoPrimary: 主力商品が無ければ警告し本数0", () => {
-  const noPrimary = products.filter((p) => p.kind !== "primary");
-  const r = computeMomoPrimary(10000, noPrimary, {});
-  assert.equal(r.count, 0);
-  assert.ok(r.warning);
+test("computeSalesBreakdown: 記録のみ(count_only)は金額に入れない", () => {
+  const b = computeSalesBreakdown({
+    sales: 400,
+    products: tebaya,
+    counts: { 手羽先: 2, お酒: 5 },
+  });
+  assert.equal(b.total, 400);
+  assert.equal(b.matched, true);
 });
 
-test("computeMomoPrimary: extraOtherSales(限定商品売上)を差し引く", () => {
-  // 売上10000 − ポテト600 − 限定1000 = 8400 ÷ 800 = 10本
-  const r = computeMomoPrimary(10000, products, { ポテト: 2 }, 1000);
-  assert.equal(r.otherSales, 1600);
-  assert.equal(r.count, 10);
+test("computeSalesBreakdown: 限定商品はその月の単価で1行足す", () => {
+  // 手羽先111×200 + 手羽餃子32×300 + オールスター3×2000 + 限定2×250 = 38,300
+  const b = computeSalesBreakdown({
+    sales: 38300,
+    products: tebaya,
+    counts: { 手羽先: 111, 手羽餃子: 32, オールスター: 3 },
+    limited: { name: "スイートチリ", count: 2, price: 250 },
+  });
+  assert.equal(b.total, 38300);
+  assert.equal(b.matched, true);
+  assert.ok(b.lines.some((l) => l.isLimited && l.name === "スイートチリ"));
 });
 
-// ---------- 手羽先の本数逆算 ----------
-const tebasakiPrices = {
-  TEBASAKI: 200,
-  GYOZA: 250,
-  POTATO: 300,
-  TORNADO: 400,
-  LIMITED: 500,
-  ALLSTAR: 1300,
-};
-
-test("calculateTebasakiCount: 手羽先本数を正しく計算する", () => {
-  // 売上10000 − 餃子2(500) − ポテト1(300) = 9200 ÷ 200 = 46本
-  const r = calculateTebasakiCount(
-    {
-      sales_amount: 10000,
-      gyoza_count: 2,
-      potato_count: 1,
-      tornado_count: 0,
-      limited_count: 0,
-      allstar_count: 0,
-    },
-    tebasakiPrices,
-  );
-  assert.equal(r.other_sales, 800);
-  assert.equal(r.tebasaki_sales, 9200);
-  assert.equal(r.count, 46);
-  assert.equal(r.warning, null);
+test("computeSalesBreakdown: 限定商品名がマスタと同じなら二重計上しない", () => {
+  const b = computeSalesBreakdown({
+    sales: 600,
+    products: tebaya,
+    counts: { ポテト: 1 },
+    limited: { name: "ポテト", count: 1, price: 350 },
+  });
+  assert.equal(b.total, 350);
+  assert.equal(b.lines.filter((l) => l.name === "ポテト").length, 1);
 });
 
-test("calculateTebasakiCount: 他商品売上が上回ったら警告し0本", () => {
-  const r = calculateTebasakiCount(
-    {
-      sales_amount: 100,
-      gyoza_count: 2,
-      potato_count: 0,
-      tornado_count: 0,
-      limited_count: 0,
-      allstar_count: 0,
-    },
-    tebasakiPrices,
-  );
-  assert.equal(r.count, 0);
-  assert.ok(r.warning);
+test("computeSalesBreakdown: 本数があるのに単価0の商品を知らせる", () => {
+  const b = computeSalesBreakdown({
+    sales: 400,
+    products: tebaya.map((p) =>
+      p.name === "お酒" ? { ...p, kind: "normal" as const } : p,
+    ),
+    counts: { 手羽先: 2, お酒: 5 },
+  });
+  assert.deepEqual(b.unpricedNames, ["お酒"]);
+});
+
+test("computeSalesBreakdown: 使わなくなった商品(is_active=false)は出さない", () => {
+  const b = computeSalesBreakdown({
+    sales: 400,
+    products: tebaya.map((p) =>
+      p.name === "ポテト" ? { ...p, is_active: false } : p,
+    ),
+    counts: { 手羽先: 2, ポテト: 9 },
+  });
+  assert.equal(b.total, 400);
+  assert.ok(!b.lines.some((l) => l.name === "ポテト"));
+});
+
+test("priceSnapshot: その日の単価を控えとして残す", () => {
+  const b = computeSalesBreakdown({
+    sales: 22300,
+    products: tebaya,
+    counts: { 手羽先: 56, 手羽餃子: 19, ポテト: 4, オールスター: 2 },
+  });
+  const snap = priceSnapshot(b);
+  assert.equal(snap["手羽先"], 200);
+  assert.equal(snap["手羽餃子"], 300);
+  assert.equal(snap["お酒"], undefined); // 記録のみは金額に関係しないので残さない
+});
+
+// ---------- 先に進めるかどうか ----------
+
+test("isBreakdownResolved: ぴったり合っていれば理由なしで進める", () => {
+  const b = computeSalesBreakdown({
+    sales: 400,
+    products: tebaya,
+    counts: { 手羽先: 2 },
+  });
+  assert.equal(isBreakdownResolved(b, "", ""), true);
+});
+
+test("isBreakdownResolved: 合っていないのに理由が無ければ進めない", () => {
+  const b = computeSalesBreakdown({
+    sales: 500,
+    products: tebaya,
+    counts: { 手羽先: 2 },
+  });
+  assert.equal(isBreakdownResolved(b, "", ""), false);
+  assert.equal(isBreakdownResolved(b, "でたらめな理由", ""), false);
+});
+
+test("isBreakdownResolved: 理由を選べば進める", () => {
+  const b = computeSalesBreakdown({
+    sales: 500,
+    products: tebaya,
+    counts: { 手羽先: 2 },
+  });
+  assert.equal(isBreakdownResolved(b, "discount", ""), true);
+});
+
+test("isBreakdownResolved: その他を選んだときは内容の記入が要る", () => {
+  const b = computeSalesBreakdown({
+    sales: 500,
+    products: tebaya,
+    counts: { 手羽先: 2 },
+  });
+  assert.equal(isBreakdownResolved(b, "other", ""), false);
+  assert.equal(isBreakdownResolved(b, "other", "   "), false);
+  assert.equal(isBreakdownResolved(b, "other", "常連さんに1本サービス"), true);
+});
+
+test("computeSalesBreakdown: マイナスの本数や売上は0として扱う", () => {
+  const b = computeSalesBreakdown({
+    sales: -100,
+    products: tebaya,
+    counts: { 手羽先: -5 },
+  });
+  assert.equal(b.sales, 0);
+  assert.equal(b.total, 0);
+  assert.equal(b.matched, true);
 });
 
 // ---------- 表示フォーマット ----------

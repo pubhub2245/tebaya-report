@@ -67,11 +67,11 @@ export const initialCleanupTasks = (): CleanupTasks => ({
 export type FormState = {
   /** お店区分（手羽屋 / もも屋）。既定は手羽屋。 */
   shop: string;
-  /** もも屋の通常商品の本数（商品名→本数）。商品マスタ連動。 */
+  /** 商品ごとの販売本数（商品名→本数）。商品マスタ連動。手羽先など主力商品も含む。 */
   momo_counts: Record<string, number>;
-  /** もも屋の主力（もも焼き）の逆算本数（表示・保存用） */
+  /** 主力商品（手羽屋＝手羽先 / もも屋＝もも焼き）の本数。momo_counts と同じ値を保持。 */
   momo_primary_count: number;
-  /** もも屋の主力商品名（表示用） */
+  /** 主力商品名（表示用） */
   momo_primary_name: string;
   date: string;
   location: string;
@@ -99,12 +99,18 @@ export type FormState = {
   /** 月次限定商品（例：チキン南蛮）。商品名空欄なら DB は両方 NULL 保存。 */
   limited_product_name: string;
   limited_product_count: number;
+  /** 限定商品の単価（円）。月次限定商品設定から自動で入るが、その場で直せる。 */
+  limited_product_price: number;
   /** オールスター（¥1,300の詰め合わせ商品）の販売本数 */
   allstar_count: number;
   /** お客さんの組数（客数） */
   customer_groups: number;
-  /** お酒の本数（記録のみ・売上計算には影響しない） */
+  /** お酒の本数。商品マスタで単価を入れて「通常」にすると売上計算に入る。 */
   alcohol_count: number;
+  /** 売上と内訳が合わなかったときの理由コード。合っていれば空文字。 */
+  breakdown_diff_reason: string;
+  /** 理由が「その他」のときの自由記入 */
+  breakdown_diff_note: string;
   expenses: ExpenseRow[];
   handover: string;
   unit_number: string;
@@ -128,9 +134,12 @@ export const initialForm = (): FormState => ({
   remaining: { tebasaki: 0, gyoza: 0, potato: 0, tornado: 0, negishio: 0 },
   limited_product_name: "",
   limited_product_count: 0,
+  limited_product_price: 0,
   allstar_count: 0,
   customer_groups: 0,
   alcohol_count: 0,
+  breakdown_diff_reason: "",
+  breakdown_diff_note: "",
   expenses: [],
   handover: "",
   unit_number: "",
