@@ -31,6 +31,11 @@ type ReportRow = {
   customer_groups: number | null;
   alcohol_count: number | null;
   product_counts: Record<string, number> | null;
+  /** その日に使った単価の控え {商品名: 単価} */
+  product_prices: Record<string, number> | null;
+  /** 売上 − 内訳合計。0なら一致 */
+  breakdown_diff: number | null;
+  breakdown_diff_reason: string | null;
 };
 
 type AdvanceRow = {
@@ -78,7 +83,7 @@ function SalesReportInner() {
         supabase
           .from("daily_reports")
           .select(
-            "date, shop, sales_amount, expenses, location, staff_name, register_diff, remaining_tebasaki, allstar_count, customer_groups, alcohol_count, product_counts",
+            "date, shop, sales_amount, expenses, location, staff_name, register_diff, remaining_tebasaki, allstar_count, customer_groups, alcohol_count, product_counts, product_prices, breakdown_diff, breakdown_diff_reason",
           ),
         supabase
           .from("cash_settings")
@@ -339,14 +344,24 @@ function buildReportText(
   const naiyaku: string[] = [];
   // 商品内訳は product_counts（商品マスタ連動）を集計。両店共通。
   const agg: Record<string, number> = {};
+  // 金額は日報に控えてある「その日の単価」で計算する。
+  // あとで値上げしても過去の日報の金額は変わらない。
+  const aggYen: Record<string, number> = {};
   for (const r of reports) {
+    const prices = r.product_prices || {};
     for (const [name, n] of Object.entries(r.product_counts || {})) {
-      agg[name] = (agg[name] || 0) + (Number(n) || 0);
+      const count = Number(n) || 0;
+      agg[name] = (agg[name] || 0) + count;
+      const price = Number(prices[name]) || 0;
+      if (price > 0) aggYen[name] = (aggYen[name] || 0) + price * count;
     }
   }
   const aggEntries = Object.entries(agg).filter(([, n]) => n > 0);
   if (aggEntries.length > 0) {
-    for (const [name, n] of aggEntries) naiyaku.push(`・${name}：${n}`);
+    for (const [name, n] of aggEntries) {
+      const money = aggYen[name];
+      naiyaku.push(`・${name}：${n}${money ? `（${yen(money)}）` : ""}`);
+    }
   } else if (shop !== "もも屋") {
     // 旧データ（product_counts 未保存）の手羽屋は従来カラムから
     const teba = reports.reduce(
@@ -361,7 +376,18 @@ function buildReportText(
     if (allstar > 0) naiyaku.push(`・オールスター：${allstar}個`);
   }
   if (groups > 0) naiyaku.push(`・組数：${groups}組`);
-  if (alcohol > 0) naiyaku.push(`・お酒：${alcohol}本`);
+  if (alcohol > 0 && !agg["お酒"]) naiyaku.push(`・お酒：${alcohol}本`);
+  const naiyakuYen = Object.values(aggYen).reduce((s, v) => s + v, 0);
+  if (naiyakuYen > 0) naiyaku.push(`内訳合計：${yen(naiyakuYen)}`);
+  const diffSum = reports.reduce(
+    (s, r) => s + (Number(r.breakdown_diff) || 0),
+    0,
+  );
+  if (diffSum !== 0) {
+    naiyaku.push(
+      `⚠️ 売上との差額：${diffSum > 0 ? "+" : ""}${yen(diffSum)}（理由は日報を確認）`,
+    );
+  }
   if (naiyaku.length) {
     lines.push("", "【内訳】", ...naiyaku);
   }
