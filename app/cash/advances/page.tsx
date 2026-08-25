@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
+import { resizeImage } from "@/lib/imageResize";
 
 type Advance = {
   id: number;
@@ -19,44 +20,6 @@ type Advance = {
 };
 
 const PRESET_PAYERS = ["緒方", "川畑"];
-
-/** 画像を縮小してデータURLにする（日報のレシートと同じ方式） */
-function resizeImage(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onerror = () => reject(new Error("読み込み失敗"));
-    fr.onload = () => {
-      const img = new Image();
-      img.onerror = () => reject(new Error("画像読み込み失敗"));
-      img.onload = () => {
-        try {
-          const max = 1000;
-          let { width: w, height: h } = img;
-          if (w > max || h > max) {
-            if (w >= h) {
-              h = Math.round((h * max) / w);
-              w = max;
-            } else {
-              w = Math.round((w * max) / h);
-              h = max;
-            }
-          }
-          const canvas = document.createElement("canvas");
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) return reject(new Error("canvas未対応"));
-          ctx.drawImage(img, 0, 0, w, h);
-          resolve(canvas.toDataURL("image/jpeg", 0.7));
-        } catch (err) {
-          reject(err);
-        }
-      };
-      img.src = fr.result as string;
-    };
-    fr.readAsDataURL(file);
-  });
-}
 
 export default function AdvancesPage() {
   return (

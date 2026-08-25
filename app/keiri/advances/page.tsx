@@ -7,10 +7,11 @@
  *   スタッフが自分のお金で先に払った経費を、その場でスマホから記録する画面です。
  *   保存先は keiri_advance_expenses テーブル（経理層のテーブルは keiri_ で始まります）。
  *
- * ■ 入力するのは5つだけ
- *   ① 日付 ② 立替した人 ③ 金額 ④ 種類 ⑤ メモ（任意）
+ * ■ 入力するのは5つ ＋ レシート写真（任意）
+ *   ① 日付 ② 立替した人 ③ 金額 ④ 種類 ⑤ メモ（任意） ＋ 📷 レシート写真（任意）
+ *   写真は 2026-08 に川畑さんの指示で追加。任意なので、撮らなくても登録できます。
  *   理由：現場の入力負担を増やさないのが3層設計の大前提だからです。
- *   ★ 項目を足したくなったら、勝手に足さずに必ず相談すること。
+ *   ★ これ以上、項目を足したくなったら、勝手に足さずに必ず相談すること。
  *
  * ■ 日報は一切変えていません
  *   日報（/report）の入力フローや画面には手を付けていません。これは別の入り口です。
@@ -21,7 +22,6 @@
  *   このアプリは税務判断をしません／させません。最終確定は必ず税理士のレビューで行います。
  *   （税務判断は税理士の独占業務であり、このアプリの提供範囲は記帳の効率化までです）
  *
- * TODO（次ステージ以降の候補）：レシート写真の添付。今回は作っていません。
  * TODO（次ステージ）：ここのデータを keiri_account_mapping で仕訳に変換し、
  *                     マネーフォワード クラウド会計の仕訳インポートCSVを出力する。
  */
@@ -31,6 +31,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { yen, slashDate, businessDateStr } from "@/lib/format";
 import { STAFF_OPTIONS } from "@/lib/formState";
+import { resizeImage } from "@/lib/imageResize";
 
 /** 業態コード。手羽屋のみなので画面には出さず固定 */
 const BUSINESS_TYPE_CODE = "tebaya";
@@ -53,6 +54,7 @@ type AdvanceRow = {
   amount: number;
   source_type: string;
   memo: string | null;
+  receipt_image_url: string | null;
 };
 
 export default function KeiriAdvancesPage() {
@@ -69,6 +71,8 @@ export default function KeiriAdvancesPage() {
   const [amount, setAmount] = useState(0);
   const [sourceType, setSourceType] = useState("");
   const [memo, setMemo] = useState("");
+  /** レシート写真（任意）。縮小済みのデータURL文字列 */
+  const [photo, setPhoto] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
@@ -76,7 +80,7 @@ export default function KeiriAdvancesPage() {
   const loadRecent = useCallback(async () => {
     const { data } = await supabase
       .from("keiri_advance_expenses")
-      .select("id, expense_date, payer, amount, source_type, memo")
+      .select("id, expense_date, payer, amount, source_type, memo, receipt_image_url")
       .order("expense_date", { ascending: false })
       .order("id", { ascending: false })
       .limit(10);
@@ -136,6 +140,19 @@ export default function KeiriAdvancesPage() {
     [mappings],
   );
 
+  /** レシート写真を選んだとき。大きい写真は縮めてから持っておく */
+  const onPhoto = async (file: File) => {
+    if (file.size > 20 * 1024 * 1024) {
+      alert("写真が大きすぎます（20MB以下にしてください）");
+      return;
+    }
+    try {
+      setPhoto(await resizeImage(file));
+    } catch (e: any) {
+      alert("写真の読み込みに失敗しました: " + (e?.message || e));
+    }
+  };
+
   const canSave = !!expenseDate && !!payer && amount > 0 && !!sourceType;
 
   const save = async () => {
@@ -150,6 +167,7 @@ export default function KeiriAdvancesPage() {
         amount,
         source_type: sourceType,
         memo: memo.trim() || null,
+        receipt_image_url: photo,
       });
       if (error) throw error;
       setSavedMsg(`${payer}さん / ${yen(amount)} を登録しました`);
@@ -157,6 +175,7 @@ export default function KeiriAdvancesPage() {
       setAmount(0);
       setSourceType("");
       setMemo("");
+      setPhoto(null);
       loadRecent();
       setTimeout(() => setSavedMsg(null), 4000);
     } catch (e: any) {
@@ -292,6 +311,47 @@ export default function KeiriAdvancesPage() {
             />
           </div>
 
+          {/* 📷 レシート写真（任意） */}
+          <div>
+            <label className="label">📷 レシート写真（任意）</label>
+            <label className="block">
+              <span className="btn-secondary inline-block w-full text-center cursor-pointer">
+                {photo ? "📷 撮り直す" : "📷 レシートを撮影する"}
+              </span>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onPhoto(f);
+                  // 同じ写真をもう一度選べるように入力欄を空に戻す
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {photo && (
+              <div className="mt-2 space-y-2">
+                <img
+                  src={photo}
+                  alt="レシート"
+                  className="w-full max-h-48 object-contain rounded-lg border border-stone-200"
+                />
+                <button
+                  type="button"
+                  onClick={() => setPhoto(null)}
+                  className="text-sm text-red-500 underline"
+                >
+                  写真を消す
+                </button>
+              </div>
+            )}
+            <p className="text-xs text-stone-400 mt-1">
+              なくても登録できます。撮ると、あとで金額を確かめるのが楽になります。
+            </p>
+          </div>
+
           {savedMsg && (
             <div className="text-sm font-semibold rounded-xl px-3 py-2 bg-green-50 text-green-700 border border-green-200">
               ✅ {savedMsg}
@@ -331,6 +391,13 @@ export default function KeiriAdvancesPage() {
               </div>
               {r.memo && (
                 <div className="text-xs text-stone-500">📝 {r.memo}</div>
+              )}
+              {r.receipt_image_url && (
+                <img
+                  src={r.receipt_image_url}
+                  alt="レシート"
+                  className="w-full max-h-40 object-contain rounded-lg border border-stone-200"
+                />
               )}
             </div>
           ))}
