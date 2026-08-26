@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
+import { calcCashBalance, expensesTotalOf, sumExpenses } from "@/lib/money";
 
 /**
  * 手羽屋「売上報告」画面（フェアリー精算の売上報告タブ相当）。
@@ -22,7 +23,8 @@ type ReportRow = {
   date: string;
   shop: string | null;
   sales_amount: number | null;
-  expenses: ExpenseItem[] | null;
+  /** 経費の合計（DB側で自動計算）。明細は選んだ日のぶんだけ別途取得する */
+  expenses_total: number | null;
   location: string | null;
   staff_name: string | null;
   register_diff: number | null;
@@ -44,11 +46,6 @@ type AdvanceRow = {
   settled_date: string | null;
   date: string;
 };
-
-function sumExpenses(expenses: ExpenseItem[] | null): number {
-  if (!Array.isArray(expenses)) return 0;
-  return expenses.reduce((s, e) => s + (Number(e?.amount) || 0), 0);
-}
 
 export default function SalesReportPage() {
   return (
@@ -83,7 +80,7 @@ function SalesReportInner() {
         supabase
           .from("daily_reports")
           .select(
-            "date, shop, sales_amount, expenses, location, staff_name, register_diff, remaining_tebasaki, allstar_count, customer_groups, alcohol_count, product_counts, product_prices, breakdown_diff, breakdown_diff_reason",
+            "date, shop, sales_amount, expenses_total, location, staff_name, register_diff, remaining_tebasaki, allstar_count, customer_groups, alcohol_count, product_counts, product_prices, breakdown_diff, breakdown_diff_reason",
           ),
         supabase
           .from("cash_settings")
@@ -111,6 +108,32 @@ function SalesReportInner() {
     load();
   }, [load]);
 
+  /**
+   * 選んだ日の経費明細だけを読み込む。
+   * 一覧では明細を取らない（レシート写真を含むため非常に重い）ので、
+   * レポート文に明細を載せるこの1日ぶんだけを都度取得する。
+   */
+  const [dayExpenses, setDayExpenses] = useState<ExpenseItem[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("daily_reports")
+        .select("shop, expenses")
+        .eq("date", date);
+      if (cancelled) return;
+      const rows = (data as { shop: string | null; expenses: ExpenseItem[] | null }[]) ?? [];
+      setDayExpenses(
+        rows
+          .filter((r) => (r.shop ?? "手羽屋") === shop)
+          .flatMap((r) => (Array.isArray(r.expenses) ? r.expenses : [])),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [date, shop]);
+
   // その日・その店の日報
   const dayReports = useMemo(
     () =>
@@ -125,30 +148,21 @@ function SalesReportInner() {
     [dayReports],
   );
   const expensesTotal = useMemo(
-    () => dayReports.reduce((s, r) => s + sumExpenses(r.expenses), 0),
+    () => dayReports.reduce((s, r) => s + expensesTotalOf(r), 0),
     [dayReports],
   );
   const zan = salesTotal - expensesTotal;
 
   // 手元合計（累計・全店：/cash と同じ計算）
-  const tegankei = useMemo(() => {
-    const inPeriod = (d: string) => !startDate || d >= startDate;
-    const salesAll = reports
-      .filter((r) => inPeriod(r.date))
-      .reduce((s, r) => s + (Number(r.sales_amount) || 0), 0);
-    const expAll = reports
-      .filter((r) => inPeriod(r.date))
-      .reduce((s, r) => s + sumExpenses(r.expenses), 0);
-    const settledAdv = advances
-      .filter((a) => a.settled)
-      .filter((a) => inPeriod(a.settled_date || a.date))
-      .reduce((s, a) => s + (Number(a.amount) || 0), 0);
-    return openingBalance + salesAll - expAll - settledAdv;
-  }, [reports, advances, openingBalance, startDate]);
+  const tegankei = useMemo(
+    () =>
+      calcCashBalance({ openingBalance, startDate, reports, advances }).balance,
+    [reports, advances, openingBalance, startDate],
+  );
 
   const reportText = useMemo(
-    () => buildReportText(shop, date, dayReports, zan, tegankei),
-    [shop, date, dayReports, zan, tegankei],
+    () => buildReportText(shop, date, dayReports, dayExpenses, zan, tegankei),
+    [shop, date, dayReports, dayExpenses, zan, tegankei],
   );
 
   const copy = async () => {
@@ -314,15 +328,15 @@ function buildReportText(
   shop: string,
   dateStr: string,
   reports: ReportRow[],
+  /** その日の経費明細。一覧では取得せず、選んだ日のぶんだけ別途読み込む */
+  dayExpenses: ExpenseItem[],
   zan: number,
   tegankei: number,
 ): string {
   const [, m, d] = dateStr.split("-");
   const sales = reports.reduce((s, r) => s + (Number(r.sales_amount) || 0), 0);
-  const expItems = reports
-    .flatMap((r) => (Array.isArray(r.expenses) ? r.expenses : []))
-    .filter((e) => (Number(e?.amount) || 0) !== 0);
-  const expTotal = expItems.reduce((s, e) => s + (Number(e?.amount) || 0), 0);
+  const expItems = dayExpenses.filter((e) => (Number(e?.amount) || 0) !== 0);
+  const expTotal = sumExpenses(expItems);
 
   const uniq = (arr: (string | null)[]) =>
     Array.from(new Set(arr.filter((x): x is string => !!x && x.trim() !== "")));

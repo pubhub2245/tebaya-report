@@ -2,6 +2,14 @@ import { businessDateStr } from "./format";
 
 export const STAFF_OPTIONS = ["イデ", "じゅん", "かずき", "なぎさ", "さとみ", "ゆうや"];
 
+/**
+ * ⚠️ 日当は **スタッフマスタ（staff_members.daily_wage）が正** です。
+ *
+ * 下の表は、マスタに日当が入っていない人のための保険（フォールバック）です。
+ * 日当を変えたいときは、管理者ページのスタッフマスタを直してください。
+ * ここを直しても、マスタに値がある人には反映されません。
+ * 実際の取り出しは lib/staffWage.ts の resolveLabor / makeLaborFor を使います。
+ */
 export const STAFF_DAILY_PAY: Record<string, number> = {
   イデ: 9000,
   じゅん: 10000,

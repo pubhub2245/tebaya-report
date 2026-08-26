@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { runBackup, serviceClient } from "@/lib/backup";
 
 /**
  * ① 復旧: 重要テーブルのバックアップ（スナップショット）。
@@ -15,20 +15,8 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const REQUIRED = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "tebaya2026";
+const REQUIRED = process.env.NEXT_PUBLIC_ADMIN_PASSWORD;
 
-/** バックアップ対象（お金・売上・記録など、消えると困る重要テーブル） */
-const CRITICAL_TABLES = [
-  "daily_reports",
-  "cash_settings",
-  "advance_expenses",
-  "sale_products",
-  "feedback_box",
-  "feedback_replies",
-  "agenda_items",
-  "venue_inquiries",
-  "monthly_limited_products",
-];
 
 function isAdmin(req: NextRequest): boolean {
   const token = (req.headers.get("authorization") ?? "")
@@ -36,19 +24,12 @@ function isAdmin(req: NextRequest): boolean {
     .trim();
   if (!token) return false;
   return (
-    token === REQUIRED ||
+    (!!REQUIRED && token === REQUIRED) ||
     token === process.env.ADMIN_PASSWORD ||
     (!!process.env.CRON_SECRET && token === process.env.CRON_SECRET)
   );
 }
 
-/** service_role 優先のサーバー用クライアント（RLSバイパス）。無ければ null。 */
-function serviceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key);
-}
 
 export async function POST(req: NextRequest) {
   if (!isAdmin(req)) {
@@ -66,42 +47,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const results: { table: string; rows: number; ok: boolean; error?: string }[] =
-    [];
-  for (const table of CRITICAL_TABLES) {
-    try {
-      const { data, error } = await db.from(table).select("*");
-      if (error) {
-        results.push({ table, rows: 0, ok: false, error: error.message });
-        continue;
-      }
-      const rows = data ?? [];
-      const { error: upErr } = await db.from("table_snapshots").upsert(
-        {
-          table_name: table,
-          snapshot_date: new Date().toISOString().slice(0, 10),
-          row_count: rows.length,
-          data: rows,
-        },
-        { onConflict: "table_name,snapshot_date" },
-      );
-      if (upErr) {
-        results.push({ table, rows: rows.length, ok: false, error: upErr.message });
-      } else {
-        results.push({ table, rows: rows.length, ok: true });
-      }
-    } catch (e: any) {
-      results.push({ table, rows: 0, ok: false, error: e?.message || String(e) });
-    }
-  }
-
-  const okCount = results.filter((r) => r.ok).length;
-  return NextResponse.json({
-    ok: okCount === CRITICAL_TABLES.length,
-    backed_up: okCount,
-    total: CRITICAL_TABLES.length,
-    results,
-  });
+  return NextResponse.json(await runBackup(db));
 }
 
 export async function GET(req: NextRequest) {

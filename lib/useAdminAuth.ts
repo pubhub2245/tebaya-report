@@ -12,10 +12,13 @@
  */
 
 import { useEffect, useState } from "react";
+import {
+  ADMIN_PASSWORD_CONFIGURED,
+  checkAdminPassword,
+} from "./adminPassword";
 
 // AdminGate.tsx と同一の値をそろえる（キー・パスワード）
 const SS_KEY = "admin-auth";
-const REQUIRED = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "tebaya2026";
 
 export function useAdminAuth() {
   const [isAdmin, setIsAdmin] = useState(false);
@@ -23,11 +26,9 @@ export function useAdminAuth() {
 
   useEffect(() => {
     setHydrated(true);
-    // パスワード未設定なら常に管理者扱い（AdminGate と同じ挙動）
-    if (!REQUIRED) {
-      setIsAdmin(true);
-      return;
-    }
+    // パスワード未設定なら誰も管理者にしない（AdminGate と同じ挙動）。
+    // 設定し忘れで管理機能が公開されてしまうのを防ぐため。
+    if (!ADMIN_PASSWORD_CONFIGURED) return;
     try {
       if (sessionStorage.getItem(SS_KEY) === "1") setIsAdmin(true);
     } catch {}
@@ -35,7 +36,7 @@ export function useAdminAuth() {
 
   /** パスワードを検証し、正しければ管理者にする。成否を返す。 */
   const login = (password: string): boolean => {
-    if (!REQUIRED || password === REQUIRED) {
+    if (checkAdminPassword(password)) {
       try {
         sessionStorage.setItem(SS_KEY, "1");
       } catch {}

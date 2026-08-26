@@ -1,6 +1,7 @@
 import { yen, slashDate } from "./format";
 import type { FormState, InventoryStatus } from "./formState";
 import { diffReasonLabel, type SalesBreakdown } from "./salesBreakdown";
+import { calcGrossProfit, sumExpenses } from "./money";
 
 const SEP = "━━━━━━━━━━━━━━";
 
@@ -10,12 +11,12 @@ export function generateLineText(
   breakdown?: SalesBreakdown,
 ): string {
   const sales = f.sales_amount || 0;
-  const food = Math.round(sales * 0.25);
-  const labor = f.labor || 10000;
-  const rent = Math.round(sales * 0.1);
-  const expensesTotal = f.expenses.reduce((s, e) => s + (e.amount || 0), 0);
-  const costTotal = food + labor + rent;
-  const profit = sales - costTotal;
+  // 粗利の計算は lib/money.ts に集約（tests/money.test.ts で検証済み）
+  const { food, rent, labor, costTotal, profit } = calcGrossProfit(
+    sales,
+    f.labor || 10000,
+  );
+  const expensesTotal = sumExpenses(f.expenses);
 
   const coins: [string, number, number][] = [
     ["10円", f.coins.c10, 10],

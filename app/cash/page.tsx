@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
+import { calcCashBalance } from "@/lib/money";
 
 type CashSettings = {
   id: number;
@@ -18,7 +19,8 @@ type CashSettings = {
 type ReportRow = {
   date: string;
   sales_amount: number | null;
-  expenses: unknown;
+  /** 経費の合計（DB側で自動計算）。明細（＝レシート写真を含む）は取得しない */
+  expenses_total: number | null;
 };
 
 type AdvanceRow = {
@@ -27,12 +29,6 @@ type AdvanceRow = {
   settled_date: string | null;
   date: string;
 };
-
-/** expenses(jsonb 配列) から amount を積み上げる。expenses_total 列はバグのため使わない。 */
-function sumExpenses(expenses: unknown): number {
-  if (!Array.isArray(expenses)) return 0;
-  return expenses.reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
-}
 
 export default function CashPage() {
   return (
@@ -67,7 +63,7 @@ function CashInner() {
       // 集計対象の日報（start_date 以降。null なら全期間）
       let query = supabase
         .from("daily_reports")
-        .select("date, sales_amount, expenses");
+        .select("date, sales_amount, expenses_total");
       const startDate = current?.start_date ?? null;
       if (startDate) query = query.gte("date", startDate);
       const { data: reps, error: rErr } = await query;
@@ -94,39 +90,17 @@ function CashInner() {
   const openingBalance = settings?.opening_balance ?? 0;
   const startDate = settings?.start_date ?? null;
 
-  const salesTotal = useMemo(
-    () => reports.reduce((s, r) => s + (Number(r.sales_amount) || 0), 0),
-    [reports],
+  // 計算は lib/money.ts に集約（tests/money.test.ts で検証済み）
+  const {
+    salesTotal,
+    expensesTotal,
+    settledAdvancesTotal,
+    unsettledAdvancesTotal,
+    balance,
+  } = useMemo(
+    () => calcCashBalance({ openingBalance, startDate, reports, advances }),
+    [openingBalance, startDate, reports, advances],
   );
-  const expensesTotal = useMemo(
-    () => reports.reduce((s, r) => s + sumExpenses(r.expenses), 0),
-    [reports],
-  );
-
-  // 精算済みの立替（起点日以降に返金した分）を手元現金から引く
-  const settledAdvancesTotal = useMemo(
-    () =>
-      advances
-        .filter((a) => a.settled)
-        .filter((a) => {
-          if (!startDate) return true;
-          const when = a.settled_date || a.date;
-          return when >= startDate;
-        })
-        .reduce((s, a) => s + (Number(a.amount) || 0), 0),
-    [advances, startDate],
-  );
-  // 未精算の立替（＝これから返すべきお金）。手元現金には含めない。
-  const unsettledAdvancesTotal = useMemo(
-    () =>
-      advances
-        .filter((a) => !a.settled)
-        .reduce((s, a) => s + (Number(a.amount) || 0), 0),
-    [advances],
-  );
-
-  const balance =
-    openingBalance + salesTotal - expensesTotal - settledAdvancesTotal;
 
   const periodLabel = startDate
     ? `${slashDate(startDate)} 〜 ${slashDate(todayStr())}`

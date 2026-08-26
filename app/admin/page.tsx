@@ -4,7 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { yen, slashDate } from "@/lib/format";
-import { laborFor } from "@/lib/formState";
+import { fetchStaffWages, makeLaborFor, type StaffWageMap } from "@/lib/staffWage";
+import {
+  calcActualProfit,
+  calcGrossProfit,
+  calcTakeHome,
+  expensesTotalOf,
+} from "@/lib/money";
 import MonthlyDashboard from "@/app/components/MonthlyDashboard";
 import AchievementRateDashboard from "@/app/components/AchievementRateDashboard";
 import MonthlyLimitedProductManager from "@/app/components/MonthlyLimitedProductManager";
@@ -24,7 +30,8 @@ type Report = {
   sales_amount: number;
   register_diff: number | null;
   labor: number | null;
-  expenses: { description: string; amount: number }[] | null;
+  /** 経費の合計（DB側で自動計算）。明細＝レシート写真は取得しない */
+  expenses_total: number | null;
 };
 
 type Alert = {
@@ -48,17 +55,24 @@ type Interim = {
   achievement_rate: number;
 };
 
-const calcProfit = (sales: number, labor: number) => {
-  const food = Math.round(sales * 0.25);
-  const rent = Math.round(sales * 0.1);
-  return sales - (food + labor + rent);
-};
+/** 粗利（推定）。計算は lib/money.ts に集約（tests/money.test.ts で検証済み） */
+const calcProfit = (sales: number, labor: number) =>
+  calcGrossProfit(sales, labor).profit;
 
-const reportLabor = (r: Pick<Report, "labor" | "staff_name">) =>
-  r.labor ?? laborFor(r.staff_name);
+/** 日当。日報に入っていればそれ、無ければスタッフマスタの標準日当 */
+const reportLaborWith =
+  (laborFor: (s: string) => number) =>
+  (r: Pick<Report, "labor" | "staff_name">) =>
+    r.labor ?? laborFor(r.staff_name);
 
 export default function AdminPage() {
   const [reports, setReports] = useState<Report[]>([]);
+  // 日当はスタッフマスタが正。マスタに無い人だけコード側の保険値を使う
+  const [staffWages, setStaffWages] = useState<StaffWageMap>(new Map());
+  const reportLabor = useMemo(
+    () => reportLaborWith(makeLaborFor(staffWages)),
+    [staffWages]
+  );
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -115,6 +129,11 @@ export default function AdminPage() {
     }
   };
 
+  // スタッフマスタの日当を読み込む（日当を変えたいときは管理画面のマスタを直す）
+  useEffect(() => {
+    fetchStaffWages().then(setStaffWages);
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
@@ -122,7 +141,7 @@ export default function AdminPage() {
           supabase
             .from("daily_reports")
             .select(
-              "id, date, location, staff_name, sales_amount, register_diff, labor, expenses"
+              "id, date, location, staff_name, sales_amount, register_diff, labor, expenses_total"
             )
             .order("date", { ascending: false })
             .limit(30),
@@ -187,21 +206,30 @@ export default function AdminPage() {
       (s, r) => s + calcProfit(r.sales_amount || 0, reportLabor(r)),
       0
     );
-    const takeHome = inMonth.reduce((s, r) => {
-      const expTotal = (r.expenses || []).reduce(
-        (e, x) => e + (x.amount || 0),
-        0
-      );
-      return s + ((r.sales_amount || 0) - expTotal);
-    }, 0);
+    const takeHome = inMonth.reduce(
+      (s, r) => s + calcTakeHome(r.sales_amount || 0, expensesTotalOf(r)),
+      0
+    );
+    // 実績粗利：推定（食材25%・場代10%）を使わず、実際にレジから払った経費で計算する
+    const actualProfit = inMonth.reduce(
+      (s, r) =>
+        s +
+        calcActualProfit(
+          r.sales_amount || 0,
+          reportLabor(r),
+          expensesTotalOf(r)
+        ).profit,
+      0
+    );
     return {
       sales,
       profit,
+      actualProfit,
       takeHome,
       count: inMonth.length,
       label: `${y}年${m + 1}月`,
     };
-  }, [reports]);
+  }, [reports, reportLabor]);
 
   const handleWeatherNotify = async () => {
     if (
@@ -465,13 +493,30 @@ export default function AdminPage() {
           </div>
         </div>
         <div className="card">
-          <div className="text-xs text-stone-500">{monthStats.label} 粗利合計</div>
+          <div className="text-xs text-stone-500">
+            {monthStats.label} 粗利合計（推定）
+          </div>
           <div
             className={`text-2xl font-bold ${
               monthStats.profit >= 0 ? "text-brand-dark" : "text-red-600"
             }`}
           >
             {yen(monthStats.profit)}
+          </div>
+          {/* 推定と実績を並べて出す。推定は食材25%・場代10%の見込みで計算しているため、
+              実際に払った額とはズレる（例：場代の実績は売上の約6.9%）。 */}
+          <div className="mt-2 pt-2 border-t border-stone-200">
+            <div className="text-xs text-stone-500">実績（レジから払った経費で計算）</div>
+            <div
+              className={`text-lg font-bold ${
+                monthStats.actualProfit >= 0 ? "text-stone-700" : "text-red-600"
+              }`}
+            >
+              {yen(monthStats.actualProfit)}
+            </div>
+            <div className="text-[11px] text-stone-400 leading-snug mt-0.5">
+              推定は食材25%・場代10%の見込み。実績はレジから出た実際の経費と日当のみ。
+            </div>
           </div>
         </div>
         <div className="card">
@@ -597,11 +642,10 @@ export default function AdminPage() {
             <tbody>
               {reports.map((r) => {
                 const profit = calcProfit(r.sales_amount || 0, reportLabor(r));
-                const expTotal = (r.expenses || []).reduce(
-                  (s, e) => s + (e.amount || 0),
-                  0
+                const takeHome = calcTakeHome(
+                  r.sales_amount || 0,
+                  expensesTotalOf(r)
                 );
-                const takeHome = (r.sales_amount || 0) - expTotal;
                 return (
                   <tr
                     key={r.id}

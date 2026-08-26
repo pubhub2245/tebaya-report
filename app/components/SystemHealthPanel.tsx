@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from "react";
  * 読み取り＋バックアップのみ。
  */
 
-const REQUIRED = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "tebaya2026";
+const REQUIRED = process.env.NEXT_PUBLIC_ADMIN_PASSWORD ?? "";
 
 type Health = {
   ok: boolean;

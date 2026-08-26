@@ -7,7 +7,6 @@ import {
   FormState,
   initialForm,
   STORAGE_KEY,
-  laborFor,
   STAFF_OPTIONS,
   InventoryStatus,
   CleanupInventory,
@@ -16,6 +15,8 @@ import {
   CLEANUP_TASK_ITEMS,
 } from "@/lib/formState";
 import { generateLineText } from "@/lib/lineText";
+import { calcGrossProfit, sumExpenses } from "@/lib/money";
+import { fetchStaffWages, makeLaborFor, type StaffWageMap } from "@/lib/staffWage";
 import { getUnitFromStaff } from "@/lib/teamMapping";
 import { getLimitedProductForMonth } from "@/lib/limitedProduct";
 import {
@@ -74,6 +75,9 @@ export default function Page() {
   // マスタ（設定センターで追加した分）を日報の選択肢に反映
   const [masterLocations, setMasterLocations] = useState<string[]>([]);
   const [masterStaff, setMasterStaff] = useState<string[]>([]);
+  // 日当はスタッフマスタが正。マスタに無い人だけコード側の保険値を使う
+  const [staffWages, setStaffWages] = useState<StaffWageMap>(new Map());
+  const laborForStaff = useMemo(() => makeLaborFor(staffWages), [staffWages]);
 
   // 商品マスタ。内訳の突き合わせに使うので親で持つ（STEP4 と保存の両方から見る）
   const [products, setProducts] = useState<SaleProduct[]>([]);
@@ -206,6 +210,11 @@ export default function Page() {
     })();
   }, []);
 
+  // スタッフマスタの日当を読み込む（日当を変えたいときは管理画面のマスタを直す）
+  useEffect(() => {
+    fetchStaffWages().then(setStaffWages);
+  }, []);
+
   // Fetch cumulative sales
   useEffect(() => {
     (async () => {
@@ -257,7 +266,7 @@ export default function Page() {
   );
 
   const expensesTotal = useMemo(
-    () => form.expenses.reduce((s, e) => s + (e.amount || 0), 0),
+    () => sumExpenses(form.expenses),
     [form.expenses]
   );
 
@@ -573,6 +582,7 @@ export default function Page() {
             ...STAFF_OPTIONS,
             ...masterStaff.filter((n) => !STAFF_OPTIONS.includes(n)),
           ]}
+          laborForStaff={laborForStaff}
         />
       )}
       {step === 2 && (
@@ -646,11 +656,14 @@ function Step1({
   update,
   locationOptions,
   staffOptions,
+  laborForStaff,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
   locationOptions: string[];
   staffOptions: string[];
+  /** 担当者を選んだときの日当。スタッフマスタの値が優先される */
+  laborForStaff: (staff: string, isOther?: boolean) => number;
 }) {
   const [isOther, setIsOther] = useState(
     form.location.length > 0 && !locationOptions.includes(form.location)
@@ -742,12 +755,12 @@ function Step1({
             if (v === "__other__") {
               setIsStaffOther(true);
               update("staff_name", "");
-              update("labor", laborFor("", true));
+              update("labor", laborForStaff("", true));
               update("unit_number", "");
             } else {
               setIsStaffOther(false);
               update("staff_name", v);
-              update("labor", laborFor(v));
+              update("labor", laborForStaff(v));
               const u = getUnitFromStaff(v);
               update("unit_number", u ? String(u) : "");
             }
@@ -1539,11 +1552,11 @@ function Step7({
   saving: boolean;
 }) {
   const sales = form.sales_amount || 0;
-  const food = Math.round(sales * 0.25);
-  const labor = form.labor || 10000;
-  const rent = Math.round(sales * 0.1);
-  const costTotal = food + labor + rent;
-  const profit = sales - costTotal;
+  // 粗利の計算は lib/money.ts に集約（tests/money.test.ts で検証済み）
+  const { food, rent, labor, costTotal, profit } = calcGrossProfit(
+    sales,
+    form.labor || 10000,
+  );
 
   return (
     <section className="space-y-4">
