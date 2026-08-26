@@ -195,10 +195,29 @@ export default function KeiriAdvancesPage() {
       </header>
 
       <p className="text-sm text-stone-500 leading-relaxed">
-        自分のお金で先に払った経費を記録します。入力は5つだけです。
-        <br />
-        ※ 日報の「立替経費」とは別の入り口です。同じものを二重に登録しないでください。
+        <b>自分のお金で先に払った分</b>を記録します（スタッフ用）。入力は5つだけです。
       </p>
+
+      {/* どっちに入れるのか、迷わないための案内 */}
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-2">
+        <div className="text-sm font-bold text-amber-900">
+          ⚠️ 入れる場所を間違えないでください
+        </div>
+        <div className="text-sm text-amber-900 leading-relaxed">
+          <b>自分の財布から払った</b> → <b>このページ</b>
+          <br />
+          <b>レジのお金から払った</b> →{" "}
+          <Link href="/report" className="underline font-bold">
+            営業後日報の「レジから払った経費」
+          </Link>
+        </div>
+        <div className="text-xs text-amber-700 leading-relaxed">
+          ここに登録しても手元現金は減りません。あとで<b>返してもらうお金</b>として記録されます。
+          返金の手続きは経営側が行います。
+          <br />
+          同じ支払いを両方に登録しないでください（二重になります）。
+        </div>
+      </div>
 
       {loadError && (
         <div className="card text-sm font-semibold bg-red-50 text-red-700 border border-red-200">

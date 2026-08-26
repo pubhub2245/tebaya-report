@@ -545,7 +545,7 @@ export default function Page() {
                 "売上",
                 "レジ確認",
                 "使用本数・限定商品",
-                "立替経費",
+                "レジから払った経費",
                 "引き継ぎ",
                 "片付けチェック",
                 "確認・提出",
@@ -1406,12 +1406,17 @@ function Step5({
 
   return (
     <section className="card space-y-3">
-      <h2 className="text-lg font-bold">立替経費</h2>
-      {form.expenses.length === 0 && (
-        <p className="text-sm text-stone-500">
-          経費がなければそのまま「次へ」でOK
-        </p>
-      )}
+      <h2 className="text-lg font-bold">レジから払った経費</h2>
+      <p className="text-sm text-stone-500 leading-relaxed">
+        <b>レジのお金から払った分</b>だけをここに入れてください（場代・肉代・レジ袋など）。
+        入れた金額は、その日の手元現金からすぐ引かれます。
+        <br />
+        経費がなければ、そのまま「次へ」でOKです。
+      </p>
+      <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 leading-relaxed">
+        💡 <b>自分のお金で立て替えた分は、ここではありません。</b>
+        トップの「🧾 立替経費」から登録してください（あとで返してもらうお金として別に記録されます）。
+      </p>
       {form.expenses.map((e, i) => (
         <div
           key={i}
@@ -1573,7 +1578,7 @@ function Step7({
               : `${yen(breakdown.total)}（差額 ${breakdown.diff > 0 ? "+" : ""}${yen(breakdown.diff)}／${diffReasonLabel(form.breakdown_diff_reason)}）`
           }
         />
-        <Row k="経費件数" v={`${form.expenses.length}件（${yen(expensesTotal)}）`} />
+        <Row k="レジから払った経費" v={`${form.expenses.length}件（${yen(expensesTotal)}）`} />
         {form.unit_number && <Row k="番隊" v={`${form.unit_number}番隊`} />}
       </div>
 
@@ -1606,7 +1611,7 @@ function Step7({
         <Row k="原価概算 Food (25%)" v={yen(food)} />
         <Row k="日当 Labor" v={yen(labor)} />
         <Row k="場代 Rent (10%)" v={yen(rent)} />
-        <Row k="立替経費" v={yen(expensesTotal)} />
+        <Row k="レジから払った経費" v={yen(expensesTotal)} />
         <Row k="経費合計" v={yen(costTotal)} />
         <div className="flex justify-between border-t pt-2 mt-2">
           <span className="font-bold">粗利</span>

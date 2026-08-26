@@ -197,7 +197,7 @@ function CashInner() {
               <span className="font-mono">{yen(balance)}</span>
             </div>
             <p className="text-[11px] text-stone-400 pt-1">
-              ※ 対象は日報{reports.length}件（起点日以降）。売上は日報の売上、経費は日報の立替経費の明細から集計しています。
+              ※ 対象は日報{reports.length}件（起点日以降）。売上は日報の売上、経費は日報の「レジから払った経費」の明細から集計しています。
             </p>
           </div>
 
