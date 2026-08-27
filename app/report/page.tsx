@@ -16,6 +16,7 @@ import {
 } from "@/lib/formState";
 import { generateLineText } from "@/lib/lineText";
 import { calcGrossProfit, sumExpenses } from "@/lib/money";
+import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
 import { fetchStaffWages, makeLaborFor, type StaffWageMap } from "@/lib/staffWage";
 import { getUnitFromStaff } from "@/lib/teamMapping";
 import { getLimitedProductForMonth } from "@/lib/limitedProduct";
@@ -355,6 +356,16 @@ export default function Page() {
             ? form.limited_product_count
             : null;
 
+      // 保存直前の保険：まだ写真そのものが埋め込まれたままの経費があれば、
+      // ここで置き場へ移して住所（URL）に置き換える。
+      // （撮ってすぐ提出した場合など、置き場への保存が間に合わなかったとき用）
+      const expensesForSave = await Promise.all(
+        form.expenses.map(async (e) => ({
+          ...e,
+          receipt_image_url: await uploadReceiptOrKeep(e.receipt_image_url, "report"),
+        })),
+      );
+
       const { data, error } = await supabase
         .from("daily_reports")
         .insert({
@@ -392,7 +403,7 @@ export default function Page() {
           breakdown_diff_note: breakdown.matched
             ? null
             : form.breakdown_diff_note.trim() || null,
-          expenses: form.expenses,
+          expenses: expensesForSave,
           handover: form.handover,
           line_text: text,
           unit_number: form.unit_number || null,
@@ -1371,7 +1382,16 @@ function Step5({
     try {
       setOcrIdx(i);
       const dataUrl = await resizeImage(file);
+      // まず画面にすぐ出す（置き場への保存を待たせない）
       updateExpenseSafe(i, { receipt_image_url: dataUrl });
+      // 写真そのものを日報に埋め込むのはやめ、置き場に置いて住所（URL）だけを持つ。
+      // 置けなかったときは今まで通り埋め込み形式のまま（写真が原因で日報が
+      // 保存できなくなるのを防ぐため）。読み取り（OCR）には手元のデータを使う。
+      uploadReceiptOrKeep(dataUrl, "report").then((stored) => {
+        if (stored && stored !== dataUrl) {
+          updateExpenseSafe(i, { receipt_image_url: stored });
+        }
+      });
       const res = await fetch("/api/ocr", {
         method: "POST",
         headers: { "content-type": "application/json" },

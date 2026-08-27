@@ -32,6 +32,7 @@ import { supabase } from "@/lib/supabase";
 import { yen, slashDate, businessDateStr } from "@/lib/format";
 import { STAFF_OPTIONS } from "@/lib/formState";
 import { resizeImage } from "@/lib/imageResize";
+import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
 
 /** 業態コード。手羽屋のみなので画面には出さず固定 */
 const BUSINESS_TYPE_CODE = "tebaya";
@@ -167,7 +168,8 @@ export default function KeiriAdvancesPage() {
         amount,
         source_type: sourceType,
         memo: memo.trim() || null,
-        receipt_image_url: photo,
+        // 写真そのものを記録に埋め込まず、置き場に置いて住所（URL）だけを持つ
+        receipt_image_url: await uploadReceiptOrKeep(photo, "keiri"),
       });
       if (error) throw error;
       setSavedMsg(`${payer}さん / ${yen(amount)} を登録しました`);
