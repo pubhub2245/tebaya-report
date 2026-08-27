@@ -110,9 +110,12 @@ function CashInner() {
     <main className="max-w-md mx-auto px-4 py-6 space-y-5">
       <header className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-2xl font-bold text-brand-dark">💰 現金残高</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Link href="/" className="btn-secondary text-sm">
             🏠 トップ
+          </Link>
+          <Link href="/cash/register" className="btn-secondary text-sm">
+            🔍 レジ突き合わせ
           </Link>
           <Link href="/admin" className="btn-secondary text-sm">
             管理者ページ

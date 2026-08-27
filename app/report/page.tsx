@@ -35,23 +35,6 @@ const SHOP_OPTIONS = ["手羽屋", "もも屋"] as const;
 
 const TOTAL_STEPS = 8;
 
-const LOCATION_OPTIONS = [
-  "ながやま 鷹尾店",
-  "ながやま 若葉店",
-  "ながやま 三股店",
-  "ながやま 都北店",
-  "ながやま 山田店",
-  "ながやま 志比田店",
-  "マンガ倉庫",
-  "PASIO高城店",
-  "PASIO早鈴店",
-  "ニクルの朝市",
-  "まるまる朝市",
-  "BIG OPUS",
-  "Aコープ木花",
-  "イオンモール",
-];
-
 
 const COINS: { key: keyof FormState["coins"]; label: string; value: number }[] = [
   { key: "c10", label: "10円", value: 10 },
@@ -75,6 +58,8 @@ export default function Page() {
   const [lineSent, setLineSent] = useState(false);
   // マスタ（設定センターで追加した分）を日報の選択肢に反映
   const [masterLocations, setMasterLocations] = useState<string[]>([]);
+  // マスタが読めなかったとき用。選択肢が空のまま黙って出ると現場が困るので案内を出す
+  const [masterLoaded, setMasterLoaded] = useState(false);
   const [masterStaff, setMasterStaff] = useState<string[]>([]);
   // 日当はスタッフマスタが正。マスタに無い人だけコード側の保険値を使う
   const [staffWages, setStaffWages] = useState<StaffWageMap>(new Map());
@@ -207,7 +192,10 @@ export default function Page() {
             .map((s) => s.name)
             .filter(Boolean),
         );
-      } catch {}
+        setMasterLoaded(true);
+      } catch {
+        // 読めなくても画面は止めない。Step1 で「その他」から手入力できる案内を出す
+      }
     })();
   }, []);
 
@@ -547,12 +535,8 @@ export default function Page() {
             📊 中間報告
           </a>
         </div>
-        <a
-          href="/report/cancel"
-          className="block w-full text-center rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-3 py-2 mb-2"
-        >
-          ⚠️ 出店中止を登録（雨・強風・台風など）
-        </a>
+        {/* 出店中止の登録（/report/cancel）は 2026-06-04 で運用停止したため入り口を外した。
+            画面とデータは残してあるので、再開したいときはここに戻すだけでよい。 */}
         <h1 className="text-xl font-bold text-brand-dark text-center">
           手羽屋 営業後日報
         </h1>
@@ -585,10 +569,11 @@ export default function Page() {
         <Step1
           form={form}
           update={update}
-          locationOptions={[
-            ...LOCATION_OPTIONS,
-            ...masterLocations.filter((n) => !LOCATION_OPTIONS.includes(n)),
-          ]}
+          // 出店場所はマスタ（locations テーブル）が正。
+          // 以前はここでコード内の一覧とマスタを合体させていたため、
+          // 同じ場所が2通りの書き方で選択肢に並び、表記ゆれの原因になっていた。
+          locationOptions={masterLocations}
+          locationsLoaded={masterLoaded}
           staffOptions={[
             ...STAFF_OPTIONS,
             ...masterStaff.filter((n) => !STAFF_OPTIONS.includes(n)),
@@ -666,12 +651,15 @@ function Step1({
   form,
   update,
   locationOptions,
+  locationsLoaded,
   staffOptions,
   laborForStaff,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
   locationOptions: string[];
+  /** 出店場所マスタを読み込めたか。読めていないときは案内を出す */
+  locationsLoaded: boolean;
   staffOptions: string[];
   /** 担当者を選んだときの日当。スタッフマスタの値が優先される */
   laborForStaff: (staff: string, isOther?: boolean) => number;
@@ -747,6 +735,18 @@ function Step1({
           ))}
           <option value="__other__">その他（自由入力）</option>
         </select>
+        {locationsLoaded && locationOptions.length === 0 && (
+          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-2 leading-relaxed">
+            出店場所の一覧が空です。管理者ページの出店場所マスタに登録してください。
+            いまは「その他（自由入力）」から手入力できます。
+          </p>
+        )}
+        {!locationsLoaded && (
+          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-2 leading-relaxed">
+            出店場所の一覧を読み込めませんでした（通信の調子が悪いかもしれません）。
+            「その他（自由入力）」から手入力すれば、そのまま日報は出せます。
+          </p>
+        )}
         {isOther && (
           <input
             className="field mt-2"
