@@ -55,7 +55,9 @@ export default function MenuPage() {
           <span className="text-2xl">📋</span>
           <span>営業後日報</span>
         </Link>
-        <div className="grid grid-cols-3 gap-3">
+        {/* 仕込み日報（/prep）は 2026-06-09 で運用停止したため入り口を外した。
+            画面とデータは残してあるので、再開したいときはここに戻すだけでよい。 */}
+        <div className="grid grid-cols-2 gap-3">
           <TileLink
             href="/setup-check"
             emoji="🪙"
@@ -67,12 +69,6 @@ export default function MenuPage() {
             emoji="📊"
             label="中間報告"
             color="bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
-          />
-          <TileLink
-            href="/prep"
-            emoji="🍳"
-            label="仕込み日報"
-            color="bg-rose-500 hover:bg-rose-600 active:bg-rose-700"
           />
         </div>
         {/* 自分のお金で立て替えたときだけ使う入り口。
@@ -135,6 +131,12 @@ export default function MenuPage() {
           className="block text-sm text-stone-500 underline hover:text-stone-700"
         >
           💹 売上報告（管理者） →
+        </Link>
+        <Link
+          href="/cash/register"
+          className="block text-sm text-stone-500 underline hover:text-stone-700"
+        >
+          🔍 レジ突き合わせ（管理者） →
         </Link>
         <Link
           href="/admin"
