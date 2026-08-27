@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
 import { resizeImage } from "@/lib/imageResize";
+import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
 
 type Advance = {
   id: number;
@@ -312,7 +313,8 @@ function AddForm({ onAdded }: { onAdded: () => void }) {
         amount,
         description: description.trim() || null,
         memo: memo.trim() || null,
-        receipt_image_url: photo,
+        // 写真そのものを記録に埋め込まず、置き場に置いて住所（URL）だけを持つ
+        receipt_image_url: await uploadReceiptOrKeep(photo, "advance"),
         settled: false,
         created_by: "管理者",
       });

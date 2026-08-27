@@ -70,11 +70,18 @@ export function serviceClient(): SupabaseClient | null {
   return createClient(url, key);
 }
 
-/** 古い控えを消して、直近 SNAPSHOT_RETENTION_DAYS 日ぶんだけ残す */
+/**
+ * 古い控えを消して、直近 SNAPSHOT_RETENTION_DAYS 日ぶんだけ残す。
+ *
+ * 消すのは「毎日の自動バックアップ」（CRITICAL_TABLES）の分だけ。
+ * 作業前に手で取った控え（例：レシート写真の引っ越し前の控え）は、
+ * 元に戻すための命綱なので自動では消さない。
+ */
 async function pruneOldSnapshots(db: SupabaseClient): Promise<number> {
   const { data, error } = await db
     .from("table_snapshots")
     .select("snapshot_date")
+    .in("table_name", CRITICAL_TABLES)
     .order("snapshot_date", { ascending: false });
   if (error || !data) return 0;
 
@@ -85,11 +92,12 @@ async function pruneOldSnapshots(db: SupabaseClient): Promise<number> {
   const tooOld = dates.slice(SNAPSHOT_RETENTION_DAYS);
   if (tooOld.length === 0) return 0;
 
-  // 日付を明示して消す（条件なしの一括削除は絶対にしない）
+  // 日付とテーブル名を明示して消す（条件なしの一括削除は絶対にしない）
   const { error: delErr } = await db
     .from("table_snapshots")
     .delete()
-    .in("snapshot_date", tooOld);
+    .in("snapshot_date", tooOld)
+    .in("table_name", CRITICAL_TABLES);
   return delErr ? 0 : tooOld.length;
 }
 

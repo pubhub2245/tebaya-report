@@ -20,6 +20,7 @@ import PrepReportDashboard from "@/app/components/PrepReportDashboard";
 import PrepSettingsManager from "@/app/components/PrepSettingsManager";
 import LineDiagnostics from "@/app/components/LineDiagnostics";
 import SystemHealthPanel from "@/app/components/SystemHealthPanel";
+import ReceiptMigrationPanel from "@/app/components/ReceiptMigrationPanel";
 import AdminGate from "@/app/components/AdminGate";
 
 type Report = {
@@ -444,6 +445,8 @@ export default function AdminPage() {
       </section>
 
       <SystemHealthPanel />
+
+      <ReceiptMigrationPanel />
 
       <LineDiagnostics />
 
