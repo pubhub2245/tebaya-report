@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { yen } from "@/lib/format";
-import { laborFor } from "@/lib/formState";
+import { fetchStaffWages, makeLaborFor, type StaffWageMap } from "@/lib/staffWage";
 import AdminGate from "@/app/components/AdminGate";
 
 /**
@@ -96,6 +96,12 @@ function PayrollInner() {
   const [openStaff, setOpenStaff] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [copiedStaff, setCopiedStaff] = useState<string | null>(null);
+  // 日当はスタッフマスタが正。マスタに無い人だけコード側の保険値を使う
+  const [staffWages, setStaffWages] = useState<StaffWageMap>(new Map());
+  useEffect(() => {
+    fetchStaffWages().then(setStaffWages);
+  }, []);
+  const laborFor = useMemo(() => makeLaborFor(staffWages), [staffWages]);
 
   const monthStr = `${year}-${String(month).padStart(2, "0")}`;
 
@@ -182,7 +188,7 @@ function PayrollInner() {
     }
     result.sort((a, b) => b.actualPay - a.actualPay);
     return result;
-  }, [rows]);
+  }, [rows, laborFor]);
 
   // ---- ③ 入力ミス検知（日当未入力・重複の可能性） ----
   const warnings = useMemo(() => {

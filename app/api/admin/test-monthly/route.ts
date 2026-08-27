@@ -16,6 +16,7 @@ import {
   currentYM,
 } from "@/lib/teamStats";
 import { getStoreAnalysisForMonth } from "@/lib/storeAnalysis";
+import { checkAdminPassword } from "@/lib/adminPassword";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -26,8 +27,7 @@ const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
 );
 
-const ADMIN_PASSWORD =
-  process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "tebaya2026";
+
 
 async function fetchMonthlyTarget(ym: string): Promise<MonthlyTarget> {
   const [y, m] = ym.split("-").map(Number);
@@ -125,7 +125,9 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const password = body.password || req.headers.get("x-admin-password");
-    if (password !== ADMIN_PASSWORD) {
+    // パスワード未設定のときは checkAdminPassword が常に false を返す
+    // （空文字を送れば通ってしまう、という穴を防ぐ）
+    if (!checkAdminPassword(String(password ?? ""))) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

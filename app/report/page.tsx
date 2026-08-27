@@ -7,7 +7,6 @@ import {
   FormState,
   initialForm,
   STORAGE_KEY,
-  laborFor,
   STAFF_OPTIONS,
   InventoryStatus,
   CleanupInventory,
@@ -16,6 +15,8 @@ import {
   CLEANUP_TASK_ITEMS,
 } from "@/lib/formState";
 import { generateLineText } from "@/lib/lineText";
+import { calcGrossProfit, sumExpenses } from "@/lib/money";
+import { fetchStaffWages, makeLaborFor, type StaffWageMap } from "@/lib/staffWage";
 import { getUnitFromStaff } from "@/lib/teamMapping";
 import { getLimitedProductForMonth } from "@/lib/limitedProduct";
 import {
@@ -74,6 +75,9 @@ export default function Page() {
   // マスタ（設定センターで追加した分）を日報の選択肢に反映
   const [masterLocations, setMasterLocations] = useState<string[]>([]);
   const [masterStaff, setMasterStaff] = useState<string[]>([]);
+  // 日当はスタッフマスタが正。マスタに無い人だけコード側の保険値を使う
+  const [staffWages, setStaffWages] = useState<StaffWageMap>(new Map());
+  const laborForStaff = useMemo(() => makeLaborFor(staffWages), [staffWages]);
 
   // 商品マスタ。内訳の突き合わせに使うので親で持つ（STEP4 と保存の両方から見る）
   const [products, setProducts] = useState<SaleProduct[]>([]);
@@ -206,6 +210,11 @@ export default function Page() {
     })();
   }, []);
 
+  // スタッフマスタの日当を読み込む（日当を変えたいときは管理画面のマスタを直す）
+  useEffect(() => {
+    fetchStaffWages().then(setStaffWages);
+  }, []);
+
   // Fetch cumulative sales
   useEffect(() => {
     (async () => {
@@ -257,7 +266,7 @@ export default function Page() {
   );
 
   const expensesTotal = useMemo(
-    () => form.expenses.reduce((s, e) => s + (e.amount || 0), 0),
+    () => sumExpenses(form.expenses),
     [form.expenses]
   );
 
@@ -545,7 +554,7 @@ export default function Page() {
                 "売上",
                 "レジ確認",
                 "使用本数・限定商品",
-                "立替経費",
+                "レジから払った経費",
                 "引き継ぎ",
                 "片付けチェック",
                 "確認・提出",
@@ -573,6 +582,7 @@ export default function Page() {
             ...STAFF_OPTIONS,
             ...masterStaff.filter((n) => !STAFF_OPTIONS.includes(n)),
           ]}
+          laborForStaff={laborForStaff}
         />
       )}
       {step === 2 && (
@@ -646,11 +656,14 @@ function Step1({
   update,
   locationOptions,
   staffOptions,
+  laborForStaff,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
   locationOptions: string[];
   staffOptions: string[];
+  /** 担当者を選んだときの日当。スタッフマスタの値が優先される */
+  laborForStaff: (staff: string, isOther?: boolean) => number;
 }) {
   const [isOther, setIsOther] = useState(
     form.location.length > 0 && !locationOptions.includes(form.location)
@@ -742,12 +755,12 @@ function Step1({
             if (v === "__other__") {
               setIsStaffOther(true);
               update("staff_name", "");
-              update("labor", laborFor("", true));
+              update("labor", laborForStaff("", true));
               update("unit_number", "");
             } else {
               setIsStaffOther(false);
               update("staff_name", v);
-              update("labor", laborFor(v));
+              update("labor", laborForStaff(v));
               const u = getUnitFromStaff(v);
               update("unit_number", u ? String(u) : "");
             }
@@ -1406,12 +1419,17 @@ function Step5({
 
   return (
     <section className="card space-y-3">
-      <h2 className="text-lg font-bold">立替経費</h2>
-      {form.expenses.length === 0 && (
-        <p className="text-sm text-stone-500">
-          経費がなければそのまま「次へ」でOK
-        </p>
-      )}
+      <h2 className="text-lg font-bold">レジから払った経費</h2>
+      <p className="text-sm text-stone-500 leading-relaxed">
+        <b>レジのお金から払った分</b>だけをここに入れてください（場代・肉代・レジ袋など）。
+        入れた金額は、その日の手元現金からすぐ引かれます。
+        <br />
+        経費がなければ、そのまま「次へ」でOKです。
+      </p>
+      <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 leading-relaxed">
+        💡 <b>自分のお金で立て替えた分は、ここではありません。</b>
+        トップの「🧾 立替経費」から登録してください（あとで返してもらうお金として別に記録されます）。
+      </p>
       {form.expenses.map((e, i) => (
         <div
           key={i}
@@ -1534,11 +1552,11 @@ function Step7({
   saving: boolean;
 }) {
   const sales = form.sales_amount || 0;
-  const food = Math.round(sales * 0.25);
-  const labor = form.labor || 10000;
-  const rent = Math.round(sales * 0.1);
-  const costTotal = food + labor + rent;
-  const profit = sales - costTotal;
+  // 粗利の計算は lib/money.ts に集約（tests/money.test.ts で検証済み）
+  const { food, rent, labor, costTotal, profit } = calcGrossProfit(
+    sales,
+    form.labor || 10000,
+  );
 
   return (
     <section className="space-y-4">
@@ -1573,7 +1591,7 @@ function Step7({
               : `${yen(breakdown.total)}（差額 ${breakdown.diff > 0 ? "+" : ""}${yen(breakdown.diff)}／${diffReasonLabel(form.breakdown_diff_reason)}）`
           }
         />
-        <Row k="経費件数" v={`${form.expenses.length}件（${yen(expensesTotal)}）`} />
+        <Row k="レジから払った経費" v={`${form.expenses.length}件（${yen(expensesTotal)}）`} />
         {form.unit_number && <Row k="番隊" v={`${form.unit_number}番隊`} />}
       </div>
 
@@ -1606,7 +1624,7 @@ function Step7({
         <Row k="原価概算 Food (25%)" v={yen(food)} />
         <Row k="日当 Labor" v={yen(labor)} />
         <Row k="場代 Rent (10%)" v={yen(rent)} />
-        <Row k="立替経費" v={yen(expensesTotal)} />
+        <Row k="レジから払った経費" v={yen(expensesTotal)} />
         <Row k="経費合計" v={yen(costTotal)} />
         <div className="flex justify-between border-t pt-2 mt-2">
           <span className="font-bold">粗利</span>

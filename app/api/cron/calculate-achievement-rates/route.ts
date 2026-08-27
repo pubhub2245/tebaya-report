@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { normalizeLocationName } from "@/lib/locationMatcher";
+import { runBackup, serviceClient } from "@/lib/backup";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -25,6 +26,19 @@ export async function GET(req: NextRequest) {
 
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // ---------- 毎日のバックアップ ----------
+  // Vercelの自動実行（cron）は Hobbyプランで本数に上限があるため、
+  // 専用の枠を増やさず、この毎日の処理に相乗りさせている。
+  // 達成率の計算が失敗してもバックアップだけは実行されるよう、
+  // 先に・独立した try で走らせる。
+  let backup: unknown = { ok: false, skipped: "SUPABASE_SERVICE_ROLE_KEY 未設定" };
+  try {
+    const db = serviceClient();
+    if (db) backup = await runBackup(db);
+  } catch (e: any) {
+    backup = { ok: false, error: e?.message || String(e) };
   }
 
   try {
@@ -225,11 +239,13 @@ export async function GET(req: NextRequest) {
       upsert_target: upsertRows.length,
       unmatched_locations: [...unmatchedLocations],
       upsert_error: upsertError,
+      backup,
     });
   } catch (err: any) {
     console.error("Achievement rate calc error:", err);
+    // 達成率の計算が失敗しても、バックアップの結果は返す（動いたかを確認できるように）
     return NextResponse.json(
-      { error: err?.message || "calculation failed" },
+      { error: err?.message || "calculation failed", backup },
       { status: 500 }
     );
   }

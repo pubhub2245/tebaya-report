@@ -2,8 +2,13 @@
 
 import { useEffect, useState } from "react";
 
+import {
+  ADMIN_PASSWORD_CONFIGURED,
+  ADMIN_PASSWORD_SETUP_MESSAGE,
+  checkAdminPassword,
+} from "@/lib/adminPassword";
+
 const SS_KEY = "admin-auth";
-const REQUIRED = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "tebaya2026";
 
 export default function AdminGate({ children }: { children: React.ReactNode }) {
   const [authed, setAuthed] = useState(false);
@@ -13,10 +18,9 @@ export default function AdminGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setHydrated(true);
-    if (!REQUIRED) {
-      setAuthed(true);
-      return;
-    }
+    // パスワード未設定のときは「誰でも入れる」ではなく「誰も入れない」。
+    // 設定し忘れで管理画面が公開されてしまうのを防ぐため。
+    if (!ADMIN_PASSWORD_CONFIGURED) return;
     try {
       if (sessionStorage.getItem(SS_KEY) === "1") setAuthed(true);
     } catch {}
@@ -27,7 +31,7 @@ export default function AdminGate({ children }: { children: React.ReactNode }) {
   if (authed) {
     return (
       <>
-        {REQUIRED && (
+        {ADMIN_PASSWORD_CONFIGURED && (
           <div className="max-w-4xl mx-auto px-4 pt-3 -mb-2 flex justify-end">
             <button
               onClick={() => {
@@ -49,7 +53,7 @@ export default function AdminGate({ children }: { children: React.ReactNode }) {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (pw === REQUIRED) {
+    if (checkAdminPassword(pw)) {
       try {
         sessionStorage.setItem(SS_KEY, "1");
       } catch {}
@@ -66,6 +70,11 @@ export default function AdminGate({ children }: { children: React.ReactNode }) {
         <h1 className="text-xl font-bold text-brand-dark text-center">
           🔒 管理者ログイン
         </h1>
+        {!ADMIN_PASSWORD_CONFIGURED && (
+          <p className="text-sm rounded-xl px-3 py-2 bg-amber-50 text-amber-800 border border-amber-200 leading-relaxed">
+            ⚠️ {ADMIN_PASSWORD_SETUP_MESSAGE}
+          </p>
+        )}
         <form onSubmit={submit} className="space-y-3">
           <div>
             <label className="label">管理者パスワード</label>
