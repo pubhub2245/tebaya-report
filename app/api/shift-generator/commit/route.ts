@@ -1,14 +1,10 @@
+import { serverClient } from "@/lib/supabaseServer";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import type { MonthlyShift } from "@/lib/shift-engine/types";
 
 export const runtime = "nodejs";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-);
+const supabase = serverClient();
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");

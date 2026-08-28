@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runBackup, serviceClient } from "@/lib/backup";
+import { runBackup, serviceClient, serviceKeyProblem } from "@/lib/backup";
 
 /**
  * ① 復旧: 重要テーブルのバックアップ（スナップショット）。
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       {
         ok: false,
         error:
-          "SUPABASE_SERVICE_ROLE_KEY が未設定のためバックアップできません（Vercelの環境変数に設定してください）",
+          `SUPABASE_SERVICE_ROLE_KEY が${serviceKeyProblem()}ためバックアップできません（Vercelの環境変数を確認してください）`,
       },
       { status: 500 },
     );
@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: false,
       service_role: false,
-      error: "SUPABASE_SERVICE_ROLE_KEY 未設定",
+      error: `SUPABASE_SERVICE_ROLE_KEY: ${serviceKeyProblem()}`,
       snapshots: [],
     });
   }

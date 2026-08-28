@@ -1,15 +1,12 @@
+import { serverClient } from "@/lib/supabaseServer";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { normalizeLocationName } from "@/lib/locationMatcher";
 import { runBackup, serviceClient } from "@/lib/backup";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+const supabase = serverClient();
 
 function getDayType(dateStr: string): "weekday" | "weekend" {
   const d = new Date(dateStr + "T00:00:00");

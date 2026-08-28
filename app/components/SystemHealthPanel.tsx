@@ -178,6 +178,10 @@ export default function SystemHealthPanel() {
             <p className="text-[11px] text-amber-700 bg-amber-50 rounded px-2 py-1 leading-relaxed">
               ※ バックアップ機能を使うには、Vercelに <code>SUPABASE_SERVICE_ROLE_KEY</code>{" "}
               の設定が必要です（無料・Supabaseの設定画面からコピーできます）。
+              <br />
+              すでに設定済みなのにこの表示が出るときは、
+              <b>値に全角文字や余分な空白が混ざっていないか</b>を確認してください。
+              コピーは必ずコピーボタンで行ってください。
             </p>
           )}
 

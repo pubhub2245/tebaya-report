@@ -1,6 +1,6 @@
+import { serverClient } from "@/lib/supabaseServer";
 import { NextRequest, NextResponse } from "next/server";
 import { messagingApi } from "@line/bot-sdk";
-import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
@@ -51,11 +51,7 @@ export async function GET(req: NextRequest) {
     result.group_id_source = "環境変数（LINE_GROUP_ID）";
   } else {
     try {
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY ||
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      );
+      const supabase = serverClient();
       const { data } = await supabase
         .from("line_groups")
         .select("group_id")
