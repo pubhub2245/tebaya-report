@@ -47,7 +47,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  return NextResponse.json(await runBackup(db));
+  // 手動実行はこの処理だけなので、60秒の上限に対して50秒まで使ってよい
+  return NextResponse.json(await runBackup(db, { budgetMs: 50_000 }));
 }
 
 export async function GET(req: NextRequest) {
