@@ -1,5 +1,5 @@
+import { serverClient } from "@/lib/supabaseServer";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sendLineGroupMessage } from "@/lib/line/sendMessage";
 import { transformWithCurrentCharacter } from "@/lib/formatters/characterTransform";
 
@@ -10,11 +10,7 @@ export const maxDuration = 60;
 const MIYAKONOJO_LAT = 31.7194;
 const MIYAKONOJO_LON = 131.0617;
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-);
+const supabase = serverClient();
 
 type TargetDayType = "today" | "tomorrow";
 

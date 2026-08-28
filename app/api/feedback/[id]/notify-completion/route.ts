@@ -1,3 +1,4 @@
+import { serverClient } from "@/lib/supabaseServer";
 /**
  * 意見箱の要望が「完了」になったときに LINE 業務グループへ通知する API。
  *
@@ -12,17 +13,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sendFeedbackCompletionNotification } from "@/lib/feedback/completionNotify";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-);
+const supabase = serverClient();
 
 /** Authorization: Bearer <ADMIN_PASSWORD|NEXT_PUBLIC_ADMIN_PASSWORD|CRON_SECRET> */
 function isAdmin(req: NextRequest): boolean {

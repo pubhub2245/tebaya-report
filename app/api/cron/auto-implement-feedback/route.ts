@@ -1,5 +1,5 @@
+import { serverClient } from "@/lib/supabaseServer";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 
 /**
  * 意見箱の自動巡回・自動実装トリガー（1時間ごと）。
@@ -14,11 +14,7 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const maxDuration = 300; // 実装API（計画+生成+PR）を待つため最大5分
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-);
+const supabase = serverClient();
 
 function aiEnabled(): boolean {
   return (process.env.FEEDBACK_AI_ENABLED ?? "").toLowerCase() === "true";

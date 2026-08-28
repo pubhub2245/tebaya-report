@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { serviceClient } from "@/lib/backup";
+import { serviceClient, serviceKeyProblem } from "@/lib/backup";
 import { migrateReceipts } from "@/lib/receiptMigration";
 
 /**
@@ -36,7 +36,7 @@ function noServiceKey() {
     {
       ok: false,
       error:
-        "SUPABASE_SERVICE_ROLE_KEY が未設定のため実行できません（Vercelの環境変数に設定してください）",
+        `SUPABASE_SERVICE_ROLE_KEY が${serviceKeyProblem()}ため実行できません（Vercelの環境変数を確認してください）`,
     },
     { status: 500 },
   );

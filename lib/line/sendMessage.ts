@@ -1,5 +1,5 @@
+import { serverClient } from "@/lib/supabaseServer";
 import { messagingApi } from "@line/bot-sdk";
-import { createClient } from "@supabase/supabase-js";
 
 /**
  * LINE グループにテキストメッセージを送信する
@@ -18,11 +18,7 @@ export async function sendLineGroupMessage(text: string): Promise<boolean> {
   let groupId = process.env.LINE_GROUP_ID;
 
   if (!groupId) {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY ||
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
+    const supabase = serverClient();
     const { data } = await supabase
       .from("line_groups")
       .select("group_id")

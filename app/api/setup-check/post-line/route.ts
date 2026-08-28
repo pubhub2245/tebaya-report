@@ -1,5 +1,5 @@
+import { serverClient } from "@/lib/supabaseServer";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sendLineGroupMessage } from "@/lib/line/sendMessage";
 
 export const runtime = "nodejs";
@@ -27,11 +27,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY ||
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
+    const supabase = serverClient();
 
     const { data: record, error: fetchError } = await supabase
       .from("setup_checks")

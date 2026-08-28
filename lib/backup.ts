@@ -23,7 +23,8 @@
  *   の2点を必ず守る。写真を置き場へ移す（→ CLAUDE.md 4-7）と、この重さは無くなる。
  */
 
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { type SupabaseClient } from "@supabase/supabase-js";
+import { serviceClientOrNull, serviceRoleKeyStatus } from "./supabaseServer";
 
 /**
  * 控えを取る対象（消えると事業が止まる重要テーブル）。
@@ -82,13 +83,18 @@ const DEFAULT_BUDGET_MS = 30_000;
 /**
  * service_role キーを使うサーバー専用クライアント。
  * RLS（鍵）をすり抜けられるので、バックアップ先の table_snapshots に書ける。
- * キーが未設定なら null を返す（＝バックアップできない）。
+ *
+ * キーが未設定、または値が壊れている（全角が混ざっている等）ときは null を返す。
+ * 判定は lib/supabaseServer.ts に集約している（→ 2026-08-28 の事故）。
  */
 export function serviceClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key);
+  return serviceClientOrNull();
+}
+
+/** キーが使えない理由。画面に出して原因が分かるようにする */
+export function serviceKeyProblem(): string | null {
+  const st = serviceRoleKeyStatus();
+  return st.ok ? null : st.reason;
 }
 
 /**
