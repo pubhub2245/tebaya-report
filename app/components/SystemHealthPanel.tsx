@@ -103,6 +103,14 @@ export default function SystemHealthPanel() {
       });
       const json = await res.json();
       if (!res.ok || !json.ok) {
+        // 時間切れは「失敗」ではなく「途中まで」。原因が分かる言い方にする
+        if (json.timedOut) {
+          throw new Error(
+            `時間切れで途中まで（${json.backed_up}/${json.total}件）。` +
+              `未取得: ${(json.skipped || []).join("、")}。` +
+              `レシート写真を置き場へ移すと軽くなります`,
+          );
+        }
         throw new Error(json.error || `一部失敗（${json.backed_up}/${json.total}）`);
       }
       setBackupMsg(`✅ ${json.backed_up}件のテーブルをバックアップしました`);

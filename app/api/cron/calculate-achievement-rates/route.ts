@@ -28,18 +28,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // ---------- 毎日のバックアップ ----------
-  // Vercelの自動実行（cron）は Hobbyプランで本数に上限があるため、
-  // 専用の枠を増やさず、この毎日の処理に相乗りさせている。
-  // 達成率の計算が失敗してもバックアップだけは実行されるよう、
-  // 先に・独立した try で走らせる。
-  let backup: unknown = { ok: false, skipped: "SUPABASE_SERVICE_ROLE_KEY 未設定" };
-  try {
-    const db = serviceClient();
-    if (db) backup = await runBackup(db);
-  } catch (e: any) {
-    backup = { ok: false, error: e?.message || String(e) };
-  }
+  // この関数全体の制限時間は maxDuration（60秒）。
+  // バックアップは**本来の集計が終わったあと**、残り時間の範囲だけで動かす。
+  //
+  // ★ 2026-08-28 の事故：以前はバックアップを先に走らせていた。
+  //   日報にレシート写真が埋め込まれていて18MBあり、コピーに時間を使い切った結果、
+  //   本来の達成率計算まで到達せず、8/27の夜は1日ぶん丸ごと実行されなかった。
+  //   「相乗りさせた処理が、本来の処理を道連れにしない」ことを最優先にする。
+  const startedAt = Date.now();
+  let backup: unknown = { ok: false, skipped: "未実行" };
 
   try {
     // 1. Get 60 days of interim reports
@@ -229,6 +226,25 @@ export async function GET(req: NextRequest) {
       });
     if (logErr) console.error("Log insert error:", logErr);
 
+    // ---------- ここから毎日のバックアップ ----------
+    // Vercelの自動実行（cron）は本数に上限があるため、専用の枠を増やさず相乗りさせている。
+    // 上の集計はすでに終わって記録済みなので、ここで時間切れになっても道連れにはならない。
+    // 60秒の上限に対して5秒の余裕を残す。
+    try {
+      const db = serviceClient();
+      if (!db) {
+        backup = { ok: false, skipped: "SUPABASE_SERVICE_ROLE_KEY 未設定" };
+      } else {
+        const budgetMs = 55_000 - (Date.now() - startedAt);
+        backup =
+          budgetMs > 2_000
+            ? await runBackup(db, { budgetMs })
+            : { ok: false, skipped: "集計に時間がかかったため今回は見送り" };
+      }
+    } catch (e: any) {
+      backup = { ok: false, error: e?.message || String(e) };
+    }
+
     return NextResponse.json({
       success: true,
       data_count: entries.length,
@@ -243,7 +259,8 @@ export async function GET(req: NextRequest) {
     });
   } catch (err: any) {
     console.error("Achievement rate calc error:", err);
-    // 達成率の計算が失敗しても、バックアップの結果は返す（動いたかを確認できるように）
+    // 集計が失敗した場合、バックアップはまだ動いていない（順番を入れ替えたため）。
+    // その旨が分かるよう backup の中身をそのまま返す。
     return NextResponse.json(
       { error: err?.message || "calculation failed", backup },
       { status: 500 }
