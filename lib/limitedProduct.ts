@@ -11,6 +11,8 @@ export type MonthlyLimitedProduct = {
   year: number;
   month: number;
   product_name: string;
+  /** その月の限定商品の単価（円）。月によって変わるので月ごとに持つ。 */
+  price: number;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -47,7 +49,8 @@ export async function getLimitedProductForMonth(
     console.warn("[limitedProduct] 取得失敗", error);
     return null;
   }
-  return (data as MonthlyLimitedProduct) ?? null;
+  if (!data) return null;
+  return { ...(data as MonthlyLimitedProduct), price: (data as any).price ?? 0 };
 }
 
 /**
@@ -69,7 +72,10 @@ export async function listLimitedProducts(opts?: {
     console.warn("[limitedProduct] 一覧取得失敗", error);
     return [];
   }
-  let rows = (data as MonthlyLimitedProduct[]) ?? [];
+  let rows = ((data as MonthlyLimitedProduct[]) ?? []).map((r) => ({
+    ...r,
+    price: (r as any).price ?? 0,
+  }));
   if (opts) {
     const inRange = (r: MonthlyLimitedProduct) => {
       if (opts.fromYear && opts.fromMonth) {
@@ -94,6 +100,7 @@ export async function upsertLimitedProduct(
   year: number,
   month: number,
   productName: string,
+  price = 0,
 ): Promise<{ success: boolean; error?: string }> {
   const trimmed = (productName ?? "").trim();
 
@@ -111,7 +118,12 @@ export async function upsertLimitedProduct(
   const { error } = await supabase
     .from("monthly_limited_products")
     .upsert(
-      { year, month, product_name: trimmed },
+      {
+        year,
+        month,
+        product_name: trimmed,
+        price: Math.max(0, Math.round(price || 0)),
+      },
       { onConflict: "year,month" },
     );
   if (error) return { success: false, error: error.message };

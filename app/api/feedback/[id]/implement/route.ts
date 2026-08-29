@@ -1,5 +1,5 @@
+import { serverClient } from "@/lib/supabaseServer";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import {
   planImplementation,
   generateCode,
@@ -22,11 +22,7 @@ const DEFAULT_DAILY_LIMIT = 5;
 const MAX_FILES_GENERATED = 20;
 const MAX_LINES_PER_FILE = 2000;
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-);
+const supabase = serverClient();
 
 /** 簡易管理者認証。
  * Authorization: Bearer <NEXT_PUBLIC_ADMIN_PASSWORD or ADMIN_PASSWORD or CRON_SECRET>

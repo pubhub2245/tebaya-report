@@ -1,16 +1,22 @@
 import { yen, slashDate } from "./format";
 import type { FormState, InventoryStatus } from "./formState";
+import { diffReasonLabel, type SalesBreakdown } from "./salesBreakdown";
+import { calcGrossProfit, sumExpenses } from "./money";
 
 const SEP = "━━━━━━━━━━━━━━";
 
-export function generateLineText(f: FormState, cumulative: number): string {
+export function generateLineText(
+  f: FormState,
+  cumulative: number,
+  breakdown?: SalesBreakdown,
+): string {
   const sales = f.sales_amount || 0;
-  const food = Math.round(sales * 0.25);
-  const labor = f.labor || 10000;
-  const rent = Math.round(sales * 0.1);
-  const expensesTotal = f.expenses.reduce((s, e) => s + (e.amount || 0), 0);
-  const costTotal = food + labor + rent;
-  const profit = sales - costTotal;
+  // 粗利の計算は lib/money.ts に集約（tests/money.test.ts で検証済み）
+  const { food, rent, labor, costTotal, profit } = calcGrossProfit(
+    sales,
+    f.labor || 10000,
+  );
+  const expensesTotal = sumExpenses(f.expenses);
 
   const coins: [string, number, number][] = [
     ["10円", f.coins.c10, 10],
@@ -68,12 +74,7 @@ export function generateLineText(f: FormState, cumulative: number): string {
     "📦 使用本数",
   ];
 
-  // 主力（手羽先／もも焼き）＋通常商品（商品マスタ連動・両店共通）
-  if (f.momo_primary_name) {
-    parts.push(
-      `・${f.momo_primary_name}：${f.momo_primary_count}本（売上から自動計算）`,
-    );
-  }
+  // 商品ごとの本数（商品マスタ連動・両店共通）。主力商品も momo_counts に入っている。
   for (const [name, n] of Object.entries(f.momo_counts || {})) {
     if ((n as number) > 0) parts.push(`・${name}：${n}個`);
   }
@@ -94,9 +95,20 @@ export function generateLineText(f: FormState, cumulative: number): string {
     parts.push(`・組数：${f.customer_groups}組`);
   }
 
-  // お酒（本数のみ）
-  if ((f.alcohol_count || 0) > 0) {
-    parts.push(`・お酒：${f.alcohol_count}本`);
+
+  // 売上と内訳の突き合わせ結果
+  if (breakdown) {
+    if (breakdown.matched) {
+      parts.push(`・内訳合計：${yen(breakdown.total)}（売上と一致）`);
+    } else {
+      const sign = breakdown.diff > 0 ? "+" : "";
+      const reason = diffReasonLabel(f.breakdown_diff_reason);
+      const note = (f.breakdown_diff_note ?? "").trim();
+      parts.push(
+        `・内訳合計：${yen(breakdown.total)}（差額 ${sign}${yen(breakdown.diff)}）`,
+        `・差額の理由：${reason}${note ? `／${note}` : ""}`,
+      );
+    }
   }
 
   if (expLines) {

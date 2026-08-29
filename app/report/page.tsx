@@ -7,7 +7,6 @@ import {
   FormState,
   initialForm,
   STORAGE_KEY,
-  laborFor,
   STAFF_OPTIONS,
   InventoryStatus,
   CleanupInventory,
@@ -16,31 +15,25 @@ import {
   CLEANUP_TASK_ITEMS,
 } from "@/lib/formState";
 import { generateLineText } from "@/lib/lineText";
+import { calcGrossProfit, sumExpenses } from "@/lib/money";
+import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
+import { fetchStaffWages, makeLaborFor, type StaffWageMap } from "@/lib/staffWage";
 import { getUnitFromStaff } from "@/lib/teamMapping";
 import { getLimitedProductForMonth } from "@/lib/limitedProduct";
-import { PRODUCT_PRICES } from "@/lib/productPrices";
-import { computeMomoPrimary, type SaleProduct } from "@/lib/momoCalc";
+import {
+  computeSalesBreakdown,
+  priceSnapshot,
+  isBreakdownResolved,
+  diffMessage,
+  diffReasonLabel,
+  DIFF_REASONS,
+  type SaleProduct,
+  type SalesBreakdown,
+} from "@/lib/salesBreakdown";
 
 const SHOP_OPTIONS = ["手羽屋", "もも屋"] as const;
 
 const TOTAL_STEPS = 8;
-
-const LOCATION_OPTIONS = [
-  "ながやま 鷹尾店",
-  "ながやま 若葉店",
-  "ながやま 三股店",
-  "ながやま 都北店",
-  "ながやま 山田店",
-  "ながやま 志比田店",
-  "マンガ倉庫",
-  "PASIO高城店",
-  "PASIO早鈴店",
-  "ニクルの朝市",
-  "まるまる朝市",
-  "BIG OPUS",
-  "Aコープ木花",
-  "イオンモール",
-];
 
 
 const COINS: { key: keyof FormState["coins"]; label: string; value: number }[] = [
@@ -65,7 +58,81 @@ export default function Page() {
   const [lineSent, setLineSent] = useState(false);
   // マスタ（設定センターで追加した分）を日報の選択肢に反映
   const [masterLocations, setMasterLocations] = useState<string[]>([]);
+  // マスタが読めなかったとき用。選択肢が空のまま黙って出ると現場が困るので案内を出す
+  const [masterLoaded, setMasterLoaded] = useState(false);
   const [masterStaff, setMasterStaff] = useState<string[]>([]);
+  // 日当はスタッフマスタが正。マスタに無い人だけコード側の保険値を使う
+  const [staffWages, setStaffWages] = useState<StaffWageMap>(new Map());
+  const laborForStaff = useMemo(() => makeLaborFor(staffWages), [staffWages]);
+
+  // 商品マスタ。内訳の突き合わせに使うので親で持つ（STEP4 と保存の両方から見る）
+  const [products, setProducts] = useState<SaleProduct[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    setProductsLoading(true);
+    (async () => {
+      const { data } = await supabase
+        .from("sale_products")
+        .select("id, shop, name, price, kind, is_active, sort_order")
+        .eq("shop", form.shop)
+        .eq("is_active", true)
+        .order("sort_order")
+        .order("id");
+      if (!alive) return;
+      setProducts((data as SaleProduct[]) ?? []);
+      setProductsLoading(false);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [form.shop]);
+
+  /**
+   * 商品ごとの「単価 × 本数」の合計と、レジで数えた売上の突き合わせ。
+   * 合っていなければ STEP4 から先へ進めない（理由を書けば進める）。
+   */
+  const breakdown: SalesBreakdown = useMemo(
+    () =>
+      computeSalesBreakdown({
+        sales: form.sales_amount || 0,
+        products,
+        counts: form.momo_counts || {},
+        limited:
+          form.shop === "もも屋"
+            ? null
+            : {
+                name: form.limited_product_name,
+                count: form.limited_product_count,
+                price: form.limited_product_price,
+              },
+      }),
+    [
+      form.sales_amount,
+      products,
+      form.momo_counts,
+      form.shop,
+      form.limited_product_name,
+      form.limited_product_count,
+      form.limited_product_price,
+    ],
+  );
+
+  const breakdownResolved = isBreakdownResolved(
+    breakdown,
+    form.breakdown_diff_reason,
+    form.breakdown_diff_note,
+  );
+
+  // 合うようになったら、前に選んだ理由は消しておく（古い理由が残らないように）
+  useEffect(() => {
+    if (breakdown.matched && form.breakdown_diff_reason !== "") {
+      update("breakdown_diff_reason", "");
+      update("breakdown_diff_note", "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [breakdown.matched]);
 
   // Load draft from sessionStorage
   useEffect(() => {
@@ -125,8 +192,16 @@ export default function Page() {
             .map((s) => s.name)
             .filter(Boolean),
         );
-      } catch {}
+        setMasterLoaded(true);
+      } catch {
+        // 読めなくても画面は止めない。Step1 で「その他」から手入力できる案内を出す
+      }
     })();
+  }, []);
+
+  // スタッフマスタの日当を読み込む（日当を変えたいときは管理画面のマスタを直す）
+  useEffect(() => {
+    fetchStaffWages().then(setStaffWages);
   }, []);
 
   // Fetch cumulative sales
@@ -157,7 +232,11 @@ export default function Page() {
       const preset = await getLimitedProductForMonth(form.date);
       if (cancelled) return;
       if (preset && form.limited_product_name.trim() === "") {
-        setForm((f) => ({ ...f, limited_product_name: preset.product_name }));
+        setForm((f) => ({
+          ...f,
+          limited_product_name: preset.product_name,
+          limited_product_price: preset.price || f.limited_product_price,
+        }));
       }
     })();
     return () => {
@@ -176,7 +255,7 @@ export default function Page() {
   );
 
   const expensesTotal = useMemo(
-    () => form.expenses.reduce((s, e) => s + (e.amount || 0), 0),
+    () => sumExpenses(form.expenses),
     [form.expenses]
   );
 
@@ -195,12 +274,13 @@ export default function Page() {
     if (step === 1)
       return form.date && form.location.trim() && form.staff_name.trim();
     if (step === 2) return form.sales_amount > 0;
+    if (step === 4) return !productsLoading && breakdownResolved;
     if (step === 7) return allTasksCompleted;
     return true;
   };
 
   const handleGenerate = () => {
-    const text = generateLineText(form, cumulative);
+    const text = generateLineText(form, cumulative, breakdown);
     setLineText(text);
   };
 
@@ -215,7 +295,7 @@ export default function Page() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const text = lineText || generateLineText(form, cumulative);
+      const text = lineText || generateLineText(form, cumulative, breakdown);
       if (!lineText) setLineText(text);
 
       // 代理INSERT（line_textに「【代理INSERT】」マーカー付き）が同じ
@@ -264,6 +344,16 @@ export default function Page() {
             ? form.limited_product_count
             : null;
 
+      // 保存直前の保険：まだ写真そのものが埋め込まれたままの経費があれば、
+      // ここで置き場へ移して住所（URL）に置き換える。
+      // （撮ってすぐ提出した場合など、置き場への保存が間に合わなかったとき用）
+      const expensesForSave = await Promise.all(
+        form.expenses.map(async (e) => ({
+          ...e,
+          receipt_image_url: await uploadReceiptOrKeep(e.receipt_image_url, "report"),
+        })),
+      );
+
       const { data, error } = await supabase
         .from("daily_reports")
         .insert({
@@ -289,14 +379,19 @@ export default function Page() {
           limited_product_count: limitedCount,
           allstar_count: form.momo_counts?.["オールスター"] || 0,
           customer_groups: form.customer_groups || 0,
-          alcohol_count: form.alcohol_count || 0,
-          product_counts: {
-            ...(form.momo_counts || {}),
-            ...(form.momo_primary_name
-              ? { [form.momo_primary_name]: form.momo_primary_count }
-              : {}),
-          },
-          expenses: form.expenses,
+          alcohol_count: form.momo_counts?.["お酒"] || form.alcohol_count || 0,
+          product_counts: { ...(form.momo_counts || {}) },
+          // その日に使った単価の控え。あとで値上げしても過去の日報を再計算できる
+          product_prices: priceSnapshot(breakdown),
+          breakdown_total: breakdown.total,
+          breakdown_diff: breakdown.diff,
+          breakdown_diff_reason: breakdown.matched
+            ? null
+            : form.breakdown_diff_reason || null,
+          breakdown_diff_note: breakdown.matched
+            ? null
+            : form.breakdown_diff_note.trim() || null,
+          expenses: expensesForSave,
           handover: form.handover,
           line_text: text,
           unit_number: form.unit_number || null,
@@ -345,7 +440,7 @@ export default function Page() {
   if (step === 9) {
     const sales = form.sales_amount || 0;
     if (!lineText) {
-      const text = generateLineText(form, cumulative);
+      const text = generateLineText(form, cumulative, breakdown);
       setLineText(text);
     }
     return (
@@ -440,12 +535,8 @@ export default function Page() {
             📊 中間報告
           </a>
         </div>
-        <a
-          href="/report/cancel"
-          className="block w-full text-center rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-3 py-2 mb-2"
-        >
-          ⚠️ 出店中止を登録（雨・強風・台風など）
-        </a>
+        {/* 出店中止の登録（/report/cancel）は 2026-06-04 で運用停止したため入り口を外した。
+            画面とデータは残してあるので、再開したいときはここに戻すだけでよい。 */}
         <h1 className="text-xl font-bold text-brand-dark text-center">
           手羽屋 営業後日報
         </h1>
@@ -458,7 +549,7 @@ export default function Page() {
                 "売上",
                 "レジ確認",
                 "使用本数・限定商品",
-                "立替経費",
+                "レジから払った経費",
                 "引き継ぎ",
                 "片付けチェック",
                 "確認・提出",
@@ -478,14 +569,16 @@ export default function Page() {
         <Step1
           form={form}
           update={update}
-          locationOptions={[
-            ...LOCATION_OPTIONS,
-            ...masterLocations.filter((n) => !LOCATION_OPTIONS.includes(n)),
-          ]}
+          // 出店場所はマスタ（locations テーブル）が正。
+          // 以前はここでコード内の一覧とマスタを合体させていたため、
+          // 同じ場所が2通りの書き方で選択肢に並び、表記ゆれの原因になっていた。
+          locationOptions={masterLocations}
+          locationsLoaded={masterLoaded}
           staffOptions={[
             ...STAFF_OPTIONS,
             ...masterStaff.filter((n) => !STAFF_OPTIONS.includes(n)),
           ]}
+          laborForStaff={laborForStaff}
         />
       )}
       {step === 2 && (
@@ -498,7 +591,15 @@ export default function Page() {
           registerTotal={registerTotal}
         />
       )}
-      {step === 4 && <Step4 form={form} update={update} />}
+      {step === 4 && (
+        <Step4
+          form={form}
+          update={update}
+          products={products}
+          loading={productsLoading}
+          breakdown={breakdown}
+        />
+      )}
       {step === 5 && (
         <Step5
           form={form}
@@ -515,6 +616,7 @@ export default function Page() {
           cumulative={cumulative}
           registerTotal={registerTotal}
           expensesTotal={expensesTotal}
+          breakdown={breakdown}
           onSave={handleSave}
           saving={saving}
         />
@@ -549,12 +651,18 @@ function Step1({
   form,
   update,
   locationOptions,
+  locationsLoaded,
   staffOptions,
+  laborForStaff,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
   locationOptions: string[];
+  /** 出店場所マスタを読み込めたか。読めていないときは案内を出す */
+  locationsLoaded: boolean;
   staffOptions: string[];
+  /** 担当者を選んだときの日当。スタッフマスタの値が優先される */
+  laborForStaff: (staff: string, isOther?: boolean) => number;
 }) {
   const [isOther, setIsOther] = useState(
     form.location.length > 0 && !locationOptions.includes(form.location)
@@ -580,6 +688,8 @@ function Step1({
                 update("momo_counts", {});
                 update("momo_primary_count", 0);
                 update("momo_primary_name", "");
+                update("breakdown_diff_reason", "");
+                update("breakdown_diff_note", "");
               }}
               className={`flex-1 py-3 rounded-xl border font-bold ${
                 form.shop === s
@@ -625,6 +735,18 @@ function Step1({
           ))}
           <option value="__other__">その他（自由入力）</option>
         </select>
+        {locationsLoaded && locationOptions.length === 0 && (
+          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-2 leading-relaxed">
+            出店場所の一覧が空です。管理者ページの出店場所マスタに登録してください。
+            いまは「その他（自由入力）」から手入力できます。
+          </p>
+        )}
+        {!locationsLoaded && (
+          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-2 leading-relaxed">
+            出店場所の一覧を読み込めませんでした（通信の調子が悪いかもしれません）。
+            「その他（自由入力）」から手入力すれば、そのまま日報は出せます。
+          </p>
+        )}
         {isOther && (
           <input
             className="field mt-2"
@@ -644,12 +766,12 @@ function Step1({
             if (v === "__other__") {
               setIsStaffOther(true);
               update("staff_name", "");
-              update("labor", laborFor("", true));
+              update("labor", laborForStaff("", true));
               update("unit_number", "");
             } else {
               setIsStaffOther(false);
               update("staff_name", v);
-              update("labor", laborFor(v));
+              update("labor", laborForStaff(v));
               const u = getUnitFromStaff(v);
               update("unit_number", u ? String(u) : "");
             }
@@ -868,67 +990,44 @@ function Step3({
   );
 }
 
-/* ---------- STEP 4：商品マスタ連動（手羽屋・もも屋 共通） ---------- */
+/* ---------- STEP 4：商品ごとの本数と、売上との突き合わせ ---------- */
 function ProductsStep({
   form,
   update,
+  products,
+  loading,
+  breakdown,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
+  products: SaleProduct[];
+  loading: boolean;
+  breakdown: SalesBreakdown;
 }) {
   const isTebaya = form.shop !== "もも屋";
-  const [products, setProducts] = useState<SaleProduct[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    (async () => {
-      const { data } = await supabase
-        .from("sale_products")
-        .select("id, shop, name, price, kind, is_active, sort_order")
-        .eq("shop", form.shop)
-        .eq("is_active", true)
-        .order("sort_order")
-        .order("id");
-      setProducts((data as SaleProduct[]) ?? []);
-      setLoading(false);
-    })();
-  }, [form.shop]);
-
-  const normals = products.filter((p) => p.kind === "normal");
-  const hasPrimary = products.some((p) => p.kind === "primary");
-
-  // 手羽屋のみ：限定商品売上を逆算で差し引く
-  const limitedSales = isTebaya
-    ? (form.limited_product_count || 0) * PRODUCT_PRICES.LIMITED
-    : 0;
-
-  const calc = useMemo(
-    () =>
-      computeMomoPrimary(
-        form.sales_amount || 0,
-        products,
-        form.momo_counts || {},
-        limitedSales,
-      ),
-    [form.sales_amount, products, form.momo_counts, limitedSales],
-  );
-
-  // 逆算結果をフォームへ反映（保存・確認・LINEで使う）
-  useEffect(() => {
-    if (
-      form.momo_primary_count !== calc.count ||
-      form.momo_primary_name !== calc.primaryName
-    ) {
-      update("momo_primary_count", calc.count);
-      update("momo_primary_name", calc.primaryName);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [calc.count, calc.primaryName]);
+  const priced = products.filter((p) => p.kind !== "count_only");
+  const countOnly = products.filter((p) => p.kind === "count_only");
 
   const setCount = (name: string, n: number) => {
     update("momo_counts", { ...(form.momo_counts || {}), [name]: n });
   };
+
+  // 主力商品（手羽先／もも焼き）の本数は保存用にも持っておく
+  const primary = products.find((p) => p.kind === "primary");
+  useEffect(() => {
+    const name = primary?.name ?? "";
+    const count = name ? form.momo_counts?.[name] || 0 : 0;
+    if (form.momo_primary_name !== name) update("momo_primary_name", name);
+    if (form.momo_primary_count !== count) update("momo_primary_count", count);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [primary?.name, form.momo_counts]);
+
+  // お酒だけは従来どおり専用カラムにも保存するので同期しておく
+  useEffect(() => {
+    const n = form.momo_counts?.["お酒"] || 0;
+    if (form.alcohol_count !== n) update("alcohol_count", n);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.momo_counts?.["お酒"]]);
 
   if (loading) {
     return (
@@ -938,28 +1037,48 @@ function ProductsStep({
     );
   }
 
+  if (priced.length === 0) {
+    return (
+      <section className="card space-y-2">
+        <h2 className="text-lg font-bold">🍗 販売本数</h2>
+        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+          このお店の商品がまだ登録されていません。管理者ページの「商品マスタ管理」で登録してください。
+        </p>
+      </section>
+    );
+  }
+
   return (
     <>
       <section className="card space-y-3">
-        <h2 className="text-lg font-bold">{isTebaya ? "🍗" : "🍖"} 使用本数</h2>
+        <h2 className="text-lg font-bold">{isTebaya ? "🍗" : "🍖"} 販売本数</h2>
         <p className="text-xs text-stone-500">
-          今日売った本数を入力してください。
-          {calc.primaryName || "主力商品"}は売上から自動計算します。
+          今日売った本数を、商品ごとに入力してください。
           <br />
-          商品の追加・削除は「管理者ページ → 設定センター → 商品マスタ」で行えます。
+          入力した本数と単価から売上を計算して、STEP2で入れた売上と合うか確かめます。
+          <br />
+          商品の追加・単価の変更は「管理者ページ → 設定センター → 商品マスタ」で行えます。
         </p>
 
-        {!hasPrimary && normals.length === 0 && (
-          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-            このお店の商品がまだ登録されていません。管理者ページの「商品マスタ管理」で登録してください。
-          </p>
-        )}
-
-        {normals.map((p) => (
+        {priced.map((p) => (
           <CountRow
             key={p.id}
-            label={`${p.name}（¥${p.price}）`}
+            label={
+              p.price > 0
+                ? `${p.name}（¥${p.price.toLocaleString("ja-JP")}）`
+                : `${p.name}（単価が未設定です）`
+            }
             unit="個"
+            value={form.momo_counts?.[p.name] || 0}
+            onChange={(n) => setCount(p.name, n)}
+          />
+        ))}
+
+        {countOnly.map((p) => (
+          <CountRow
+            key={p.id}
+            label={`${p.name}（本数だけ記録）`}
+            unit="本"
             value={form.momo_counts?.[p.name] || 0}
             onChange={(n) => setCount(p.name, n)}
           />
@@ -971,12 +1090,6 @@ function ProductsStep({
           value={form.customer_groups || 0}
           onChange={(n) => update("customer_groups", n)}
         />
-        <CountRow
-          label="お酒（本数）"
-          unit="本"
-          value={form.alcohol_count || 0}
-          onChange={(n) => update("alcohol_count", n)}
-        />
       </section>
 
       {/* 限定商品（手羽屋のみ・任意） */}
@@ -984,7 +1097,8 @@ function ProductsStep({
         <section className="card space-y-3 mt-3">
           <h2 className="text-lg font-bold">限定商品</h2>
           <p className="text-xs text-stone-500">
-            今月の限定商品を販売した場合のみ入力してください（任意）
+            今月の限定商品を販売した場合のみ入力してください（任意）。
+            単価は「管理者ページ → 設定センター → 月次限定商品設定」から自動で入ります。
           </p>
           <div>
             <label className="label">商品名</label>
@@ -996,50 +1110,175 @@ function ProductsStep({
               placeholder="例：チキン南蛮"
             />
           </div>
-          <div>
-            <label className="label">販売本数</label>
-            <input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              className="field text-right"
-              value={form.limited_product_count || ""}
-              onChange={(e) =>
-                update(
-                  "limited_product_count",
-                  Math.max(0, parseInt(e.target.value || "0", 10)),
-                )
-              }
-              placeholder="例：12"
-            />
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="label">販売本数</label>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                className="field text-right"
+                value={form.limited_product_count || ""}
+                onChange={(e) =>
+                  update(
+                    "limited_product_count",
+                    Math.max(0, parseInt(e.target.value || "0", 10)),
+                  )
+                }
+                placeholder="例：12"
+              />
+            </div>
+            <div>
+              <label className="label">単価（円）</label>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={10}
+                className="field text-right"
+                value={form.limited_product_price || ""}
+                onChange={(e) =>
+                  update(
+                    "limited_product_price",
+                    Math.max(0, parseInt(e.target.value || "0", 10)),
+                  )
+                }
+                placeholder="例：250"
+              />
+            </div>
           </div>
         </section>
       )}
 
-      {/* 主力商品 自動計算 */}
-      <section className="card space-y-2 mt-3 bg-orange-50 border border-orange-200">
-        <h2 className="text-lg font-bold text-orange-900">
-          {isTebaya ? "🍗" : "🍖"}{" "}
-          {calc.primaryName || (isTebaya ? "手羽先" : "もも焼き")}{" "}
-          使用本数（自動計算）
-        </h2>
-        {calc.warning ? (
-          <div className="bg-red-100 text-red-800 border border-red-300 rounded-lg px-3 py-2 text-sm font-semibold">
-            ⚠️ {calc.warning}
-          </div>
-        ) : (
-          <div className="text-center py-2">
-            <div className="text-4xl font-bold text-orange-900">
-              {calc.count} 本
-            </div>
-          </div>
-        )}
-        <p className="text-[11px] text-stone-500">
-          売上 {yen(form.sales_amount || 0)} − 他商品 {yen(calc.otherSales)} ={" "}
-          {yen(Math.max(0, calc.primarySales))} ÷ ¥{calc.primaryPrice || 0}
-        </p>
-      </section>
+      <BreakdownPanel form={form} update={update} breakdown={breakdown} />
     </>
+  );
+}
+
+/* ---------- 内訳と売上の突き合わせ ---------- */
+function BreakdownPanel({
+  form,
+  update,
+  breakdown,
+}: {
+  form: FormState;
+  update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
+  breakdown: SalesBreakdown;
+}) {
+  const shown = breakdown.lines.filter((l) => l.counted && l.count > 0);
+  const ok = breakdown.matched;
+
+  return (
+    <section
+      className={`card space-y-3 mt-3 border ${
+        ok ? "bg-green-50 border-green-300" : "bg-red-50 border-red-300"
+      }`}
+    >
+      <h2
+        className={`text-lg font-bold ${ok ? "text-green-900" : "text-red-900"}`}
+      >
+        🧾 売上の内訳
+      </h2>
+
+      {shown.length === 0 ? (
+        <p className="text-sm text-stone-600">
+          まだ本数が入っていません。上で売った本数を入れてください。
+        </p>
+      ) : (
+        <ul className="text-sm divide-y divide-stone-200 bg-white rounded-xl px-3">
+          {shown.map((l) => (
+            <li key={l.name} className="flex justify-between py-2">
+              <span className="text-stone-700">
+                {l.name}
+                <span className="text-stone-400 text-xs ml-1">
+                  ¥{l.price.toLocaleString("ja-JP")} × {l.count}
+                </span>
+              </span>
+              <span className="font-mono text-stone-800">
+                {yen(l.subtotal)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="bg-white rounded-xl px-3 py-2 text-sm space-y-1">
+        <div className="flex justify-between">
+          <span className="text-stone-600">内訳の合計</span>
+          <span className="font-mono font-bold">{yen(breakdown.total)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-stone-600">STEP2で入れた売上</span>
+          <span className="font-mono font-bold">{yen(breakdown.sales)}</span>
+        </div>
+        <div
+          className={`flex justify-between pt-1 border-t border-stone-200 ${
+            ok ? "text-green-800" : "text-red-800"
+          }`}
+        >
+          <span className="font-bold">差額</span>
+          <span className="font-mono font-bold text-lg">
+            {breakdown.diff > 0 ? "+" : ""}
+            {yen(breakdown.diff)}
+          </span>
+        </div>
+      </div>
+
+      {breakdown.unpricedNames.length > 0 && (
+        <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">
+          ⚠️ {breakdown.unpricedNames.join("・")}
+          の単価が0円のままです。
+          {breakdown.unpricedNames.includes("お酒")
+            ? "お酒を売上に入れる場合は、管理者ページ → 商品マスタ でお酒の単価を入れて、種別を「通常」に変えてください。"
+            : "管理者ページ → 商品マスタ で単価を設定してください。"}
+        </p>
+      )}
+
+      {ok ? (
+        <p className="text-sm font-bold text-green-800">
+          ✅ {diffMessage(breakdown)}
+        </p>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-sm font-bold text-red-800">
+            ⚠️ {diffMessage(breakdown)}
+          </p>
+          <p className="text-xs text-stone-600">
+            まず本数と売上を見直してください。それでも合わないときだけ、
+            理由を選ぶと先に進めます。理由は日報に残ります。
+          </p>
+          <div className="space-y-1">
+            {DIFF_REASONS.map((r) => (
+              <label
+                key={r.key}
+                className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 border border-stone-200"
+              >
+                <input
+                  type="radio"
+                  name="breakdown_diff_reason"
+                  className="w-4 h-4"
+                  checked={form.breakdown_diff_reason === r.key}
+                  onChange={() => update("breakdown_diff_reason", r.key)}
+                />
+                <span className="text-sm text-stone-700">{r.label}</span>
+              </label>
+            ))}
+          </div>
+          {form.breakdown_diff_reason === "other" && (
+            <div>
+              <label className="label">なにがあったか</label>
+              <input
+                type="text"
+                className="field"
+                value={form.breakdown_diff_note}
+                onChange={(e) => update("breakdown_diff_note", e.target.value)}
+                placeholder="例：常連さんに1本サービスした"
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1047,11 +1286,25 @@ function ProductsStep({
 function Step4({
   form,
   update,
+  products,
+  loading,
+  breakdown,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
+  products: SaleProduct[];
+  loading: boolean;
+  breakdown: SalesBreakdown;
 }) {
-  return <ProductsStep form={form} update={update} />;
+  return (
+    <ProductsStep
+      form={form}
+      update={update}
+      products={products}
+      loading={loading}
+      breakdown={breakdown}
+    />
+  );
 }
 
 /* ---------- STEP 5 ---------- */
@@ -1129,7 +1382,16 @@ function Step5({
     try {
       setOcrIdx(i);
       const dataUrl = await resizeImage(file);
+      // まず画面にすぐ出す（置き場への保存を待たせない）
       updateExpenseSafe(i, { receipt_image_url: dataUrl });
+      // 写真そのものを日報に埋め込むのはやめ、置き場に置いて住所（URL）だけを持つ。
+      // 置けなかったときは今まで通り埋め込み形式のまま（写真が原因で日報が
+      // 保存できなくなるのを防ぐため）。読み取り（OCR）には手元のデータを使う。
+      uploadReceiptOrKeep(dataUrl, "report").then((stored) => {
+        if (stored && stored !== dataUrl) {
+          updateExpenseSafe(i, { receipt_image_url: stored });
+        }
+      });
       const res = await fetch("/api/ocr", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -1177,12 +1439,17 @@ function Step5({
 
   return (
     <section className="card space-y-3">
-      <h2 className="text-lg font-bold">立替経費</h2>
-      {form.expenses.length === 0 && (
-        <p className="text-sm text-stone-500">
-          経費がなければそのまま「次へ」でOK
-        </p>
-      )}
+      <h2 className="text-lg font-bold">レジから払った経費</h2>
+      <p className="text-sm text-stone-500 leading-relaxed">
+        <b>レジのお金から払った分</b>だけをここに入れてください（場代・肉代・レジ袋など）。
+        入れた金額は、その日の手元現金からすぐ引かれます。
+        <br />
+        経費がなければ、そのまま「次へ」でOKです。
+      </p>
+      <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 leading-relaxed">
+        💡 <b>自分のお金で立て替えた分は、ここではありません。</b>
+        トップの「🧾 立替経費」から登録してください（あとで返してもらうお金として別に記録されます）。
+      </p>
       {form.expenses.map((e, i) => (
         <div
           key={i}
@@ -1292,6 +1559,7 @@ function Step7({
   cumulative,
   registerTotal,
   expensesTotal,
+  breakdown,
   onSave,
   saving,
 }: {
@@ -1299,15 +1567,16 @@ function Step7({
   cumulative: number;
   registerTotal: number;
   expensesTotal: number;
+  breakdown: SalesBreakdown;
   onSave: () => void;
   saving: boolean;
 }) {
   const sales = form.sales_amount || 0;
-  const food = Math.round(sales * 0.25);
-  const labor = form.labor || 10000;
-  const rent = Math.round(sales * 0.1);
-  const costTotal = food + labor + rent;
-  const profit = sales - costTotal;
+  // 粗利の計算は lib/money.ts に集約（tests/money.test.ts で検証済み）
+  const { food, rent, labor, costTotal, profit } = calcGrossProfit(
+    sales,
+    form.labor || 10000,
+  );
 
   return (
     <section className="space-y-4">
@@ -1320,12 +1589,6 @@ function Step7({
         <Row k="本日売上" v={yen(sales)} />
         <Row k="累計売上" v={yen(cumulative)} />
         <Row k="レジ合計" v={`${yen(registerTotal)}（${form.register_ok ? "OK" : "差異あり"}）`} />
-        {form.momo_primary_name && (
-          <Row
-            k={form.momo_primary_name}
-            v={`${form.momo_primary_count}本（自動計算）`}
-          />
-        )}
         {Object.entries(form.momo_counts || {})
           .filter(([, n]) => (n as number) > 0)
           .map(([name, n]) => (
@@ -1340,10 +1603,15 @@ function Step7({
         {form.customer_groups > 0 && (
           <Row k="組数" v={`${form.customer_groups}組`} />
         )}
-        {form.alcohol_count > 0 && (
-          <Row k="お酒" v={`${form.alcohol_count}本`} />
-        )}
-        <Row k="経費件数" v={`${form.expenses.length}件（${yen(expensesTotal)}）`} />
+        <Row
+          k="内訳の合計"
+          v={
+            breakdown.matched
+              ? `${yen(breakdown.total)}（売上とぴったり）`
+              : `${yen(breakdown.total)}（差額 ${breakdown.diff > 0 ? "+" : ""}${yen(breakdown.diff)}／${diffReasonLabel(form.breakdown_diff_reason)}）`
+          }
+        />
+        <Row k="レジから払った経費" v={`${form.expenses.length}件（${yen(expensesTotal)}）`} />
         {form.unit_number && <Row k="番隊" v={`${form.unit_number}番隊`} />}
       </div>
 
@@ -1376,7 +1644,7 @@ function Step7({
         <Row k="原価概算 Food (25%)" v={yen(food)} />
         <Row k="日当 Labor" v={yen(labor)} />
         <Row k="場代 Rent (10%)" v={yen(rent)} />
-        <Row k="立替経費" v={yen(expensesTotal)} />
+        <Row k="レジから払った経費" v={yen(expensesTotal)} />
         <Row k="経費合計" v={yen(costTotal)} />
         <div className="flex justify-between border-t pt-2 mt-2">
           <span className="font-bold">粗利</span>

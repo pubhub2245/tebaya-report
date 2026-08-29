@@ -13,7 +13,7 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-const REQUIRED = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "tebaya2026";
+const REQUIRED = process.env.NEXT_PUBLIC_ADMIN_PASSWORD ?? "";
 
 function isAdmin(req: NextRequest): boolean {
   const token = (req.headers.get("authorization") ?? "")

@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from "react";
  * 読み取り＋バックアップのみ。
  */
 
-const REQUIRED = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "tebaya2026";
+const REQUIRED = process.env.NEXT_PUBLIC_ADMIN_PASSWORD ?? "";
 
 type Health = {
   ok: boolean;
@@ -103,6 +103,14 @@ export default function SystemHealthPanel() {
       });
       const json = await res.json();
       if (!res.ok || !json.ok) {
+        // 時間切れは「失敗」ではなく「途中まで」。原因が分かる言い方にする
+        if (json.timedOut) {
+          throw new Error(
+            `時間切れで途中まで（${json.backed_up}/${json.total}件）。` +
+              `未取得: ${(json.skipped || []).join("、")}。` +
+              `レシート写真を置き場へ移すと軽くなります`,
+          );
+        }
         throw new Error(json.error || `一部失敗（${json.backed_up}/${json.total}）`);
       }
       setBackupMsg(`✅ ${json.backed_up}件のテーブルをバックアップしました`);
@@ -170,6 +178,10 @@ export default function SystemHealthPanel() {
             <p className="text-[11px] text-amber-700 bg-amber-50 rounded px-2 py-1 leading-relaxed">
               ※ バックアップ機能を使うには、Vercelに <code>SUPABASE_SERVICE_ROLE_KEY</code>{" "}
               の設定が必要です（無料・Supabaseの設定画面からコピーできます）。
+              <br />
+              すでに設定済みなのにこの表示が出るときは、
+              <b>値に全角文字や余分な空白が混ざっていないか</b>を確認してください。
+              コピーは必ずコピーボタンで行ってください。
             </p>
           )}
 
