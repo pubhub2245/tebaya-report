@@ -14,6 +14,7 @@ import PrepReportDashboard from "@/app/components/PrepReportDashboard";
 import PrepSettingsManager from "@/app/components/PrepSettingsManager";
 import LineDiagnostics from "@/app/components/LineDiagnostics";
 import SystemHealthPanel from "@/app/components/SystemHealthPanel";
+import EditReportModal from "@/app/components/EditReportModal";
 import AdminGate from "@/app/components/AdminGate";
 
 type Report = {
@@ -21,6 +22,7 @@ type Report = {
   date: string;
   location: string;
   staff_name: string;
+  shop: string | null;
   sales_amount: number;
   register_diff: number | null;
   labor: number | null;
@@ -63,6 +65,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Report | null>(null);
   const [interims, setInterims] = useState<Interim[]>([]);
   const [interimRange, setInterimRange] = useState<"today" | "week">("today");
   const [notifyingWeather, setNotifyingWeather] = useState(false);
@@ -122,7 +125,7 @@ export default function AdminPage() {
           supabase
             .from("daily_reports")
             .select(
-              "id, date, location, staff_name, sales_amount, register_diff, labor, expenses"
+              "id, date, location, staff_name, shop, sales_amount, register_diff, labor, expenses"
             )
             .order("date", { ascending: false })
             .limit(30),
@@ -632,7 +635,13 @@ export default function AdminPage() {
                         </span>
                       )}
                     </td>
-                    <td className="py-2 text-right">
+                    <td className="py-2 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => setEditing(r)}
+                        className="text-blue-600 hover:text-blue-700 border border-blue-300 rounded px-2 py-1 hover:bg-blue-50 mr-1"
+                      >
+                        編集
+                      </button>
                       <button
                         onClick={() => handleDelete(r)}
                         disabled={deletingId === r.id}
@@ -648,6 +657,21 @@ export default function AdminPage() {
           </table>
         )}
       </section>
+
+      {editing && (
+        <EditReportModal
+          report={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(updated) => {
+            setReports((prev) =>
+              prev.map((x) =>
+                x.id === updated.id ? ({ ...x, ...updated } as Report) : x,
+              ),
+            );
+            setEditing(null);
+          }}
+        />
+      )}
     </main>
     </AdminGate>
   );
