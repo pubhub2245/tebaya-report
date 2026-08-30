@@ -1042,8 +1042,17 @@ function ProductsStep({
       <section className="card space-y-2">
         <h2 className="text-lg font-bold">🍗 販売本数</h2>
         <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-          このお店の商品がまだ登録されていません。管理者ページの「商品マスタ管理」で登録してください。
+          このお店の商品がまだ登録されていません。下のボタンから商品（例：もも焼き）を登録し、
+          登録後にこの画面を開き直してください。
         </p>
+        <a
+          href="/settings"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-secondary inline-block text-sm"
+        >
+          ⚙️ 商品を登録する（新しいタブで開く）
+        </a>
       </section>
     );
   }
