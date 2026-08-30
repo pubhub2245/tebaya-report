@@ -88,6 +88,12 @@ export default function MenuPage() {
         >
           ✏️ 過去の日報を修正する →
         </Link>
+        <Link
+          href="/settings"
+          className="block text-center text-sm text-stone-500 underline hover:text-stone-700 mt-2"
+        >
+          ⚙️ 商品・担当・場所を登録する →
+        </Link>
       </section>
 
       {/* シフト・出店 */}
