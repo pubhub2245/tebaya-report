@@ -82,6 +82,12 @@ export default function MenuPage() {
             立替経費（自分のお金で払ったとき）
           </span>
         </Link>
+        <Link
+          href="/report/edit"
+          className="block text-center text-sm text-stone-500 underline hover:text-stone-700 mt-3"
+        >
+          ✏️ 過去の日報を修正する →
+        </Link>
       </section>
 
       {/* シフト・出店 */}

@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 /**
  * 過去の日報を修正するためのモーダル（画面に重なる編集フォーム）。
  * よく直したい項目（日付・担当・お店・場所・売上・日当・レジ差異）だけを編集できる。
- * 保存すると daily_reports の該当行を UPDATE する。
+ * 保存すると daily_reports の該当行を UPDATE し、
+ * 「誰が・いつ・どこを直したか」を daily_report_edits に履歴として残す。
  */
 
 export type EditableReport = {
@@ -20,14 +21,40 @@ export type EditableReport = {
   register_diff: number | null;
 };
 
+type EditRow = {
+  id: string;
+  edited_by: string;
+  edited_at: string;
+  changes: Record<string, { from: any; to: any }>;
+};
+
+/** 項目名を日本語に */
+const FIELD_LABEL: Record<string, string> = {
+  date: "日付",
+  staff_name: "担当",
+  shop: "お店",
+  location: "場所",
+  sales_amount: "売上",
+  labor: "日当",
+  register_diff: "レジ差異",
+};
+
+function showVal(v: any): string {
+  if (v === null || v === undefined || v === "") return "（空）";
+  return String(v);
+}
+
 export default function EditReportModal({
   report,
   onClose,
   onSaved,
+  requireEditor = false,
 }: {
   report: EditableReport;
   onClose: () => void;
   onSaved: (updated: EditableReport) => void;
+  /** true のとき「修正した人」の入力を必須にする（従業員が直接直すとき用） */
+  requireEditor?: boolean;
 }) {
   const [date, setDate] = useState(report.date);
   const [staff, setStaff] = useState(report.staff_name ?? "");
@@ -36,8 +63,25 @@ export default function EditReportModal({
   const [sales, setSales] = useState(String(report.sales_amount ?? ""));
   const [labor, setLabor] = useState(String(report.labor ?? ""));
   const [regDiff, setRegDiff] = useState(String(report.register_diff ?? ""));
+  const [editor, setEditor] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<EditRow[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("daily_report_edits")
+        .select("id, edited_by, edited_at, changes")
+        .eq("report_id", report.id)
+        .order("edited_at", { ascending: false });
+      if (!cancelled) setHistory((data as EditRow[]) ?? []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [report.id]);
 
   const numOrNull = (s: string): number | null => {
     const t = s.trim();
@@ -54,10 +98,11 @@ export default function EditReportModal({
 
     if (!date) return setError("日付を入力してください");
     if (!staff.trim()) return setError("担当者を入力してください");
+    if (requireEditor && !editor.trim())
+      return setError("修正した人を入力してください");
     if (salesN != null && salesN < 0) return setError("売上はマイナスにできません");
     if (laborN != null && laborN < 0) return setError("日当はマイナスにできません");
 
-    setSaving(true);
     const patch = {
       date,
       staff_name: staff.trim(),
@@ -67,15 +112,52 @@ export default function EditReportModal({
       labor: laborN,
       register_diff: regN,
     };
-    const { error } = await supabase
+
+    // 変更前後の差分（変わった項目だけ）を作る
+    const before: Record<string, any> = {
+      date: report.date,
+      staff_name: report.staff_name,
+      shop: report.shop,
+      location: report.location,
+      sales_amount: report.sales_amount,
+      labor: report.labor,
+      register_diff: report.register_diff,
+    };
+    const changes: Record<string, { from: any; to: any }> = {};
+    for (const k of Object.keys(patch) as (keyof typeof patch)[]) {
+      const from = before[k] ?? null;
+      const to = (patch[k] as any) ?? null;
+      if (from !== to) changes[k] = { from, to };
+    }
+
+    if (Object.keys(changes).length === 0) {
+      setError("変更点がありません");
+      return;
+    }
+
+    setSaving(true);
+    const { error: upErr } = await supabase
       .from("daily_reports")
       .update(patch)
       .eq("id", report.id);
-    setSaving(false);
-    if (error) {
-      setError(`保存に失敗しました: ${error.message}`);
+    if (upErr) {
+      setSaving(false);
+      setError(`保存に失敗しました: ${upErr.message}`);
       return;
     }
+
+    // 履歴を残す（失敗しても保存自体は成功扱いにする）
+    try {
+      await supabase.from("daily_report_edits").insert({
+        report_id: report.id,
+        edited_by: editor.trim() || "（未記入）",
+        changes,
+      });
+    } catch {
+      // 履歴の失敗は致命的ではないので握りつぶす
+    }
+
+    setSaving(false);
     onSaved({ ...report, ...patch });
   };
 
@@ -99,6 +181,22 @@ export default function EditReportModal({
         </div>
 
         <div className="space-y-3">
+          <div>
+            <label className="label">
+              修正した人{requireEditor && <span className="text-red-500">（必須）</span>}
+            </label>
+            <input
+              type="text"
+              className="field"
+              value={editor}
+              onChange={(e) => setEditor(e.target.value)}
+              placeholder="例: かずき"
+            />
+            <p className="text-[11px] text-stone-400 mt-1">
+              あとで「誰が直したか」を残すために記入してください。
+            </p>
+          </div>
+
           <div>
             <label className="label">日付</label>
             <input
@@ -203,6 +301,45 @@ export default function EditReportModal({
             {saving ? "保存中…" : "保存する"}
           </button>
         </div>
+
+        {/* 修正履歴 */}
+        {history.length > 0 && (
+          <details className="border-t border-stone-100 pt-2">
+            <summary className="cursor-pointer text-sm font-bold text-stone-600">
+              修正履歴（{history.length}件）
+            </summary>
+            <div className="pt-2 space-y-2">
+              {history.map((h) => (
+                <div
+                  key={h.id}
+                  className="text-xs text-stone-600 bg-stone-50 rounded px-2 py-1.5"
+                >
+                  <div className="font-bold text-stone-700">
+                    {h.edited_by}
+                    <span className="font-normal text-stone-400 ml-2">
+                      {new Date(h.edited_at).toLocaleString("ja-JP", {
+                        month: "numeric",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
+                  <ul className="mt-0.5 space-y-0.5">
+                    {Object.entries(h.changes || {}).map(([field, c]) => (
+                      <li key={field}>
+                        {FIELD_LABEL[field] ?? field}：{showVal(c.from)} →{" "}
+                        <span className="text-stone-800 font-semibold">
+                          {showVal(c.to)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
 
         <p className="text-[11px] text-stone-400 leading-relaxed">
           ※ ここで直せるのは日付・担当・お店・場所・売上・日当・レジ差異です。
