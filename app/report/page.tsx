@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { yen } from "@/lib/format";
 import {
@@ -69,25 +69,22 @@ export default function Page() {
   const [products, setProducts] = useState<SaleProduct[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
 
-  useEffect(() => {
-    let alive = true;
+  const loadProducts = useCallback(async () => {
     setProductsLoading(true);
-    (async () => {
-      const { data } = await supabase
-        .from("sale_products")
-        .select("id, shop, name, price, kind, is_active, sort_order")
-        .eq("shop", form.shop)
-        .eq("is_active", true)
-        .order("sort_order")
-        .order("id");
-      if (!alive) return;
-      setProducts((data as SaleProduct[]) ?? []);
-      setProductsLoading(false);
-    })();
-    return () => {
-      alive = false;
-    };
+    const { data } = await supabase
+      .from("sale_products")
+      .select("id, shop, name, price, kind, is_active, sort_order")
+      .eq("shop", form.shop)
+      .eq("is_active", true)
+      .order("sort_order")
+      .order("id");
+    setProducts((data as SaleProduct[]) ?? []);
+    setProductsLoading(false);
   }, [form.shop]);
+
+  useEffect(() => {
+    loadProducts();
+  }, [loadProducts]);
 
   /**
    * 商品ごとの「単価 × 本数」の合計と、レジで数えた売上の突き合わせ。
@@ -598,6 +595,7 @@ export default function Page() {
           products={products}
           loading={productsLoading}
           breakdown={breakdown}
+          reloadProducts={loadProducts}
         />
       )}
       {step === 5 && (
@@ -991,18 +989,118 @@ function Step3({
 }
 
 /* ---------- STEP 4：商品ごとの本数と、売上との突き合わせ ---------- */
+/**
+ * 日報の中から、その場で商品を追加できる小さな入力フォーム。
+ * 商品が未登録で本数を入れられないとき、ここで追加すればすぐ入力を続けられる。
+ */
+function QuickAddProduct({
+  shop,
+  onAdded,
+}: {
+  shop: string;
+  onAdded: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
+  const [kind, setKind] = useState<"primary" | "normal" | "count_only">(
+    "normal",
+  );
+  const [adding, setAdding] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const add = async () => {
+    setMsg(null);
+    const nm = name.trim();
+    if (!nm) {
+      setMsg("商品名を入れてください");
+      return;
+    }
+    const priceN = kind === "count_only" ? 0 : Math.round(Number(price));
+    if (kind !== "count_only" && (!Number.isFinite(priceN) || priceN < 0)) {
+      setMsg("単価を正しく入れてください（0以上）");
+      return;
+    }
+    setAdding(true);
+    const { error } = await supabase.from("sale_products").insert({
+      shop,
+      name: nm,
+      price: priceN,
+      kind,
+      is_active: true,
+      sort_order: kind === "primary" ? 0 : 50,
+    });
+    setAdding(false);
+    if (error) {
+      setMsg(`追加に失敗しました: ${error.message}`);
+      return;
+    }
+    setName("");
+    setPrice("");
+    setKind("normal");
+    setMsg("✅ 追加しました");
+    onAdded();
+  };
+
+  return (
+    <div className="rounded-lg border border-stone-200 bg-stone-50 p-3 space-y-2">
+      <p className="text-sm font-bold text-stone-700">＋ 商品をここで追加</p>
+      <div className="grid grid-cols-2 gap-2">
+        <input
+          className="field"
+          placeholder="商品名（例: もも焼き）"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <input
+          className="field"
+          type="number"
+          inputMode="numeric"
+          placeholder="単価（円）"
+          value={price}
+          disabled={kind === "count_only"}
+          onChange={(e) => setPrice(e.target.value)}
+        />
+      </div>
+      <select
+        className="field"
+        value={kind}
+        onChange={(e) => setKind(e.target.value as any)}
+      >
+        <option value="primary">主力商品（手羽先・もも焼きなど）</option>
+        <option value="normal">通常商品（ポテト・餃子など）</option>
+        <option value="count_only">記録のみ（お酒など・金額なし）</option>
+      </select>
+      <button
+        type="button"
+        onClick={add}
+        disabled={adding}
+        className="btn-primary w-full text-sm"
+      >
+        {adding ? "追加中…" : "この商品を追加する"}
+      </button>
+      {msg && <p className="text-xs text-stone-600">{msg}</p>}
+      <p className="text-[11px] text-stone-400 leading-relaxed">
+        ※「主力商品」は、売上から本数を逆算する中心の商品です（お店に1つ）。
+        単価は売上チェックに使うので、正しい金額を入れてください。
+      </p>
+    </div>
+  );
+}
+
 function ProductsStep({
   form,
   update,
   products,
   loading,
   breakdown,
+  reloadProducts,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
   products: SaleProduct[];
   loading: boolean;
   breakdown: SalesBreakdown;
+  reloadProducts: () => void;
 }) {
   const isTebaya = form.shop !== "もも屋";
   const priced = products.filter((p) => p.kind !== "count_only");
@@ -1039,19 +1137,20 @@ function ProductsStep({
 
   if (priced.length === 0) {
     return (
-      <section className="card space-y-2">
-        <h2 className="text-lg font-bold">🍗 販売本数</h2>
+      <section className="card space-y-3">
+        <h2 className="text-lg font-bold">{isTebaya ? "🍗" : "🍖"} 販売本数</h2>
         <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-          このお店の商品がまだ登録されていません。下のボタンから商品（例：もも焼き）を登録し、
-          登録後にこの画面を開き直してください。
+          「{form.shop}」の商品がまだ登録されていません。
+          下から商品（例：もも焼き）を追加すると、そのまま本数を入力できます。
         </p>
+        <QuickAddProduct shop={form.shop} onAdded={reloadProducts} />
         <a
           href="/settings"
           target="_blank"
           rel="noopener noreferrer"
-          className="btn-secondary inline-block text-sm"
+          className="block text-center text-xs text-stone-500 underline hover:text-stone-700"
         >
-          ⚙️ 商品を登録する（新しいタブで開く）
+          ⚙️ 商品の一覧・詳しい設定はこちら（新しいタブ）
         </a>
       </section>
     );
@@ -1158,6 +1257,15 @@ function ProductsStep({
           </div>
         </section>
       )}
+
+      <details className="card">
+        <summary className="cursor-pointer text-sm font-bold text-stone-600">
+          ＋ 売った商品が一覧に無いとき（ここで追加）
+        </summary>
+        <div className="pt-3">
+          <QuickAddProduct shop={form.shop} onAdded={reloadProducts} />
+        </div>
+      </details>
 
       <BreakdownPanel form={form} update={update} breakdown={breakdown} />
     </>
@@ -1298,12 +1406,14 @@ function Step4({
   products,
   loading,
   breakdown,
+  reloadProducts,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
   products: SaleProduct[];
   loading: boolean;
   breakdown: SalesBreakdown;
+  reloadProducts: () => void;
 }) {
   return (
     <ProductsStep
@@ -1312,6 +1422,7 @@ function Step4({
       products={products}
       loading={loading}
       breakdown={breakdown}
+      reloadProducts={reloadProducts}
     />
   );
 }
