@@ -17,6 +17,7 @@ import {
 import { generateLineText } from "@/lib/lineText";
 import { calcGrossProfit, sumExpenses } from "@/lib/money";
 import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
+import { NO_RECEIPT_REASONS } from "@/lib/formState";
 import { fetchStaffWages, makeLaborFor, type StaffWageMap } from "@/lib/staffWage";
 import { getUnitFromStaff } from "@/lib/teamMapping";
 import { getLimitedProductForMonth } from "@/lib/limitedProduct";
@@ -267,11 +268,24 @@ export default function Page() {
     .filter(([, v]) => !v)
     .map(([name]) => name);
 
+  /**
+   * レシートがそろっていない経費の行（写真も無く、理由も選んでいない行）。
+   * 2026-09 追加。写真が無いまま金額だけ入ると、あとで金額を確かめられないため。
+   */
+  const expensesMissingReceipt = form.expenses.filter(
+    (e) =>
+      !e.receipt_image_url &&
+      !(e.no_receipt_reason ?? "").trim() &&
+      // まだ何も入力していない空の行は数えない
+      ((e.description ?? "").trim() !== "" || (Number(e.amount) || 0) > 0),
+  );
+
   const canNext = () => {
     if (step === 1)
       return form.date && form.location.trim() && form.staff_name.trim();
     if (step === 2) return form.sales_amount > 0;
     if (step === 4) return !productsLoading && breakdownResolved;
+    if (step === 5) return expensesMissingReceipt.length === 0;
     if (step === 7) return allTasksCompleted;
     return true;
   };
@@ -344,12 +358,21 @@ export default function Page() {
       // 保存直前の保険：まだ写真そのものが埋め込まれたままの経費があれば、
       // ここで置き場へ移して住所（URL）に置き換える。
       // （撮ってすぐ提出した場合など、置き場への保存が間に合わなかったとき用）
-      const expensesForSave = await Promise.all(
-        form.expenses.map(async (e) => ({
-          ...e,
-          receipt_image_url: await uploadReceiptOrKeep(e.receipt_image_url, "report"),
-        })),
-      );
+      // ★同じ1枚のレシートが複数の行に付いていることがあるので、
+      //   同じ写真は1回だけ置き場に送る（同じ写真が何枚も溜まらないように）。
+      const uploadedByPhoto = new Map<string, string | null>();
+      for (const e of form.expenses) {
+        const url = e.receipt_image_url;
+        if (!url || uploadedByPhoto.has(url)) continue;
+        uploadedByPhoto.set(url, await uploadReceiptOrKeep(url, "report"));
+      }
+      const expensesForSave = form.expenses.map((e) => ({
+        ...e,
+        receipt_image_url: e.receipt_image_url
+          ? uploadedByPhoto.get(e.receipt_image_url) ?? e.receipt_image_url
+          : null,
+        no_receipt_reason: (e.no_receipt_reason ?? "").trim() || null,
+      }));
 
       const { data, error } = await supabase
         .from("daily_reports")
@@ -604,6 +627,7 @@ export default function Page() {
           setForm={setForm}
           update={update}
           expensesTotal={expensesTotal}
+          missingReceiptCount={expensesMissingReceipt.length}
         />
       )}
       {step === 6 && <Step6 form={form} update={update} />}
@@ -1433,18 +1457,25 @@ function Step5({
   setForm,
   update,
   expensesTotal,
+  missingReceiptCount,
 }: {
   form: FormState;
   setForm: React.Dispatch<React.SetStateAction<FormState>>;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
   expensesTotal: number;
+  /** レシート写真も理由も無い経費の行数（0でないと次へ進めない） */
+  missingReceiptCount: number;
 }) {
   const [ocrIdx, setOcrIdx] = useState<number | null>(null);
+  // レシートを読み取ったときの「合計と合っているか」の結果（新しい順・最大5件）
+  const [scanChecks, setScanChecks] = useState<ScanCheck[]>([]);
+  const pushScanCheck = (c: ScanCheck) =>
+    setScanChecks((prev) => [c, ...prev].slice(0, 5));
 
   const addExpense = () =>
     update("expenses", [
       ...form.expenses,
-      { description: "", amount: 0, receipt_image_url: null },
+      { description: "", amount: 0, receipt_image_url: null, no_receipt_reason: null },
     ]);
 
   const removeExpense = (i: number) =>
@@ -1509,7 +1540,15 @@ function Step5({
       // 保存できなくなるのを防ぐため）。読み取り（OCR）には手元のデータを使う。
       uploadReceiptOrKeep(dataUrl, "report").then((stored) => {
         if (stored && stored !== dataUrl) {
-          updateExpenseSafe(i, { receipt_image_url: stored });
+          // 同じ1枚のレシートから作られた行はすべて同じ写真なので、まとめて差し替える
+          setForm((f) => ({
+            ...f,
+            expenses: f.expenses.map((e) =>
+              e.receipt_image_url === dataUrl
+                ? { ...e, receipt_image_url: stored }
+                : e,
+            ),
+          }));
         }
       });
       const res = await fetch("/api/ocr", {
@@ -1535,16 +1574,32 @@ function Step5({
             amount: first.amount || 0,
           };
           // Additional items: insert after index i
+          // ★同じ1枚のレシートから出た行なので、写真も同じものを付ける。
+          //   （以前は1行目だけに付いていたため、どの行がどのレシートか追えなかった）
+          const photo = newExpenses[i]?.receipt_image_url ?? null;
           for (let k = 1; k < json.items.length; k++) {
             const item = json.items[k];
             newExpenses.splice(i + k, 0, {
               description: item.name || "",
               amount: item.amount || 0,
-              receipt_image_url: null,
+              receipt_image_url: photo,
+              no_receipt_reason: null,
             });
           }
           return { ...f, expenses: newExpenses };
         });
+        // 読み取り結果とレシートの合計が合っているかを画面に出す
+        if (json.check) {
+          pushScanCheck({
+            at: Date.now(),
+            total: Number(json.total) || 0,
+            itemsSum: Number(json.check.itemsSum) || 0,
+            adjustedSum: Number(json.check.adjustedSum) || 0,
+            adjusted: !!json.check.adjusted,
+            matched: !!json.check.matched,
+            reason: json.check.reason,
+          });
+        }
       } else if (json?.amount) {
         // Fallback: total amount only
         updateExpenseSafe(i, { amount: json.amount });
@@ -1570,6 +1625,28 @@ function Step5({
         💡 <b>自分のお金で立て替えた分は、ここではありません。</b>
         トップの「🧾 立替経費」から登録してください（あとで返してもらうお金として別に記録されます）。
       </p>
+      <p className="text-xs text-sky-800 bg-sky-50 border border-sky-200 rounded-xl px-3 py-2 leading-relaxed">
+        🧾 <b>レシートは必ず撮ってください。</b>
+        写真を撮ると金額を自動で読み取り、<b>消費税を含んだ金額</b>で入ります。
+        レシートが無いときは「レシートが無い理由」を選べば進めます。
+      </p>
+
+      {/* 読み取り結果：レシートの合計と、入れた品物の合計が合っているか */}
+      {scanChecks.map((c) => (
+        <p
+          key={c.at}
+          className={`text-xs rounded-xl px-3 py-2 leading-relaxed border ${
+            c.reason === "mismatch" || c.reason === "no_total"
+              ? "bg-red-50 text-red-800 border-red-200"
+              : c.reason === "adjusted"
+              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+              : "bg-stone-50 text-stone-600 border-stone-200"
+          }`}
+        >
+          {scanCheckMessage(c)}
+        </p>
+      ))}
+
       {form.expenses.map((e, i) => (
         <div
           key={i}
@@ -1629,12 +1706,34 @@ function Step5({
               }}
             />
           </label>
-          {e.receipt_image_url && (
+          {e.receipt_image_url ? (
             <img
               src={e.receipt_image_url}
               alt="receipt"
               className="w-full max-h-40 object-contain rounded-lg border"
             />
+          ) : (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 space-y-1">
+              <p className="text-xs text-amber-800 leading-relaxed">
+                レシートの写真がありません。撮れないときは理由を選んでください。
+              </p>
+              <select
+                className="field text-sm"
+                value={e.no_receipt_reason ?? ""}
+                onChange={(ev) =>
+                  updateExpense(i, {
+                    no_receipt_reason: ev.target.value || null,
+                  })
+                }
+              >
+                <option value="">（選んでください）</option>
+                {NO_RECEIPT_REASONS.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </div>
           )}
         </div>
       ))}
@@ -1647,8 +1746,55 @@ function Step5({
           {yen(expensesTotal)}
         </span>
       </div>
+
+      {missingReceiptCount > 0 && (
+        <p className="text-sm rounded-xl px-3 py-2 bg-red-50 text-red-700 border border-red-200 leading-relaxed">
+          🧾 レシートの写真が無い経費が <b>{missingReceiptCount}件</b> あります。
+          写真を撮るか、「レシートが無い理由」を選んでから次へ進んでください。
+        </p>
+      )}
     </section>
   );
+}
+
+/** レシートを読み取ったときの「合計と合っているか」の結果 */
+type ScanCheck = {
+  at: number;
+  /** レシートの支払合計（税込）。読めなければ0 */
+  total: number;
+  /** 読み取った品物の合計（直す前） */
+  itemsSum: number;
+  /** 直したあとの品物の合計 */
+  adjustedSum: number;
+  /** 消費税ぶんを足したか */
+  adjusted: boolean;
+  matched: boolean;
+  reason: "ok" | "adjusted" | "no_total" | "mismatch";
+};
+
+/** 読み取り結果を、現場の人に分かる言葉で1行にする */
+function scanCheckMessage(c: ScanCheck): string {
+  const y = (n: number) => yen(n);
+  switch (c.reason) {
+    case "ok":
+      return `✅ レシートの合計 ${y(c.total)} と、入れた品物の合計が合っています。`;
+    case "adjusted":
+      return `🧾 読み取った値段が税抜（${y(
+        c.itemsSum,
+      )}）だったので、消費税ぶん ${y(
+        c.total - c.itemsSum,
+      )} を足して、レシートの合計 ${y(c.total)} に合わせました。`;
+    case "no_total":
+      return `⚠️ レシートの合計が読み取れませんでした。入れた金額（合計 ${y(
+        c.itemsSum,
+      )}）が、実際に払った額と合っているか確かめてください（消費税が抜けていないか特に注意）。`;
+    case "mismatch":
+      return `⚠️ レシートの合計 ${y(c.total)} と、入れた品物の合計 ${y(
+        c.itemsSum,
+      )} が ${y(
+        Math.abs(c.total - c.itemsSum),
+      )} ちがいます。金額を手で直してください。`;
+  }
 }
 
 /* ---------- STEP 6 ---------- */
