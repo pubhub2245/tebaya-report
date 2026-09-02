@@ -22,6 +22,7 @@ import LineDiagnostics from "@/app/components/LineDiagnostics";
 import SystemHealthPanel from "@/app/components/SystemHealthPanel";
 import EditReportModal from "@/app/components/EditReportModal";
 import ReceiptMigrationPanel from "@/app/components/ReceiptMigrationPanel";
+import ReceiptReocrPanel from "@/app/components/ReceiptReocrPanel";
 import AdminGate from "@/app/components/AdminGate";
 
 type Report = {
@@ -458,6 +459,8 @@ export default function AdminPage() {
       <SystemHealthPanel />
 
       <ReceiptMigrationPanel />
+
+      <ReceiptReocrPanel />
 
       <LineDiagnostics />
 
