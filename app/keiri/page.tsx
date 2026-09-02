@@ -50,6 +50,7 @@ const BUSINESS_CODE = "tebaya";
 const SLICE_COLORS = [
   "#f97316", // 仕入（材料）
   "#0ea5e9", // 出店料
+  "#8b5cf6", // 家賃（事務所）
   "#14b8a6", // 人件費
   "#a855f7", // 外注費（Alpha）
   "#eab308", // 車両費
@@ -90,7 +91,9 @@ function KeiriInner() {
       // 設定（数え始めの日・期首残高・Alphaの率）
       const { data: s, error: sErr } = await supabase
         .from("keiri_settings")
-        .select("opening_date, opening_balance, outsourcing_rate")
+        .select(
+          "opening_date, opening_balance, outsourcing_rate, monthly_rent, rent_start_month",
+        )
         .eq("business_type_code", BUSINESS_CODE)
         .maybeSingle();
       if (sErr) throw sErr;
@@ -100,6 +103,8 @@ function KeiriInner() {
               opening_date: (s as any).opening_date,
               opening_balance: Number((s as any).opening_balance) || 0,
               outsourcing_rate: Number((s as any).outsourcing_rate) || 0,
+              monthly_rent: Number((s as any).monthly_rent) || 0,
+              rent_start_month: (s as any).rent_start_month ?? "",
             }
           : DEFAULT_SETTINGS,
       );
@@ -141,14 +146,8 @@ function KeiriInner() {
   const effective = settings ?? DEFAULT_SETTINGS;
 
   const summary = useMemo(
-    () =>
-      summarizeMonth({
-        ym,
-        reports,
-        template,
-        outsourcingRate: effective.outsourcing_rate,
-      }),
-    [ym, reports, template, effective.outsourcing_rate],
+    () => summarizeMonth({ ym, reports, template, settings: effective }),
+    [ym, reports, template, effective],
   );
 
   const cash = useMemo(
@@ -156,9 +155,12 @@ function KeiriInner() {
     [reports, payments, effective],
   );
 
+  // 家賃は「今月まで」を数えるので、今日の月を渡す
+  const todayYm = useMemo(() => todayStr().slice(0, 7), []);
+
   const unpaid = useMemo(
-    () => calcUnpaid({ reports, payments, settings: effective }),
-    [reports, payments, effective],
+    () => calcUnpaid({ reports, payments, settings: effective, currentYm: todayYm }),
+    [reports, payments, effective, todayYm],
   );
 
   const byLocation = useMemo(
@@ -252,7 +254,9 @@ function KeiriInner() {
           title="まだ払っていないお金"
           value={unpaid.total}
           color="text-amber-600"
-          note={`給与 ${yen(unpaid.payroll)}・Alpha ${yen(unpaid.outsourcing)}`}
+          note={`給与 ${yen(unpaid.payroll)}・Alpha ${yen(
+            unpaid.outsourcing,
+          )}・家賃 ${yen(unpaid.rent)}`}
         />
       </section>
 
@@ -295,6 +299,11 @@ function KeiriInner() {
                       {a.key === "payroll" && (
                         <span className="text-xs text-stone-400">
                           （日報の日当の合計）
+                        </span>
+                      )}
+                      {a.key === "rent" && (
+                        <span className="text-xs text-stone-400">
+                          （毎月 {yen(effective.monthly_rent)}・自動計算）
                         </span>
                       )}
                     </td>
@@ -416,8 +425,8 @@ function KeiriInner() {
           )}
           <p className="text-xs text-stone-400">
             「経費」は日報の経費と人件費（日当）の合計です。
-            外注費（Alpha）は月ごとに決まるお金なので、場所別には入れていません
-            （どの場所のぶんか決められないため）。
+            外注費（Alpha）と家賃（事務所）は月ごとに決まるお金なので、
+            場所別には入れていません（どの場所のぶんか決められないため）。
             出店場所が空の日報は「未設定」にまとめています。
           </p>
         </section>
@@ -441,6 +450,7 @@ function KeiriInner() {
         onSaved={load}
         unpaidPayroll={unpaid.payroll}
         unpaidOutsourcing={unpaid.outsourcing}
+        unpaidRent={unpaid.rent}
       />
 
       {/* 設定 */}
@@ -542,11 +552,13 @@ function PaymentSection({
   onSaved,
   unpaidPayroll,
   unpaidOutsourcing,
+  unpaidRent,
 }: {
   payments: (KeiriPayment & { id: number })[];
   onSaved: () => void;
   unpaidPayroll: number;
   unpaidOutsourcing: number;
+  unpaidRent: number;
 }) {
   const [paidOn, setPaidOn] = useState(todayStr());
   const [amount, setAmount] = useState("");
@@ -583,14 +595,14 @@ function PaymentSection({
   return (
     <section className="card space-y-3">
       <h2 className="text-lg font-bold text-brand-dark">
-        💴 給与・Alphaに払ったお金の記録
+        💴 給与・Alpha・家賃に払ったお金の記録
       </h2>
       <p className="text-sm text-stone-600 leading-relaxed">
         月に1回、実際に払ったときにここへ入れてください。
         入れると「今の現金」からその分が引かれ、「まだ払っていないお金」が減ります。
         <br />
         いま残っている未払い：給与 {yen(unpaidPayroll)}・Alpha{" "}
-        {yen(unpaidOutsourcing)}
+        {yen(unpaidOutsourcing)}・家賃 {yen(unpaidRent)}
       </p>
 
       <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -612,6 +624,7 @@ function PaymentSection({
           >
             <option value="payroll">{PAYMENT_KIND_LABEL.payroll}</option>
             <option value="outsourcing">{PAYMENT_KIND_LABEL.outsourcing}</option>
+            <option value="rent">{PAYMENT_KIND_LABEL.rent}</option>
           </select>
         </div>
         <div>
@@ -687,6 +700,8 @@ function SettingsSection({
   const [ratePct, setRatePct] = useState(
     String(Math.round(settings.outsourcing_rate * 1000) / 10),
   );
+  const [rent, setRent] = useState(String(settings.monthly_rent));
+  const [rentStart, setRentStart] = useState(settings.rent_start_month);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -694,15 +709,22 @@ function SettingsSection({
     setOpeningDate(settings.opening_date);
     setOpeningBalance(String(settings.opening_balance));
     setRatePct(String(Math.round(settings.outsourcing_rate * 1000) / 10));
+    setRent(String(settings.monthly_rent));
+    setRentStart(settings.rent_start_month);
   }, [settings]);
 
   const save = async () => {
     const bal = parseInt(openingBalance || "0", 10);
     const pct = Number(ratePct);
+    const rentN = parseInt(rent || "0", 10);
     if (!openingDate) return setMsg("❌ 数え始めの日を入れてください");
     if (Number.isNaN(bal)) return setMsg("❌ 金額を入れてください");
     if (Number.isNaN(pct) || pct < 0 || pct > 100)
       return setMsg("❌ 率は0〜100の数字で入れてください");
+    if (Number.isNaN(rentN) || rentN < 0)
+      return setMsg("❌ 家賃は0円以上で入れてください");
+    if (rentStart && !/^\d{4}-(0[1-9]|1[0-2])$/.test(rentStart))
+      return setMsg("❌ 家賃を数え始める月は「2026-08」の形で入れてください");
     setSaving(true);
     setMsg(null);
     const { error } = await supabase
@@ -711,6 +733,8 @@ function SettingsSection({
         opening_date: openingDate,
         opening_balance: bal,
         outsourcing_rate: pct / 100,
+        monthly_rent: rentN,
+        rent_start_month: rentStart || null,
         updated_at: new Date().toISOString(),
       })
       .eq("business_type_code", BUSINESS_CODE);
@@ -767,6 +791,33 @@ function SettingsSection({
                 className="field"
                 value={ratePct}
                 onChange={(e) => setRatePct(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <p className="text-sm text-stone-600 leading-relaxed">
+            事務所の家賃は日報には入りません。ここに入れた金額が
+            <strong>毎月きまって</strong>科目の表に出ます。
+            レジのお金から払ったら、上の「払ったお金の記録」に入れてください。
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="label">事務所の家賃（毎月・円）</label>
+              <input
+                type="number"
+                inputMode="numeric"
+                className="field"
+                value={rent}
+                onChange={(e) => setRent(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label">家賃を数え始める月</label>
+              <input
+                type="month"
+                className="field"
+                value={rentStart}
+                onChange={(e) => setRentStart(e.target.value)}
               />
             </div>
           </div>

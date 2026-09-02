@@ -29,10 +29,13 @@ export function templateFor(code: string | null | undefined): BusinessTemplate {
 
 /**
  * 設定が読めなかったときの保険の値。
- * docs/keiri.md 4章の「期首残高 2026-08-10 ＝ 0円」と同じにしてある。
+ * docs/keiri.md 4章の「期首残高 2026-08-10 ＝ 0円」と
+ * 5-3b の「家賃 毎月35,000円・2026年8月から」に合わせてある。
  */
 export const DEFAULT_SETTINGS: KeiriSettings = {
   opening_date: "2026-08-10",
   opening_balance: 0,
   outsourcing_rate: 0.1,
+  monthly_rent: 35000,
+  rent_start_month: "2026-08",
 };

@@ -36,17 +36,29 @@ export type KeiriPayment = {
   paid_on: string;
   /** 金額（円） */
   amount: number;
-  /** 種別：payroll＝給与 ／ outsourcing＝外注費 */
+  /** 種別：payroll＝給与 ／ outsourcing＝外注費 ／ rent＝家賃 */
   kind: PaymentKind;
   memo?: string | null;
 };
 
-export type PaymentKind = "payroll" | "outsourcing";
+/**
+ * 「発生」と「支払い」がズレる科目の種別。
+ * ★この3つだけが支払い記録の対象。ほかの経費はレジから払った時点で現金が減る。
+ */
+export type PaymentKind = "payroll" | "outsourcing" | "rent";
 
 /** 支払い種別の表示名（画面には専門用語を出さない） */
 export const PAYMENT_KIND_LABEL: Record<PaymentKind, string> = {
   payroll: "給与",
   outsourcing: "外注費（Alpha）",
+  rent: "家賃（事務所）",
+};
+
+/** 支払い種別 → 科目キー（CSVや集計で使う） */
+export const PAYMENT_KIND_ACCOUNT: Record<PaymentKind, ExpenseAccountKey> = {
+  payroll: "payroll",
+  outsourcing: "outsourcing",
+  rent: "rent",
 };
 
 /** 経理の設定（keiri_settings の1行） */
@@ -57,6 +69,10 @@ export type KeiriSettings = {
   opening_balance: number;
   /** 外注費の率。0.1 = 売上高の10% */
   outsourcing_rate: number;
+  /** 事務所の毎月の家賃（円） */
+  monthly_rent: number;
+  /** 家賃を数え始める月（YYYY-MM）。この月より前の月は家賃0円 */
+  rent_start_month: string;
 };
 
 /** 振り分けのルール1つ（この言葉が含まれていたら、この科目） */

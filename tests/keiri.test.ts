@@ -14,6 +14,9 @@ import {
   calcOutsourcing,
   calcCashPosition,
   calcUnpaid,
+  calcRentAccrued,
+  rentForMonth,
+  monthsInRange,
   summarizeByLocation,
   summarizeMonth,
   monthEnd,
@@ -34,7 +37,12 @@ const SETTINGS: KeiriSettings = {
   opening_date: "2026-08-10",
   opening_balance: 0,
   outsourcing_rate: 0.1,
+  monthly_rent: 35000,
+  rent_start_month: "2026-08",
 };
+
+/** 家賃を数えない設定（家賃を入れる前の動きが変わっていないか確かめる用） */
+const NO_RENT: KeiriSettings = { ...SETTINGS, monthly_rent: 0 };
 
 /* ---------- 文字の揃え方 ---------- */
 
@@ -90,11 +98,18 @@ test("classifyExpense: 当たらないものは雑費（matched=false）", () =>
   }
 });
 
-test("classifyExpense: 人件費・外注費には自動で振り分けない（現金残高を壊さないため）", () => {
-  for (const text of ["仕込み時給(なぎさ)", "さとみさん研修給", "7/3(かずき)給与補填"]) {
+test("classifyExpense: 人件費・外注費・家賃には自動で振り分けない（現金残高を壊さないため）", () => {
+  for (const text of [
+    "仕込み時給(なぎさ)",
+    "さとみさん研修給",
+    "7/3(かずき)給与補填",
+    "事務所の家賃",
+    "家賃",
+  ]) {
     const got = classifyExpense(text, T);
-    assert.notEqual(got.account, "payroll");
-    assert.notEqual(got.account, "outsourcing");
+    assert.notEqual(got.account, "payroll", text);
+    assert.notEqual(got.account, "outsourcing", text);
+    assert.notEqual(got.account, "rent", text);
   }
 });
 
@@ -152,7 +167,7 @@ test("summarizeMonth: 科目ごとに足し、人件費と外注費を自動で�
     ym: "2026-08",
     reports: REPORTS,
     template: T,
-    outsourcingRate: 0.1,
+    settings: NO_RENT,
   });
   assert.equal(s.reportCount, 3);
   assert.equal(s.sales, 130000);
@@ -178,7 +193,7 @@ test("summarizeMonth: 対応表に当たらなかった明細を件数つきで�
     ym: "2026-08",
     reports: REPORTS,
     template: T,
-    outsourcingRate: 0.1,
+    settings: NO_RENT,
   });
   assert.equal(s.unmatched.length, 1);
   assert.equal(s.unmatched[0].description, "検便");
@@ -190,7 +205,7 @@ test("summarizeMonth: 計上日は日報の date（別の月は入らない）",
     ym: "2026-09",
     reports: REPORTS,
     template: T,
-    outsourcingRate: 0.1,
+    settings: NO_RENT,
   });
   assert.equal(s.sales, 50000);
   assert.equal(s.reportCount, 1);
@@ -201,7 +216,7 @@ test("expenseSlices: 金額0の科目はグラフに出さない", () => {
     ym: "2026-08",
     reports: REPORTS,
     template: T,
-    outsourcingRate: 0.1,
+    settings: NO_RENT,
   });
   const keys = expenseSlices(s).map((x) => x.key);
   assert.ok(!keys.includes("communication"));
@@ -251,7 +266,8 @@ test("calcUnpaid: 発生の累計 − 支払いの累計（どちらも期首日
   const u = calcUnpaid({
     reports: REPORTS,
     payments: PAYMENTS,
-    settings: SETTINGS,
+    settings: NO_RENT,
+    currentYm: "2026-09",
   });
   // 給与の発生：8/15(12000) + 8/20(8000) + 9/1(9000) = 29000
   assert.equal(u.payrollAccrued, 29000);
@@ -262,6 +278,98 @@ test("calcUnpaid: 発生の累計 − 支払いの累計（どちらも期首日
   assert.equal(u.outsourcingPaid, 5000);
   assert.equal(u.outsourcing, 9000);
   assert.equal(u.total, 18000);
+});
+
+/* ---------- 家賃（事務所） ---------- */
+
+test("monthsInRange: 月をならべる（年またぎも正しい）", () => {
+  assert.deepEqual(monthsInRange("2026-08", "2026-08"), ["2026-08"]);
+  assert.deepEqual(monthsInRange("2026-11", "2027-02"), [
+    "2026-11",
+    "2026-12",
+    "2027-01",
+    "2027-02",
+  ]);
+  assert.deepEqual(monthsInRange("2026-09", "2026-08"), [], "逆順は空");
+  assert.deepEqual(monthsInRange("", "2026-08"), []);
+});
+
+test("rentForMonth: 数え始める月より前は0円、以降は毎月きまった額", () => {
+  assert.equal(rentForMonth("2026-07", SETTINGS), 0);
+  assert.equal(rentForMonth("2026-08", SETTINGS), 35000);
+  assert.equal(rentForMonth("2026-09", SETTINGS), 35000);
+  assert.equal(rentForMonth("2027-03", SETTINGS), 35000);
+});
+
+test("summarizeMonth: 家賃は日報に無くても毎月自動で計上される", () => {
+  const s = summarizeMonth({
+    ym: "2026-08",
+    reports: REPORTS,
+    template: T,
+    settings: SETTINGS,
+  });
+  assert.equal(s.rent, 35000);
+  assert.equal(s.expenseByAccount.rent, 35000);
+  // 家賃なしの場合とくらべて、経費合計と利益がちょうど家賃のぶんだけ動く
+  const noRent = summarizeMonth({
+    ym: "2026-08",
+    reports: REPORTS,
+    template: T,
+    settings: NO_RENT,
+  });
+  assert.equal(s.expenseTotal - noRent.expenseTotal, 35000);
+  assert.equal(noRent.profit - s.profit, 35000);
+});
+
+test("summarizeMonth: 数え始める月より前の月には家賃を入れない", () => {
+  const s = summarizeMonth({
+    ym: "2026-08",
+    reports: REPORTS,
+    template: T,
+    settings: { ...SETTINGS, rent_start_month: "2026-09" },
+  });
+  assert.equal(s.rent, 0);
+});
+
+test("calcRentAccrued: 数え始める月から今月までの月数ぶん", () => {
+  assert.equal(calcRentAccrued(SETTINGS, "2026-08"), 35000);
+  assert.equal(calcRentAccrued(SETTINGS, "2026-09"), 70000);
+  assert.equal(calcRentAccrued(SETTINGS, "2026-12"), 175000);
+  // 期首日より前から数え始める設定でも、期首の月からしか数えない
+  assert.equal(
+    calcRentAccrued({ ...SETTINGS, rent_start_month: "2026-01" }, "2026-09"),
+    70000,
+  );
+});
+
+test("calcUnpaid: 家賃も『発生の累計 − 払った累計』で出す", () => {
+  const u = calcUnpaid({
+    reports: REPORTS,
+    payments: [
+      ...PAYMENTS,
+      { paid_on: "2026-09-01", amount: 35000, kind: "rent" },
+    ],
+    settings: SETTINGS,
+    currentYm: "2026-09",
+  });
+  assert.equal(u.rentAccrued, 70000); // 8月分＋9月分
+  assert.equal(u.rentPaid, 35000);
+  assert.equal(u.rent, 35000);
+  assert.equal(u.total, u.payroll + u.outsourcing + u.rent);
+});
+
+test("calcCashPosition: 家賃は『払った分だけ』現金から引く（発生分は引かない）", () => {
+  const noPay = calcCashPosition({
+    reports: REPORTS,
+    payments: [],
+    settings: SETTINGS,
+  });
+  const withRent = calcCashPosition({
+    reports: REPORTS,
+    payments: [{ paid_on: "2026-09-01", amount: 35000, kind: "rent" }],
+    settings: SETTINGS,
+  });
+  assert.equal(noPay.balance - withRent.balance, 35000);
 });
 
 /* ---------- 場所別 ---------- */
@@ -328,6 +436,13 @@ test("buildJournalRows: 売上・経費・人件費・外注費・支払いが�
   assert.equal(out[0].creditAccount, "未払金");
   assert.equal(out[0].debitAmount, 13000);
 
+  const rentRows = rows.filter((r) => r.debitAccount === "家賃（事務所）");
+  assert.equal(rentRows.length, 1, "家賃は月末に1行だけ");
+  assert.equal(rentRows[0].date, "2026-08-31");
+  assert.equal(rentRows[0].creditAccount, "未払金");
+  assert.equal(rentRows[0].debitAmount, 35000);
+  assert.equal(rentRows[0].note, "事務所の家賃（毎月）");
+
   // 8月に払った記録は 8/1 の1件（期首日より前でもCSVにはその月の実績として出す）
   const paid = rows.filter((r) => r.debitAccount === "未払金");
   assert.equal(paid.length, 1);
@@ -336,6 +451,23 @@ test("buildJournalRows: 売上・経費・人件費・外注費・支払いが�
 
   // 借方と貸方の金額は必ず同じ
   for (const r of rows) assert.equal(r.debitAmount, r.creditAmount);
+});
+
+test("buildJournalRows: 家賃の支払いは 未払金 ／ 現金 で出る", () => {
+  const rows = buildJournalRows({
+    ym: "2026-08",
+    reports: [],
+    payments: [
+      { paid_on: "2026-08-05", amount: 35000, kind: "rent", memo: "8月分" },
+    ],
+    template: T,
+    settings: SETTINGS,
+  });
+  const paid = rows.find((r) => r.note.startsWith("家賃の支払い"))!;
+  assert.equal(paid.debitAccount, "未払金");
+  assert.equal(paid.creditAccount, "現金");
+  assert.equal(paid.debitAmount, 35000);
+  assert.equal(paid.note, "家賃の支払い（8月分）");
 });
 
 test("toCsv: 先頭にBOMが付き、列は決めた6つ", () => {

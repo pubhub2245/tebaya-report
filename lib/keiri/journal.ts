@@ -7,7 +7,7 @@
  * ★形は docs/keiri.md 6章で決めています。列を勝手に増やさないでください。
  *
  * ■ 「未払金（みばらいきん）」について
- *   給与と外注費は「発生した日」と「払った日」がズレるので、
+ *   給与・外注費・家賃は「発生した日」と「払った日」がズレるので、
  *   会計ソフトが読めるようにするには、いったん「未払金」という箱を通します。
  *     発生したとき： 人件費 ／ 未払金
  *     払ったとき　： 未払金 ／ 現金
@@ -16,14 +16,9 @@
  */
 
 import { accountLabel } from "./accounts";
-import { calcOutsourcing, inMonth, monthEnd } from "./aggregate";
+import { calcOutsourcing, inMonth, monthEnd, rentForMonth } from "./aggregate";
 import { amountOf, classifyExpense, expenseItemsOf } from "./classify";
-import type {
-  BusinessTemplate,
-  KeiriPayment,
-  KeiriReport,
-  KeiriSettings,
-} from "./types";
+import { PAYMENT_KIND_LABEL, type BusinessTemplate, type KeiriPayment, type KeiriReport, type KeiriSettings } from "./types";
 
 /** CSVで使う相手勘定の名前 */
 const CASH = "現金";
@@ -55,6 +50,7 @@ export const JOURNAL_HEADERS = [
  * - 経費　　　： （科目） ／ 現金
  * - 人件費発生： 人件費 ／ 未払金（日報の日付）
  * - 外注費発生： 外注費（Alpha） ／ 未払金（その月の末日に1行だけ）
+ * - 家賃発生　： 家賃（事務所） ／ 未払金（その月の末日に1行だけ）
  * - 支払い　　： 未払金 ／ 現金（支払日）
  */
 export function buildJournalRows(params: {
@@ -136,6 +132,19 @@ export function buildJournalRows(params: {
     });
   }
 
+  // 家賃（事務所）の発生（その月の末日に1行だけ）
+  const rent = rentForMonth(ym, settings);
+  if (rent !== 0) {
+    rows.push({
+      date: monthEnd(ym),
+      debitAccount: accountLabel("rent"),
+      debitAmount: rent,
+      creditAccount: ACCRUED,
+      creditAmount: rent,
+      note: "事務所の家賃（毎月）",
+    });
+  }
+
   // 支払い（その月に払ったもの）
   const paid = payments
     .filter((p) => inMonth(p.paid_on, ym))
@@ -144,7 +153,14 @@ export function buildJournalRows(params: {
   for (const p of paid) {
     const amount = Number(p.amount) || 0;
     if (amount === 0) continue;
-    const base = p.kind === "payroll" ? "給与の支払い" : "Alphaへの支払い";
+    const base =
+      p.kind === "payroll"
+        ? "給与の支払い"
+        : p.kind === "outsourcing"
+          ? "Alphaへの支払い"
+          : p.kind === "rent"
+            ? "家賃の支払い"
+            : `${PAYMENT_KIND_LABEL[p.kind] ?? "その他"}の支払い`;
     const memo = (p.memo || "").trim();
     rows.push({
       date: p.paid_on,

@@ -13,6 +13,7 @@ export type AccountKey =
   | "sales" // 売上高
   | "purchase" // 仕入（材料）
   | "booth_fee" // 出店料
+  | "rent" // 家賃（事務所）
   | "payroll" // 人件費
   | "outsourcing" // 外注費（Alpha）
   | "vehicle" // 車両費（ガソリン・駐車場）
@@ -32,8 +33,8 @@ export type AccountDef = {
   /**
    * 日報の経費明細（自由入力の文字）から自動で振り分けてよい科目かどうか。
    *
-   * ★人件費・外注費は false。理由は docs/keiri.md 3-2。
-   *   この2つは「発生した日」と「払った日」がズレるので、
+   * ★人件費・外注費・家賃は false。理由は docs/keiri.md 3-2。
+   *   この3つは「発生した日」と「払った日」がズレるので、
    *   レジから払った経費（その場で現金が減るお金）と混ぜると
    *   現金残高が合わなくなるため。
    */
@@ -45,6 +46,8 @@ export const ACCOUNTS: AccountDef[] = [
   { key: "sales", label: "売上高", side: "revenue", fromExpenseText: false },
   { key: "purchase", label: "仕入（材料）", side: "expense", fromExpenseText: true },
   { key: "booth_fee", label: "出店料", side: "expense", fromExpenseText: true },
+  // 事務所の家賃。日報からは取らず、毎月きまった額を自動で計上する（docs/keiri.md 5-3b）
+  { key: "rent", label: "家賃（事務所）", side: "expense", fromExpenseText: false },
   { key: "payroll", label: "人件費", side: "expense", fromExpenseText: false },
   {
     key: "outsourcing",
