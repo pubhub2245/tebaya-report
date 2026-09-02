@@ -28,7 +28,22 @@ export type ExpenseRow = {
   description: string;
   amount: number;
   receipt_image_url?: string | null;
+  /**
+   * レシート写真が無いときの理由（2026-09 追加）。
+   *
+   * 経費は原則レシート写真が要る。ただし「そもそもレシートが出ないお店」も
+   * あるので、理由を選べば写真なしでも進める（売上の内訳チェックと同じ考え方）。
+   * 選んだ理由は日報に残るので、あとから確かめられる。
+   */
+  no_receipt_reason?: string | null;
 };
+
+/** レシート写真が無いときに選べる理由 */
+export const NO_RECEIPT_REASONS = [
+  "レシートが出ないお店だった",
+  "レシートをもらい忘れた・失くした",
+  "その他",
+] as const;
 
 
 export type InventoryStatus = "○" | "△" | "×" | "";
