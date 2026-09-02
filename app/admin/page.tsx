@@ -375,6 +375,14 @@ export default function AdminPage() {
         👥 スタッフ別 稼働（給与計算の補助）
       </Link>
 
+      {/* 経理（今月の利益・今の現金・まだ払っていないお金）。設計は docs/keiri.md */}
+      <Link
+        href="/keiri"
+        className="block w-full bg-amber-700 hover:bg-amber-800 text-white font-bold text-base px-6 py-4 rounded-xl shadow-md text-center transition-colors"
+      >
+        🧮 経理（今月の利益・今の現金）
+      </Link>
+
       <MonthlyDashboard />
 
       <section className="space-y-3">
