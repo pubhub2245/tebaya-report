@@ -23,6 +23,8 @@ import {
   buildJournalRows,
   toCsv,
   expenseSlices,
+  mergedExpenseByAccount,
+  accountLabelForCsv,
   UNSET_LOCATION,
   TEBAYA_TEMPLATE,
   templateFor,
@@ -91,14 +93,14 @@ test("classifyExpense: 順番が大事（オイル交換は油ではなく車両
 });
 
 test("classifyExpense: 当たらないものは雑費（matched=false）", () => {
-  for (const text of ["さとみさん研修給", "検便", "前日マイナス分", "", null]) {
+  for (const text of ["検便", "前日マイナス分", "なぎさ仕込み給", "", null]) {
     const got = classifyExpense(text, T);
     assert.equal(got.account, "misc");
     assert.equal(got.matched, false);
   }
 });
 
-test("classifyExpense: 人件費・外注費・家賃には自動で振り分けない（現金残高を壊さないため）", () => {
+test("classifyExpense: 人件費（日当）・外注費・家賃には自動で振り分けない（現金残高を壊さないため）", () => {
   for (const text of [
     "仕込み時給(なぎさ)",
     "さとみさん研修給",
@@ -107,10 +109,32 @@ test("classifyExpense: 人件費・外注費・家賃には自動で振り分け
     "家賃",
   ]) {
     const got = classifyExpense(text, T);
+    // 「payroll」＝日報の日当（月に1回まとめて払う分）。ここには入れない
     assert.notEqual(got.account, "payroll", text);
     assert.notEqual(got.account, "outsourcing", text);
     assert.notEqual(got.account, "rent", text);
   }
+});
+
+test("classifyExpense: レジから当日払った給与は「人件費（当日払い）」に入る", () => {
+  for (const text of [
+    "さとみさん研修給",
+    "仕込み時給(なぎさ)",
+    "7/3(かずき)給与補填",
+    "8/20 日当",
+    "バイト代",
+    "給料",
+  ]) {
+    assert.equal(classifyExpense(text, T).account, "payroll_daily", text);
+  }
+});
+
+test("classifyExpense: レンタル・リースは賃借料に入る", () => {
+  for (const text of ["発電機レンタル", "テントのリース代", "机の賃借", "借用料"]) {
+    assert.equal(classifyExpense(text, T).account, "lease", text);
+  }
+  // 事務所の家賃は日報から取らない（賃借料にも入れない）
+  assert.notEqual(classifyExpense("家賃", T).account, "lease");
 });
 
 /* ---------- 外注費（Alpha） ---------- */
@@ -511,4 +535,129 @@ test("templateFor: 知らない業態コードでも落ちない（手羽屋テ�
   assert.equal(templateFor("tebaya").code, "tebaya");
   assert.equal(templateFor("しらない業態").code, "tebaya");
   assert.equal(templateFor(null).code, "tebaya");
+});
+
+/* ---------- 人件費（当日払い）と賃借料（2026-09 追加） ---------- */
+
+/**
+ * レジのお金から、その日のうちに払った給与のテスト。
+ *
+ * ★ここが崩れると「今の現金」が実際の手元のお金と合わなくなります。
+ *   - 利益     … 人件費として引く（日当と同じ扱い）
+ *   - 今の現金 … その日に引く（もうレジから出ているため）
+ *   - まだ払っていないお金 … 入れない（もう払ったため）
+ */
+const DAILY_PAY_REPORTS: KeiriReport[] = [
+  {
+    date: "2026-08-15",
+    location: "ながやま三股",
+    staff_name: "かずき",
+    sales_amount: 100000,
+    labor: 10000, // 月に1回まとめて払う日当
+    expenses: [
+      { description: "さとみさん研修給", amount: 5000 }, // レジから当日払った給与
+      { description: "発電機レンタル", amount: 3000 }, // 賃借料
+      { description: "肉代", amount: 20000 },
+    ],
+  },
+];
+
+test("summarizeMonth: 当日払いの給与は「人件費（当日払い）」に入り、日当とは別に数える", () => {
+  const s = summarizeMonth({
+    ym: "2026-08",
+    reports: DAILY_PAY_REPORTS,
+    template: T,
+    settings: NO_RENT,
+  });
+  assert.equal(s.expenseByAccount.payroll, 10000); // 日当だけ
+  assert.equal(s.expenseByAccount.payroll_daily, 5000); // 当日払いだけ
+  assert.equal(s.payrollDaily, 5000);
+  assert.equal(s.expenseByAccount.lease, 3000);
+  // 利益では両方とも経費として引かれる
+  assert.equal(s.expenseTotal, 10000 + 5000 + 3000 + 20000 + 10000); // ＋外注費10%
+  assert.equal(s.profit, 100000 - s.expenseTotal);
+});
+
+test("mergedExpenseByAccount: 表に出すときは「人件費」1行にまとめる", () => {
+  const s = summarizeMonth({
+    ym: "2026-08",
+    reports: DAILY_PAY_REPORTS,
+    template: T,
+    settings: NO_RENT,
+  });
+  const merged = mergedExpenseByAccount(s.expenseByAccount);
+  assert.equal(merged.payroll, 15000); // 日当10,000 ＋ 当日払い5,000
+  assert.equal(merged.payroll_daily, 0); // まとめ先に移したので0
+  assert.equal(merged.lease, 3000);
+  // まとめても合計は変わらない
+  const sum = Object.values(merged).reduce((a, b) => a + b, 0);
+  assert.equal(sum, s.expenseTotal);
+});
+
+test("calcUnpaid: 当日払いの給与は「まだ払っていないお金」に入らない", () => {
+  const u = calcUnpaid({
+    reports: DAILY_PAY_REPORTS,
+    payments: [],
+    settings: NO_RENT,
+    currentYm: "2026-08",
+  });
+  // 日当10,000だけが未払い。当日払いの5,000は入らない（もう払っているため）
+  assert.equal(u.payrollAccrued, 10000);
+  assert.equal(u.payroll, 10000);
+  assert.equal(u.outsourcing, 10000); // 売上100,000 × 10%
+  assert.equal(u.total, 20000);
+});
+
+test("calcCashPosition: 当日払いの給与はその日に現金から引かれる", () => {
+  const c = calcCashPosition({
+    reports: DAILY_PAY_REPORTS,
+    payments: [],
+    settings: NO_RENT,
+  });
+  // 経費の明細の合計（当日払いの給与5,000を含む）
+  assert.equal(c.expenses, 5000 + 3000 + 20000);
+  assert.equal(c.paid, 0); // 日当も外注費もまだ払っていない
+  assert.equal(c.balance, 0 + 100000 - 28000);
+});
+
+test("buildJournalRows: 当日払いの給与は「人件費 ／ 現金」の1行で出る", () => {
+  const rows = buildJournalRows({
+    ym: "2026-08",
+    reports: DAILY_PAY_REPORTS,
+    payments: [],
+    template: T,
+    settings: NO_RENT,
+  });
+  const row = rows.find((r) => r.note === "さとみさん研修給")!;
+  assert.ok(row, "当日払いの給与の行がある");
+  assert.equal(row.debitAccount, "人件費"); // 「人件費（当日払い）」ではない
+  assert.equal(row.creditAccount, "現金"); // 未払金を通さない
+  assert.equal(row.debitAmount, 5000);
+
+  const lease = rows.find((r) => r.note === "発電機レンタル")!;
+  assert.equal(lease.debitAccount, "賃借料（レンタル）");
+  assert.equal(lease.creditAccount, "現金");
+
+  // 日当のほうは今までどおり「人件費 ／ 未払金」
+  const labor = rows.find((r) => r.creditAccount === "未払金" && r.debitAmount === 10000)!;
+  assert.equal(labor.debitAccount, "人件費");
+});
+
+test("accountLabelForCsv: まとめ先のある科目はまとめ先の名前で書く", () => {
+  assert.equal(accountLabelForCsv("payroll_daily"), "人件費");
+  assert.equal(accountLabelForCsv("payroll"), "人件費");
+  assert.equal(accountLabelForCsv("lease"), "賃借料（レンタル）");
+});
+
+test("expenseSlices: グラフでも「人件費（当日払い）」は人件費にまとまる", () => {
+  const s = summarizeMonth({
+    ym: "2026-08",
+    reports: DAILY_PAY_REPORTS,
+    template: T,
+    settings: NO_RENT,
+  });
+  const slices = expenseSlices(s);
+  assert.equal(slices.filter((x) => x.key === "payroll_daily").length, 0);
+  assert.equal(slices.find((x) => x.key === "payroll")!.value, 15000);
+  assert.equal(slices.find((x) => x.key === "lease")!.value, 3000);
 });

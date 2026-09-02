@@ -15,7 +15,7 @@
  *   画面にも「未払金」という言葉は出しません（「まだ払っていないお金」と書きます）。
  */
 
-import { accountLabel } from "./accounts";
+import { accountLabel, accountLabelForCsv } from "./accounts";
 import { calcOutsourcing, inMonth, monthEnd, rentForMonth } from "./aggregate";
 import { amountOf, classifyExpense, expenseItemsOf } from "./classify";
 import { PAYMENT_KIND_LABEL, type BusinessTemplate, type KeiriPayment, type KeiriReport, type KeiriSettings } from "./types";
@@ -48,6 +48,7 @@ export const JOURNAL_HEADERS = [
  *
  * - 売上　　　： 現金 ／ 売上高
  * - 経費　　　： （科目） ／ 現金
+ *   （「人件費（当日払い）」もここ。「人件費 ／ 現金」の1行で書く）
  * - 人件費発生： 人件費 ／ 未払金（日報の日付）
  * - 外注費発生： 外注費（Alpha） ／ 未払金（その月の末日に1行だけ）
  * - 家賃発生　： 家賃（事務所） ／ 未払金（その月の末日に1行だけ）
@@ -92,9 +93,11 @@ export function buildJournalRows(params: {
       const amount = amountOf(item);
       if (amount === 0) continue;
       const { account } = classifyExpense(item.description, template);
+      // ★「人件費（当日払い）」は、CSVでは「人件費 ／ 現金」の1行で書きます
+      //   （発生と支払いを分けません。もうその場で払っているため。docs/keiri.md 6章）
       rows.push({
         date: r.date,
-        debitAccount: accountLabel(account),
+        debitAccount: accountLabelForCsv(account),
         debitAmount: amount,
         creditAccount: CASH,
         creditAmount: amount,

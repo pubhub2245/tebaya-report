@@ -26,11 +26,12 @@ import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
 import {
   DEFAULT_SETTINGS,
-  EXPENSE_ACCOUNTS,
+  DISPLAY_EXPENSE_ACCOUNTS,
   buildJournalRows,
   calcCashPosition,
   calcUnpaid,
   expenseSlices,
+  mergedExpenseByAccount,
   monthKey,
   summarizeByLocation,
   summarizeMonth,
@@ -169,6 +170,11 @@ function KeiriInner() {
   );
 
   const slices = useMemo(() => expenseSlices(summary), [summary]);
+  // 表に出す金額。「人件費（当日払い）」は「人件費」の行にまとめる（docs/keiri.md 3-3）
+  const mergedExpense = useMemo(
+    () => mergedExpenseByAccount(summary.expenseByAccount),
+    [summary],
+  );
 
   const shiftMonth = (delta: number) => {
     const d = new Date(year, month - 1 + delta, 1);
@@ -287,7 +293,7 @@ function KeiriInner() {
                     {yen(summary.sales)}
                   </td>
                 </tr>
-                {EXPENSE_ACCOUNTS.map((a) => (
+                {DISPLAY_EXPENSE_ACCOUNTS.map((a) => (
                   <tr key={a.key} className="border-b border-stone-100">
                     <td className="py-2 pl-3 text-stone-700">
                       {a.label}
@@ -298,7 +304,11 @@ function KeiriInner() {
                       )}
                       {a.key === "payroll" && (
                         <span className="text-xs text-stone-400">
-                          （日報の日当の合計）
+                          （日報の日当の合計
+                          {summary.payrollDaily > 0 && (
+                            <>／うち当日払い {yen(summary.payrollDaily)}</>
+                          )}
+                          ）
                         </span>
                       )}
                       {a.key === "rent" && (
@@ -308,7 +318,7 @@ function KeiriInner() {
                       )}
                     </td>
                     <td className="py-2 text-right tabular-nums">
-                      {yen(summary.expenseByAccount[a.key])}
+                      {yen(mergedExpense[a.key])}
                     </td>
                   </tr>
                 ))}

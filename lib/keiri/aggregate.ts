@@ -12,6 +12,7 @@
 
 import { canonicalLocationName } from "../locationName";
 import {
+  DISPLAY_EXPENSE_ACCOUNTS,
   EXPENSE_ACCOUNTS,
   type AccountKey,
   type ExpenseAccountKey,
@@ -103,8 +104,10 @@ export type MonthlySummary = {
   expenseTotal: number;
   /** 利益 ＝ 売上高 − 経費合計 */
   profit: number;
-  /** 人件費（日報の日当の合計） */
+  /** 人件費（日報の日当の合計。月に1回まとめて払う分） */
   payroll: number;
+  /** 人件費のうち、レジのお金からその日に払った分（docs/keiri.md 3-3） */
+  payrollDaily: number;
   /** 外注費（売上高 × 率） */
   outsourcing: number;
   /** 家賃（事務所。毎月きまった額） */
@@ -118,6 +121,24 @@ export type MonthlySummary = {
 function emptyExpenseByAccount(): Record<ExpenseAccountKey, number> {
   const out = {} as Record<ExpenseAccountKey, number>;
   for (const a of EXPENSE_ACCOUNTS) out[a.key] = 0;
+  return out;
+}
+
+/**
+ * 画面に出すために、まとめ先のある科目を合算する。
+ *
+ * いまのところ「人件費（当日払い）」→「人件費」の1つだけです。
+ * 計算の中では別々に持っています（現金の減り方が違うため。docs/keiri.md 3-3）が、
+ * 人が見る表とグラフでは「人件費」1行にまとめて出します。
+ */
+export function mergedExpenseByAccount(
+  byAccount: Record<ExpenseAccountKey, number>,
+): Record<ExpenseAccountKey, number> {
+  const out = emptyExpenseByAccount();
+  for (const a of EXPENSE_ACCOUNTS) {
+    const target = (a.mergeInto ?? a.key) as ExpenseAccountKey;
+    out[target] += byAccount[a.key] ?? 0;
+  }
   return out;
 }
 
@@ -198,6 +219,7 @@ export function summarizeMonth(params: {
     expenseTotal,
     profit: sales - expenseTotal,
     payroll,
+    payrollDaily: expenseByAccount.payroll_daily,
     outsourcing,
     rent,
     reportCount: target.length,
@@ -270,6 +292,7 @@ export function calcRentAccrued(settings: KeiriSettings, currentYm: string): num
  *   その時点で未払いも0円だったからです（docs/keiri.md 4章）。
  *
  * - 給与　… 期首日以降の日報の日当を足す
+ *           （★「人件費（当日払い）」は入れません。もう払っているためです。docs/keiri.md 3-3）
  * - 外注費… 「月ごとに、その月の（期首日以降の）売上高 × 率」を足す
  * - 家賃　… 「数え始める月から今月まで」の月数 × 毎月の家賃
  *
@@ -333,7 +356,7 @@ export type CashPosition = {
   openingDate: string;
   /** 期首日以降の売上合計 */
   sales: number;
-  /** 期首日以降の経費合計（人件費・外注費・家賃を除く＝日報の明細の合計） */
+  /** 期首日以降の経費合計（日報の明細の合計。＝人件費（当日払い）は含み、日当・外注費・家賃は含まない） */
   expenses: number;
   /** 期首日以降に払った給与・外注費・家賃の合計 */
   paid: number;
@@ -349,8 +372,12 @@ export type CashPosition = {
  *            − 期首日以降の経費合計（人件費・外注費・家賃を除く）
  *            − 給与・Alpha・家賃への支払いの累計
  *
- * ★経費の明細は人件費・外注費・家賃には振り分けない決まりなので（docs/keiri.md 3-2）、
- *   「この3つを除いた経費合計」＝「日報の経費明細の合計」になります。
+ * ★経費の明細は「人件費（日報の日当）」「外注費」「家賃」には振り分けない決まりなので
+ *   （docs/keiri.md 3-2）、「この3つを除いた経費合計」＝「日報の経費明細の合計」になります。
+ *
+ * ★「人件費（当日払い）」はレジのお金からその日に出ているので、
+ *   明細の合計に**入ったまま**で正しいです（docs/keiri.md 3-3）。
+ *   ここから外すと、実際には減っているお金が減らないことになってしまいます。
  */
 export function calcCashPosition(params: {
   reports: KeiriReport[];
@@ -463,9 +490,10 @@ export type ExpenseSlice = { key: AccountKey; label: string; value: number };
 
 /** ドーナツグラフ用に、金額が0より大きい科目だけを取り出す */
 export function expenseSlices(summary: MonthlySummary): ExpenseSlice[] {
-  return EXPENSE_ACCOUNTS.map((a) => ({
+  const merged = mergedExpenseByAccount(summary.expenseByAccount);
+  return DISPLAY_EXPENSE_ACCOUNTS.map((a) => ({
     key: a.key as AccountKey,
     label: a.label,
-    value: summary.expenseByAccount[a.key],
+    value: merged[a.key],
   })).filter((s) => s.value > 0);
 }
