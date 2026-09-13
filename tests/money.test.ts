@@ -203,6 +203,7 @@ test("calcBoothFee: 売上の◯％（1円未満は切り捨て）", () => {
 });
 
 test("calcBoothFee: 定額はそのまま", () => {
+  assert.equal(calcBoothFee({ type: "fixed", amount: 2200 }, 23800), 2200);
   assert.equal(calcBoothFee({ type: "fixed", amount: 5000 }, 19250), 5000);
   assert.equal(calcBoothFee({ type: "fixed", amount: 8250 }, 0), 8250);
 });
@@ -223,5 +224,5 @@ test("calcBoothFee: 売上がマイナスや空でも落ちない", () => {
 test("boothFeeRuleText: 人に見せる言葉にする", () => {
   assert.equal(boothFeeRuleText({ type: "percent", rate: 10 }), "売上の10％");
   assert.equal(boothFeeRuleText({ type: "fixed", amount: 8250 }), "定額 8,250円");
-  assert.equal(boothFeeRuleText({ type: "none" }), "設定なし");
+  assert.equal(boothFeeRuleText({ type: "none" }), "なし（0円）");
 });

@@ -181,9 +181,9 @@ export function calcCashBalance(params: {
 /**
  * 出店料（場代）の決まり。**出店場所マスタ（locations）が正**（→ CLAUDE.md 4-15）。
  *
- *   percent … 売上の◯％（例：ながやま系・PASIO系・AZ隼人 = 10％）
- *   fixed   … 定額（例：ニシムタ 5,000円 / イオンモール 8,250円）
- *   none    … 決まりが無い・まだ分かっていない（自動では入れない）
+ *   percent … 売上の◯％（例：ながやま系・AZ隼人 = 10％）
+ *   fixed   … 定額（例：PASIO系 2,200円 / ニシムタ 5,000円 / イオンモール 8,250円）
+ *   none    … 場代が無い（0円）・まだ分かっていない（どちらも自動では入れない）
  */
 export type BoothFeeRule = {
   type: "none" | "percent" | "fixed";
@@ -223,7 +223,7 @@ export function calcBoothFee(
 
 /** 決まりを人に見せる言葉にする（「売上の10％」「定額 ¥5,000」） */
 export function boothFeeRuleText(rule: BoothFeeRule | null | undefined): string {
-  if (!rule || rule.type === "none") return "設定なし";
+  if (!rule || rule.type === "none") return "なし（0円）";
   if (rule.type === "percent") return `売上の${Number(rule.rate) || 0}％`;
   return `定額 ${(Number(rule.amount) || 0).toLocaleString("ja-JP")}円`;
 }

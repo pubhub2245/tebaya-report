@@ -410,7 +410,7 @@ export default function LocationMaster() {
                       })
                     }
                   >
-                    <option value="none">なし・未設定</option>
+                    <option value="none">なし（0円）</option>
                     <option value="percent">売上の◯％</option>
                     <option value="fixed">定額</option>
                   </select>

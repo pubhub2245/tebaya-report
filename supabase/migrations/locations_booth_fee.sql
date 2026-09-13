@@ -13,14 +13,14 @@
 --   金額はその場で直せる（お祭りなど、いつもと違うときのため）。
 --
 -- ■ 列の意味
---   booth_fee_type  : 'percent'（売上の◯％） / 'fixed'（定額） / 'none'（なし・未設定）
+--   booth_fee_type  : 'percent'（売上の◯％） / 'fixed'（定額） / 'none'（0円・未設定）
 --   booth_fee_rate  : percent のときの割合。10 なら 10％
 --   booth_fee_amount: fixed のときの金額（円）
 --
 -- ■ 入れる値（2026-09 ユーザー確認ずみ）
---   売上の10％：ながやま6店 ／ PASIO4店 ／ AZ隼人
---   定額      ：ニシムタ 5,000円 ／ イオンモール 8,250円
---   なし      ：上記以外（マンガ倉庫などは決まりが分かり次第マスタで設定する）
+--   売上の10％：ながやま6店 ／ AZ隼人
+--   定額      ：PASIO4店 2,200円 ／ ニシムタ 5,000円 ／ イオンモール 8,250円
+--   なし(0円) ：マンガ倉庫（場代そのものが無い）／ 決まりが未確認のところ
 --   ※1円未満は発生しない（切り捨て）。
 
 alter table public.locations
@@ -41,8 +41,12 @@ update public.locations
    set booth_fee_type = 'percent', booth_fee_rate = 10, booth_fee_amount = null
  where name in ('ながやま三股','ながやま若葉','ながやま山田','ながやま都北',
                 'ながやま志比田','ながやま鷹尾',
-                'PASIO高城','PASIO早鈴','PASIO志比田','PASIO鷹尾',
                 'AZ隼人');
+
+-- 定額（PASIO系は4店とも 2,200円）
+update public.locations
+   set booth_fee_type = 'fixed', booth_fee_amount = 2200, booth_fee_rate = null
+ where name in ('PASIO高城','PASIO早鈴','PASIO志比田','PASIO鷹尾');
 
 -- 定額
 update public.locations
@@ -52,3 +56,8 @@ update public.locations
 update public.locations
    set booth_fee_type = 'fixed', booth_fee_amount = 8250, booth_fee_rate = null
  where name = 'イオンモール';
+
+-- 場代そのものが無いところ（0円）。自動では行を作らない
+update public.locations
+   set booth_fee_type = 'none', booth_fee_rate = null, booth_fee_amount = null
+ where name = 'マンガ倉庫';
