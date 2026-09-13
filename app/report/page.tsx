@@ -21,6 +21,7 @@ import { NO_RECEIPT_REASONS } from "@/lib/formState";
 import { fetchStaffWages, makeLaborFor, type StaffWageMap } from "@/lib/staffWage";
 import { getUnitFromStaff } from "@/lib/teamMapping";
 import { getLimitedProductForMonth } from "@/lib/limitedProduct";
+import { recalcRankForLocation } from "@/lib/locationRankUpdate";
 import {
   computeSalesBreakdown,
   priceSnapshot,
@@ -423,6 +424,14 @@ export default function Page() {
       if (error) throw error;
       setSavedId(data.id);
       sessionStorage.removeItem(STORAGE_KEY);
+
+      // 出店先ランクの自動判定（直近8回の実績でマスタを見直す）。
+      // ★失敗しても日報は保存済み。ここで止めないこと（→ lib/locationRankUpdate.ts）
+      try {
+        await recalcRankForLocation(form.location);
+      } catch (e) {
+        console.warn("ランクの自動判定でエラー（日報は保存済み）", e);
+      }
 
       // LINE自動送信（失敗しても提出は成功とする）
       try {

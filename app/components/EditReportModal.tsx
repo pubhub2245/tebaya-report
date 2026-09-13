@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { recalcRankForLocation } from "@/lib/locationRankUpdate";
 import { yen } from "@/lib/format";
 import { NO_RECEIPT_REASONS } from "@/lib/formState";
 
@@ -236,6 +237,17 @@ export default function EditReportModal({
       setSaving(false);
       setError(`保存に失敗しました: ${upErr.message}`);
       return;
+    }
+
+    // 出店先ランクの自動判定（売上や場所を直したら、その場所を見直す）。
+    // ★失敗しても保存は成功扱い（→ lib/locationRankUpdate.ts）
+    try {
+      await recalcRankForLocation(patch.location);
+      if (report.location && patch.location !== report.location) {
+        await recalcRankForLocation(report.location);
+      }
+    } catch {
+      // ランク判定の失敗で編集そのものを失敗にしない
     }
 
     // 履歴を残す（失敗しても保存自体は成功扱いにする）
