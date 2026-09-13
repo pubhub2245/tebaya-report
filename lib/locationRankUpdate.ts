@@ -47,13 +47,14 @@ export async function fetchRankLocations(): Promise<RankLocationRow[]> {
 /**
  * 判定に使う日報を読む。
  * ★ 集計に要るのは日付・場所・売上だけ。経費の明細は絶対に取らない（→ CLAUDE.md 4-2）。
+ * ★「集計から外す」がONの日報も取ってくるが、判定では数えない（→ lib/locationRank.ts）。
  */
 async function fetchRankReports(): Promise<
   (RankReport & { location: string | null })[]
 > {
   const { data, error } = await supabase
     .from("daily_reports")
-    .select("date, location, sales_amount")
+    .select("date, location, sales_amount, exclude_from_stats")
     .order("date", { ascending: false });
   if (error) throw error;
   return (data as (RankReport & { location: string | null })[]) || [];

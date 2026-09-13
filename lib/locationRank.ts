@@ -65,6 +65,8 @@ export function isRankCode(v: string | null | undefined): v is RankCode {
 export type RankReport = {
   date: string;
   sales_amount: number | null;
+  /** true の日報は「集計から外す」扱い。平均・回数・ランク判定に数えない */
+  exclude_from_stats?: boolean | null;
 };
 
 /** 1日ぶんに合算した売上 */
@@ -80,6 +82,8 @@ export type DailySale = {
 export function toDailySales(reports: RankReport[]): DailySale[] {
   const byDate = new Map<string, number>();
   for (const r of reports) {
+    // 「集計から外す」がONの日報は、回数にも平均にも数えない
+    if (r.exclude_from_stats) continue;
     const date = (r.date || "").trim();
     if (!date) continue;
     byDate.set(date, (byDate.get(date) || 0) + (r.sales_amount || 0));
@@ -209,7 +213,9 @@ export function buildRankPlans(
     // 判定できなかったときの参考表示用（今ある回数ぶんの平均）
     const fallbackCount = Math.min(
       RECENT_VISITS,
-      new Set(mine.map((r) => r.date)).size,
+      new Set(
+        mine.filter((r) => !r.exclude_from_stats).map((r) => r.date),
+      ).size,
     );
     const average = judged?.average ?? 0;
     const sampleCount = judged?.sampleCount ?? fallbackCount;

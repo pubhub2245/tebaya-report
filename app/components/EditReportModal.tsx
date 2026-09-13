@@ -32,6 +32,8 @@ export type EditableReport = {
   sales_amount: number | null;
   labor: number | null;
   register_diff: number | null;
+  /** true のとき、出店先の平均・ランク判定から外す（売上の金額には影響しない） */
+  exclude_from_stats?: boolean | null;
 };
 
 type EditRow = {
@@ -50,6 +52,7 @@ const FIELD_LABEL: Record<string, string> = {
   sales_amount: "売上",
   labor: "日当",
   register_diff: "レジ差異",
+  exclude_from_stats: "集計から外す",
   expenses: "経費",
 };
 
@@ -82,6 +85,7 @@ function normalizeForCompare(v: any) {
 }
 
 function showVal(v: any): string {
+  if (typeof v === "boolean") return v ? "はい" : "いいえ";
   if (v === null || v === undefined || v === "") return "（空）";
   if (Array.isArray(v)) return expensesToText(v);
   return String(v);
@@ -106,6 +110,9 @@ export default function EditReportModal({
   const [sales, setSales] = useState(String(report.sales_amount ?? ""));
   const [labor, setLabor] = useState(String(report.labor ?? ""));
   const [regDiff, setRegDiff] = useState(String(report.register_diff ?? ""));
+  const [excludeFromStats, setExcludeFromStats] = useState(
+    !!report.exclude_from_stats,
+  );
   const [editor, setEditor] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -186,6 +193,7 @@ export default function EditReportModal({
       sales_amount: salesN,
       labor: laborN,
       register_diff: regN,
+      exclude_from_stats: excludeFromStats,
     };
     // 明細を読み込めているときだけ経費を書き戻す
     // （読み込みに失敗しているのに空で上書きして消してしまわないように）
@@ -207,6 +215,7 @@ export default function EditReportModal({
       sales_amount: report.sales_amount,
       labor: report.labor,
       register_diff: report.register_diff,
+      exclude_from_stats: !!report.exclude_from_stats,
     };
     if (canSaveExpenses) before.expenses = expensesBefore;
 
@@ -272,6 +281,7 @@ export default function EditReportModal({
       sales_amount: patch.sales_amount,
       labor: patch.labor,
       register_diff: patch.register_diff,
+      exclude_from_stats: patch.exclude_from_stats,
     });
   };
 
@@ -390,6 +400,26 @@ export default function EditReportModal({
               onChange={(e) => setRegDiff(e.target.value)}
               placeholder="0（過不足なし）"
             />
+          </div>
+
+          {/* 集計から外すスイッチ */}
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 space-y-1">
+            <label className="flex items-start gap-2 text-sm font-bold text-amber-900">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={excludeFromStats}
+                onChange={(e) => setExcludeFromStats(e.target.checked)}
+              />
+              この日報を集計から外す
+            </label>
+            <p className="text-[11px] text-amber-800/80 leading-relaxed">
+              ふだんと条件がまるで違う日（2人体制・お祭りと同時など）を、
+              出店先の<span className="font-bold">平均売上・出店回数・ランク判定</span>
+              から外します。
+              <span className="font-bold">売上の金額はそのまま残ります</span>
+              （月次集計や経理の数字は変わりません）。
+            </p>
           </div>
 
           {/* 経費の明細とレシート写真 */}
@@ -585,8 +615,8 @@ export default function EditReportModal({
         )}
 
         <p className="text-[11px] text-stone-400 leading-relaxed">
-          ※ ここで直せるのは日付・担当・お店・場所・売上・日当・レジ差異と、
-          レジから払った経費（内容・金額）です。
+          ※ ここで直せるのは日付・担当・お店・場所・売上・日当・レジ差異・
+          「集計から外す」と、レジから払った経費（内容・金額）です。
           商品ごとの本数など細かい項目は、日報を出し直す（削除して再入力）必要があります。
         </p>
       </div>

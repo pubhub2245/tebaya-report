@@ -27,7 +27,9 @@ export default function ReportEditPage() {
     setError(null);
     const { data, error } = await supabase
       .from("daily_reports")
-      .select("id, date, location, staff_name, shop, sales_amount, labor, register_diff")
+      .select(
+        "id, date, location, staff_name, shop, sales_amount, labor, register_diff, exclude_from_stats",
+      )
       .order("date", { ascending: false })
       .limit(60);
     if (error) setError(error.message);

@@ -164,6 +164,8 @@ type ReportRow = {
   date: string;
   location: string;
   sales_amount: number | null;
+  /** true の日報は「集計から外す」扱い。平均・回数・ランク判定に数えない */
+  exclude_from_stats?: boolean | null;
 };
 
 // -----------------------------------------------------------------------------
@@ -231,8 +233,11 @@ export function computeOutletStats(
   }
 
   // 名寄せ後の名前でグループ化
+  // ★「集計から外す」がONの日報は、ここで落とす。
+  //   （売上そのものは消さない。月次集計・経理には今まで通り入っている）
   const groups = new Map<string, ReportRow[]>();
   for (const r of reports) {
+    if (r.exclude_from_stats) continue;
     const name = normalizeOutletName(r.location);
     if (!name) continue;
     const list = groups.get(name) || [];
@@ -358,7 +363,9 @@ export async function getOutletAnalytics(): Promise<OutletStats[]> {
   const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
   const [repRes, shiftRes, locRes] = await Promise.all([
-    supabase.from("daily_reports").select("date, location, sales_amount"),
+    supabase
+      .from("daily_reports")
+      .select("date, location, sales_amount, exclude_from_stats"),
     // 当月の予定出店（シフト）。中止は除く。
     supabase
       .from("shifts")
