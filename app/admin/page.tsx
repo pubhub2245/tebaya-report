@@ -36,6 +36,8 @@ type Report = {
   labor: number | null;
   /** 経費の合計（DB側で自動計算）。明細＝レシート写真は取得しない */
   expenses_total: number | null;
+  /** true のとき、出店先の平均・ランク判定から外している日報 */
+  exclude_from_stats?: boolean | null;
 };
 
 type Alert = {
@@ -146,7 +148,7 @@ export default function AdminPage() {
           supabase
             .from("daily_reports")
             .select(
-              "id, date, location, staff_name, shop, sales_amount, register_diff, labor, expenses_total"
+              "id, date, location, staff_name, shop, sales_amount, register_diff, labor, expenses_total, exclude_from_stats"
             )
             .order("date", { ascending: false })
             .limit(30),
@@ -669,7 +671,17 @@ export default function AdminPage() {
                     className="border-b border-stone-100 last:border-b-0"
                   >
                     <td className="py-2 pr-3">{slashDate(r.date)}</td>
-                    <td className="py-2 pr-3">{r.location}</td>
+                    <td className="py-2 pr-3">
+                      {r.location}
+                      {r.exclude_from_stats && (
+                        <span
+                          className="ml-1 text-[10px] bg-amber-100 text-amber-800 rounded px-1 py-0.5 align-middle"
+                          title="出店先の平均・ランク判定から外しています（売上の金額はそのまま）"
+                        >
+                          集計外
+                        </span>
+                      )}
+                    </td>
                     <td className="py-2 pr-3">{r.staff_name}</td>
                     <td className="py-2 pr-3 text-right font-mono">
                       {yen(r.sales_amount || 0)}

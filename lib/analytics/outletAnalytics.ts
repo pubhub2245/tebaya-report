@@ -5,12 +5,30 @@
  *   ページを開いたときに「その場で」集計する（キャッシュ・cron なし）。
  * - 店舗名は normalizeOutletName で名寄せしてから集計する。
  *
+ * ★ ランクは**この画面では計算しない**（2026-09 変更）。
+ *   以前はここで平均売上からA〜Dを自分で決めていたが、出店場所マスタ
+ *   （locations.rank）の等級と食い違い、同じ画面に「目標 ¥30,000（D）」と
+ *   「B」が並ぶ状態になっていた。いまはランクの決め方を lib/locationRank.ts に
+ *   一本化し、日報が保存されるたびにマスタを自動で書き換えている。
+ *   この画面は **マスタの値をそのまま表示する**。
+ *
  * ★ しきい値・損益分岐ラインなどの「あとで変えたくなる数字」は
- *    すべてこのファイル冒頭の定数に集約している。
+ *    すべてこのファイル冒頭の定数に集約している（目標額だけは
+ *    lib/locationRank.ts の RANK_TARGET が唯一の置き場所）。
  */
 
 import { supabase } from "@/lib/supabase";
 import { normalizeOutletName, isEventOutlet } from "./locationNormalizer";
+import {
+  RANK_TARGET,
+  RECENT_VISITS,
+  isRankCode,
+  judgeRank,
+  nextRankInfo,
+  recentAverage as recentAverageOf,
+  toDailySales,
+  type RankCode,
+} from "@/lib/locationRank";
 
 // -----------------------------------------------------------------------------
 // 定数（あとで変えたくなる数字はここに集約）
@@ -29,14 +47,12 @@ export const HOURS_CHANGE_DATE = "2026-06-10";
 /** ランク判定に必要な最低出店回数（これ未満は「データ不足」扱い） */
 export const MIN_REPORTS_FOR_RANK = 3;
 
-export type RankCode = "A" | "B" | "C" | "D";
+export type { RankCode };
 
-/** ランク定義（平均売上のしきい値で自動判定） */
+/** ランク定義（月の出店上限など、ランクにひもづく決めごと） */
 export type RankDef = {
   code: RankCode;
-  /** この平均売上「以上」なら該当（円） */
-  minAverage: number;
-  /** 1出店あたり目標（円） */
+  /** 1出店あたり目標（円）。lib/locationRank.ts の RANK_TARGET と同じ値 */
   target: number;
   /** 月の出店上限（回） */
   monthlyLimit: number;
@@ -47,32 +63,27 @@ export type RankDef = {
 };
 
 /**
- * 上から順（高い方から）に判定する。
- *  A: 平均 3万〜4万 ／目標4万／月上限6回
- *  B: 平均 2.5万〜3万 ／目標3万／月上限4回
- *  C: 平均 2万〜2.5万 ／目標2.5万／月上限4回
- *  D: 平均 2万以下 ／目標2万／チャレンジ（全店合計 月2回まで）
+ * ランクごとの決めごと（上＝強い順）。
+ * 目標額は lib/locationRank.ts の RANK_TARGET から取る（二重に書かない）。
+ * ※ S の月上限は今まで定義が無かったので、いったん A と同じ「月6回まで」にしている。
  */
 export const RANK_DEFS: RankDef[] = [
-  { code: "A", minAverage: 30000, target: 40000, monthlyLimit: 6, monthlyLimitLabel: "月6回まで" },
-  { code: "B", minAverage: 25000, target: 30000, monthlyLimit: 4, monthlyLimitLabel: "月4回まで" },
-  { code: "C", minAverage: 20000, target: 25000, monthlyLimit: 4, monthlyLimitLabel: "月4回まで" },
+  { code: "S", target: RANK_TARGET.S, monthlyLimit: 6, monthlyLimitLabel: "月6回まで" },
+  { code: "A", target: RANK_TARGET.A, monthlyLimit: 6, monthlyLimitLabel: "月6回まで" },
+  { code: "B", target: RANK_TARGET.B, monthlyLimit: 4, monthlyLimitLabel: "月4回まで" },
+  { code: "C", target: RANK_TARGET.C, monthlyLimit: 4, monthlyLimitLabel: "月4回まで" },
   {
     code: "D",
-    minAverage: 0,
-    target: 20000,
+    target: RANK_TARGET.D,
     monthlyLimit: 2,
     aggregate: true,
     monthlyLimitLabel: "チャレンジ枠（全店合計 月2回まで）",
   },
 ];
 
-/** 平均売上から A〜D を判定する純関数 */
-export function rankFromAverage(average: number): RankDef {
-  for (const def of RANK_DEFS) {
-    if (average >= def.minAverage) return def;
-  }
-  return RANK_DEFS[RANK_DEFS.length - 1];
+/** ランク記号 → 決めごと（無ければ null） */
+export function rankDefOf(code: string | null | undefined): RankDef | null {
+  return RANK_DEFS.find((d) => d.code === code) ?? null;
 }
 
 // -----------------------------------------------------------------------------
@@ -82,7 +93,7 @@ export function rankFromAverage(average: number): RankDef {
 /** 平均の根拠（最新 か 参考値 か） */
 export type AverageBasis = "latest" | "allPeriod";
 
-/** ランク区分（A〜D / データ不足 / イベント枠） */
+/** ランク区分（S〜D / データ不足 / イベント枠） */
 export type RankKind = RankCode | "INSUFFICIENT" | "EVENT";
 
 /** 曜日別の平均（月→日の順で7要素。データが無い曜日は null） */
@@ -92,21 +103,41 @@ export type WeekdayAverage = {
   averages: (number | null)[];
 };
 
+/** 出店場所マスタ（locations）のうち、集計に使う列 */
+export type OutletMaster = {
+  name: string;
+  rank: string | null;
+  target: number | null;
+  rank_locked?: boolean | null;
+};
+
 export type OutletStats = {
   /** 名寄せ後の正式名 */
   name: string;
-  /** ランク区分 */
+  /** ランク区分（マスタの locations.rank が正） */
   rankKind: RankKind;
-  /** A〜D に該当する場合の定義（INSUFFICIENT/EVENT のときは null） */
+  /** S〜D に該当する場合の決めごと（INSUFFICIENT/EVENT のときは null） */
   rankDef: RankDef | null;
-  /** 表示する平均売上（円） */
+  /** 1出店あたりの目標額（マスタの locations.target。無ければランク既定値） */
+  target: number | null;
+  /** マスタで「自動判定しない（固定）」になっているか */
+  rankLocked: boolean;
+  /** 表示する平均売上（円。6/10以降があればその平均、無ければ全期間） */
   average: number;
   /** 平均の根拠（最新 / 参考値） */
   basis: AverageBasis;
-  /** 平均・ランクの根拠にした出店回数 */
+  /** 平均・表示の根拠にした出店回数 */
   reportCount: number;
   /** 全期間の総出店回数（参考表示用） */
   totalReportCount: number;
+  /** ランク判定に使う「直近8回」の平均売上（円） */
+  recentAverage: number;
+  /** 直近8回の実際の回数（3回未満なら判定していない） */
+  recentCount: number;
+  /** 次のランク（S のときや判定できないときは null） */
+  nextRank: RankCode | null;
+  /** 次のランクまであといくら（円）。nextRank が null のときは null */
+  toNextRank: number | null;
   /** 損益分岐ラインを超えているか（average >= BREAK_EVEN_LINE） */
   aboveBreakEven: boolean;
   /** 曜日別平均 */
@@ -133,6 +164,8 @@ type ReportRow = {
   date: string;
   location: string;
   sales_amount: number | null;
+  /** true の日報は「集計から外す」扱い。平均・回数・ランク判定に数えない */
+  exclude_from_stats?: boolean | null;
 };
 
 // -----------------------------------------------------------------------------
@@ -176,7 +209,16 @@ export function computeOutletStats(
   yearMonth?: string,
   /** 予定出店（シフト等）。対象月ぶんを渡すと残り回数に反映する */
   planned: PlannedOutlet[] = [],
+  /** 出店場所マスタ。ランクはここが正（渡さないとランクは付かない） */
+  masters: OutletMaster[] = [],
 ): OutletStats[] {
+  // マスタを名寄せ名で引けるようにする
+  const masterByName = new Map<string, OutletMaster>();
+  for (const m of masters) {
+    const nm = normalizeOutletName(m.name);
+    if (nm) masterByName.set(nm, m);
+  }
+
   // 予定出店を名寄せ名ごとの日付集合に（対象月のみ）
   const plannedByName = new Map<string, Set<string>>();
   if (yearMonth) {
@@ -191,8 +233,11 @@ export function computeOutletStats(
   }
 
   // 名寄せ後の名前でグループ化
+  // ★「集計から外す」がONの日報は、ここで落とす。
+  //   （売上そのものは消さない。月次集計・経理には今まで通り入っている）
   const groups = new Map<string, ReportRow[]>();
   for (const r of reports) {
+    if (r.exclude_from_stats) continue;
     const name = normalizeOutletName(r.location);
     if (!name) continue;
     const list = groups.get(name) || [];
@@ -211,17 +256,28 @@ export function computeOutletStats(
     const reportCount = effective.length;
     const totalReportCount = all.length;
 
-    // ランク区分の判定
+    // 直近8回（1日1件に合算）の平均＝ランク自動判定の根拠
+    const daily = toDailySales(all);
+    const recent = recentAverageOf(daily, RECENT_VISITS);
+
+    // ランク区分：出店場所マスタ（locations.rank）が正。画面では計算しない。
+    const master = masterByName.get(name) ?? null;
     let rankKind: RankKind;
     let rankDef: RankDef | null = null;
-    if (isEventOutlet(name)) {
+    if (master && isRankCode(master.rank)) {
+      rankKind = master.rank;
+      rankDef = rankDefOf(master.rank);
+    } else if (isEventOutlet(name)) {
       rankKind = "EVENT";
-    } else if (reportCount < MIN_REPORTS_FOR_RANK) {
-      rankKind = "INSUFFICIENT";
     } else {
-      rankDef = rankFromAverage(avg);
-      rankKind = rankDef.code;
+      rankKind = "INSUFFICIENT";
     }
+
+    // 「次のランクまで あと ¥◯◯」（マスタにランクがあるときだけ）
+    const next =
+      isRankCode(rankKind) && recent.count >= 1
+        ? nextRankInfo(rankKind, recent.average)
+        : null;
 
     // 今月の消化＝実績(日報)＋予定(シフト)。同じ日は二重に数えない。
     const actualDates = new Set<string>();
@@ -241,10 +297,18 @@ export function computeOutletStats(
       name,
       rankKind,
       rankDef,
+      target:
+        master?.target ??
+        (isRankCode(rankKind) ? RANK_TARGET[rankKind] : null),
+      rankLocked: !!master?.rank_locked,
       average: avg,
       basis,
       reportCount,
       totalReportCount,
+      recentAverage: recent.average,
+      recentCount: recent.count,
+      nextRank: next?.nextRank ?? null,
+      toNextRank: next?.needed ?? null,
       aboveBreakEven: avg >= BREAK_EVEN_LINE,
       weekday: buildWeekdayAverage(effective),
       usedThisMonth,
@@ -277,7 +341,7 @@ export function computeOutletStats(
   }
 
   // 並び順:
-  //  1) A〜D ランク確定店 → 2) データ不足 → 3) イベント枠
+  //  1) S〜D ランク確定店 → 2) データ不足 → 3) イベント枠
   //  各グループ内では平均売上の高い順
   const tier = (k: RankKind): number =>
     k === "INSUFFICIENT" ? 1 : k === "EVENT" ? 2 : 0;
@@ -298,8 +362,10 @@ export async function getOutletAnalytics(): Promise<OutletStats[]> {
   const now = new Date();
   const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-  const [repRes, shiftRes] = await Promise.all([
-    supabase.from("daily_reports").select("date, location, sales_amount"),
+  const [repRes, shiftRes, locRes] = await Promise.all([
+    supabase
+      .from("daily_reports")
+      .select("date, location, sales_amount, exclude_from_stats"),
     // 当月の予定出店（シフト）。中止は除く。
     supabase
       .from("shifts")
@@ -307,6 +373,8 @@ export async function getOutletAnalytics(): Promise<OutletStats[]> {
       .neq("status", "cancelled")
       .gte("date", `${yearMonth}-01`)
       .lte("date", `${yearMonth}-31`),
+    // 出店場所マスタ（ランク・目標はここが正）
+    supabase.from("locations").select("name, rank, target, rank_locked"),
   ]);
   if (repRes.error) throw repRes.error;
 
@@ -330,5 +398,9 @@ export async function getOutletAnalytics(): Promise<OutletStats[]> {
     (repRes.data as ReportRow[]) || [],
     yearMonth,
     planned,
+    (locRes.data as OutletMaster[]) || [],
   );
 }
+
+/** 互換用：平均売上からランクを出す（判定ルールは lib/locationRank.ts が本体） */
+export { rankFromAverage, judgeRank } from "@/lib/locationRank";

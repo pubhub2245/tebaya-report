@@ -84,10 +84,12 @@ export function displaySlot(raw: string | null | undefined): string | null {
 
 /**
  * ランク別の月間 OK（確保済み）上限回数。
+ *  S: 1店舗につき月6回（A と同じ。S の上限は未定義だったので暫定）
  *  A: 1店舗につき月6回 / B: 月4回 / C: 月4回
  *  D: ★Dランク全店の「合計」で月2回（1店舗ごとではない）
  */
 export const MONTHLY_OK_LIMITS: Record<RankCode, number> = {
+  S: 6,
   A: 6,
   B: 4,
   C: 4,
@@ -126,10 +128,17 @@ export async function loadAnalyticsLookup(): Promise<AnalyticsLookup> {
   return { byName, rankKindOf, statsOf };
 }
 
-/** RankKind が A〜D（上限チェック対象）なら RankCode を返す。それ以外は null */
+/** RankKind が S〜D（上限チェック対象）なら RankCode を返す。それ以外は null */
 export function rankCodeForLimit(kind: RankKind | null): RankCode | null {
-  if (kind === "A" || kind === "B" || kind === "C" || kind === "D") return kind;
-  return null; // INSUFFICIENT / EVENT / 実績なし は対象外
+  if (
+    kind === "S" ||
+    kind === "A" ||
+    kind === "B" ||
+    kind === "C" ||
+    kind === "D"
+  )
+    return kind;
+  return null; // マスタ未登録 / 単発イベント / 実績なし は対象外
 }
 
 // -----------------------------------------------------------------------------

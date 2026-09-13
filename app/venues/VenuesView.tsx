@@ -26,12 +26,13 @@ const STATUS_STYLE: Record<InquiryStatus, string> = {
 };
 
 const RANK_LABEL: Record<RankKind, string> = {
+  S: "ランクS",
   A: "ランクA",
   B: "ランクB",
   C: "ランクC",
   D: "ランクD",
-  INSUFFICIENT: "データ不足",
-  EVENT: "イベント枠",
+  INSUFFICIENT: "マスタ未登録",
+  EVENT: "単発・イベント",
 };
 
 const WEEKDAY = ["日", "月", "火", "水", "木", "金", "土"];

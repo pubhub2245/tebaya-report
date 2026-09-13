@@ -13,6 +13,7 @@ import {
 const TOP_N = 5;
 
 const RANK_BADGE: Record<RankKind, string> = {
+  S: "bg-rose-400 text-rose-950",
   A: "bg-amber-400 text-amber-950",
   B: "bg-lime-400 text-lime-950",
   C: "bg-sky-400 text-sky-950",
@@ -42,9 +43,9 @@ export default function LocationRankingSummary() {
 
   if (error) return null; // トップ画面では静かに非表示（既存機能を邪魔しない）
 
-  // 自動ランク確定店（A〜D）のみを上位表示。データ不足・イベントは除外。
+  // マスタにランクがある店（S〜D）のみを上位表示。マスタ未登録・単発は除外。
   const ranked = (outlets || []).filter((s) =>
-    ["A", "B", "C", "D"].includes(s.rankKind),
+    ["S", "A", "B", "C", "D"].includes(s.rankKind),
   );
   const top = ranked.slice(0, TOP_N);
 

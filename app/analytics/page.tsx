@@ -10,14 +10,19 @@ import {
   type RankKind,
 } from "@/lib/analytics/outletAnalytics";
 
-/** ランクバッジの色 */
+/**
+ * ランクバッジの色。
+ * ★ランクは出店場所マスタ（locations.rank）の値をそのまま出す。
+ *   この画面では計算しない（2026-09 変更。→ lib/locationRank.ts）。
+ */
 const RANK_BADGE: Record<RankKind, { label: string; cls: string }> = {
+  S: { label: "S", cls: "bg-rose-400 text-rose-950" },
   A: { label: "A", cls: "bg-amber-400 text-amber-950" },
   B: { label: "B", cls: "bg-lime-400 text-lime-950" },
   C: { label: "C", cls: "bg-sky-400 text-sky-950" },
   D: { label: "D", cls: "bg-stone-300 text-stone-700" },
-  INSUFFICIENT: { label: "データ不足", cls: "bg-stone-200 text-stone-500" },
-  EVENT: { label: "S / イベント枠", cls: "bg-fuchsia-200 text-fuchsia-800" },
+  INSUFFICIENT: { label: "マスタ未登録", cls: "bg-stone-200 text-stone-500" },
+  EVENT: { label: "単発・イベント", cls: "bg-fuchsia-200 text-fuchsia-800" },
 };
 
 function OutletCard({ s }: { s: OutletStats }) {
@@ -31,11 +36,28 @@ function OutletCard({ s }: { s: OutletStats }) {
         <div className="font-bold text-brand-dark text-lg leading-tight">
           {s.name}
         </div>
-        <span
-          className={`shrink-0 text-xs font-bold px-2.5 py-1 rounded-full ${badge.cls}`}
-        >
-          {badge.label}
-        </span>
+        <div className="shrink-0 text-right space-y-1">
+          <span
+            className={`inline-block text-xs font-bold px-2.5 py-1 rounded-full ${badge.cls}`}
+          >
+            {badge.label}
+          </span>
+          {s.rankLocked && (
+            <div className="text-[10px] text-stone-400">🔒 ランク固定</div>
+          )}
+          {/* ランクの根拠：直近8回の平均と、次のランクまでの差 */}
+          {s.recentCount > 0 && (
+            <div className="text-[10px] text-stone-500 leading-tight">
+              直近{s.recentCount}回平均 {yen(s.recentAverage)}
+              {s.nextRank && s.toNextRank !== null && (
+                <>
+                  <br />
+                  {s.nextRank}まで あと {yen(s.toNextRank)}
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 平均売上 + 損益分岐の色分け */}
@@ -109,12 +131,10 @@ function OutletCard({ s }: { s: OutletStats }) {
             <span className="text-stone-400">（全期間{s.totalReportCount}回）</span>
           )}
         </span>
-        {s.rankDef && (
+        {s.target !== null && (
           <span>
             目標{" "}
-            <span className="font-bold text-stone-800">
-              {yen(s.rankDef.target)}
-            </span>
+            <span className="font-bold text-stone-800">{yen(s.target)}</span>
           </span>
         )}
       </div>
@@ -136,7 +156,7 @@ function OutletCard({ s }: { s: OutletStats }) {
       {/* 注意書き: データ不足 */}
       {s.rankKind === "INSUFFICIENT" && (
         <div className="text-xs text-stone-500">
-          出店回数が少ないため、ランクは断定していません（参考値）
+          出店場所マスタに登録が無いため、ランクは付きません（管理者ページのマスタに追加すると付きます）
         </div>
       )}
 
@@ -242,11 +262,13 @@ export default function AnalyticsPage() {
       )}
 
       <p className="text-xs text-stone-400 leading-relaxed pt-2">
-        ※ ランクは平均売上から自動判定（A:3万〜 / B:2.5万〜 / C:2万〜 /
-        D:2万以下）。出店回数が{" "}
-        <span className="font-bold">3回未満</span>{" "}
-        の店は「データ不足」、イベント・朝市など単発は「S/イベント枠」として
-        自動ランク対象外にしています。
+        ※ ランクは <span className="font-bold">出店場所マスタの値</span>{" "}
+        をそのまま出しています。マスタのランクは、日報が保存されるたびに{" "}
+        <span className="font-bold">直近8回の平均売上</span>{" "}
+        から自動で見直されます（目標額の9割に届いた一番上のランク。
+        直近8回のうち3回未満のときは今のランクのまま）。
+        管理者ページで「🔒 ランク固定」にした出店先（お祭り・イベント枠）は
+        自動で変わりません。
       </p>
     </main>
   );
