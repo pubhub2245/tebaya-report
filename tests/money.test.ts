@@ -15,6 +15,8 @@ import {
   calcCashBalance,
   COST_RATE_FOOD,
   COST_RATE_RENT,
+  calcBoothFee,
+  boothFeeRuleText,
 } from "../lib/money";
 
 /* ---------- 経費の合計 ---------- */
@@ -188,4 +190,39 @@ test("calcCashBalance: データが空でも落ちない", () => {
   });
   assert.equal(r.balance, 0);
   assert.equal(r.reportCount, 0);
+});
+
+/* ---------- 出店料（場代） ---------- */
+
+test("calcBoothFee: 売上の◯％（1円未満は切り捨て）", () => {
+  // ながやま系・PASIO系・AZ隼人は売上の10%
+  assert.equal(calcBoothFee({ type: "percent", rate: 10 }, 23650), 2365);
+  assert.equal(calcBoothFee({ type: "percent", rate: 10 }, 37550), 3755);
+  // 1円未満が出る売上でも、端数は切り捨てて整数にする
+  assert.equal(calcBoothFee({ type: "percent", rate: 10 }, 12345), 1234);
+});
+
+test("calcBoothFee: 定額はそのまま", () => {
+  assert.equal(calcBoothFee({ type: "fixed", amount: 2200 }, 23800), 2200);
+  assert.equal(calcBoothFee({ type: "fixed", amount: 5000 }, 19250), 5000);
+  assert.equal(calcBoothFee({ type: "fixed", amount: 8250 }, 0), 8250);
+});
+
+test("calcBoothFee: 決まりが無いときは null（0円と書かない）", () => {
+  assert.equal(calcBoothFee({ type: "none" }, 30000), null);
+  assert.equal(calcBoothFee(null, 30000), null);
+  // 割合・金額が入っていない壊れた設定でも 0 を作らない
+  assert.equal(calcBoothFee({ type: "percent", rate: 0 }, 30000), null);
+  assert.equal(calcBoothFee({ type: "fixed", amount: null }, 30000), null);
+});
+
+test("calcBoothFee: 売上がマイナスや空でも落ちない", () => {
+  assert.equal(calcBoothFee({ type: "percent", rate: 10 }, -5000), 0);
+  assert.equal(calcBoothFee({ type: "percent", rate: 10 }, NaN), 0);
+});
+
+test("boothFeeRuleText: 人に見せる言葉にする", () => {
+  assert.equal(boothFeeRuleText({ type: "percent", rate: 10 }), "売上の10％");
+  assert.equal(boothFeeRuleText({ type: "fixed", amount: 8250 }), "定額 8,250円");
+  assert.equal(boothFeeRuleText({ type: "none" }), "なし（0円）");
 });

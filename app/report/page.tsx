@@ -22,6 +22,14 @@ import { fetchStaffWages, makeLaborFor, type StaffWageMap } from "@/lib/staffWag
 import { getUnitFromStaff } from "@/lib/teamMapping";
 import { getLimitedProductForMonth } from "@/lib/limitedProduct";
 import { recalcRankForLocation } from "@/lib/locationRankUpdate";
+import { boothFeeRuleFor } from "@/lib/boothFee";
+import { fetchBoothFeeRules } from "@/lib/boothFeeMaster";
+import {
+  BOOTH_FEE_LABEL,
+  calcBoothFee,
+  boothFeeRuleText,
+  type BoothFeeRule,
+} from "@/lib/money";
 import {
   computeSalesBreakdown,
   priceSnapshot,
@@ -66,6 +74,11 @@ export default function Page() {
   // 日当はスタッフマスタが正。マスタに無い人だけコード側の保険値を使う
   const [staffWages, setStaffWages] = useState<StaffWageMap>(new Map());
   const laborForStaff = useMemo(() => makeLaborFor(staffWages), [staffWages]);
+
+  // 出店料（場代）の決まり。出店場所マスタが正（→ CLAUDE.md 4-15）
+  const [boothFeeRules, setBoothFeeRules] = useState<Map<string, BoothFeeRule>>(
+    new Map(),
+  );
 
   // 商品マスタ。内訳の突き合わせに使うので親で持つ（STEP4 と保存の両方から見る）
   const [products, setProducts] = useState<SaleProduct[]>([]);
@@ -203,6 +216,11 @@ export default function Page() {
     fetchStaffWages().then(setStaffWages);
   }, []);
 
+  // 出店場所マスタから場代の決まりを読み込む（決まりを変えたいときはマスタを直す）
+  useEffect(() => {
+    fetchBoothFeeRules().then(setBoothFeeRules);
+  }, []);
+
   // Fetch cumulative sales
   useEffect(() => {
     (async () => {
@@ -277,9 +295,77 @@ export default function Page() {
     (e) =>
       !e.receipt_image_url &&
       !(e.no_receipt_reason ?? "").trim() &&
+      // 場代はレシートが出ない（実データ99件中98件が写真なし）。
+      // 金額はマスタの決まりから計算しているので、写真の催促はしない。
+      !e.booth_fee &&
       // まだ何も入力していない空の行は数えない
       ((e.description ?? "").trim() !== "" || (Number(e.amount) || 0) > 0),
   );
+
+  // ---------------------------------------------------------------------------
+  // 出店料（場代）の自動入力
+  // ---------------------------------------------------------------------------
+  // その日の売上と、出店場所マスタの決まり（売上の◯％ or 定額）から場代を計算して、
+  // 経費に「場代」の行を1つ自動で入れる。金額はその場で直せる（直したら上書きしない）。
+  //
+  // ★手羽屋・もも屋が同じ日・同じ場所に出ても場代は1回だけなので、
+  //   自動で入れるのは手羽屋の日報だけにする（実データもすべてこの形）。
+  const boothFeeRule = useMemo(
+    () => boothFeeRuleFor(boothFeeRules, form.location),
+    [boothFeeRules, form.location],
+  );
+  const boothFeeAmount = useMemo(
+    () => calcBoothFee(boothFeeRule, form.sales_amount),
+    [boothFeeRule, form.sales_amount],
+  );
+
+  useEffect(() => {
+    const autoOk = form.shop === "手羽屋" && boothFeeAmount !== null;
+    setForm((f) => {
+      const idx = f.expenses.findIndex((e) => e.booth_fee);
+
+      // 自動で入れられないとき（決まり無し・もも屋）は、手を加えていない自動行を片づける
+      if (!autoOk) {
+        if (idx === -1 || f.expenses[idx].booth_fee_edited) return f;
+        return { ...f, expenses: f.expenses.filter((_, i) => i !== idx) };
+      }
+
+      // すでに人が「場代」を手で入れているなら、二重に入れない
+      const manual = f.expenses.some(
+        (e) =>
+          !e.booth_fee &&
+          /場代|場所代|テナント料|出店料/.test((e.description ?? "").trim()),
+      );
+      if (idx === -1 && manual) return f;
+
+      if (idx === -1) {
+        return {
+          ...f,
+          expenses: [
+            ...f.expenses,
+            {
+              description: BOOTH_FEE_LABEL,
+              amount: boothFeeAmount,
+              receipt_image_url: null,
+              no_receipt_reason: null,
+              booth_fee: true,
+              booth_fee_edited: false,
+            },
+          ],
+        };
+      }
+
+      // 人が金額を書き換えたあとは、売上が動いても上書きしない
+      const row = f.expenses[idx];
+      if (row.booth_fee_edited || row.amount === boothFeeAmount) return f;
+      return {
+        ...f,
+        expenses: f.expenses.map((e, i) =>
+          i === idx ? { ...e, amount: boothFeeAmount } : e,
+        ),
+      };
+    });
+  }, [boothFeeAmount, form.shop]);
 
   const canNext = () => {
     if (step === 1)
@@ -637,6 +723,11 @@ export default function Page() {
           update={update}
           expensesTotal={expensesTotal}
           missingReceiptCount={expensesMissingReceipt.length}
+          boothFeeRuleText={
+            boothFeeRule.type === "none"
+              ? null
+              : boothFeeRuleText(boothFeeRule)
+          }
         />
       )}
       {step === 6 && <Step6 form={form} update={update} />}
@@ -1467,6 +1558,7 @@ function Step5({
   update,
   expensesTotal,
   missingReceiptCount,
+  boothFeeRuleText: boothFeeRuleLabel,
 }: {
   form: FormState;
   setForm: React.Dispatch<React.SetStateAction<FormState>>;
@@ -1474,6 +1566,8 @@ function Step5({
   expensesTotal: number;
   /** レシート写真も理由も無い経費の行数（0でないと次へ進めない） */
   missingReceiptCount: number;
+  /** その出店先の場代の決まり（「売上の10％」など）。決まりが無ければ null */
+  boothFeeRuleText: string | null;
 }) {
   const [ocrIdx, setOcrIdx] = useState<number | null>(null);
   // レシートを読み取ったときの「合計と合っているか」の結果（新しい順・最大5件）
@@ -1664,6 +1758,11 @@ function Step5({
           <div className="flex justify-between items-center">
             <span className="text-sm font-semibold text-stone-600">
               #{i + 1}
+              {e.booth_fee && (
+                <span className="ml-2 text-xs text-sky-700 font-bold">
+                  🏪 場代（自動）
+                </span>
+              )}
             </span>
             <button
               type="button"
@@ -1692,6 +1791,8 @@ function Step5({
               onChange={(ev) =>
                 updateExpense(i, {
                   amount: parseInt(ev.target.value || "0", 10),
+                  // 場代を手で直したら、そのあと売上が動いても上書きしない
+                  ...(e.booth_fee ? { booth_fee_edited: true } : {}),
                 })
               }
             />
@@ -1721,6 +1822,14 @@ function Step5({
               alt="receipt"
               className="w-full max-h-40 object-contain rounded-lg border"
             />
+          ) : e.booth_fee ? (
+            <div className="rounded-lg bg-sky-50 border border-sky-200 px-3 py-2">
+              <p className="text-xs text-sky-800 leading-relaxed">
+                🏪 <b>場代は自動で計算しています</b>
+                {boothFeeRuleLabel && `（${boothFeeRuleLabel}）`}。
+                レシートは要りません。いつもと違う金額のときは、上の金額を書き換えてください。
+              </p>
+            </div>
           ) : (
             <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 space-y-1">
               <p className="text-xs text-amber-800 leading-relaxed">

@@ -173,3 +173,57 @@ export function calcCashBalance(params: {
     reportCount: target.length,
   };
 }
+
+// -----------------------------------------------------------------------------
+// 出店料（場代）
+// -----------------------------------------------------------------------------
+
+/**
+ * 出店料（場代）の決まり。**出店場所マスタ（locations）が正**（→ CLAUDE.md 4-15）。
+ *
+ *   percent … 売上の◯％（例：ながやま系・AZ隼人 = 10％）
+ *   fixed   … 定額（例：PASIO系 2,200円 / ニシムタ 5,000円 / イオンモール 8,250円）
+ *   none    … 場代が無い（0円）・まだ分かっていない（どちらも自動では入れない）
+ */
+export type BoothFeeRule = {
+  type: "none" | "percent" | "fixed";
+  /** percent のときの割合。10 なら売上の10％ */
+  rate?: number | null;
+  /** fixed のときの金額（円） */
+  amount?: number | null;
+};
+
+/** 経費に入れる場代の行の「内容」。経理層がこの言葉で出店料に振り分ける */
+export const BOOTH_FEE_LABEL = "場代";
+
+/**
+ * その日の場代を計算する。
+ *
+ * ★1円未満は発生しない決まりなので**切り捨て**る（2026-09 確認）。
+ * ★決まりが無い（none）ときや、割合・金額が入っていないときは null を返す
+ *   （0円を入れてしまうと「無料だった」と嘘の記録になるため）。
+ */
+export function calcBoothFee(
+  rule: BoothFeeRule | null | undefined,
+  sales: number,
+): number | null {
+  if (!rule) return null;
+  const s = Math.max(0, Number(sales) || 0);
+  if (rule.type === "fixed") {
+    const amount = Number(rule.amount);
+    return Number.isFinite(amount) && amount > 0 ? Math.floor(amount) : null;
+  }
+  if (rule.type === "percent") {
+    const rate = Number(rule.rate);
+    if (!Number.isFinite(rate) || rate <= 0) return null;
+    return Math.floor((s * rate) / 100);
+  }
+  return null;
+}
+
+/** 決まりを人に見せる言葉にする（「売上の10％」「定額 ¥5,000」） */
+export function boothFeeRuleText(rule: BoothFeeRule | null | undefined): string {
+  if (!rule || rule.type === "none") return "なし（0円）";
+  if (rule.type === "percent") return `売上の${Number(rule.rate) || 0}％`;
+  return `定額 ${(Number(rule.amount) || 0).toLocaleString("ja-JP")}円`;
+}

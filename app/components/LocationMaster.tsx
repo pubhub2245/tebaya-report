@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { yen } from "@/lib/format";
+import { boothFeeRuleText, type BoothFeeRule } from "@/lib/money";
 import { RANK_ORDER, RANK_TARGET, RECENT_VISITS } from "@/lib/locationRank";
 import {
   applyRankPlans,
@@ -30,7 +31,19 @@ type Loc = {
   target: number | null;
   is_active: boolean;
   rank_locked: boolean | null;
+  /** 出店料（場代）の決め方：none=なし / percent=売上の◯％ / fixed=定額 */
+  booth_fee_type: string | null;
+  booth_fee_rate: number | string | null;
+  booth_fee_amount: number | null;
 };
+
+/** マスタの行から、表示用の決まりを作る */
+const ruleOf = (r: Loc): BoothFeeRule =>
+  r.booth_fee_type === "percent"
+    ? { type: "percent", rate: Number(r.booth_fee_rate) || 0 }
+    : r.booth_fee_type === "fixed"
+      ? { type: "fixed", amount: Number(r.booth_fee_amount) || 0 }
+      : { type: "none" };
 
 const RANKS = RANK_ORDER;
 
@@ -62,7 +75,9 @@ export default function LocationMaster() {
     setLoading(true);
     const { data, error } = await supabase
       .from("locations")
-      .select("id, name, rank, target, is_active, rank_locked")
+      .select(
+        "id, name, rank, target, is_active, rank_locked, booth_fee_type, booth_fee_rate, booth_fee_amount",
+      )
       .order("is_active", { ascending: false })
       .order("name");
     if (error) flash("err", "読込エラー: " + error.message);
@@ -165,6 +180,12 @@ export default function LocationMaster() {
         {RECENT_VISITS}回のうち3回未満なら今のまま）。 日報が保存されるたびに、
         その出店先だけ見直されます。 お祭り・イベント枠のように毎回会場が違う
         出店先は「🔒 固定」を ON にしてください。
+      </p>
+      <p className="text-xs text-stone-500 leading-relaxed">
+        ★出店料（場代）も、ここの決まりから
+        <span className="font-bold">日報のSTEP5に自動で入ります</span>
+        （売上の◯％ か 定額）。1円未満は切り捨て。
+        いつもと違う金額のときは、現場で書き換えられます。
       </p>
       <p className="text-[11px] text-stone-400">
         目標額のめやす：
@@ -370,6 +391,69 @@ export default function LocationMaster() {
                   />
                   🔒 ランクを固定する（自動判定しない・お祭り／イベント枠向け）
                 </label>
+
+                {/* 出店料（場代）の決まり */}
+                <div className="flex items-center gap-2 flex-wrap border-t border-stone-100 pt-2">
+                  <label className="text-xs text-stone-500">🏪 場代</label>
+                  <select
+                    className="field w-auto py-1 text-xs"
+                    value={r.booth_fee_type ?? "none"}
+                    onChange={(e) =>
+                      patch(r, {
+                        booth_fee_type: e.target.value,
+                        // 使わない方の値は消して、あとで迷わないようにする
+                        ...(e.target.value === "percent"
+                          ? { booth_fee_amount: null }
+                          : e.target.value === "fixed"
+                            ? { booth_fee_rate: null }
+                            : { booth_fee_rate: null, booth_fee_amount: null }),
+                      })
+                    }
+                  >
+                    <option value="none">なし（0円）</option>
+                    <option value="percent">売上の◯％</option>
+                    <option value="fixed">定額</option>
+                  </select>
+                  {r.booth_fee_type === "percent" && (
+                    <>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        step="0.1"
+                        className="field w-20 text-right py-1"
+                        defaultValue={Number(r.booth_fee_rate) || 0}
+                        onBlur={(e) => {
+                          const v = Math.max(0, Number(e.target.value || "0"));
+                          if (v !== (Number(r.booth_fee_rate) || 0))
+                            patch(r, { booth_fee_rate: v });
+                        }}
+                      />
+                      <span className="text-xs text-stone-500">％</span>
+                    </>
+                  )}
+                  {r.booth_fee_type === "fixed" && (
+                    <>
+                      <span className="text-xs text-stone-500">¥</span>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        className="field w-24 text-right py-1"
+                        defaultValue={r.booth_fee_amount ?? 0}
+                        onBlur={(e) => {
+                          const v = Math.max(
+                            0,
+                            parseInt(e.target.value || "0", 10),
+                          );
+                          if (v !== (r.booth_fee_amount ?? 0))
+                            patch(r, { booth_fee_amount: v });
+                        }}
+                      />
+                    </>
+                  )}
+                  <span className="text-[11px] text-stone-400 ml-auto">
+                    {boothFeeRuleText(ruleOf(r))}
+                  </span>
+                </div>
 
                 {/* ランク履歴（直近5件） */}
                 {hist.length > 0 && (
