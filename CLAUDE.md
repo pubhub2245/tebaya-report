@@ -43,6 +43,10 @@
 - **月間売上目標vs実績ダッシュボード** - 目標と実績の比較表示
 - **レジ突き合わせ**（/cash/register）（2026-08 追加）
   前の営業日の「閉店後」と今日の「開店前」が合っているかを号車ごとに確認する（→ 4-9）
+- **お客さん向け公式LINEの受け口**（/api/line/customer/webhook）（2026-09 追加・第1段階）
+  お客さんが公式LINE（@276msmys）に送ったメッセージを保存し、スタッフのLINEグループへ転送する。
+  管理者ページ「💬 お客さんからのLINE」（/admin/customer-line）で受信一覧を見られる。
+  **お客さんへの返信はまだしない**（→ 4-16）
 
 > ※ 以前ここに「タスク管理（/tasks）」と書かれていたが、**画面は存在しない**（テーブル
 > `tasks` に6件・最終2026-04-16）。実態に合わせて記載を削除した（2026-08-26）。
@@ -312,6 +316,35 @@
   **マンガ倉庫は場代そのものが無い（0円）**。決まりが未確認のところも `none` にしてある。
 - `tests/money.test.ts` と `tests/boothFee.test.ts` で固定。
 - **過去の日報は書き換えない**（→ 4-4 と同じ）。これから入れる日報にだけ効く。
+
+### 4-16. お客さん向け公式LINE（@276msmys）とスタッフ向けBotは別物
+
+2026-09 追加。LINE のチャンネルが**2つ**ある。取り違えると、お客さんの発言がスタッフに
+届かない／スタッフ宛の通知がお客さんに飛ぶ、といった事故になる。
+
+| | スタッフ向けBot「手羽屋業務連絡」 | お客さん向け公式LINE（@276msmys） |
+|---|---|---|
+| 用途 | 日報・設営後チェック・リマインダーをグループへ送る | 注文・問い合わせを受ける |
+| 環境変数 | `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` / `LINE_GROUP_ID` | `LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN` / `LINE_CUSTOMER_CHANNEL_SECRET` |
+| 送信の入り口 | `lib/line/sendMessage.ts`（`sendLineGroupMessage`） | `lib/line/customerClient.ts`（関数名に必ず `customer` を含める） |
+| Webhook | `/api/line/webhook` | `/api/line/customer/webhook`（本体は `lib/line/customerWebhook.ts`） |
+| 診断 | `/api/line/diagnose` | `/api/line/customer/diagnose` |
+| 保存先 | `line_groups` | `customer_line_messages` / `customer_line_events` |
+
+- **第1段階（2026-09）は「受け口」だけ。** 届いたメッセージを保存し、
+  既存のスタッフ向け送信（`sendLineGroupMessage`）でスタッフグループへ転送する。
+  転送に失敗しても保存は成功させる。
+- **お客さんへは何も送らない。** LINE 側の「応答メッセージ」が自動返信しているので、
+  ここから返すと二重返信になる。`customerReply` / `customerPush` は第2段階のために
+  用意しただけで、**第1段階では呼ばない**。返信は公式LINEアプリの「チャット」から。
+- **LINE には必ず 200 を返す**（200 以外だと同じ通知を何度も送り直してくる）。
+  処理に失敗しても記録に残して 200。例外は署名不一致（401）と合言葉未設定（500）だけ。
+- 署名検証・鍵の判定は `lib/supabaseServer.ts` の `checkKey` と同じ考え方で、
+  全角が混ざった値は使わない（→ 4-10）。
+- テキスト以外（画像・スタンプ等）は `[画像]` のように種別を本文に入れて保存する。
+  `follow` / `unfollow` は `customer_line_events` に記録だけ（返信・通知なし）。
+- `tests/customerLineWebhook.test.ts` で固定。
+- **既存のスタッフ向けの仕組みは一切変えていない。**
 
 ## 5. 経理層（けいりそう）
 

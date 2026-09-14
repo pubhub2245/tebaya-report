@@ -378,6 +378,14 @@ export default function AdminPage() {
         👥 スタッフ別 稼働（給与計算の補助）
       </Link>
 
+      {/* お客さん向け公式LINE（@276msmys）に届いたメッセージ。第1段階＝見るだけ */}
+      <Link
+        href="/admin/customer-line"
+        className="block w-full bg-green-600 hover:bg-green-700 text-white font-bold text-base px-6 py-4 rounded-xl shadow-md text-center transition-colors"
+      >
+        💬 お客さんからのLINE（公式LINEの受信一覧）
+      </Link>
+
       {/* 経理（今月の利益・今の現金・まだ払っていないお金）。設計は docs/keiri.md */}
       <Link
         href="/keiri"
