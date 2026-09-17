@@ -36,11 +36,11 @@ test("事例の数字は筋が通っている（利益は売上より小さく�
 });
 
 test("申し込みリンクは https の環境変数があるときだけ。無ければ null（偽のリンクを出さない）", () => {
-  assert.equal(paymentLinkUrl({} as NodeJS.ProcessEnv), null);
-  assert.equal(paymentLinkUrl({ NEXT_PUBLIC_KEIRI_PAYMENT_LINK: "  " } as NodeJS.ProcessEnv), null);
-  assert.equal(paymentLinkUrl({ NEXT_PUBLIC_KEIRI_PAYMENT_LINK: "http://example.com/x" } as NodeJS.ProcessEnv), null);
+  assert.equal(paymentLinkUrl({} as unknown as NodeJS.ProcessEnv), null);
+  assert.equal(paymentLinkUrl({ NEXT_PUBLIC_KEIRI_PAYMENT_LINK: "  " } as unknown as NodeJS.ProcessEnv), null);
+  assert.equal(paymentLinkUrl({ NEXT_PUBLIC_KEIRI_PAYMENT_LINK: "http://example.com/x" } as unknown as NodeJS.ProcessEnv), null);
   assert.equal(
-    paymentLinkUrl({ NEXT_PUBLIC_KEIRI_PAYMENT_LINK: "https://buy.stripe.com/test_abc" } as NodeJS.ProcessEnv),
+    paymentLinkUrl({ NEXT_PUBLIC_KEIRI_PAYMENT_LINK: "https://buy.stripe.com/test_abc" } as unknown as NodeJS.ProcessEnv),
     "https://buy.stripe.com/test_abc"
   );
 });
