@@ -8,6 +8,8 @@ import {
   paymentLinkUrl,
   priceLabel,
 } from "@/lib/keiri/caseNumbers";
+import { getCaseStats } from "@/lib/keiri/caseStats";
+import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
 
 /**
  * 経理パッケージの紹介ページ（無人販売の入口①・事例ページ）。
@@ -16,8 +18,13 @@ import {
  * ★数字と価格は lib/keiri/caseNumbers.ts からだけ読む。ここに直書きしない。
  * ★申し込みボタンは環境変数 NEXT_PUBLIC_KEIRI_PAYMENT_LINK があるときだけ出す。
  *   無いときは「準備中」と正直に出す（偽の導線を作らない）。
+ * ★事例1号の数字（出店回数・売上・利益）は、前の月の日報から自動で出す
+ *   （lib/keiri/caseStats.ts）。倉庫が読めないときは caseNumbers.ts の控えに戻る。
  * 設計：docs/auto/2026-09-17_経理パッケージ_無人販売の流れ_設計.md（司令室B）
  */
+
+/** 数字は毎日入れ替わる。1時間ごとに作り直す（毎回DBを叩かない） */
+export const revalidate = 3600;
 
 export const metadata: Metadata = {
   title: "経理パッケージ｜日報を書くだけで、月の利益と今の現金が分かる",
@@ -66,12 +73,15 @@ const NOT_FOR: string[] = [
   "請求書払い・売掛が多い業態は、現金主義の集計と合いません",
 ];
 
-export default function KeiriCasePage() {
+export default async function KeiriCasePage() {
   const link = paymentLinkUrl();
-  const c = CASE_TEBAYA;
+  const stats = await getCaseStats();
+  const c = { shopName: CASE_TEBAYA.shopName, ...stats };
 
   return (
     <main className="max-w-2xl mx-auto px-4 py-10 min-h-screen">
+      <KeiriBreadcrumb items={[{ name: "経理パッケージ" }]} />
+
       {/* ---------- 見出し ---------- */}
       <header className="mb-10">
         <p className="text-xs font-bold text-amber-700 tracking-wide">経理パッケージ</p>
@@ -92,7 +102,7 @@ export default function KeiriCasePage() {
         <p className="text-xs font-bold text-stone-400">事例1号</p>
         <h2 className="mt-1 text-lg font-bold text-stone-900">{c.shopName}</h2>
         <p className="mt-1 text-sm text-stone-500">
-          {c.month}の実績。このアプリの日報から自動で集計した数字です（{c.checkedOn} 確認）。
+          {c.month}の実績。このアプリの日報から{c.auto ? "自動で" : ""}集計した数字です（{c.checkedOn} 確認）。
         </p>
         <dl className="mt-5 grid grid-cols-3 gap-3 text-center">
           <div className="rounded-xl bg-stone-50 py-4">
@@ -190,6 +200,8 @@ export default function KeiriCasePage() {
           </p>
         )}
       </section>
+
+      <KeiriRelated current="/keiri/case" />
 
       <footer className="text-center text-xs text-stone-400">
         <p>運営：株式会社Alpha</p>
