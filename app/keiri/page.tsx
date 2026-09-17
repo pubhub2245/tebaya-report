@@ -210,6 +210,9 @@ function KeiriInner() {
       <header className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-2xl font-bold text-brand-dark">🧮 経理</h1>
         <div className="flex gap-2">
+          <Link href="/keiri/help" className="btn-secondary text-sm">
+            ❓ 困ったとき
+          </Link>
           <Link href="/" className="btn-secondary text-sm">
             🏠 トップ
           </Link>
