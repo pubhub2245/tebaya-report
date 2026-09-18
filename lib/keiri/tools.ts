@@ -100,3 +100,83 @@ export function calcBreakEven(input: BreakEvenInput): BreakEvenResult {
 export function yen(n: number): string {
   return `${Math.round(n).toLocaleString("ja-JP")}円`;
 }
+
+// ------------------------------------------------------------------
+// 出した答えを、そのまま1本のリンクで渡せるようにする（kp37）
+//
+// ねらい：店主どうしが LINE で「うちはこうだった」と結果を貼り合えると、
+//         外からのリンクが増える。ページを増やしても検索に載らないので、
+//         「そのページにしか無い中身」と「貼りたくなる理由」で当てにいく。
+//
+// ★数字はぜんぶ URL の中（＝お客さんのブラウザ）だけで運ぶ。
+//   うちのサーバーは受け取らないし、保存もしない。
+// ------------------------------------------------------------------
+
+/** URL の ?… から、決めた欄の値だけを取り出す（無ければ既定値のまま） */
+export function readShareParams(
+  search: string,
+  defaults: Record<string, string>,
+): Record<string, string> {
+  const out = { ...defaults };
+  const q = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  for (const key of Object.keys(defaults)) {
+    const raw = q.get(key);
+    if (raw === null) continue;
+    // 数字として読めない値は捨てる（他人が作ったURLで画面が壊れないように）
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) continue;
+    out[key] = String(n);
+  }
+  return out;
+}
+
+/** 入れた数字を URL の ?… の形に直す（空欄と0は載せない＝短いリンクにする） */
+export function buildShareQuery(values: Record<string, string>): string {
+  const q = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    const n = toNumber(value);
+    if (n <= 0) continue;
+    q.set(key, String(n));
+  }
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
+/** 赤字ラインの答えを、そのまま貼れる文章にする */
+export function breakEvenShareText(input: BreakEvenInput, result: BreakEvenResult, url: string): string {
+  const lines = [
+    "【赤字にならない売上（トントンのライン）】",
+    `毎月かならず出ていくお金：${yen(toNumber(input.fixedCostYen))}`,
+    `原価率：${toNumber(input.variableRatePercent)}％／月の営業日数：${Math.round(toNumber(input.openDays))}日`,
+  ];
+  if (result.impossibleReason) {
+    lines.push("→ 原価率が100%以上なので、売上を増やしても黒字になりません");
+  } else {
+    lines.push(`→ 月にこれだけ売ればトントン：${yen(result.monthlySalesYen ?? 0)}`);
+    if (result.dailySalesYen !== null) lines.push(`→ 1営業日あたり：${yen(result.dailySalesYen)}`);
+    if (result.dailyCustomers !== null) {
+      lines.push(`→ 1営業日あたりのお客さん：${result.dailyCustomers.toLocaleString("ja-JP")}人`);
+    }
+  }
+  lines.push("", url);
+  return lines.join("\n");
+}
+
+/** 原価率・FL比率の答えを、そのまま貼れる文章にする */
+export function flShareText(
+  salesYen: number,
+  foodYen: number,
+  laborYen: number,
+  result: FlResult,
+  url: string,
+): string {
+  const pct = (v: number | null) => (v === null ? "—" : `${v.toFixed(1)}％`);
+  return [
+    "【原価率とFL比率】",
+    `売上：${yen(toNumber(salesYen))}／食材：${yen(toNumber(foodYen))}／人件費：${yen(toNumber(laborYen))}`,
+    `→ FL比率：${pct(result.flRate)}（原価率 ${pct(result.foodRate)}＋人件費率 ${pct(result.laborRate)}）`,
+    `→ 食材と人件費を引いて残る額：${yen(result.remainYen)}`,
+    "",
+    url,
+  ].join("\n");
+}
