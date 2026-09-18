@@ -17,6 +17,21 @@ import Link from "next/link";
  */
 export const KEIRI_PUBLIC_PAGES: { path: string; title: string; lead: string }[] = [
   {
+    path: "/keiri/tools",
+    title: "飲食店の無料計算ツール",
+    lead: "登録不要でその場で使える計算の道具。赤字ラインと原価率・FL比率。",
+  },
+  {
+    path: "/keiri/tools/bunki-ten",
+    title: "赤字ラインの計算（損益分岐点）",
+    lead: "家賃と原価率を入れると、月にいくら売ればトントンか、1日あたり何円・何人必要かが出ます。",
+  },
+  {
+    path: "/keiri/tools/genka-ritsu",
+    title: "原価率・FL比率の計算",
+    lead: "1か月の売上・仕入・人件費から、原価率と人件費率、引いたあとに残る額を出します。",
+  },
+  {
     path: "/keiri/case",
     title: "経理パッケージ（事例と価格）",
     lead: "日報を書くだけで、月の利益と今の現金が分かる。実際に使っている店の数字と価格。",
