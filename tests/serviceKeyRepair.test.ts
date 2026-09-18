@@ -39,14 +39,19 @@ function toWide(s: string): string {
 }
 
 test("使えない文字の数と、そのうち半角に直せる数を数える（値そのものは扱わない）", () => {
-  assert.deepEqual(countBrokenChars("abc"), { count: 0, convertible: 0 });
+  const plain = countBrokenChars("abc");
+  assert.equal(plain.count, 0);
+  assert.equal(plain.convertible, 0);
   // 全角の英数字は直せる
-  assert.deepEqual(countBrokenChars("abＣd"), { count: 1, convertible: 1 });
+  const wide = countBrokenChars("abＣd");
+  assert.equal(wide.count, 1);
+  assert.equal(wide.convertible, 1);
   // 全角カッコは半角の ( になるので「直せる」側に数える（形の確認で弾かれる）
-  const paren = countBrokenChars("ab（cd");
-  assert.equal(paren.count, 1);
+  assert.equal(countBrokenChars("ab（cd").count, 1);
   // 日本語は半角にならない＝直せない
-  assert.deepEqual(countBrokenChars("abあc"), { count: 1, convertible: 0 });
+  const jp = countBrokenChars("abあc");
+  assert.equal(jp.count, 1);
+  assert.equal(jp.convertible, 0);
 });
 
 test("全角の英数字は、決まりどおり半角に戻る", () => {
@@ -150,4 +155,17 @@ test("未設定は、今までどおり『未設定』のまま（直しの話�
     assert.equal(r.ok, false);
     if (!r.ok) assert.equal(r.reason, "未設定");
   });
+});
+
+test("壊れ方の内訳：長さ・日本語の数・改行の数・書き出しまで数える（値は扱わない）", () => {
+  const b = countBrokenChars("これは鍵ではありません\nabc");
+  assert.equal(b.japanese, 11);
+  assert.equal(b.newlines, 1);
+  assert.equal(b.startsLikeKey, false);
+  assert.equal(b.length, 15);
+
+  const key = countBrokenChars(GOOD);
+  assert.equal(key.count, 0);
+  assert.equal(key.japanese, 0);
+  assert.equal(key.startsLikeKey, true);
 });

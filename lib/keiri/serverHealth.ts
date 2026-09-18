@@ -36,9 +36,40 @@ export type ServerKeyReport = {
  * 「未設定」と「値が壊れている」を必ず言い分ける。
  * 同じ「使えません」でも、やることが全く違うため（CLAUDE.md 4-10）。
  */
+/** 鍵の壊れ方。**値そのものは含めない**（数と種類だけ） */
+export type BrokenShape = {
+  count: number;
+  convertible: number;
+  length?: number;
+  japanese?: number;
+  newlines?: number;
+  startsLikeKey?: boolean;
+};
+
+/**
+ * 「貼り付けのしそこない」と「そもそも別の物が入っている」を言い分ける。
+ * 直し方が全く違うため（前者は貼り直し、後者は**どこから何をコピーするか**から違う）。
+ */
+function describeShape(b: BrokenShape): string {
+  // 鍵は200文字ほど。日本語が入っている・書き出しが鍵でない なら、貼り間違いではなく別物
+  const wrongThing =
+    (b.japanese ?? 0) > 0 || (b.newlines ?? 0) > 0 || b.startsLikeKey === false;
+  if (!wrongThing) return "";
+  const parts: string[] = [];
+  if (b.length) parts.push(`長さ ${b.length} 文字`);
+  if (b.japanese) parts.push(`うち日本語が ${b.japanese} 文字`);
+  if (b.newlines) parts.push(`改行が ${b.newlines} 個`);
+  if (b.startsLikeKey === false) parts.push("書き出しが鍵の形（eyJ… / sb_…）ではありません");
+  return (
+    `【貼り間違いではなく、別の物が入っている可能性が高いです：${parts.join("・")}】` +
+    "Supabase の Project Settings → API → service_role の値を、" +
+    "その欄のコピーボタンからコピーして貼ってください（説明文や画面の文章を含めないこと）。"
+  );
+}
+
 export function describeServerKey(
   check: KeyCheck,
-  repair?: { repaired: boolean; broken: { count: number; convertible: number } },
+  repair?: { repaired: boolean; broken: BrokenShape },
 ): ServerKeyReport {
   // 全角が混ざっていたが、半角に直して鍵の形も確かめられた場合（2026-09-19・kp67）。
   // 「直して動いている」ことと「正しく貼り直してほしい」ことは別なので、両方書く。
@@ -74,12 +105,14 @@ export function describeServerKey(
     ? `（使えない文字が ${repair.broken.count} 個。うち半角に直せるのは ${repair.broken.convertible} 個で、` +
       "直しても鍵の形になりませんでした＝値そのものが違います）"
     : "";
+  const shape = repair ? describeShape(repair.broken) : "";
   return {
     configured: true,
     usable: false,
     repaired: false,
     note:
       `値に全角などの使えない文字が入っています${detail}。` +
+      `${shape}` +
       "Vercel の環境変数 SUPABASE_SERVICE_ROLE_KEY を貼り直してください。" +
       "これが直るまで、お申し込みの控えと、サイトに来た人の数は記録されません",
   };

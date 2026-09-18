@@ -158,25 +158,52 @@ export function serviceClientOrNull(): SupabaseClient | null {
  *   直した鍵が違っていれば倉庫側が断るだけで、いまと同じ結果になる。
  * ============================================================ */
 
-/** 使えない文字の内訳。**値そのものは絶対に含めない**（数だけ） */
+/** 使えない文字の内訳。**値そのものは絶対に含めない**（数と種類だけ） */
 export type BrokenChars = {
   /** 通信に使えない文字の数 */
   count: number;
   /** そのうち「全角→半角」で直せるものの数 */
   convertible: number;
+  /** 値全体の長さ。鍵らしい長さかどうかを見るためだけに使う */
+  length: number;
+  /** 日本語（ひらがな・カタカナ・漢字）が何文字入っているか */
+  japanese: number;
+  /** 改行が何個入っているか（1行のはずの値に改行があれば貼り間違い） */
+  newlines: number;
+  /** 鍵の書き出しになっているか（JWT の eyJ／新しい形の sb_ ）。値そのものは出さない */
+  startsLikeKey: boolean;
 };
 
-/** 使えない文字が何個あり、そのうち何個が半角に直せるかを数える（値は返さない） */
+/**
+ * 使えない文字の数と種類を調べる（**値そのものは返さない**）。
+ *
+ * 数だけだと「貼り付けのしそこない」と「そもそも別の物を貼った」が区別できない。
+ * 2026-09-19 に本番で数えたら **513 個**あり、鍵（200文字ほど）ではありえなかった。
+ * そこで、長さ・日本語の数・改行の数・書き出しも見て、
+ * 「直せば済むのか」「値そのものが違うのか」を言い分けられるようにした。
+ */
 export function countBrokenChars(value: string): BrokenChars {
   let count = 0;
   let convertible = 0;
+  let japanese = 0;
+  let newlines = 0;
   for (const ch of value) {
+    if (ch === "\n" || ch === "\r") newlines++;
+    if (/[\u3040-\u30ff\u4e00-\u9fff]/.test(ch)) japanese++;
     if (isUsableKey(ch)) continue;
     count++;
     const half = ch.normalize("NFKC");
     if (half.length > 0 && isUsableKey(half)) convertible++;
   }
-  return { count, convertible };
+  return {
+    count,
+    convertible,
+    length: value.length,
+    japanese,
+    newlines,
+    // JWT はどれも eyJ で始まる（公開されている形なので、これを出しても秘密は漏れない）
+    startsLikeKey: /^(eyJ|sb_)/.test(value),
+  };
 }
 
 /** 全角の英数字・記号を、決まりどおりの半角に置き換える（推測は入らない） */

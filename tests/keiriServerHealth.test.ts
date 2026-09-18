@@ -117,3 +117,40 @@ test("直せなかったときは、いままでどおり『使えません』�
   assert.equal(r.repaired, false);
   assert.ok(r.note.includes("貼り直"));
 });
+
+test("「貼り間違い」と「そもそも別の物が入っている」を言い分ける", () => {
+  // 日本語が大量に入っている＝鍵ではなく別の文章を貼っている
+  const wrongThing = describeServerKey(
+    { ok: false, reason: "全角などの使えない文字が入っている" },
+    {
+      repaired: false,
+      broken: {
+        count: 513,
+        convertible: 8,
+        length: 600,
+        japanese: 480,
+        newlines: 4,
+        startsLikeKey: false,
+      },
+    },
+  );
+  assert.ok(wrongThing.note.includes("別の物が入っている"));
+  assert.ok(wrongThing.note.includes("service_role"));
+
+  // 全角が数個だけ＝ふつうの貼り付けのしそこない。余計な文は足さない
+  const typo = describeServerKey(
+    { ok: false, reason: "全角などの使えない文字が入っている" },
+    {
+      repaired: false,
+      broken: {
+        count: 2,
+        convertible: 2,
+        length: 220,
+        japanese: 0,
+        newlines: 0,
+        startsLikeKey: true,
+      },
+    },
+  );
+  assert.ok(!typo.note.includes("別の物が入っている"));
+});
