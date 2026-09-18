@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { KEIRI_APPLY_LIMITS } from "@/lib/keiri/apply";
+import { KEIRI_APPLY_LIMITS, keiriApplyMailto } from "@/lib/keiri/apply";
 
 /**
  * 経理パッケージの申し込みの入力欄。
@@ -18,17 +18,43 @@ const INPUT =
   "mt-1 w-full h-12 rounded-xl border border-stone-300 px-3 text-base text-stone-900 " +
   "focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200";
 
-type State = "input" | "sending" | "done";
+type State = "input" | "sending" | "done" | "fallback";
 
-export default function ApplyForm({ email }: { email: string }) {
+/** 入れてもらった中身。届けられなかったときに、そのまま使い回すために覚えておく */
+type Entered = {
+  shopName: string;
+  contactName: string;
+  email: string;
+  phone: string;
+  note: string;
+};
+
+const EMPTY: Entered = { shopName: "", contactName: "", email: "", phone: "", note: "" };
+
+function readForm(f: FormData): Entered {
+  const s = (k: string) => String(f.get(k) ?? "");
+  return {
+    shopName: s("shopName"),
+    contactName: s("contactName"),
+    email: s("email"),
+    phone: s("phone"),
+    note: s("note"),
+  };
+}
+
+export default function ApplyForm({ email, tel }: { email: string; tel?: string }) {
   const [state, setState] = useState<State>("input");
   const [errors, setErrors] = useState<string[]>([]);
+  // ★打ち直しをお願いしないために、入れてもらった中身は必ず手元に残す
+  const [entered, setEntered] = useState<Entered>(EMPTY);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (state === "sending") return;
 
     const f = new FormData(e.currentTarget);
+    const values = readForm(f);
+    setEntered(values);
     setErrors([]);
     setState("sending");
 
@@ -47,10 +73,18 @@ export default function ApplyForm({ email }: { email: string }) {
       });
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
+        reason?: string;
         errors?: string[];
       };
       if (res.ok && data.ok) {
         setState("done");
+        return;
+      }
+      // ★入力の間違い（400）と、届けられなかった（503）は分けて扱う。
+      //   届けられなかったときに「もう一度どうぞ」と出しても、何度押しても同じなので、
+      //   その場でメールに切り替えられるようにする（2026-09-19・kp60）。
+      if (data.reason === "delivery" || res.status >= 500) {
+        setState("fallback");
         return;
       }
       setErrors(
@@ -60,11 +94,65 @@ export default function ApplyForm({ email }: { email: string }) {
       );
       setState("input");
     } catch {
-      setErrors([
-        `うまく送れませんでした。通信の具合を確かめるか、${email} までご連絡ください。`,
-      ]);
-      setState("input");
+      // 通信そのものが届かなかったときも、行き止まりにしない
+      setState("fallback");
     }
+  }
+
+  if (state === "fallback") {
+    const mail = keiriApplyMailto({ to: email, ...entered });
+    return (
+      <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6">
+        <p className="text-lg font-bold text-stone-900">
+          いま自動の受け付けができませんでした。
+        </p>
+        <p className="mt-3 text-stone-700 leading-relaxed">
+          入れていただいた中身は消えていません。下のボタンを押すと、
+          その中身がそのまま入ったメールの下書きが開きます。送信を押していただければ、
+          こちらに届きます（打ち直していただく必要はありません）。
+        </p>
+
+        <a
+          href={mail.url}
+          className="mt-5 flex items-center justify-center w-full h-14 rounded-2xl bg-amber-500 text-white font-bold text-lg shadow hover:bg-amber-600 transition"
+        >
+          メールでそのまま送る
+        </a>
+
+        <p className="mt-4 text-sm text-stone-700 leading-relaxed">
+          メールが開かないときは、下の文をそのまま{" "}
+          <a href={`mailto:${email}`} className="underline font-bold">
+            {email}
+          </a>{" "}
+          までお送りください。
+          {tel && (
+            <>
+              {" "}
+              お電話でも承ります：
+              <a href={`tel:${tel.replace(/[^0-9+]/g, "")}`} className="underline font-bold">
+                {tel}
+              </a>
+            </>
+          )}
+        </p>
+
+        <textarea
+          readOnly
+          rows={8}
+          value={mail.body}
+          aria-label="メールに貼り付ける内容"
+          className="mt-3 w-full rounded-xl border border-stone-300 bg-white p-3 text-sm text-stone-800"
+        />
+
+        <button
+          type="button"
+          onClick={() => setState("input")}
+          className="mt-4 text-sm text-stone-600 underline"
+        >
+          入力画面に戻る
+        </button>
+      </div>
+    );
   }
 
   if (state === "done") {
@@ -106,6 +194,7 @@ export default function ApplyForm({ email }: { email: string }) {
         <input
           id="shopName"
           name="shopName"
+          defaultValue={entered.shopName}
           required
           maxLength={KEIRI_APPLY_LIMITS.shopName}
           autoComplete="organization"
@@ -121,6 +210,7 @@ export default function ApplyForm({ email }: { email: string }) {
         <input
           id="contactName"
           name="contactName"
+          defaultValue={entered.contactName}
           required
           maxLength={KEIRI_APPLY_LIMITS.contactName}
           autoComplete="name"
@@ -136,6 +226,7 @@ export default function ApplyForm({ email }: { email: string }) {
         <input
           id="email"
           name="email"
+          defaultValue={entered.email}
           type="email"
           required
           maxLength={KEIRI_APPLY_LIMITS.email}
@@ -154,6 +245,7 @@ export default function ApplyForm({ email }: { email: string }) {
         <input
           id="phone"
           name="phone"
+          defaultValue={entered.phone}
           type="tel"
           maxLength={KEIRI_APPLY_LIMITS.phone}
           autoComplete="tel"
@@ -170,6 +262,7 @@ export default function ApplyForm({ email }: { email: string }) {
         <textarea
           id="note"
           name="note"
+          defaultValue={entered.note}
           rows={4}
           maxLength={KEIRI_APPLY_LIMITS.note}
           className="mt-1 w-full rounded-xl border border-stone-300 p-3 text-base text-stone-900 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"

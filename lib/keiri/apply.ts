@@ -166,3 +166,51 @@ export function keiriApplyNotificationText(args: {
   );
   return lines.join("\n");
 }
+
+/**
+ * 届けられなかったときに、店主が「そのままメールで送る」ための下書きを作る。
+ *
+ * ■ なぜ要るのか（2026-09-19・kp60）
+ *   申し込みの知らせ（LINE）と控え（倉庫）が両方だめなとき、
+ *   フォームは「受け付けました」と言えない。けれど
+ *   「いま受け付けができません」で終わらせると、**せっかくの1件がそこで消える**。
+ *   入れてもらった中身をそのまま入れたメールの下書きを開くボタンにすれば、
+ *   店主は1回押すだけで、こちらに届く。
+ *
+ * ★ここでは通信をしない。文字を組み立てるだけ。
+ * ★入力の中身は捨てない。打ち直しをお願いしないため。
+ */
+export function keiriApplyMailto(args: {
+  /** 送り先（KEIRI_COMPANY.email） */
+  to: string;
+  shopName?: unknown;
+  contactName?: unknown;
+  email?: unknown;
+  phone?: unknown;
+  note?: unknown;
+}): { subject: string; body: string; url: string } {
+  const shopName = text(args.shopName);
+  const contactName = text(args.contactName);
+  const email = text(args.email);
+  const phone = text(args.phone);
+  const note = text(args.note);
+
+  const subject = shopName
+    ? `経理パッケージ お申し込み（${shopName}）`
+    : "経理パッケージ お申し込み";
+
+  const lines = [
+    "経理パッケージに申し込みます。",
+    "",
+    `お店：${shopName || "（未記入）"}`,
+    `お名前：${contactName || "（未記入）"}`,
+    `メール：${email || "（未記入）"}`,
+  ];
+  if (phone) lines.push(`電話：${phone}`);
+  if (note) lines.push("", "ひとこと：", note);
+  lines.push("", "（お申し込みフォームから送れなかったため、メールでお送りしています）");
+
+  const body = lines.join("\n");
+  const url = `mailto:${args.to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  return { subject, body, url };
+}

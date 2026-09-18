@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 
 import {
   KEIRI_APPLY_LIMITS,
+  keiriApplyMailto,
   keiriApplyNotificationText,
   normalizeKeiriApplication,
 } from "../lib/keiri/apply";
@@ -158,4 +159,30 @@ test("申し込みページは公開ページの一覧に入っている（sitem
   assert.ok(paths.includes("/keiri/apply"));
   // 紹介ページのすぐ後ろに置く（読み終えた人が次に押す所なので）
   assert.equal(paths.indexOf("/keiri/apply"), paths.indexOf("/keiri/case") + 1);
+});
+
+test("届けられなかったときのメール下書き：入れてもらった中身をそのまま入れる", () => {
+  const mail = keiriApplyMailto({
+    to: "jun@example.co.jp",
+    shopName: "屋台 手羽屋",
+    contactName: "川畑 潤一郎",
+    email: "you@example.com",
+    phone: "090-0000-0000",
+    note: "レシートの入力が大変です",
+  });
+  assert.match(mail.subject, /屋台 手羽屋/);
+  assert.match(mail.body, /お店：屋台 手羽屋/);
+  assert.match(mail.body, /お名前：川畑 潤一郎/);
+  assert.match(mail.body, /メール：you@example.com/);
+  assert.match(mail.body, /電話：090-0000-0000/);
+  assert.match(mail.body, /レシートの入力が大変です/);
+  assert.ok(mail.url.startsWith("mailto:jun@example.co.jp?subject="));
+  assert.ok(mail.url.includes(encodeURIComponent("屋台 手羽屋")));
+});
+
+test("メール下書き：任意の欄が空でも壊れない", () => {
+  const mail = keiriApplyMailto({ to: "a@b.co", shopName: "", contactName: "", email: "" });
+  assert.equal(mail.subject, "経理パッケージ お申し込み");
+  assert.match(mail.body, /お店：（未記入）/);
+  assert.ok(!mail.body.includes("電話："));
 });
