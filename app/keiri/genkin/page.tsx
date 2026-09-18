@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { priceLabel } from "@/lib/keiri/caseNumbers";
 import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
+import { keiriMetadata } from "@/lib/keiri/metadata";
 
 /**
  * 検索向けページ（合わない型）：「現金商売で、レジのお金が合わない」。
@@ -11,12 +12,13 @@ import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
  * ★「合わないときの正しい処理」は税務の判断にあたるので書かない。
  */
 
-export const metadata: Metadata = {
+export const metadata: Metadata = keiriMetadata({
+  path: "/keiri/genkin",
   title: "現金商売でレジのお金が合わない｜どこでズレたかを毎日で切り分ける（経理パッケージ）",
   description:
     "屋台・移動販売のように売上がほぼ全部現金のお店で、手元の現金が合わなくなる原因と、" +
     `その日のうちに切り分ける方法。閉店後の残高と翌朝の開店前を突き合わせます。${priceLabel()}。`,
-};
+});
 
 const CAUSES: { cause: string; answer: string }[] = [
   {

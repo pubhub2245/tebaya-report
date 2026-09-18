@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { priceLabel } from "@/lib/keiri/caseNumbers";
 import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
+import { keiriMetadata } from "@/lib/keiri/metadata";
 
 /**
  * 検索向けページ（やり方型）：「移動販売・催事出店の売上と経費をどう付けるか」。
@@ -11,12 +12,13 @@ import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
  * ★税務の判断はしない・させない（CLAUDE.md 5-2）。断定しない。
  */
 
-export const metadata: Metadata = {
+export const metadata: Metadata = keiriMetadata({
+  path: "/keiri/howto",
   title: "移動販売の売上・経費の付け方｜その日のうちに締める手順（経理パッケージ）",
   description:
     "出店ごとに場所も売上も変わるお店の、売上と経費の付け方。日報1枚で、レジの現金・場代・日当・持ち帰り金額まで" +
     `その日のうちに合わせる手順を並べました。${priceLabel()}。`,
-};
+});
 
 const STEPS: { n: string; title: string; body: string; why: string }[] = [
   {

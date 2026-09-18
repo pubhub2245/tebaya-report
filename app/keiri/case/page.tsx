@@ -10,6 +10,7 @@ import {
 } from "@/lib/keiri/caseNumbers";
 import { getCaseStats } from "@/lib/keiri/caseStats";
 import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
+import { keiriMetadata } from "@/lib/keiri/metadata";
 
 /**
  * 経理パッケージの紹介ページ（無人販売の入口①・事例ページ）。
@@ -26,12 +27,14 @@ import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
 /** 数字は毎日入れ替わる。1時間ごとに作り直す（毎回DBを叩かない） */
 export const revalidate = 3600;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = keiriMetadata({
+  path: "/keiri/case",
+  type: "website",
   title: "経理パッケージ｜日報を書くだけで、月の利益と今の現金が分かる",
   description:
     "小さな飲食店・移動販売・催事出店のための経理アプリ。毎日の日報を書くだけで、月の利益・今の現金・まだ払っていないお金が自動で出ます。" +
     `${priceLabel()}、いつでも解約。`,
-};
+});
 
 const OUTPUTS: { title: string; body: string }[] = [
   {

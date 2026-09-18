@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { priceLabel } from "@/lib/keiri/caseNumbers";
 import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
+import { keiriMetadata } from "@/lib/keiri/metadata";
 
 /**
  * 検索向けページ（落とし穴型）：「レシートの残し方」。
@@ -12,13 +13,14 @@ import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
  *   「判断しません・税理士に確認してください」とだけ書く（CLAUDE.md 5-2）。
  */
 
-export const metadata: Metadata = {
+export const metadata: Metadata = keiriMetadata({
+  path: "/keiri/receipt",
   title: "レシートの残し方｜写真1枚で、税込の金額のまま経費にする（経理パッケージ）",
   description:
     "レシートの読み取りで経費が毎回8〜10%少なくなる、よくある落とし穴と、その直し方。" +
     "写真を撮ると税込の金額で経費の行になり、写真は経費1行ごとに紐づいて残ります。" +
     `${priceLabel()}。`,
-};
+});
 
 const FLOW: { n: string; title: string; body: string }[] = [
   {
