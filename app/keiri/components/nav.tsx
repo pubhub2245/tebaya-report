@@ -81,6 +81,11 @@ export const KEIRI_PUBLIC_PAGES: { path: string; title: string; lead: string }[]
     title: "困ったとき（よくある質問）",
     lead: "毎日やること・レシートの税込・立替の入れ方・利益と現金の違い・解約のしかたを1ページに。",
   },
+  {
+    path: "/keiri/legal",
+    title: "特定商取引法に基づく表記・会社概要",
+    lead: "だれが売っているか、価格・支払い・解約・返金の条件。法律で表示が必要な項目をまとめています。",
+  },
 ];
 
 /** パンくず（いまどこにいるか）。先頭の「経理パッケージ」は常に付く */
@@ -124,5 +129,30 @@ export function KeiriRelated({ current }: { current: string }) {
         ))}
       </ul>
     </section>
+  );
+}
+
+/**
+ * 外向きページの共通フッター。
+ * ★特定商取引法に基づく表記へのリンクは、売っているページの全部から辿れる必要がある。
+ *   ここ1か所に置くことで、ページを足したときのリンク漏れを防ぐ。
+ */
+export function KeiriFooter({ home = false }: { home?: boolean }) {
+  return (
+    <footer className="text-center text-xs text-stone-400">
+      <p>運営：株式会社Alpha</p>
+      <p className="mt-1">
+        <Link href="/keiri/legal" className="underline hover:text-stone-600">
+          特定商取引法に基づく表記・会社概要
+        </Link>
+      </p>
+      {home && (
+        <p className="mt-1">
+          <Link href="/" className="underline hover:text-stone-600">
+            手羽屋 業務システムへ戻る
+          </Link>
+        </p>
+      )}
+    </footer>
   );
 }

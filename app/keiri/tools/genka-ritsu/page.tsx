@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
+import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
 import { keiriMetadata } from "@/lib/keiri/metadata";
 import { priceLabel } from "@/lib/keiri/caseNumbers";
 import GenkaForm from "./form";
@@ -85,6 +85,8 @@ export default function GenkaRitsuPage() {
       <div className="mt-12">
         <KeiriRelated current="/keiri/tools/genka-ritsu" />
       </div>
+
+      <KeiriFooter />
     </main>
   );
 }

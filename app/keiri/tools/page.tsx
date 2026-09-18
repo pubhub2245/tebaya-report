@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
+import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
 import { keiriMetadata } from "@/lib/keiri/metadata";
 
 export const metadata: Metadata = keiriMetadata({
@@ -64,6 +64,8 @@ export default function KeiriToolsPage() {
       <div className="mt-12">
         <KeiriRelated current="/keiri/tools" />
       </div>
+
+      <KeiriFooter />
     </main>
   );
 }
