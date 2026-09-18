@@ -69,3 +69,19 @@ alter table public.keiri_tenants enable row level security;
 create unique index if not exists keiri_tenants_external_session_idx
   on public.keiri_tenants (external_session_id)
   where external_session_id is not null;
+
+-- ------------------------------------------------------------------
+-- 設定の行は「1軒につき1行」だけ
+--
+-- ■ なぜ足すか
+--   keiri_settings は元から「業態コード1つにつき1行」の決まりでしたが、
+--   これは1事業（手羽屋）しか無かった頃の決まりです。
+--   お店ごとの設定を持つようになったので、「同じお店の設定が2行できない」
+--   という決まりを別に足します（**足すだけ**。既存の決まりは外しません）。
+--
+--   手羽屋の行は tenant_id が空なのでこの決まりの外側にあり、
+--   今までどおり1行のまま何も変わりません。
+-- ------------------------------------------------------------------
+create unique index if not exists keiri_settings_tenant_uniq
+  on public.keiri_settings (tenant_id)
+  where tenant_id is not null;
