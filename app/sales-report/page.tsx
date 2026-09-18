@@ -81,7 +81,9 @@ function SalesReportInner() {
           .from("daily_reports")
           .select(
             "date, shop, sales_amount, expenses_total, location, staff_name, register_diff, remaining_tebasaki, allstar_count, customer_groups, alcohol_count, product_counts, product_prices, breakdown_diff, breakdown_diff_reason",
-          ),
+          )
+          // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+          .is("tenant_id", null),
         supabase
           .from("cash_settings")
           .select("opening_balance, start_date")
@@ -120,6 +122,8 @@ function SalesReportInner() {
       const { data } = await supabase
         .from("daily_reports")
         .select("shop, expenses")
+        // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+        .is("tenant_id", null)
         .eq("date", date);
       if (cancelled) return;
       const rows = (data as { shop: string | null; expenses: ExpenseItem[] | null }[]) ?? [];

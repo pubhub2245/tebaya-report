@@ -150,11 +150,15 @@ export default function AdminPage() {
             .select(
               "id, date, location, staff_name, shop, sales_amount, register_diff, labor, expenses_total, exclude_from_stats"
             )
+            // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+            .is("tenant_id", null)
             .order("date", { ascending: false })
             .limit(30),
           supabase
             .from("daily_reports")
             .select("date, staff_name, register_diff")
+            // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+            .is("tenant_id", null)
             .order("date", { ascending: true }),
         ]);
         if (recentRes.error) throw recentRes.error;

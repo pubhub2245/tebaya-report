@@ -51,6 +51,8 @@ export async function GET(req: NextRequest) {
     const { data: dailies, error: dayErr } = await supabase
       .from("daily_reports")
       .select("date, location, sales_amount")
+      // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+      .is("tenant_id", null)
       .gte("date", sinceDate);
     if (dayErr) throw dayErr;
 

@@ -550,6 +550,8 @@ export async function calculateAutoCarryover(
   const { data: dailyRows } = await supabase
     .from("daily_reports")
     .select("remaining_tebasaki, remaining_gyoza")
+    // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+    .is("tenant_id", null)
     .eq("date", yesterday);
   const dailyList = (dailyRows as Array<{
     remaining_tebasaki: number | null;
