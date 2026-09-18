@@ -138,6 +138,13 @@ export default function MenuPage() {
         >
           💰 現金残高（管理者） →
         </Link>
+        {/* 経理パッケージの紹介ページ（外向け・誰でも見られる）。店の中のデータは読まない */}
+        <Link
+          href="/keiri/case"
+          className="block text-xs text-stone-400 underline hover:text-stone-600"
+        >
+          経理パッケージの紹介ページ →
+        </Link>
         <Link
           href="/sales-report"
           className="block text-sm text-stone-500 underline hover:text-stone-700"

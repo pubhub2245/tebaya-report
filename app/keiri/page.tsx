@@ -37,6 +37,14 @@ import {
   summarizeMonth,
   templateFor,
   toCsv,
+} from "@/lib/keiri";
+import {
+  encodeCsv,
+  moneyForwardFileName,
+  toMoneyForwardCsv,
+  type CsvEncoding,
+} from "@/lib/keiri/moneyforward";
+import {
   PAYMENT_KIND_LABEL,
   type KeiriPayment,
   type KeiriReport,
@@ -203,6 +211,32 @@ function KeiriInner() {
     URL.revokeObjectURL(url);
   };
 
+  /**
+   * マネーフォワード クラウド会計に読み込ませる形（27列）で書き出す。
+   * 文字コードは2つあるので、取り込めたほうを使ってもらう。
+   */
+  const downloadMoneyForwardCsv = async (encoding: CsvEncoding) => {
+    const rows = buildJournalRows({
+      ym,
+      reports,
+      payments,
+      template,
+      settings: effective,
+    });
+    const bytes = await encodeCsv(toMoneyForwardCsv(rows), encoding);
+    const blob = new Blob([bytes], {
+      type: encoding === "utf8" ? "text/csv;charset=utf-8;" : "text/csv;charset=shift_jis;",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = moneyForwardFileName(ym, encoding);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const ratePct = Math.round(effective.outsourcing_rate * 1000) / 10;
 
   return (
@@ -210,6 +244,9 @@ function KeiriInner() {
       <header className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-2xl font-bold text-brand-dark">🧮 経理</h1>
         <div className="flex gap-2">
+          <Link href="/keiri/help" className="btn-secondary text-sm">
+            ❓ 困ったとき
+          </Link>
           <Link href="/" className="btn-secondary text-sm">
             🏠 トップ
           </Link>
@@ -452,6 +489,31 @@ function KeiriInner() {
         <button className="btn-primary w-full" onClick={downloadCsv}>
           この月のCSVをダウンロード
         </button>
+
+        <div className="pt-3 mt-1 border-t border-stone-200 space-y-2">
+          <h3 className="text-sm font-bold text-brand-dark">
+            マネーフォワード クラウド会計に取り込む場合
+          </h3>
+          <p className="text-sm text-stone-600 leading-relaxed">
+            会計ソフトが読める並び（27列）で書き出します。文字コード（文字の書き表し方）は
+            2つあります。まず「UTF-8」を試して、取り込めなければ「Shift-JIS」を使ってください。
+            税区分は空にしてあります（税務のことはこのアプリでは決めません）。
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <button
+              className="btn-secondary text-sm flex-1"
+              onClick={() => void downloadMoneyForwardCsv("utf8")}
+            >
+              MF用CSV（UTF-8）
+            </button>
+            <button
+              className="btn-secondary text-sm flex-1"
+              onClick={() => void downloadMoneyForwardCsv("shift_jis")}
+            >
+              MF用CSV（Shift-JIS）
+            </button>
+          </div>
+        </div>
       </section>
 
       {/* 支払いの記録 */}
