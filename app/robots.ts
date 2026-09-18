@@ -39,12 +39,42 @@ function indexNowKeyPaths(): string[] {
   }
 }
 
+/**
+ * 検索エンジン（Google）の「このサイトはあなたのものですね」の確認ファイルも読ませる。
+ * Google Search Console は `/google<コード>.html` を取りに来て、中身が
+ * `google-site-verification: <ファイル名>` になっているかを見る。
+ * 上の Disallow: / に当たると取りに来られず、確認が通らない。
+ * ファイル名は public/ の中身が唯一の正なので、ここでは名前を書かずに探す。
+ * 見つからなくてもビルドは止めない（何も許さないだけ）。
+ */
+function googleVerificationPaths(): string[] {
+  try {
+    const dir = join(process.cwd(), "public");
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir)
+      .filter((name) => {
+        if (!/^google[0-9a-z]+\.html$/.test(name)) return false;
+        return (
+          readFileSync(join(dir, name), "utf8").trim() ===
+          `google-site-verification: ${name}`
+        );
+      })
+      .map((name) => `/${name}`);
+  } catch {
+    return [];
+  }
+}
+
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
       {
         userAgent: "*",
-        allow: [...KEIRI_PUBLIC_PAGES.map((p) => p.path), ...indexNowKeyPaths()],
+        allow: [
+          ...KEIRI_PUBLIC_PAGES.map((p) => p.path),
+          ...indexNowKeyPaths(),
+          ...googleVerificationPaths(),
+        ],
         disallow: "/",
       },
     ],
