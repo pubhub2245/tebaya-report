@@ -79,6 +79,8 @@ async function fetchReportsAndLocations(startDate: string, endDate: string) {
     supabase
       .from("daily_reports")
       .select("date, location, staff_name, sales_amount, unit_number")
+      // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+      .is("tenant_id", null)
       .gte("date", startDate)
       .lte("date", endDate),
     supabase.from("locations").select("name, target"),
@@ -297,6 +299,8 @@ export const getActualShiftTargetSumForPeriod = async (
     supabase
       .from("daily_reports")
       .select("date")
+      // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+      .is("tenant_id", null)
       .gte("date", startDate)
       .lte("date", endDate),
   ]);

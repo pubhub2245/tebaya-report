@@ -55,6 +55,8 @@ async function fetchRankReports(): Promise<
   const { data, error } = await supabase
     .from("daily_reports")
     .select("date, location, sales_amount, exclude_from_stats")
+    // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+    .is("tenant_id", null)
     .order("date", { ascending: false });
   if (error) throw error;
   return (data as (RankReport & { location: string | null })[]) || [];

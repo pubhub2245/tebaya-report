@@ -60,6 +60,8 @@ export default function MonthlySummary({
           supabase
             .from("daily_reports")
             .select("sales_amount")
+            // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+            .is("tenant_id", null)
             .gte("date", start)
             .lte("date", upTo),
         ]);

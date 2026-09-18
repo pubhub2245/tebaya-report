@@ -111,6 +111,8 @@ function PayrollInner() {
     const { data, error } = await supabase
       .from("daily_reports")
       .select("date, staff_name, shop, location, labor, sales_amount")
+      // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+      .is("tenant_id", null)
       .gte("date", `${monthStr}-01`)
       .lte("date", `${monthStr}-31`)
       .order("date");

@@ -142,6 +142,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       adminPassword,
+      // このブラウザを「このお店」として覚えるための番号（日報と経理画面の絞り込みに使う）
+      tenantId: String(tenant.id),
       // ★お店の行はできているので、日報は今日から打てる。
       //   ここで止めない。ただし「管理画面から入れ直して」とは案内しない
       //   （数え始めの日と手元の現金の画面は、まだ手羽屋ぶんしか無いため）。
@@ -150,5 +152,5 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({ ok: true, adminPassword });
+  return NextResponse.json({ ok: true, adminPassword, tenantId: String(tenant.id) });
 }

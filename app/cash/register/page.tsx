@@ -81,6 +81,8 @@ function RegisterCheckInner() {
           .select(
             "date, location, unit_number, register_total, register_diff, sales_amount, expenses_total",
           )
+          // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+          .is("tenant_id", null)
           .gte("date", fetchFrom)
           .order("date"),
       ]);

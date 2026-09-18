@@ -97,6 +97,8 @@ export async function getCaseStats(today: Date = new Date()): Promise<CaseStats>
       .from("daily_reports")
       // 合計だけ。経費の明細（expenses）は取りに行かない（CLAUDE.md 4-2）
       .select("date, sales_amount, labor, expenses_total")
+      // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+      .is("tenant_id", null)
       .gte("date", start)
       .lte("date", end);
 

@@ -40,6 +40,8 @@ export default function SalesBreakdown({ yearMonth }: { yearMonth: string }) {
       const { data, error } = await supabase
         .from("daily_reports")
         .select("shop, location, sales_amount")
+        // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+        .is("tenant_id", null)
         .gte("date", `${yearMonth}-01`)
         .lte("date", `${yearMonth}-31`);
       if (cancelled) return;

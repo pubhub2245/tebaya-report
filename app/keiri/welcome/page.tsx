@@ -27,6 +27,7 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { writeTenantScope } from "@/lib/tenantScope";
 
 /**
  * ★ 入れ物を1枚かぶせてある理由
@@ -74,6 +75,10 @@ function WelcomeForm() {
         setError(String(json?.message ?? "保存できませんでした。もう一度お試しください。"));
         return;
       }
+      // このブラウザを「このお店」として覚える。
+      // これ以降、日報はこのお店の印で保存され、経理画面もこのお店のぶんだけを出す
+      // （手羽屋の画面とデータは混ざらない。lib/tenantScope.ts）。
+      writeTenantScope(json.tenantId ?? null);
       setAdminPassword(String(json.adminPassword ?? ""));
       if (json.warning) setWarning(String(json.warning));
     } catch {

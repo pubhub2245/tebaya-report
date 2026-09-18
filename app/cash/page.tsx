@@ -63,7 +63,9 @@ function CashInner() {
       // 集計対象の日報（start_date 以降。null なら全期間）
       let query = supabase
         .from("daily_reports")
-        .select("date, sales_amount, expenses_total");
+        .select("date, sales_amount, expenses_total")
+        // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+        .is("tenant_id", null);
       const startDate = current?.start_date ?? null;
       if (startDate) query = query.gte("date", startDate);
       const { data: reps, error: rErr } = await query;

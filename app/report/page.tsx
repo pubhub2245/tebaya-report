@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { applyTenantScope, readTenantScope, tenantStamp } from "@/lib/tenantScope";
 import { yen } from "@/lib/format";
 import {
   FormState,
@@ -225,9 +226,11 @@ export default function Page() {
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await supabase
-          .from("daily_reports")
-          .select("sales_amount");
+        // そのお店のぶんだけ数える（手羽屋は印が空なので、いままでと同じ合計になる）
+        const { data } = await applyTenantScope<any>(
+          supabase.from("daily_reports").select("sales_amount") as any,
+          readTenantScope(),
+        );
         const sum = (data || []).reduce(
           (s: number, r: any) => s + (r.sales_amount || 0),
           0
@@ -399,9 +402,10 @@ export default function Page() {
       // 代理INSERT（line_textに「【代理INSERT】」マーカー付き）が同じ
       // 日付・担当者で先に存在していたら、本人提出時に自動削除して二重計上を防ぐ
       try {
-        await supabase
-          .from("daily_reports")
-          .delete()
+        await applyTenantScope<any>(
+          supabase.from("daily_reports").delete() as any,
+          readTenantScope(),
+        )
           .eq("date", form.date)
           .eq("staff_name", form.staff_name)
           .ilike("line_text", "%【代理INSERT】%");
@@ -412,9 +416,10 @@ export default function Page() {
       // 二重登録の防止：同じ日付・担当・お店の日報が既にあれば確認する
       // （別のお店＝手羽屋/もも屋は別扱いなので二重にはならない）
       try {
-        const { data: dup } = await supabase
-          .from("daily_reports")
-          .select("id")
+        const { data: dup } = await applyTenantScope<any>(
+          supabase.from("daily_reports").select("id") as any,
+          readTenantScope(),
+        )
           .eq("date", form.date)
           .eq("staff_name", form.staff_name)
           .eq("shop", form.shop)
@@ -464,6 +469,8 @@ export default function Page() {
       const { data, error } = await supabase
         .from("daily_reports")
         .insert({
+          // どの店の日報か。手羽屋は null（＝いままで保存していた中身と同じ）
+          ...tenantStamp(readTenantScope()),
           date: form.date,
           shop: form.shop,
           location: form.location,

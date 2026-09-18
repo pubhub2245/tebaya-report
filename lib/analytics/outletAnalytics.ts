@@ -365,7 +365,9 @@ export async function getOutletAnalytics(): Promise<OutletStats[]> {
   const [repRes, shiftRes, locRes] = await Promise.all([
     supabase
       .from("daily_reports")
-      .select("date, location, sales_amount, exclude_from_stats"),
+      .select("date, location, sales_amount, exclude_from_stats")
+      // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+      .is("tenant_id", null),
     // 当月の予定出店（シフト）。中止は除く。
     supabase
       .from("shifts")

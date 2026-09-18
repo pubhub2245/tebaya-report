@@ -43,6 +43,8 @@ export const getMissingReportLocations = async (
   const { data: reports } = await supabase
     .from("daily_reports")
     .select("location")
+    // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+    .is("tenant_id", null)
     .eq("date", date);
 
   const reportedLocs = new Set(

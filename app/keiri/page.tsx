@@ -22,6 +22,11 @@ import {
 } from "recharts";
 
 import { supabase } from "@/lib/supabase";
+import {
+  applyTenantScope,
+  businessCodeForScope,
+  readTenantScope,
+} from "@/lib/tenantScope";
 import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
 import {
@@ -52,8 +57,14 @@ import {
   type PaymentKind,
 } from "@/lib/keiri";
 
-/** この画面が扱う業態。別の業態を出したくなったらここを変える */
-const BUSINESS_CODE = "tebaya";
+/**
+ * この画面が扱う業態。
+ *
+ * ★2026-09-18（kp35）まで "tebaya" 固定でした。経理パッケージを他のお店に売ると、
+ *   そのお店の画面に手羽屋の売上が出てしまうため、
+ *   「いまどのお店として開いているか」（lib/tenantScope.ts）から決めるようにしました。
+ *   **手羽屋は印が空なので、いままでどおり "tebaya" になります。**
+ */
 
 /** ドーナツグラフの色（科目の並び順に対応） */
 const SLICE_COLORS = [
@@ -78,8 +89,19 @@ export default function KeiriPage() {
   );
 }
 
+/**
+ * いま開いているお店の業態コードを返す。
+ * 手羽屋（印が空）のときは "tebaya" ＝ いままでどおり。
+ */
+function currentBusinessCode(): string {
+  return businessCodeForScope(readTenantScope());
+}
+
 function KeiriInner() {
   const now = new Date();
+  // いまどのお店として開いているか（null＝手羽屋。手羽屋は今までどおり）
+  const scope = useMemo(() => readTenantScope(), []);
+  const BUSINESS_CODE = useMemo(() => businessCodeForScope(scope), [scope]);
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [tab, setTab] = useState<Tab>("table");
@@ -91,7 +113,7 @@ function KeiriInner() {
   const [error, setError] = useState<string | null>(null);
 
   const ym = monthKey(year, month);
-  const template = useMemo(() => templateFor(BUSINESS_CODE), []);
+  const template = useMemo(() => templateFor(BUSINESS_CODE), [BUSINESS_CODE]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,9 +147,14 @@ function KeiriInner() {
       const from = (s as any)?.opening_date ?? DEFAULT_SETTINGS.opening_date;
       // 表示中の月が期首日より前でも見られるように、月初とどちらか早いほうから取る
       const gte = `${ym}-01` < from ? `${ym}-01` : from;
-      const { data: reps, error: rErr } = await supabase
+      // ★そのお店のぶんだけ読む（手羽屋は印が空なので、読む範囲はいままでと同じ）
+      const repQuery = supabase
         .from("keiri_reports")
-        .select("date, location, staff_name, sales_amount, labor, expenses")
+        .select("date, location, staff_name, sales_amount, labor, expenses");
+      const { data: reps, error: rErr } = await applyTenantScope<any>(
+        repQuery as any,
+        scope,
+      )
         .gte("date", gte)
         .order("date");
       if (rErr) throw rErr;
@@ -146,7 +173,7 @@ function KeiriInner() {
     } finally {
       setLoading(false);
     }
-  }, [ym]);
+  }, [ym, scope, BUSINESS_CODE]);
 
   useEffect(() => {
     load();
@@ -647,7 +674,7 @@ function PaymentSection({
     setSaving(true);
     setMsg(null);
     const { error } = await supabase.from("keiri_payments").insert({
-      business_type_code: BUSINESS_CODE,
+      business_type_code: currentBusinessCode(),
       paid_on: paidOn,
       amount: n,
       kind,
@@ -809,7 +836,7 @@ function SettingsSection({
         rent_start_month: rentStart || null,
         updated_at: new Date().toISOString(),
       })
-      .eq("business_type_code", BUSINESS_CODE);
+      .eq("business_type_code", currentBusinessCode());
     setSaving(false);
     if (error) {
       setMsg(`❌ 保存できませんでした：${error.message}`);
