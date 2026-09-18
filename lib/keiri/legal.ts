@@ -8,6 +8,15 @@
  */
 
 import { KEIRI_PRICE, priceLabel } from "./caseNumbers";
+import { KEIRI_MONTHLY_CLOSE_TIMING, KEIRI_OFFER_ITEMS } from "./offer";
+
+/**
+ * 特商法の表記に出す「サービスの内容」の1行。
+ * 紹介ページと同じ定義（offer.ts）から作るので、中身を変えたときに片方だけ古くならない。
+ */
+export function offerSummaryForLegal(): string {
+  return `${KEIRI_OFFER_ITEMS.map((o) => o.title).join("／")}（税務の個別判断は行いません）`;
+}
 
 /** 会社概要（だれが売っているか） */
 export const KEIRI_COMPANY = {
@@ -44,7 +53,8 @@ export function tokushohoRows(): LegalRow[] {
       label: "支払時期",
       value: "お申し込み時に初回分を決済し、以後は毎月同日に自動で決済されます",
     },
-    { label: "サービスの提供時期", value: "決済完了後、ただちにご利用いただけます" },
+    { label: "サービスの内容", value: offerSummaryForLegal() },
+    { label: "サービスの提供時期", value: KEIRI_MONTHLY_CLOSE_TIMING },
     {
       label: "解約について",
       value: KEIRI_PRICE.cancelAnytime
