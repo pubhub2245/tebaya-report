@@ -52,12 +52,41 @@ test("鍵が使えるのに読めないときは、鍵のせいにしない", ()
   assert.ok(r.note.includes("SQL"));
 });
 
-test("読めているときは、そのまま読めていると出す", () => {
+test("読めていて鍵も生きているときだけ、記録できると言い切る", () => {
   const key = describeServerKey({ ok: true, key: "abc" });
-  assert.deepEqual(describeRecordStore({ ok: true, reason: null }, key), {
-    ok: true,
-    note: "読めています",
+  const r = describeRecordStore({ ok: true, reason: null }, key);
+  assert.equal(r.ok, true);
+  assert.equal(r.readable, true);
+});
+
+test("読めても鍵が壊れていれば、ok にしない（控えが黙って消えるのを見逃さない）", () => {
+  // keiri_applications は「読むと0件が返る（エラーにならない）のに、
+  // 書き込みは断られる」状態になりうる。ここを ok にすると、
+  // 申し込みの控えが1行も残らないのに全部緑に見えてしまう。
+  const key = describeServerKey({
+    ok: false,
+    reason: "全角などの使えない文字が入っている",
   });
+  const r = describeRecordStore({ ok: true, reason: null }, key);
+  assert.equal(r.ok, false); // ← ここが肝。読めた＝大丈夫、にしない
+  assert.equal(r.readable, true); // 表そのものは在る、という事実は残す
+  assert.ok(r.note.includes("言い切れません"));
+});
+
+test("読めないときは readable も false にする", () => {
+  const key = describeServerKey({ ok: true, key: "abc" });
+  const r = describeRecordStore(
+    { ok: false, reason: "置き場（表）が本番にありません" },
+    key,
+  );
+  assert.equal(r.readable, false);
+});
+
+test("鍵の状態は、どの説明文にも値そのものを出さない（置き場の説明でも）", () => {
+  const secret = "ANOTHER-SECRET-KEY";
+  const key = describeServerKey({ ok: true, key: secret });
+  const r = describeRecordStore({ ok: true, reason: null }, key);
+  assert.ok(!JSON.stringify(r).includes(secret));
 });
 
 test("「表が無い」と「読む許可が無い」を言い分ける", () => {
