@@ -83,7 +83,9 @@ type Tab = "table" | "chart" | "location";
 
 export default function KeiriPage() {
   return (
-    <AdminGate>
+    // ★申し込んだお店も、自分の合言葉で入れる画面（kp39）。
+    //   手羽屋の入り方はこれまでどおり（app/components/AdminGate.tsx）
+    <AdminGate allowShops>
       <KeiriInner />
     </AdminGate>
   );

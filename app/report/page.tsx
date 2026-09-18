@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { applyTenantScope, readTenantScope, tenantStamp } from "@/lib/tenantScope";
+import {
+  TEBAYA_SCOPE,
+  applyTenantScope,
+  normalizeTenantScope,
+  readTenantScope,
+  tenantStamp,
+  writeTenantScope,
+  type TenantScope,
+} from "@/lib/tenantScope";
 import { yen } from "@/lib/format";
 import {
   FormState,
@@ -60,6 +68,13 @@ const COINS: { key: keyof FormState["coins"]; label: string; value: number }[] =
 export default function Page() {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<FormState>(initialForm());
+  /**
+   * この端末が打っている日報は、どのお店のものか（null＝手羽屋）。
+   * 手羽屋は印を持たないので、画面も保存する中身も今までと1つも変わらない。
+   */
+  const [scope, setScope] = useState<TenantScope>(TEBAYA_SCOPE);
+  /** 画面の上に出すお店の名前（手羽屋のときは出さない） */
+  const [scopeName, setScopeName] = useState<string | null>(null);
   const [cumulative, setCumulative] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [lineText, setLineText] = useState("");
@@ -101,6 +116,48 @@ export default function Page() {
   useEffect(() => {
     loadProducts();
   }, [loadProducts]);
+
+  /**
+   * お店ごとの「日報の入り口」のリンク（/report?s=お店の番号）で開かれたら、
+   * この端末をそのお店の端末として覚える。
+   *
+   * ★なぜ要るか
+   *   初回設定を終えたブラウザは、そこで自動的にそのお店として覚えます。
+   *   でも日報を打つのは**別の端末**（スタッフのスマホなど）のことが多く、
+   *   そのままだと よそのお店の日報が「手羽屋の日報」として保存されてしまいます。
+   *   店主がこのリンクを配れば、その端末も1回開くだけでそのお店の端末になります。
+   *
+   * ★手羽屋はこのリンクを使わないので、ここは何も起きません。
+   */
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const id = normalizeTenantScope(params.get("s"));
+      if (id) {
+        writeTenantScope(id);
+        // お店の番号がURLに残り続けないように、履歴を汚さず消す
+        params.delete("s");
+        const rest = params.toString();
+        window.history.replaceState(
+          null,
+          "",
+          window.location.pathname + (rest ? `?${rest}` : ""),
+        );
+      }
+    } catch {}
+
+    const current = readTenantScope();
+    setScope(current);
+    if (!current) return;
+    // お店の名前だけ聞きに行く（売上も合言葉も返らない窓口）
+    (async () => {
+      try {
+        const res = await fetch(`/api/keiri/shop?id=${encodeURIComponent(current)}`);
+        const json = await res.json().catch(() => null);
+        if (json?.ok && json.shopName) setScopeName(String(json.shopName));
+      } catch {}
+    })();
+  }, []);
 
   /**
    * 商品ごとの「単価 × 本数」の合計と、レジで数えた売上の突き合わせ。
@@ -229,7 +286,7 @@ export default function Page() {
         // そのお店のぶんだけ数える（手羽屋は印が空なので、いままでと同じ合計になる）
         const { data } = await applyTenantScope<any>(
           supabase.from("daily_reports").select("sales_amount") as any,
-          readTenantScope(),
+          scope,
         );
         const sum = (data || []).reduce(
           (s: number, r: any) => s + (r.sales_amount || 0),
@@ -238,7 +295,7 @@ export default function Page() {
         setCumulative(sum + (form.sales_amount || 0));
       } catch {}
     })();
-  }, [form.sales_amount]);
+  }, [form.sales_amount, scope]);
 
   // 月次限定商品プリセット読み込み
   // 日付 (form.date) の年月から該当月の登録名を取得し、空欄の場合のみ初期値として埋める
@@ -527,16 +584,20 @@ export default function Page() {
       }
 
       // LINE自動送信（失敗しても提出は成功とする）
-      try {
-        const res = await fetch("/api/line/send-report", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ text }),
-        });
-        const json = await res.json();
-        if (json.ok) setLineSent(true);
-      } catch {
-        console.warn("LINE自動送信に失敗しましたが、日報は保存済みです");
+      // ★送り先は手羽屋のスタッフのグループなので、手羽屋の日報のときだけ送る。
+      //   よそのお店の売上が手羽屋のグループに流れないようにするため。
+      if (!readTenantScope()) {
+        try {
+          const res = await fetch("/api/line/send-report", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ text }),
+          });
+          const json = await res.json();
+          if (json.ok) setLineSent(true);
+        } catch {
+          console.warn("LINE自動送信に失敗しましたが、日報は保存済みです");
+        }
       }
 
       setStep(9);
@@ -660,8 +721,15 @@ export default function Page() {
         {/* 出店中止の登録（/report/cancel）は 2026-06-04 で運用停止したため入り口を外した。
             画面とデータは残してあるので、再開したいときはここに戻すだけでよい。 */}
         <h1 className="text-xl font-bold text-brand-dark text-center">
-          手羽屋 営業後日報
+          {scope ? `${scopeName ?? "あなたのお店"} 営業後日報` : "手羽屋 営業後日報"}
         </h1>
+        {/* 経理パッケージを申し込んだお店の端末のときだけ出す。
+            手羽屋の端末では何も出ないので、画面は今までどおり。 */}
+        {scope && (
+          <p className="mt-2 text-xs text-center text-stone-600 bg-stone-100 rounded-lg px-3 py-2">
+            {scopeName ?? "あなたのお店"}の日報として保存します
+          </p>
+        )}
         <div className="mt-3">
           <div className="flex justify-between text-xs text-stone-600 mb-1">
             <span>STEP {step} / {TOTAL_STEPS}</span>

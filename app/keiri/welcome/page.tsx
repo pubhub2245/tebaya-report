@@ -27,7 +27,7 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { writeTenantScope } from "@/lib/tenantScope";
+import { normalizeTenantScope, writeTenantScope } from "@/lib/tenantScope";
 
 /**
  * ★ 入れ物を1枚かぶせてある理由
@@ -57,6 +57,8 @@ function WelcomeForm() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [adminPassword, setAdminPassword] = useState<string | null>(null);
+  /** このお店の番号。スタッフの端末に配る「日報の入り口」のリンクに使う */
+  const [tenantId, setTenantId] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
 
   const linkMissing = !token && !session;
@@ -79,6 +81,7 @@ function WelcomeForm() {
       // これ以降、日報はこのお店の印で保存され、経理画面もこのお店のぶんだけを出す
       // （手羽屋の画面とデータは混ざらない。lib/tenantScope.ts）。
       writeTenantScope(json.tenantId ?? null);
+      setTenantId(normalizeTenantScope(json.tenantId));
       setAdminPassword(String(json.adminPassword ?? ""));
       if (json.warning) setWarning(String(json.warning));
     } catch {
@@ -123,6 +126,20 @@ function WelcomeForm() {
             月の利益・いまの手元の現金・まだ払っていないお金は自動で出ます。
           </div>
         </div>
+
+        {tenantId && (
+          <div className="card text-sm leading-relaxed space-y-2">
+            <div className="font-bold">スタッフの端末で日報を打つとき</div>
+            <div>
+              下のリンクを、日報を打つ人のスマホに1回だけ開いてもらってください。
+              その端末は「このお店の端末」として覚えられ、以後は何もしなくて大丈夫です。
+              <strong>このリンクを開いていない端末で打つと、別のお店の日報として保存されます。</strong>
+            </div>
+            <div className="rounded-xl bg-stone-100 px-3 py-2 text-xs break-all select-all">
+              {`${typeof window === "undefined" ? "" : window.location.origin}/report?s=${tenantId}`}
+            </div>
+          </div>
+        )}
 
         <div className="flex gap-2">
           <Link href="/report" className="btn-primary text-sm">
