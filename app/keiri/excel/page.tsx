@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { priceLabel } from "@/lib/keiri/caseNumbers";
-import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
+import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
+import { keiriMetadata } from "@/lib/keiri/metadata";
 
 /**
  * 検索向けページ（代替型）：「エクセルの売上管理をやめたい」人の受け皿。
@@ -13,13 +14,14 @@ import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
  * ★書いてよいのは、このアプリが実際にやっていることだけ。
  */
 
-export const metadata: Metadata = {
+export const metadata: Metadata = keiriMetadata({
+  path: "/keiri/excel",
   title: "エクセルの売上管理をやめたい｜日報だけで月の数字が締まる（経理パッケージ）",
   description:
     "小さな飲食店・移動販売の売上と経費を、エクセルや手書きの帳簿で管理している人向け。" +
     "毎日の日報を入れるだけで、月の利益・今の現金・まだ払っていないお金が自動で出ます。" +
     `${priceLabel()}。`,
-};
+});
 
 const PAINS: { pain: string; answer: string }[] = [
   {
@@ -109,9 +111,7 @@ export default function KeiriExcelPage() {
 
       <KeiriRelated current="/keiri/excel" />
 
-      <footer className="text-center text-xs text-stone-400">
-        <p>運営：株式会社Alpha</p>
-      </footer>
+      <KeiriFooter />
     </main>
   );
 }

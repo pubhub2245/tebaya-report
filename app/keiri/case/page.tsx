@@ -7,9 +7,11 @@ import {
   manYen,
   paymentLinkUrl,
   priceLabel,
+  priceSummaryLine,
 } from "@/lib/keiri/caseNumbers";
 import { getCaseStats } from "@/lib/keiri/caseStats";
-import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
+import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
+import { keiriMetadata } from "@/lib/keiri/metadata";
 
 /**
  * 経理パッケージの紹介ページ（無人販売の入口①・事例ページ）。
@@ -26,12 +28,14 @@ import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
 /** 数字は毎日入れ替わる。1時間ごとに作り直す（毎回DBを叩かない） */
 export const revalidate = 3600;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = keiriMetadata({
+  path: "/keiri/case",
+  type: "website",
   title: "経理パッケージ｜日報を書くだけで、月の利益と今の現金が分かる",
   description:
     "小さな飲食店・移動販売・催事出店のための経理アプリ。毎日の日報を書くだけで、月の利益・今の現金・まだ払っていないお金が自動で出ます。" +
     `${priceLabel()}、いつでも解約。`,
-};
+});
 
 const OUTPUTS: { title: string; body: string }[] = [
   {
@@ -90,6 +94,11 @@ export default async function KeiriCasePage() {
           <br />
           月の利益と今の現金が分かる。
         </h1>
+        {/* 30秒で分かる1行。LINEで開いた店主が最初の画面で「いくら・やめられるか」を確かめられるように、
+            下の価格の枠にある言葉をそのまま上に出す（新しい約束は足さない）。 */}
+        <p className="mt-3 inline-block rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800">
+          {priceSummaryLine()}
+        </p>
         <p className="mt-4 text-stone-600 leading-relaxed">
           小さな飲食店・移動販売・催事出店のための経理アプリです。
           毎日の売上と経費を日報に入れるだけで、月の利益・今の現金・まだ払っていないお金が自動で出ます。
@@ -199,18 +208,17 @@ export default async function KeiriCasePage() {
             申し込み受付は準備中です
           </p>
         )}
+        <p className="mt-4 text-xs opacity-90">
+          <Link href="/keiri/legal" className="underline">
+            特定商取引法に基づく表記・会社概要
+          </Link>
+          （だれが売っているか・解約と返金の条件）
+        </p>
       </section>
 
       <KeiriRelated current="/keiri/case" />
 
-      <footer className="text-center text-xs text-stone-400">
-        <p>運営：株式会社Alpha</p>
-        <p className="mt-1">
-          <Link href="/" className="underline hover:text-stone-600">
-            手羽屋 業務システムへ戻る
-          </Link>
-        </p>
-      </footer>
+      <KeiriFooter home />
     </main>
   );
 }

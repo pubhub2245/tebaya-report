@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { priceLabel } from "@/lib/keiri/caseNumbers";
-import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
+import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
+import { keiriMetadata } from "@/lib/keiri/metadata";
 
 /**
  * 検索向けページ（順番型）：「経理は何から手を付ければいいのか」。
@@ -12,13 +13,14 @@ import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
  *   （確かめられないことは書かない／税務の判断はしない・CLAUDE.md 5-2）。
  */
 
-export const metadata: Metadata = {
+export const metadata: Metadata = keiriMetadata({
+  path: "/keiri/hajimekata",
   title: "経理は何から手を付けるか｜始めの3日でここまで（経理パッケージ）",
   description:
     "店を始めたばかりで、経理を何から手を付ければいいのか分からない人向け。" +
     "入れるのは最初に3つだけ、あとは日報を書くだけで月の数字が出ます。" +
     `始めた月から先の数字が貯まっていきます。${priceLabel()}。`,
-};
+});
 
 const DAY1: { title: string; body: string }[] = [
   {
@@ -153,9 +155,7 @@ export default function KeiriHajimekataPage() {
 
       <KeiriRelated current="/keiri/hajimekata" />
 
-      <footer className="text-center text-xs text-stone-400">
-        <p>運営：株式会社Alpha</p>
-      </footer>
+      <KeiriFooter />
     </main>
   );
 }

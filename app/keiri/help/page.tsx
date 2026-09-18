@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { FEEDBACK_PATH, KEIRI_FAQ, supportEmail } from "@/lib/keiri/support";
+import { keiriMetadata } from "@/lib/keiri/metadata";
 
 /**
  * 経理パッケージの「困ったとき」の窓口（無人販売の入口④）。
@@ -12,11 +13,12 @@ import { FEEDBACK_PATH, KEIRI_FAQ, supportEmail } from "@/lib/keiri/support";
  * 設計：docs/auto/2026-09-17_経理パッケージ_無人販売の流れ_設計.md（司令室B）
  */
 
-export const metadata: Metadata = {
+export const metadata: Metadata = keiriMetadata({
+  path: "/keiri/help",
   title: "困ったとき｜経理パッケージ",
   description:
     "経理パッケージのよくある質問と問い合わせ先。毎日やること・レシートの税込・立替の入れ方・利益と現金の違い・会計ソフトへの渡し方・解約のしかたを1ページにまとめています。",
-};
+});
 
 function faqLd() {
   return {

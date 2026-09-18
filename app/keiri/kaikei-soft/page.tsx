@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { priceLabel } from "@/lib/keiri/caseNumbers";
-import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
+import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
+import { keiriMetadata } from "@/lib/keiri/metadata";
 
 /**
  * 検索向けページ（比較型）：「会計ソフトとどう違うのか」に答える。
@@ -13,13 +14,14 @@ import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
  * ★税務の判断はしない・させない。断定しない。
  */
 
-export const metadata: Metadata = {
+export const metadata: Metadata = keiriMetadata({
+  path: "/keiri/kaikei-soft",
   title: "会計ソフトとの違い｜経理パッケージは「その手前」を埋める道具です",
   description:
     "会計ソフトの代わりではありません。日報から売上・経費・現金をその日のうちにまとめ、" +
     "会計ソフトが読める形のCSVで渡すところまでを受け持ちます。" +
     `${priceLabel()}。`,
-};
+});
 
 const ROWS: { topic: string; soft: string; ours: string }[] = [
   {
@@ -133,9 +135,7 @@ export default function KeiriKaikeiSoftPage() {
 
       <KeiriRelated current="/keiri/kaikei-soft" />
 
-      <footer className="text-center text-xs text-stone-400">
-        <p>運営：株式会社Alpha</p>
-      </footer>
+      <KeiriFooter />
     </main>
   );
 }

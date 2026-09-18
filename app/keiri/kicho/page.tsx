@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { priceLabel } from "@/lib/keiri/caseNumbers";
-import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
+import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
+import { keiriMetadata } from "@/lib/keiri/metadata";
 
 /**
  * 検索向けページ（範囲型）：「小さな飲食店の記帳って、どこまでやればいいのか」。
@@ -11,12 +12,13 @@ import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
  *   法令上どこまで義務か、という話は税務の判断にあたるので書かない（CLAUDE.md 5-2）。
  */
 
-export const metadata: Metadata = {
+export const metadata: Metadata = keiriMetadata({
+  path: "/keiri/kicho",
   title: "小さな飲食店の記帳はどこまでやるか｜毎日・月末・年1回の分け方（経理パッケージ）",
   description:
     "店を1つ2つやっているだけなのに、帳簿づけに時間が溶ける人向け。毎日やること・月末にやること・" +
     `年に1回でいいことを分けて、毎日ぶんを日報1枚に寄せた形を説明します。${priceLabel()}。`,
-};
+});
 
 const DAILY: { title: string; body: string; time: string }[] = [
   {
@@ -151,9 +153,7 @@ export default function KeiriKichoPage() {
 
       <KeiriRelated current="/keiri/kicho" />
 
-      <footer className="text-center text-xs text-stone-400">
-        <p>運営：株式会社Alpha</p>
-      </footer>
+      <KeiriFooter />
     </main>
   );
 }

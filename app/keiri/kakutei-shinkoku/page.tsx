@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { priceLabel } from "@/lib/keiri/caseNumbers";
-import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
+import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
+import { keiriMetadata } from "@/lib/keiri/metadata";
 
 /**
  * 検索向けページ（準備型）：「屋台・移動販売の確定申告、何を用意すればいいのか」。
@@ -13,13 +14,14 @@ import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
  * ★他社の製品名・価格・機能は書かない（この環境からは確かめられないため）。
  */
 
-export const metadata: Metadata = {
+export const metadata: Metadata = keiriMetadata({
+  path: "/keiri/kakutei-shinkoku",
   title: "屋台・移動販売の確定申告の準備｜何を用意して誰に渡すか（経理パッケージ）",
   description:
     "催事出店や移動販売のお店が、確定申告の前にそろえておくもの。日報を毎日入れておけば、" +
     "売上・経費・現金の記録と、会計ソフトに取り込める仕訳のCSVがそのまま出ます。" +
     `税務の判断はしません。${priceLabel()}。`,
-};
+});
 
 /** 年明けにあわてないために、日々そろっている必要があるもの */
 const MATERIALS: { title: string; body: string; where: string }[] = [
@@ -159,9 +161,7 @@ export default function KeiriKakuteiShinkokuPage() {
 
       <KeiriRelated current="/keiri/kakutei-shinkoku" />
 
-      <footer className="text-center text-xs text-stone-400">
-        <p>運営：株式会社Alpha</p>
-      </footer>
+      <KeiriFooter />
     </main>
   );
 }

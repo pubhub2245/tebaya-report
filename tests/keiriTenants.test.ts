@@ -22,6 +22,7 @@ import {
   generateSetupToken,
   hashSecret,
   secretMatches,
+  tenantBusinessCode,
   verifyStripeSignature,
   type KeiriTenantRow,
 } from "../lib/keiri/tenants";
@@ -272,4 +273,25 @@ test("初回設定の3項目：足りない・読めない値は通さない（�
   assert.ok(
     !checkWelcomeInput({ shopName: "店", openingDate: "2026-10-01", openingBalance: "999999999" }).ok,
   );
+});
+
+// ------------------------------------------------------------------
+// 7. 新しいお店の設定が、手羽屋の行とぶつからない
+//    （ぶつかると、お店が入れた「数え始めの日」と「手元の現金」が消える）
+// ------------------------------------------------------------------
+test("お店ごとの業態コードは手羽屋（tebaya）と必ず違い、店ごとにも違う", () => {
+  const a = tenantBusinessCode("11111111-2222-3333-4444-555555555555");
+  const b = tenantBusinessCode("99999999-8888-7777-6666-555555555555");
+  assert.notEqual(a, "tebaya");
+  assert.notEqual(b, "tebaya");
+  assert.notEqual(a, b);
+  // 同じお店なら何度呼んでも同じコード（2回目の初回設定でも増えない）
+  assert.equal(a, tenantBusinessCode("11111111-2222-3333-4444-555555555555"));
+  // 大文字・前後の空白が混ざっても同じ
+  assert.equal(a, tenantBusinessCode(" 11111111-2222-3333-4444-555555555555 "));
+});
+
+test("お店の番号が空のまま業態コードを作らない（既定値の tebaya に化けさせない）", () => {
+  assert.throws(() => tenantBusinessCode(""));
+  assert.throws(() => tenantBusinessCode("   "));
 });

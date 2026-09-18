@@ -4,6 +4,7 @@ import {
   checkWelcomeInput,
   generateAdminPassword,
   hashSecret,
+  tenantBusinessCode,
 } from "@/lib/keiri/tenants";
 
 export const runtime = "nodejs";
@@ -123,6 +124,9 @@ export async function POST(req: NextRequest) {
 
   const { error: setErr } = await supabase.from("keiri_settings").insert({
     tenant_id: tenant.id,
+    // ★このお店だけの業態コード。付けないと既定値の 'tebaya' になり、
+    //   手羽屋の行とぶつかって、この行が1行も作れない（入れた数字が消える）
+    business_type_code: tenantBusinessCode(String(tenant.id)),
     opening_date: checked.value.openingDate,
     opening_balance: checked.value.openingBalance,
     // 外注費・家賃は、そのお店で使うときに管理画面から入れてもらう
@@ -132,13 +136,17 @@ export async function POST(req: NextRequest) {
   });
 
   if (setErr) {
-    // 設定の行だけ作れなかった場合。お店の行はできているので、
-    // 管理画面から入れ直せる。ここで止めずに、その旨を返す。
+    // 設定の行だけ作れなかった場合。お店の行はできているので日報は打てる。
+    // ここで止めずに、あとで入れ直す約束だけ返す。
     console.error("[経理 初回設定] 設定の行を作れませんでした：", setErr.message);
     return NextResponse.json({
       ok: true,
       adminPassword,
-      warning: "数え始めの日と手元の現金は、あとで管理画面から入れ直してください。",
+      // ★お店の行はできているので、日報は今日から打てる。
+      //   ここで止めない。ただし「管理画面から入れ直して」とは案内しない
+      //   （数え始めの日と手元の現金の画面は、まだ手羽屋ぶんしか無いため）。
+      warning:
+        "数え始めの日と手元の現金だけ、こちらで入れます。「困ったとき」からご一報ください（日報は今日から打てます）。",
     });
   }
 
