@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { ShiftStore } from "@/lib/shift-engine/types";
+import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
 
 type Location = {
   id: number;
@@ -62,9 +63,10 @@ export default function EditStoreModal({
   useEffect(() => {
     (async () => {
       try {
-        const { data, error: err } = await supabase
-          .from("locations")
-          .select("id, name, rank, target")
+        const { data, error: err } = await applyTenantScope<any>(
+          supabase.from("locations").select("id, name, rank, target") as any,
+          readTenantScope(),
+        )
           .eq("is_active", true)
           .order("name");
         if (err) throw err;

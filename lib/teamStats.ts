@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { normalizeLocationName } from "./locationMatcher";
+import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
 
 export type UnitKey = 1 | 2 | null;
 
@@ -83,7 +84,10 @@ async function fetchReportsAndLocations(startDate: string, endDate: string) {
       .is("tenant_id", null)
       .gte("date", startDate)
       .lte("date", endDate),
-    supabase.from("locations").select("name, target"),
+    applyTenantScope<any>(
+      supabase.from("locations").select("name, target") as any,
+      readTenantScope(),
+    ),
   ]);
   if (r.error) throw r.error;
   if (l.error) throw l.error;

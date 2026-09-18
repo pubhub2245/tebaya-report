@@ -17,6 +17,7 @@
 
 import { supabase } from "./supabase";
 import { canonicalLocationName, normalizeKey } from "./locationName";
+import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
 
 export type LocationRow = {
   id: number;
@@ -57,10 +58,11 @@ let LOCATIONS_CACHE: LocationRow[] | null = null;
 let CACHE_PROMISE: Promise<LocationRow[]> | null = null;
 
 async function fetchLocations(): Promise<LocationRow[]> {
-  const { data, error } = await supabase
-    .from("locations")
-    .select("id, name, rank, target")
-    .eq("is_active", true);
+  // 開いているお店のぶんだけ（手羽屋は印が空＝今までどおり）
+  const { data, error } = await applyTenantScope<any>(
+    supabase.from("locations").select("id, name, rank, target") as any,
+    readTenantScope(),
+  ).eq("is_active", true);
   if (error) {
     throw new Error(`locations 取得失敗: ${error.message}`);
   }

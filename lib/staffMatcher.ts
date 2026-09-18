@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
 
 export type StaffInfo = {
   name: string;
@@ -31,9 +32,13 @@ const toInfo = (row: StaffRow): StaffInfo => ({
 });
 
 const fetchAll = async (): Promise<StaffRow[]> => {
-  const { data, error } = await supabase
-    .from("staff_members")
-    .select("name, aliases, unit_number, daily_wage, is_active");
+  // 開いているお店のぶんだけ（手羽屋は印が空＝今までどおり）
+  const { data, error } = await applyTenantScope<any>(
+    supabase
+      .from("staff_members")
+      .select("name, aliases, unit_number, daily_wage, is_active") as any,
+    readTenantScope(),
+  );
   if (error || !data) return [];
   return data as StaffRow[];
 };

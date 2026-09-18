@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { applyTenantScope, readTenantScope, tenantStamp } from "@/lib/tenantScope";
 
 /**
  * 販売商品マスタ管理（管理者ページ）。
@@ -56,9 +57,13 @@ export default function ProductMaster() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("sale_products")
-      .select("id, shop, name, price, kind, is_active, sort_order")
+    // 自分のお店のぶんだけを出す（手羽屋は印が空＝今までどおり）
+    const { data, error } = await applyTenantScope<any>(
+      supabase
+        .from("sale_products")
+        .select("id, shop, name, price, kind, is_active, sort_order") as any,
+      readTenantScope(),
+    )
       .eq("shop", shop)
       .order("sort_order")
       .order("id");
@@ -90,6 +95,7 @@ export default function ProductMaster() {
     const nextSort =
       rows.reduce((m, r) => Math.max(m, r.sort_order), 0) + 1;
     const { error } = await supabase.from("sale_products").insert({
+      ...tenantStamp(readTenantScope()),
       shop,
       name: newName.trim(),
       price: newKind === "count_only" ? 0 : Math.max(0, newPrice),

@@ -102,16 +102,20 @@ export default function Page() {
 
   const loadProducts = useCallback(async () => {
     setProductsLoading(true);
-    const { data } = await supabase
-      .from("sale_products")
-      .select("id, shop, name, price, kind, is_active, sort_order")
+    // 開いているお店の商品だけを出す（手羽屋は印が空＝今までどおり）
+    const { data } = await applyTenantScope<any>(
+      supabase
+        .from("sale_products")
+        .select("id, shop, name, price, kind, is_active, sort_order") as any,
+      scope,
+    )
       .eq("shop", form.shop)
       .eq("is_active", true)
       .order("sort_order")
       .order("id");
     setProducts((data as SaleProduct[]) ?? []);
     setProductsLoading(false);
-  }, [form.shop]);
+  }, [form.shop, scope]);
 
   useEffect(() => {
     loadProducts();
@@ -240,15 +244,18 @@ export default function Page() {
   useEffect(() => {
     (async () => {
       try {
+        // 開いているお店の選択肢だけを出す（手羽屋は印が空＝今までどおり）
         const [locRes, staffRes] = await Promise.all([
-          supabase
-            .from("locations")
-            .select("name")
+          applyTenantScope<any>(
+            supabase.from("locations").select("name") as any,
+            scope,
+          )
             .eq("is_active", true)
             .order("name"),
-          supabase
-            .from("staff_members")
-            .select("name")
+          applyTenantScope<any>(
+            supabase.from("staff_members").select("name") as any,
+            scope,
+          )
             .eq("is_active", true)
             .order("name"),
         ]);
@@ -267,7 +274,7 @@ export default function Page() {
         // 読めなくても画面は止めない。Step1 で「その他」から手入力できる案内を出す
       }
     })();
-  }, []);
+  }, [scope]);
 
   // スタッフマスタの日当を読み込む（日当を変えたいときは管理画面のマスタを直す）
   useEffect(() => {
@@ -764,10 +771,17 @@ export default function Page() {
           // 同じ場所が2通りの書き方で選択肢に並び、表記ゆれの原因になっていた。
           locationOptions={masterLocations}
           locationsLoaded={masterLoaded}
-          staffOptions={[
-            ...STAFF_OPTIONS,
-            ...masterStaff.filter((n) => !STAFF_OPTIONS.includes(n)),
-          ]}
+          // 手羽屋のスタッフ名（コードの保険の一覧）は手羽屋のときだけ出す。
+          // よそのお店の画面に「イデ」「じゅん」が並ばないようにするため
+          // （そのお店の担当者が居ないうちは「その他（手入力）」で打てる）。
+          staffOptions={
+            scope
+              ? masterStaff
+              : [
+                  ...STAFF_OPTIONS,
+                  ...masterStaff.filter((n) => !STAFF_OPTIONS.includes(n)),
+                ]
+          }
           laborForStaff={laborForStaff}
         />
       )}
@@ -1220,7 +1234,10 @@ function QuickAddProduct({
       return;
     }
     setAdding(true);
+    // 足した商品は「いま開いているお店のもの」として残す
+    // （手羽屋は印が空＝今までどおり。よその店の商品は手羽屋の日報に出ない）
     const { error } = await supabase.from("sale_products").insert({
+      ...tenantStamp(readTenantScope()),
       shop,
       name: nm,
       price: priceN,

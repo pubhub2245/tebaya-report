@@ -33,6 +33,7 @@ import { yen, slashDate, businessDateStr } from "@/lib/format";
 import { STAFF_OPTIONS } from "@/lib/formState";
 import { resizeImage } from "@/lib/imageResize";
 import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
+import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
 
 /** 業態コード。手羽屋のみなので画面には出さず固定 */
 const BUSINESS_TYPE_CODE = "tebaya";
@@ -102,9 +103,10 @@ export default function KeiriAdvancesPage() {
             .eq("business_type_code", BUSINESS_TYPE_CODE)
             .eq("is_active", true)
             .order("sort_order"),
-          supabase
-            .from("staff_members")
-            .select("name")
+          applyTenantScope<any>(
+            supabase.from("staff_members").select("name") as any,
+            readTenantScope(),
+          )
             .eq("is_active", true)
             .order("name"),
         ]);

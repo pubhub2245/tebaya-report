@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { yen } from "@/lib/format";
 import { STAFF_OPTIONS } from "@/lib/formState";
+import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
 
 type Location = {
   id: string | number;
@@ -99,9 +100,10 @@ export default function InterimPage() {
 
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase
-        .from("locations")
-        .select("id, name, rank, target, is_active")
+      const { data, error } = await applyTenantScope<any>(
+        supabase.from("locations").select("id, name, rank, target, is_active") as any,
+        readTenantScope(),
+      )
         .eq("is_active", true)
         .order("name", { ascending: true });
       if (error) setError(error.message);

@@ -8,6 +8,7 @@ import ShiftFormModal, {
   resolveShiftVenueName,
   stripFreeVenueFromNote,
 } from "@/app/components/ShiftFormModal";
+import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
 
 // TODO: 将来追加予定の機能
 // - 希望休申請（shift_change_requestsテーブル）
@@ -87,9 +88,10 @@ export default function ShiftsPage() {
           .gte("date", `${monthStr}-01`)
           .lte("date", `${monthStr}-${lastDay}`)
           .order("date"),
-        supabase
-          .from("locations")
-          .select("id, name, rank, target")
+        applyTenantScope<any>(
+          supabase.from("locations").select("id, name, rank, target") as any,
+          readTenantScope(),
+        )
           .eq("is_active", true)
           .order("name"),
       ]);

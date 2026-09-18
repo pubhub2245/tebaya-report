@@ -24,6 +24,7 @@ import {
   type RankPlan,
   type RankReport,
 } from "@/lib/locationRank";
+import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
 
 // 判定そのもの（純粋な計算）は lib/locationRank.ts にある。
 // これまで通りここから使えるよう、型と関数をそのまま通しておく。
@@ -36,10 +37,13 @@ export type { RankLocationRow, RankPlan } from "@/lib/locationRank";
 
 /** 出店場所マスタを読む（ランク判定に必要な列だけ） */
 export async function fetchRankLocations(): Promise<RankLocationRow[]> {
-  const { data, error } = await supabase
-    .from("locations")
-    .select("id, name, rank, target, is_active, rank_locked")
-    .order("name");
+  // 開いているお店のぶんだけ（手羽屋は印が空＝今までどおり）
+  const { data, error } = await applyTenantScope<any>(
+    supabase
+      .from("locations")
+      .select("id, name, rank, target, is_active, rank_locked") as any,
+    readTenantScope(),
+  ).order("name");
   if (error) throw error;
   return (data as RankLocationRow[]) || [];
 }

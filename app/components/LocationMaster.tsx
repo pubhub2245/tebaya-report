@@ -12,6 +12,7 @@ import {
   type RankHistoryRow,
   type RankPlan,
 } from "@/lib/locationRankUpdate";
+import { applyTenantScope, readTenantScope, tenantStamp } from "@/lib/tenantScope";
 
 /**
  * 出店場所マスタ管理（設定センター）。
@@ -73,11 +74,15 @@ export default function LocationMaster() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("locations")
-      .select(
-        "id, name, rank, target, is_active, rank_locked, booth_fee_type, booth_fee_rate, booth_fee_amount",
-      )
+    // 自分のお店のぶんだけを出す（手羽屋は印が空＝今までどおり）
+    const { data, error } = await applyTenantScope<any>(
+      supabase
+        .from("locations")
+        .select(
+          "id, name, rank, target, is_active, rank_locked, booth_fee_type, booth_fee_rate, booth_fee_amount",
+        ) as any,
+      readTenantScope(),
+    )
       .order("is_active", { ascending: false })
       .order("name");
     if (error) flash("err", "読込エラー: " + error.message);
@@ -98,6 +103,7 @@ export default function LocationMaster() {
     if (!newName.trim()) return flash("err", "場所名を入力してください");
     setSaving(true);
     const { error } = await supabase.from("locations").insert({
+      ...tenantStamp(readTenantScope()),
       name: newName.trim(),
       rank: newRank,
       target: newTarget || 0,
