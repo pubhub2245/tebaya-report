@@ -62,24 +62,70 @@ export function describeServerKey(check: KeyCheck): ServerKeyReport {
 
 /** 記録の置き場ひとつぶんの見立て */
 export type RecordStoreReport = {
+  /** 「記録が残る」と言い切れるか */
   ok: boolean;
+  /** 表があって読めるか（＝在るかどうかだけ。書けるかは別の話） */
+  readable: boolean;
+  /** 人の言葉での説明 */
   note: string;
 };
 
 /**
- * 置き場が読めなかったとき、原因が「表が無い」のか「鍵が使えない」のかを言い分ける。
- * 直し方が違う（SQLを1回流す／Vercelの設定を貼り直す）ので、混ぜない。
+ * 置き場の状態を言葉に直す。
+ *
+ * ■ ここでいちばん気をつけていること（2026-09-19・kp57 で直した所）
+ *   前は「1行読めたら ok」にしていた。ところが **読めることと、書けることは別** で、
+ *   お申し込みの控え（keiri_applications）は
+ *   「読むと0件が返ってくる（エラーにならない）のに、書き込みは断られる」
+ *   という状態になりうる。そのため診断が **「読めています」** と出て、
+ *   **控えが1行も残らないのに大丈夫そうに見えて**いた。
+ *   訪問が何日も0のまま気づけなかったのと同じ失敗なので、
+ *   **書けると言い切れないときは ok にしない。**
+ *
+ * ■ 原因の言い分け（直し方が全く違うので混ぜない）
+ *   表が無い     → SQL を1回流す
+ *   鍵が使えない → Vercel の SUPABASE_SERVICE_ROLE_KEY を貼り直す（kp55）
+ *
+ * ■ 「表の側を緩めて回避する」はやらない（2026-09-19 判断）
+ *   ブラウザにも配られる通常の鍵に「足すことだけ許す」決まりを入れれば、
+ *   人が Vercel を触らなくても記録は残せる。けれどそれは
+ *   **誰でも申し込みの控えに行を足せる** ということでもある。
+ *   鍵の貼り直しは2分で終わる正しい直し方なので、そちらを待つ。
  */
 export function describeRecordStore(
   check: TableCheck,
   key: ServerKeyReport,
 ): RecordStoreReport {
-  if (check.ok) return { ok: true, note: "読めています" };
-  if (!key.usable) {
+  // 読むことすらできない
+  if (!check.ok) {
+    const reason = check.reason ?? "読めませんでした";
     return {
       ok: false,
-      note: `${check.reason ?? "読めませんでした"}（サーバー側の鍵が使えていないことが原因の可能性が高いです）`,
+      readable: false,
+      note: key.usable
+        ? reason
+        : `${reason}（サーバー側の鍵が使えていないことが原因の可能性が高いです）`,
     };
   }
-  return { ok: false, note: check.reason ?? "読めませんでした" };
+
+  // 読めて、鍵も生きている＝ふつうに記録できる
+  if (key.usable) {
+    return {
+      ok: true,
+      readable: true,
+      note: "記録できます（読み書きとも通ります）",
+    };
+  }
+
+  // 読めるけれど、鍵が壊れている＝書けたかどうかは、ここからは分からない
+  return {
+    ok: false,
+    readable: true,
+    note:
+      "表はありますが、記録が残っているとは言い切れません。" +
+      "読めることと書けることは別で、この表は読むと0件が返るだけで" +
+      "書き込みだけが断られている状態になりえます。" +
+      "サーバー側の鍵が使えないためなので、Vercel の " +
+      "SUPABASE_SERVICE_ROLE_KEY を貼り直してください（kp55）",
+  };
 }
