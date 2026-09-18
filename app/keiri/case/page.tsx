@@ -9,7 +9,7 @@ import {
   priceLabel,
 } from "@/lib/keiri/caseNumbers";
 import { getCaseStats } from "@/lib/keiri/caseStats";
-import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
+import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
 
 /**
  * 経理パッケージの紹介ページ（無人販売の入口①・事例ページ）。
@@ -199,18 +199,17 @@ export default async function KeiriCasePage() {
             申し込み受付は準備中です
           </p>
         )}
+        <p className="mt-4 text-xs opacity-90">
+          <Link href="/keiri/legal" className="underline">
+            特定商取引法に基づく表記・会社概要
+          </Link>
+          （だれが売っているか・解約と返金の条件）
+        </p>
       </section>
 
       <KeiriRelated current="/keiri/case" />
 
-      <footer className="text-center text-xs text-stone-400">
-        <p>運営：株式会社Alpha</p>
-        <p className="mt-1">
-          <Link href="/" className="underline hover:text-stone-600">
-            手羽屋 業務システムへ戻る
-          </Link>
-        </p>
-      </footer>
+      <KeiriFooter home />
     </main>
   );
 }
