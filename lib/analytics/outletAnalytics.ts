@@ -29,6 +29,7 @@ import {
   toDailySales,
   type RankCode,
 } from "@/lib/locationRank";
+import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
 
 // -----------------------------------------------------------------------------
 // 定数（あとで変えたくなる数字はここに集約）
@@ -376,7 +377,10 @@ export async function getOutletAnalytics(): Promise<OutletStats[]> {
       .gte("date", `${yearMonth}-01`)
       .lte("date", `${yearMonth}-31`),
     // 出店場所マスタ（ランク・目標はここが正）
-    supabase.from("locations").select("name, rank, target, rank_locked"),
+    applyTenantScope<any>(
+      supabase.from("locations").select("name, rank, target, rank_locked") as any,
+      readTenantScope(),
+    ),
   ]);
   if (repRes.error) throw repRes.error;
 

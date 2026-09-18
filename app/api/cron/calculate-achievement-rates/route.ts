@@ -59,7 +59,9 @@ export async function GET(req: NextRequest) {
     // 3. Get locations for name -> id mapping
     const { data: locs, error: locErr } = await supabase
       .from("locations")
-      .select("id, name");
+      .select("id, name")
+      // 手羽屋のぶんだけ（印が空）。よそのお店の出店場所は混ぜない
+      .is("tenant_id", null);
     if (locErr) throw locErr;
 
     // locations テーブルから正規化名 → id のマッピングを構築

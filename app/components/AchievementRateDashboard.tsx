@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
 
 type RateRow = {
   location_id: string | null;
@@ -47,7 +48,10 @@ export default function AchievementRateDashboard() {
           .select("*")
           .order("calculated_at", { ascending: false })
           .limit(1),
-        supabase.from("locations").select("id, name"),
+        applyTenantScope<any>(
+          supabase.from("locations").select("id, name") as any,
+          readTenantScope(),
+        ),
       ]);
       if (ratesRes.error) throw ratesRes.error;
       if (logRes.error) throw logRes.error;

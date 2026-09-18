@@ -252,3 +252,87 @@ test("日報を保存する所では「どの店か」の印を付けている",
     "app/report/page.tsx の insert に tenantStamp が付いていません",
   );
 });
+
+/* ---------- 選択肢の棚（出店場所・担当者・商品）も店ごとに分ける（kp42） ---------- */
+
+/**
+ * 日報で選ぶ「出店場所」「担当者」「商品と単価」の棚を読む所にも、
+ * 必ず「どの店か」の絞り込みが付いていること。
+ *
+ * ★これが無いと、
+ *   ・申し込んだお店の日報に「ながやま三股」「イデ」「手羽先」が並ぶ（使えない）
+ *   ・そのお店が自分の場所を足すと、手羽屋の日報にもそれが並ぶ
+ *   の両方が起きる。
+ */
+const MASTER_TABLES = [
+  '.from("locations")',
+  '.from("staff_members")',
+  '.from("sale_products")',
+];
+
+/** 絞らなくてよい所（id で1件だけさわる・名前の言い換え表など、混ざりようが無い所） */
+const MASTER_ALLOWED_WITHOUT_SCOPE = new Set<string>([]);
+
+test("選択肢の棚（出店場所・担当者・商品）を読む所にも『どの店か』の絞り込みが付いている", () => {
+  const missing: string[] = [];
+  for (const file of [...sourceFiles("app"), ...sourceFiles("lib")]) {
+    const src = readFileSync(file, "utf8");
+    if (!MASTER_TABLES.some((t) => src.includes(t))) continue;
+    const rel = file.replace(/\\/g, "/");
+    if (MASTER_ALLOWED_WITHOUT_SCOPE.has(rel)) continue;
+    const scoped =
+      src.includes('.is("tenant_id", null)') || src.includes("applyTenantScope");
+    if (!scoped) missing.push(rel);
+  }
+  assert.deepEqual(
+    missing,
+    [],
+    `次のファイルに「どの店か」の絞り込みが付いていません：\n${missing.join("\n")}`,
+  );
+});
+
+test("選択肢を足す所では「どの店か」の印を付けている", () => {
+  for (const file of [
+    "app/components/LocationMaster.tsx",
+    "app/components/StaffMaster.tsx",
+    "app/components/ProductMaster.tsx",
+    "app/report/page.tsx",
+  ]) {
+    const src = readFileSync(file, "utf8");
+    assert.ok(
+      src.includes("tenantStamp(readTenantScope())"),
+      `${file} の insert に tenantStamp が付いていません`,
+    );
+  }
+});
+
+test("手羽屋のスタッフ名（コードの保険の一覧）は、よそのお店の日報に出さない", () => {
+  const src = readFileSync("app/report/page.tsx", "utf8");
+  // scope（＝よそのお店）のときは masterStaff だけを渡している
+  assert.ok(
+    /staffOptions=\{\s*scope\s*\?\s*masterStaff/.test(src),
+    "よそのお店のときも STAFF_OPTIONS（イデ・じゅん…）が選択肢に入っています",
+  );
+});
+
+test("手羽屋（印が空）の選択肢は、絞っても1件も減らない", () => {
+  // いまある出店場所・担当者・商品はすべて印が空（null）。
+  // 「印が空のものだけ」で絞った結果は、絞る前と同じであることを固定する。
+  const locations = [
+    { name: "ながやま三股", tenant_id: null },
+    { name: "PASIO高城", tenant_id: null },
+    { name: "よその店の会場", tenant_id: "11111111-1111-4111-8111-111111111111" },
+  ];
+  const tebaya = rowsInScope(locations, TEBAYA_SCOPE);
+  assert.equal(tebaya.length, 2);
+  assert.deepEqual(
+    tebaya.map((l) => l.name),
+    ["ながやま三股", "PASIO高城"],
+  );
+  // よその店の画面には、そのお店のぶんだけ
+  const other = rowsInScope(locations, "11111111-1111-4111-8111-111111111111");
+  assert.deepEqual(
+    other.map((l) => l.name),
+    ["よその店の会場"],
+  );
+});

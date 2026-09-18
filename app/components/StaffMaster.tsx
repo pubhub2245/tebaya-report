@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { applyTenantScope, readTenantScope, tenantStamp } from "@/lib/tenantScope";
 
 /**
  * 担当者マスタ管理（設定センター）。
@@ -35,9 +36,13 @@ export default function StaffMaster() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("staff_members")
-      .select("id, name, daily_wage, unit_number, is_active")
+    // 自分のお店のぶんだけを出す（手羽屋は印が空＝今までどおり）
+    const { data, error } = await applyTenantScope<any>(
+      supabase
+        .from("staff_members")
+        .select("id, name, daily_wage, unit_number, is_active") as any,
+      readTenantScope(),
+    )
       .order("is_active", { ascending: false })
       .order("name");
     if (error) flash("err", "読込エラー: " + error.message);
@@ -53,6 +58,7 @@ export default function StaffMaster() {
     if (!newName.trim()) return flash("err", "名前を入力してください");
     setSaving(true);
     const { error } = await supabase.from("staff_members").insert({
+      ...tenantStamp(readTenantScope()),
       name: newName.trim(),
       daily_wage: newWage || 0,
       unit_number: newUnit ? parseInt(newUnit, 10) : null,

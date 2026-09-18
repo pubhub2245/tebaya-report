@@ -10,6 +10,7 @@ import ShiftFormModal, {
   type ShiftPrefill,
   resolveShiftVenueName,
 } from "@/app/components/ShiftFormModal";
+import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
 
 const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -58,9 +59,10 @@ export default function ShiftsView({
         .gte("date", `${monthStr}-01`)
         .lte("date", `${monthStr}-${lastDay}`)
         .order("date"),
-      supabase
-        .from("locations")
-        .select("id, name, rank, target")
+      applyTenantScope<any>(
+        supabase.from("locations").select("id, name, rank, target") as any,
+        readTenantScope(),
+      )
         .eq("is_active", true)
         .order("name"),
     ]);

@@ -15,6 +15,7 @@
 
 import { supabase } from "./supabase";
 import { laborFor as fallbackLaborFor } from "./formState";
+import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
 
 /** スタッフ名 → 日当（円）。マスタに日当が入っている人だけが入る */
 export type StaffWageMap = Map<string, number>;
@@ -26,9 +27,11 @@ export type StaffWageMap = Map<string, number>;
 export async function fetchStaffWages(): Promise<StaffWageMap> {
   const map: StaffWageMap = new Map();
   try {
-    const { data, error } = await supabase
-      .from("staff_members")
-      .select("name, daily_wage");
+    // 開いているお店のぶんだけ（手羽屋は印が空＝今までどおり）
+    const { data, error } = await applyTenantScope<any>(
+      supabase.from("staff_members").select("name, daily_wage") as any,
+      readTenantScope(),
+    );
     if (error) throw error;
     for (const row of (data as { name: string; daily_wage: number | null }[]) ?? []) {
       if (row.name && typeof row.daily_wage === "number" && row.daily_wage > 0) {
