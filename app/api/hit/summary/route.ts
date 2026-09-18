@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { serverClient } from "@/lib/supabaseServer";
+import { serverClient, serviceRoleKeyStatus } from "@/lib/supabaseServer";
 import { summarize } from "@/lib/siteVisits";
+import { describeTableError } from "@/lib/keiri/signupReadiness";
+import { describeRecordStore, describeServerKey } from "@/lib/keiri/serverHealth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,8 +28,20 @@ export async function GET() {
     .limit(50000);
 
   if (error) {
+    // ★ 「数えられません」だけでは直し方が分からないので、理由を言い分ける。
+    //   表が無い（SQLを1回流す）のか、読む許可が無い（鍵を貼り直す）のか。
+    //   鍵・合言葉の値そのものは絶対に返さない。
+    const serverKey = describeServerKey(serviceRoleKeyStatus());
+    const store = describeRecordStore(
+      { ok: false, reason: describeTableError(error.code, error.message) },
+      serverKey,
+    );
     return NextResponse.json(
-      { ok: false, message: "まだ数えられません（倉庫に表がない可能性があります）" },
+      {
+        ok: false,
+        message: `まだ数えられません。${store.note}`,
+        server_key: serverKey,
+      },
       { status: 200 },
     );
   }

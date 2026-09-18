@@ -95,5 +95,10 @@ export function describeTableError(code: string | null | undefined, message: str
   if (code === "42P01" || /does not exist|could not find the table/i.test(message)) {
     return "置き場（表）が本番にありません。SQLをまだ実行していない可能性があります";
   }
+  // ★ 表はあるのに「読む許可がありません」のときは、直し方がまた違う
+  //   （サーバー側の鍵 SUPABASE_SERVICE_ROLE_KEY を貼り直す）ので言い分ける
+  if (code === "42501" || /permission denied/i.test(message)) {
+    return "表はありますが、読む許可がありません。サーバー側の鍵（SUPABASE_SERVICE_ROLE_KEY）が使えていない可能性があります";
+  }
   return `読めませんでした（${code ?? "理由不明"}）`;
 }

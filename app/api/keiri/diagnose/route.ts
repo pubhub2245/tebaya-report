@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { serverClient, checkKey } from "@/lib/supabaseServer";
+import { serverClient, checkKey, serviceRoleKeyStatus } from "@/lib/supabaseServer";
+import { describeRecordStore, describeServerKey } from "@/lib/keiri/serverHealth";
 import { paymentLinkUrl } from "@/lib/keiri/caseNumbers";
 import {
   buildSignupReadiness,
@@ -42,10 +43,15 @@ async function checkTable(table: string): Promise<TableCheck> {
 }
 
 export async function GET() {
-  const [tenants, settings] = await Promise.all([
+  const [tenants, settings, applications, visits] = await Promise.all([
     checkTable("keiri_tenants"),
     checkTable("keiri_settings"),
+    checkTable("keiri_applications"),
+    checkTable("site_visits"),
   ]);
+
+  // サーバー側の鍵。値そのものは返さない（設定済み／未設定／壊れている だけ）
+  const serverKey = describeServerKey(serviceRoleKeyStatus());
 
   const readiness = buildSignupReadiness({
     paymentLink: paymentLinkUrl(),
@@ -62,6 +68,14 @@ export async function GET() {
       stripe_return_url: STRIPE_MANUAL_SETUP.returnUrl,
       stripe_webhook_url: STRIPE_MANUAL_SETUP.webhookUrl,
       stripe_webhook_event: STRIPE_MANUAL_SETUP.webhookEvent,
+    },
+    // ★ ここから下は「申し込めるか」ではなく「入った申し込みと訪問が記録に残るか」。
+    //   カード決済が無くても申し込みは受け取れる（LINE で知らせる）ので、
+    //   上の ready の判定には入れない。欠けていても行き止まりにはならない。
+    server_key: serverKey,
+    records: {
+      applications: describeRecordStore(applications, serverKey),
+      visits: describeRecordStore(visits, serverKey),
     },
   });
 }

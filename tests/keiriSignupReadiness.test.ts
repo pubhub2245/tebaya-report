@@ -61,7 +61,10 @@ test("置き場が無いときは、やることが積み上がる", () => {
 test("表が無いときと、それ以外の読めない理由を言い分ける", () => {
   assert.ok(describeTableError("42P01", "x").includes("置き場（表）が本番にありません"));
   assert.ok(describeTableError(null, "Could not find the table 'public.keiri_tenants'").includes("置き場（表）が本番にありません"));
-  assert.ok(describeTableError("42501", "permission denied").includes("42501"));
+  // 読む許可が無いときは、直し方が違う（鍵を貼り直す）ので専用の言い方にする
+  assert.ok(describeTableError("42501", "permission denied").includes("読む許可がありません"));
+  // それ以外は、直し方が分からないので理由の記号をそのまま見せる
+  assert.ok(describeTableError("08006", "connection failure").includes("08006"));
 });
 
 test("合言葉そのものは結果に出さない", () => {
