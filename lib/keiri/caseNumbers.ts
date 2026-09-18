@@ -31,6 +31,8 @@ export const CASE_TEBAYA = {
 export const KEIRI_PRICE = {
   monthlyYenTaxIncluded: 3000,
   perUnit: "1店舗",
+  /** 初期費用（円）。0＝かからない（2026-09-17 じゅん確定の「初期費用なし」を数で持つ） */
+  setupFeeYen: 0,
   freeTrial: false,
   cancelAnytime: true,
 } as const;
@@ -46,6 +48,18 @@ export function manYen(man: number): string {
 export function priceLabel(): string {
   const yen = KEIRI_PRICE.monthlyYenTaxIncluded.toLocaleString("ja-JP");
   return `月額${yen}円（税込）／${KEIRI_PRICE.perUnit}`;
+}
+
+/**
+ * ページの一番上に出す「30秒で分かる1行」。
+ * LINE で URL を開いた店主が、最初の画面で「いくら・やめられるか」を確かめられるようにする。
+ * 新しい約束は足さない。下の価格の枠に元から書いてある言葉を、そのまま1行に並べ直すだけ。
+ */
+export function priceSummaryLine(): string {
+  const parts = [priceLabel()];
+  if (KEIRI_PRICE.setupFeeYen === 0) parts.push("初期費用なし");
+  if (KEIRI_PRICE.cancelAnytime) parts.push("いつでも自分の画面から解約");
+  return parts.join("・");
 }
 
 /**

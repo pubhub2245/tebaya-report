@@ -7,6 +7,7 @@ import {
   manYen,
   paymentLinkUrl,
   priceLabel,
+  priceSummaryLine,
 } from "@/lib/keiri/caseNumbers";
 import { getCaseStats } from "@/lib/keiri/caseStats";
 import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
@@ -93,6 +94,11 @@ export default async function KeiriCasePage() {
           <br />
           月の利益と今の現金が分かる。
         </h1>
+        {/* 30秒で分かる1行。LINEで開いた店主が最初の画面で「いくら・やめられるか」を確かめられるように、
+            下の価格の枠にある言葉をそのまま上に出す（新しい約束は足さない）。 */}
+        <p className="mt-3 inline-block rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800">
+          {priceSummaryLine()}
+        </p>
         <p className="mt-4 text-stone-600 leading-relaxed">
           小さな飲食店・移動販売・催事出店のための経理アプリです。
           毎日の売上と経費を日報に入れるだけで、月の利益・今の現金・まだ払っていないお金が自動で出ます。
