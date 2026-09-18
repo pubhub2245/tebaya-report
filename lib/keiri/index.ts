@@ -10,8 +10,13 @@ export * from "./classify";
 export * from "./aggregate";
 export * from "./journal";
 export { TEBAYA_TEMPLATE } from "./templates/tebaya";
+export { GENERIC_TEMPLATE } from "./templates/generic";
+// ★ tenants.ts はここから出しません。
+//   中で node:crypto（サーバーだけで動く部品）を使うので、
+//   ブラウザ側の画面に混ざるとビルドが壊れます。使う所から直接読み込んでください。
 
 import { TEBAYA_TEMPLATE } from "./templates/tebaya";
+import { GENERIC_TEMPLATE } from "./templates/generic";
 import type { BusinessTemplate, KeiriSettings } from "./types";
 
 /**
@@ -20,6 +25,7 @@ import type { BusinessTemplate, KeiriSettings } from "./types";
  */
 export const TEMPLATES: Record<string, BusinessTemplate> = {
   [TEBAYA_TEMPLATE.code]: TEBAYA_TEMPLATE,
+  [GENERIC_TEMPLATE.code]: GENERIC_TEMPLATE,
 };
 
 /** 業態コードからテンプレートを取り出す。無ければ手羽屋テンプレを使う */
