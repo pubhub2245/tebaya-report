@@ -13,7 +13,7 @@ import { KEIRI_PRICE, priceLabel } from "./caseNumbers";
 export const KEIRI_COMPANY = {
   name: "株式会社Alpha",
   representative: "代表取締役 川畑 潤一郎",
-  address: "東京都杉並区上荜1-18-3 亀屋酒販第二ビル210",
+  address: "東京都杉並区上荻1-18-3 亀屋酒販第二ビル210",
   corporateNumber: "4012801020444",
   tel: "070-5417-3591",
   email: "jun@alpha-mj.co.jp",
