@@ -10,9 +10,10 @@ import Link from "next/link";
 
 /**
  * 検索エンジンにも人にも見せる、公開ページの一覧。
- * ※ここに載せるのは「この下書きに入っているページ」だけ。
- *   別の下書きにあるページ（/keiri/help など）は、そちらが本番に入ってから足す
- *   （まだ無いページへのリンクを置かない）。
+ * ※ここに載せるのは「本番に出ているページ」だけ（まだ無いページへのリンクを置かない）。
+ * ※申し込んだ店だけが開く /keiri/welcome（初回設定）と、
+ *   スタッフが使う /keiri/advances（立替の入力）は、検索から入るページではないので載せない。
+ *   /keiri（経理の画面）は管理者だけが見るので載せない。
  */
 export const KEIRI_PUBLIC_PAGES: { path: string; title: string; lead: string }[] = [
   {
@@ -59,6 +60,11 @@ export const KEIRI_PUBLIC_PAGES: { path: string; title: string; lead: string }[]
     path: "/keiri/hajimekata",
     title: "何から手を付けるか",
     lead: "始めの3日でここまで作っておけば、あとは毎日の日報だけで数字が貯まります。",
+  },
+  {
+    path: "/keiri/help",
+    title: "困ったとき（よくある質問）",
+    lead: "毎日やること・レシートの税込・立替の入れ方・利益と現金の違い・解約のしかたを1ページに。",
   },
 ];
 
