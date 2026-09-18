@@ -50,7 +50,6 @@ select
   r.location,
   r.staff_name,
   r.shop,
-  r.tenant_id,
   r.sales_amount,
   r.labor,
   coalesce(
@@ -61,7 +60,11 @@ select
       ) as x
     ),
     '[]'::jsonb
-  ) as expenses
+  ) as expenses,
+  -- ※ 新しい欄は必ず「いちばん後ろ」に足すこと。
+  --    途中に差し込むと、データベースが「いまある列の名前を勝手に変えるな」と断る
+  --    （2026-09-18 に実測でエラー 42P16。画面は列の名前で読むので後ろで問題ない）。
+  r.tenant_id
 from daily_reports r;
 
 -- ------------------------------------------------------------------
