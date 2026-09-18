@@ -27,9 +27,18 @@ export const CASE_TEBAYA = {
   profitMan: 6.5,
 } as const;
 
-/** 無人販売の価格（2026-09-17 じゅん確定）。変えるときは司令室の【要確認】を通す */
+/**
+ * 無人販売の価格。変えるときは司令室の【要確認】を通す。
+ *
+ * ・2026-09-17 じゅん確定：月額 3,000円（税込）
+ * ・2026-09-18 じゅん決定：月額 15,000円（税込）に改定（司令室 kp40）。
+ *   理由＝3,000円だと月10万円に33軒必要で、営業しない前提では到達しない。
+ *   15,000円なら7軒。記帳代行の相場（月1〜3万円）の下側で、会計ソフトより上という位置づけ。
+ *   あわせて中身も「道具を貸す」から「毎月の締めまでやる」に広げた（lib/keiri/offer.ts）。
+ *   改定した時点の申込は0件なので、既存のお客さんへの影響は無い。
+ */
 export const KEIRI_PRICE = {
-  monthlyYenTaxIncluded: 3000,
+  monthlyYenTaxIncluded: 15000,
   perUnit: "1店舗",
   /** 初期費用（円）。0＝かからない（2026-09-17 じゅん確定の「初期費用なし」を数で持つ） */
   setupFeeYen: 0,
@@ -44,7 +53,7 @@ export function manYen(man: number): string {
   return `${text}万円`;
 }
 
-/** 価格の1行表示（「月額3,000円（税込）／1店舗」） */
+/** 価格の1行表示（「月額15,000円（税込）／1店舗」） */
 export function priceLabel(): string {
   const yen = KEIRI_PRICE.monthlyYenTaxIncluded.toLocaleString("ja-JP");
   return `月額${yen}円（税込）／${KEIRI_PRICE.perUnit}`;
@@ -63,12 +72,30 @@ export function priceSummaryLine(): string {
 }
 
 /**
+ * 申し込みボタンの飛び先（Stripe の支払いページ）を入れる環境変数の名前。
+ *
+ * ★名前に金額を入れてあるのが肝。
+ *   価格を変えたとき、前の金額の支払いリンクが Vercel に残っていても
+ *   **自動で使われなくなる**（名前が変わるので見つからない＝「準備中」と出る）。
+ *   ページに「月額15,000円」と書いてあるのに押すと3,000円で決済される、という
+ *   一番まずい食い違いを作らないため。表示と請求が合わない恐れがあるなら、
+ *   ボタンを出さずに「準備中」と正直に出すほうがよい。
+ *   例：月15,000円 → NEXT_PUBLIC_KEIRI_PAYMENT_LINK_15000
+ *
+ * ★この関数を呼ぶのはサーバー側だけ（紹介ページは静的生成・診断はAPI）。
+ *   ブラウザ側で読む作りにすると、名前を組み立てる形が使えなくなる。
+ */
+export function paymentLinkEnvName(): string {
+  return `NEXT_PUBLIC_KEIRI_PAYMENT_LINK_${KEIRI_PRICE.monthlyYenTaxIncluded}`;
+}
+
+/**
  * 申し込みボタンの飛び先（Stripe の支払いページ）。
- * Vercel の環境変数 NEXT_PUBLIC_KEIRI_PAYMENT_LINK に入れる。
+ * Vercel の環境変数（名前は paymentLinkEnvName()）に入れる。
  * 未設定のときは null（画面は「準備中」と出し、偽のリンクを出さない）。
  */
 export function paymentLinkUrl(env: NodeJS.ProcessEnv = process.env): string | null {
-  const v = env.NEXT_PUBLIC_KEIRI_PAYMENT_LINK;
+  const v = env[paymentLinkEnvName()];
   if (!v || !v.trim()) return null;
   const url = v.trim();
   return url.startsWith("https://") ? url : null;

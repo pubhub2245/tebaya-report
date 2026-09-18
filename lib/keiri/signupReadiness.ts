@@ -14,6 +14,8 @@
  * ★ 合言葉・鍵の値そのものは扱いません（設定済み／未設定だけ）。
  */
 
+import { paymentLinkEnvName, priceLabel } from "./caseNumbers";
+
 /** Stripe の画面で1回だけ人が設定する値（このアプリからは見えない） */
 export const STRIPE_MANUAL_SETUP = {
   /** 支払いが終わったお客さんの戻り先 */
@@ -56,7 +58,8 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
 
   if (!hasButton) {
     todo.push(
-      "申し込みボタンが出ていません。Vercel の環境変数 NEXT_PUBLIC_KEIRI_PAYMENT_LINK に支払いリンクを入れてください",
+      `申し込みボタンが出ていません。Vercel の環境変数 ${paymentLinkEnvName()} に、いまの価格（${priceLabel()}）の支払いリンクを入れてください。` +
+        "※ 名前に金額が入っています。値上げしたときは、新しい金額で支払いリンクを作り直してこの名前で登録してください（前の金額のリンクは自動で使われなくなります）",
     );
   }
   if (!secret.ok) {
