@@ -10,6 +10,12 @@ import {
   priceSummaryLine,
 } from "@/lib/keiri/caseNumbers";
 import { getCaseStats } from "@/lib/keiri/caseStats";
+import { KEIRI_COMPANY } from "@/lib/keiri/legal";
+import {
+  KEIRI_OFFER_ITEMS,
+  KEIRI_OFFER_NOT_INCLUDED,
+  KEIRI_TOP_LINES,
+} from "@/lib/keiri/offer";
 import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
 import { keiriMetadata } from "@/lib/keiri/metadata";
 
@@ -18,8 +24,11 @@ import { keiriMetadata } from "@/lib/keiri/metadata";
  *
  * ★誰でも見られるページ（管理者の鍵は掛けない）。店の中のデータは一切読まない。
  * ★数字と価格は lib/keiri/caseNumbers.ts からだけ読む。ここに直書きしない。
- * ★申し込みボタンは環境変数 NEXT_PUBLIC_KEIRI_PAYMENT_LINK があるときだけ出す。
+ * ★「何を渡すか」の文言は lib/keiri/offer.ts からだけ読む。ここに直書きしない。
+ * ★申し込みボタンは支払いリンクの環境変数（paymentLinkEnvName()）があるときだけ出す。
  *   無いときは「準備中」と正直に出す（偽の導線を作らない）。
+ *   環境変数の名前には金額が入っているので、値上げしたのに前の金額のリンクが
+ *   残っている、という食い違いは起きない（自動で「準備中」に戻る）。
  * ★事例1号の数字（出店回数・売上・利益）は、前の月の日報から自動で出す
  *   （lib/keiri/caseStats.ts）。倉庫が読めないときは caseNumbers.ts の控えに戻る。
  * 設計：docs/auto/2026-09-17_経理パッケージ_無人販売の流れ_設計.md（司令室B）
@@ -33,7 +42,8 @@ export const metadata: Metadata = keiriMetadata({
   type: "website",
   title: "経理パッケージ｜日報を書くだけで、月の利益と今の現金が分かる",
   description:
-    "小さな飲食店・移動販売・催事出店のための経理アプリ。毎日の日報を書くだけで、月の利益・今の現金・まだ払っていないお金が自動で出ます。" +
+    "小さな飲食店・移動販売・催事出店のための経理。毎日の日報を書くだけで、月の利益・今の現金・まだ払っていないお金が自動で出ます。" +
+    "毎月の締めはこちらでやり、会計ソフト用のCSVと要約を月はじめにお出しします。" +
     `${priceLabel()}、いつでも解約。`,
 });
 
@@ -72,10 +82,8 @@ const FITS: string[] = [
   "売上と経費は現金中心で、月の数字を「その月のうちに」知りたいお店",
 ];
 
-const NOT_FOR: string[] = [
-  "税務申告そのものを代わりに行うものではありません（申告用のCSVは出せます）",
-  "請求書払い・売掛が多い業態は、現金主義の集計と合いません",
-];
+/* ★「先にお伝えしておくこと」は lib/keiri/offer.ts の KEIRI_OFFER_NOT_INCLUDED が正。
+      同じ内容を2か所に書くと、値上げのたびに片方だけ古くなるのでここには置かない。 */
 
 export default async function KeiriCasePage() {
   const link = paymentLinkUrl();
@@ -94,13 +102,27 @@ export default async function KeiriCasePage() {
           <br />
           月の利益と今の現金が分かる。
         </h1>
-        {/* 30秒で分かる1行。LINEで開いた店主が最初の画面で「いくら・やめられるか」を確かめられるように、
-            下の価格の枠にある言葉をそのまま上に出す（新しい約束は足さない）。 */}
-        <p className="mt-3 inline-block rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800">
-          {priceSummaryLine()}
-        </p>
+        {/* 30秒で分かる3行。LINEで開いた店主が最初の画面だけで
+            「何をしてくれるか・いくらか・やめられるか」を確かめられるようにする。
+            文言は lib/keiri/offer.ts と caseNumbers.ts からだけ引く（ここに約束を直書きしない）。 */}
+        <ul className="mt-4 space-y-2">
+          {KEIRI_TOP_LINES.map((line) => (
+            <li key={line} className="flex gap-2 text-stone-700 leading-relaxed">
+              <span aria-hidden className="flex-none text-amber-600 font-bold">
+                ・
+              </span>
+              <span>{line}</span>
+            </li>
+          ))}
+          <li className="flex gap-2 leading-relaxed">
+            <span aria-hidden className="flex-none text-amber-600 font-bold">
+              ・
+            </span>
+            <span className="font-bold text-amber-800">{priceSummaryLine()}</span>
+          </li>
+        </ul>
         <p className="mt-4 text-stone-600 leading-relaxed">
-          小さな飲食店・移動販売・催事出店のための経理アプリです。
+          小さな飲食店・移動販売・催事出店のための経理です。
           毎日の売上と経費を日報に入れるだけで、月の利益・今の現金・まだ払っていないお金が自動で出ます。
           帳簿づけの時間はゼロになります。
         </p>
@@ -180,11 +202,38 @@ export default async function KeiriCasePage() {
         <div className="rounded-xl bg-stone-50 border border-stone-200 p-4">
           <p className="font-bold text-stone-900">先にお伝えしておくこと</p>
           <ul className="mt-2 space-y-1.5 text-sm text-stone-600 list-disc list-inside">
-            {NOT_FOR.map((t) => (
+            {KEIRI_OFFER_NOT_INCLUDED.map((t) => (
               <li key={t}>{t}</li>
             ))}
           </ul>
         </div>
+      </section>
+
+      {/* ---------- 月額に含まれるもの（誰が手を動かすかを並べて書く） ---------- */}
+      <section className="mb-10">
+        <h2 className="text-lg font-bold text-stone-900">{priceLabel()}に含まれるもの</h2>
+        <p className="mt-1 text-sm text-stone-500">
+          「こちら」と書いてあるものは、お店の作業はありません。
+        </p>
+        <ul className="mt-4 space-y-3">
+          {KEIRI_OFFER_ITEMS.map((o) => (
+            <li key={o.title} className="rounded-xl bg-white border border-stone-200 p-4">
+              <div className="flex items-center gap-2">
+                <p className="font-bold text-stone-900">{o.title}</p>
+                <span
+                  className={
+                    o.by === "こちら"
+                      ? "flex-none rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800"
+                      : "flex-none rounded-full bg-stone-100 px-2 py-0.5 text-xs font-bold text-stone-600"
+                  }
+                >
+                  {o.by === "こちら" ? "こちらがやります" : "お店がやること"}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-stone-600 leading-relaxed">{o.body}</p>
+            </li>
+          ))}
+        </ul>
       </section>
 
       {/* ---------- 価格と申し込み ---------- */}
@@ -204,9 +253,21 @@ export default async function KeiriCasePage() {
             申し込む
           </a>
         ) : (
-          <p className="mt-5 flex items-center justify-center w-full h-14 rounded-2xl bg-amber-600/60 text-white font-bold">
-            申し込み受付は準備中です
-          </p>
+          <div className="mt-5">
+            <p className="flex items-center justify-center w-full h-14 rounded-2xl bg-amber-600/60 text-white font-bold">
+              申し込み受付は準備中です
+            </p>
+            {/* ★カードの受付口が用意できていない間は、届く宛先を1つだけ出す。
+                「準備中」で行き止まりにすると、せっかく開いた店主がそのまま離れてしまう。
+                宛先は特定商取引法に基づく表記に出しているものと同じ（別の宛先を作らない）。 */}
+            <p className="mt-3 text-sm leading-relaxed opacity-95">
+              お急ぎの方は{" "}
+              <a href={`mailto:${KEIRI_COMPANY.email}`} className="underline font-bold">
+                {KEIRI_COMPANY.email}
+              </a>{" "}
+              までご連絡ください。こちらから折り返します。
+            </p>
+          </div>
         )}
         <p className="mt-4 text-xs opacity-90">
           <Link href="/keiri/legal" className="underline">
