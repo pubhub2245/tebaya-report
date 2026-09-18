@@ -24,8 +24,10 @@ import type { TableCheck } from "./signupReadiness";
 export type ServerKeyReport = {
   /** 値が入っているか */
   configured: boolean;
-  /** そのまま通信に使えるか（全角などが混ざっていないか） */
+  /** いま実際に鍵として使えているか（直したものを含む） */
   usable: boolean;
+  /** 全角が混ざっていたので、半角に直して使っているか（2026-09-19・kp67） */
+  repaired?: boolean;
   /** 人の言葉での説明 */
   note: string;
 };
@@ -34,7 +36,24 @@ export type ServerKeyReport = {
  * 「未設定」と「値が壊れている」を必ず言い分ける。
  * 同じ「使えません」でも、やることが全く違うため（CLAUDE.md 4-10）。
  */
-export function describeServerKey(check: KeyCheck): ServerKeyReport {
+export function describeServerKey(
+  check: KeyCheck,
+  repair?: { repaired: boolean; broken: { count: number; convertible: number } },
+): ServerKeyReport {
+  // 全角が混ざっていたが、半角に直して鍵の形も確かめられた場合（2026-09-19・kp67）。
+  // 「直して動いている」ことと「正しく貼り直してほしい」ことは別なので、両方書く。
+  if (repair?.repaired) {
+    return {
+      configured: true,
+      usable: true,
+      repaired: true,
+      note:
+        `値に全角の文字が ${repair.broken.count} 個混ざっていましたが、` +
+        "決まりどおり半角に直したうえで、鍵の形（この倉庫の service_role）を確かめて使っています。" +
+        "記録は残ります。ただし直しに頼らずに済むよう、Vercel の環境変数 " +
+        "SUPABASE_SERVICE_ROLE_KEY はいずれ貼り直してください（kp55）",
+    };
+  }
   if (check.ok) {
     return {
       configured: true,
@@ -51,11 +70,17 @@ export function describeServerKey(check: KeyCheck): ServerKeyReport {
         "これが無いと、お申し込みの控えと、サイトに来た人の数が記録されません",
     };
   }
+  const detail = repair
+    ? `（使えない文字が ${repair.broken.count} 個。うち半角に直せるのは ${repair.broken.convertible} 個で、` +
+      "直しても鍵の形になりませんでした＝値そのものが違います）"
+    : "";
   return {
     configured: true,
     usable: false,
+    repaired: false,
     note:
-      "値に全角などの使えない文字が入っています。Vercel の環境変数 SUPABASE_SERVICE_ROLE_KEY を貼り直してください。" +
+      `値に全角などの使えない文字が入っています${detail}。` +
+      "Vercel の環境変数 SUPABASE_SERVICE_ROLE_KEY を貼り直してください。" +
       "これが直るまで、お申し込みの控えと、サイトに来た人の数は記録されません",
   };
 }

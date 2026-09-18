@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { messagingApi } from "@line/bot-sdk";
-import { serverClient, checkKey, serviceRoleKeyStatus } from "@/lib/supabaseServer";
+import {
+  serverClient,
+  serviceClientOrNull,
+  checkKey,
+  serviceRoleKeyStatus,
+  serviceRoleKeyRepair,
+} from "@/lib/supabaseServer";
 import { describeRecordStore, describeServerKey } from "@/lib/keiri/serverHealth";
 import {
   describeApplicationDelivery,
@@ -41,7 +47,9 @@ export const dynamic = "force-dynamic";
 /** その置き場（表）が本番にあって読めるかを、1行だけ読んで確かめる */
 async function checkTable(table: string): Promise<TableCheck> {
   try {
-    const supabase = serverClient();
+    // サーバー側の合鍵が使えるならそちらで読む。
+    // ＝ ここが「直した鍵が本当に通るか」の実地の確かめにもなる（2026-09-19・kp67）。
+    const supabase = serviceClientOrNull() ?? serverClient();
     const { error } = await supabase.from(table).select("*").limit(1);
     if (!error) return { ok: true, reason: null };
     return { ok: false, reason: describeTableError(error.code, error.message) };
@@ -120,7 +128,11 @@ export async function GET() {
   ]);
 
   // サーバー側の鍵。値そのものは返さない（設定済み／未設定／壊れている だけ）
-  const serverKey = describeServerKey(serviceRoleKeyStatus());
+  const repair = serviceRoleKeyRepair();
+  const serverKey = describeServerKey(serviceRoleKeyStatus(), {
+    repaired: repair.repaired,
+    broken: repair.broken,
+  });
 
   const applicationsStore = describeRecordStore(applications, serverKey);
   const notify = describeNotify(notifyFacts);

@@ -96,3 +96,24 @@ test("「表が無い」と「読む許可が無い」を言い分ける", () =>
   assert.ok(denied.includes("読む許可がありません"));
   assert.notEqual(missing, denied);
 });
+
+test("全角を直して使えているときは、そう出す（ただし貼り直しの案内は残す）", () => {
+  const r = describeServerKey(
+    { ok: false, reason: "全角などの使えない文字が入っている" },
+    { repaired: true, broken: { count: 3, convertible: 3 } },
+  );
+  assert.equal(r.configured, true);
+  assert.equal(r.usable, true);
+  assert.equal(r.repaired, true);
+  assert.ok(r.note.includes("貼り直"));
+});
+
+test("直せなかったときは、いままでどおり『使えません』のまま", () => {
+  const r = describeServerKey(
+    { ok: false, reason: "全角などの使えない文字が入っている" },
+    { repaired: false, broken: { count: 2, convertible: 0 } },
+  );
+  assert.equal(r.usable, false);
+  assert.equal(r.repaired, false);
+  assert.ok(r.note.includes("貼り直"));
+});
