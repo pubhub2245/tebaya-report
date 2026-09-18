@@ -100,11 +100,15 @@ export async function POST(req: NextRequest) {
   ]);
 
   if (!notified && !saved) {
-    // どこにも残らなかった。ここで「受け付けました」と返すのが一番まずい
+    // どこにも残らなかった。ここで「受け付けました」と返すのが一番まずい。
+    // ★ reason: "delivery" を付けて返す（2026-09-19・kp60）。
+    //   入力の間違い（400）と、届けられなかった（503）を画面が言い分けられるようにするため。
+    //   画面はこれを見て「メールでそのまま送る」ボタンを出す。
     console.error("[経理お申し込み] 知らせも控えも失敗しました");
     return NextResponse.json(
       {
         ok: false,
+        reason: "delivery",
         errors: [
           `いま受け付けができませんでした。お手数ですが ${KEIRI_COMPANY.email} までご連絡ください。`,
         ],

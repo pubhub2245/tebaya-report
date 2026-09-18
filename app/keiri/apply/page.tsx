@@ -70,7 +70,7 @@ export default function KeiriApplyPage() {
             まで、お店の名前・お名前・ご連絡先をお送りください。
           </div>
         </noscript>
-        <ApplyForm email={KEIRI_COMPANY.email} />
+        <ApplyForm email={KEIRI_COMPANY.email} tel={KEIRI_COMPANY.tel} />
       </section>
 
       <section className="mb-10">
