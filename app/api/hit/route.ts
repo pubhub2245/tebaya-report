@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { serverClient } from "@/lib/supabaseServer";
+import { serverClient, serviceClientOrNull } from "@/lib/supabaseServer";
 import { isAllowedOrigin, toVisitRow } from "@/lib/siteVisits";
 
 export const runtime = "nodejs";
@@ -56,7 +56,11 @@ export async function POST(req: NextRequest) {
     });
     if (!row) return done();
 
-    const { error } = await serverClient().from("site_visits").insert(row);
+    // site_visits は鍵（RLS）が掛かっていて、通常の鍵では書けない。
+    // サーバー側の合鍵が使えるならそちらを使う（全角混入を直せた場合を含む／kp67）。
+    // 使えなければ今までどおり通常の鍵（＝これまでと同じ結果）。
+    const db = serviceClientOrNull() ?? serverClient();
+    const { error } = await db.from("site_visits").insert(row);
     if (error) {
       console.error(`[訪問カウント] 記録できませんでした: ${error.message}`);
     }

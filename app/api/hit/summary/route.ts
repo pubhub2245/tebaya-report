@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { serverClient, serviceRoleKeyStatus } from "@/lib/supabaseServer";
+import { serverClient, serviceClientOrNull, serviceRoleKeyStatus } from "@/lib/supabaseServer";
 import { summarize } from "@/lib/siteVisits";
 import { describeTableError } from "@/lib/keiri/signupReadiness";
 import { describeRecordStore, describeServerKey } from "@/lib/keiri/serverHealth";
@@ -20,7 +20,8 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const since = new Date(Date.now() - 70 * 24 * 60 * 60 * 1000).toISOString();
 
-  const { data, error } = await serverClient()
+  const db = serviceClientOrNull() ?? serverClient();
+  const { data, error } = await db
     .from("site_visits")
     .select("site, at")
     .gte("at", since)
