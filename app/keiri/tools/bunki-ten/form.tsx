@@ -1,33 +1,33 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
-import { calcBreakEven, toNumber, yen } from "@/lib/keiri/tools";
+import { breakEvenShareText, calcBreakEven, toNumber, yen } from "@/lib/keiri/tools";
 import { NumberField, ResultRow } from "@/app/keiri/tools/components/field";
+import { CopyResultButton, useShareableNumbers } from "@/app/keiri/tools/components/share";
+
+/** 開いたときの初期値（URL に数字が入っていれば、そちらが優先される） */
+const DEFAULTS = { rent: "", labor: "", other: "", rate: "30", days: "25", spend: "" };
 
 /**
  * 赤字ラインの計算（ブラウザの中だけで完結する）。
- * 入力はどこにも送らない・保存しない。
+ * 入力はどこにも送らない・保存しない。URL に入れて人に渡すことはできる（kp37）。
  */
 export default function BunkiForm() {
-  const [rent, setRent] = useState("");
-  const [labor, setLabor] = useState("");
-  const [other, setOther] = useState("");
-  const [rate, setRate] = useState("30");
-  const [days, setDays] = useState("25");
-  const [spend, setSpend] = useState("");
+  const { values, setValue, shareUrl } = useShareableNumbers(DEFAULTS);
+  const { rent, labor, other, rate, days, spend } = values;
 
   const fixed = toNumber(rent) + toNumber(labor) + toNumber(other);
-  const result = useMemo(
-    () =>
-      calcBreakEven({
-        fixedCostYen: fixed,
-        variableRatePercent: toNumber(rate),
-        openDays: toNumber(days),
-        averageSpendYen: toNumber(spend),
-      }),
+  const input = useMemo(
+    () => ({
+      fixedCostYen: fixed,
+      variableRatePercent: toNumber(rate),
+      openDays: toNumber(days),
+      averageSpendYen: toNumber(spend),
+    }),
     [fixed, rate, days, spend],
   );
+  const result = useMemo(() => calcBreakEven(input), [input]);
 
   const filled = fixed > 0;
 
@@ -39,13 +39,13 @@ export default function BunkiForm() {
           売上が0円の月でも出ていくお金です。空欄は0として計算します。
         </p>
         <div className="mt-5 space-y-5">
-          <NumberField label="家賃・場所代" unit="円" value={rent} onChange={setRent} placeholder="0" />
+          <NumberField label="家賃・場所代" unit="円" value={rent} onChange={(v) => setValue("rent", v)} placeholder="0" />
           <NumberField
             label="人件費（毎月ほぼ決まっている分）"
             hint="社員の給料や、毎月同じだけ入るアルバイトの分。売上に連れて増える分は下の「割合」に入れます。"
             unit="円"
             value={labor}
-            onChange={setLabor}
+            onChange={(v) => setValue("labor", v)}
             placeholder="0"
           />
           <NumberField
@@ -53,7 +53,7 @@ export default function BunkiForm() {
             hint="水道光熱・通信・リース・保険・借入の返済など。"
             unit="円"
             value={other}
-            onChange={setOther}
+            onChange={(v) => setValue("other", v)}
             placeholder="0"
           />
         </div>
@@ -70,16 +70,16 @@ export default function BunkiForm() {
             hint="分からないときは、先月の「仕入の合計 ÷ 売上」で出せます。飲食店では30%前後に置くことが多い数字です。"
             unit="％"
             value={rate}
-            onChange={setRate}
+            onChange={(v) => setValue("rate", v)}
             placeholder="30"
           />
-          <NumberField label="月の営業日数" unit="日" value={days} onChange={setDays} placeholder="25" />
+          <NumberField label="月の営業日数" unit="日" value={days} onChange={(v) => setValue("days", v)} placeholder="25" />
           <NumberField
             label="客単価（任意）"
             hint="入れると「1日に何人来ればいいか」まで出ます。"
             unit="円"
             value={spend}
-            onChange={setSpend}
+            onChange={(v) => setValue("spend", v)}
             placeholder="0"
           />
         </div>
@@ -107,11 +107,12 @@ export default function BunkiForm() {
             </p>
           </div>
         )}
+        <CopyResultButton disabled={!filled} text={() => breakEvenShareText(input, result, shareUrl())} />
       </section>
 
       <p className="text-xs text-stone-500 leading-relaxed">
         入力した数字はこの画面の中だけで計算しています。どこにも送っていませんし、保存もしていません。
-        ページを閉じれば消えます。
+        ページのアドレス（URL）には入れているので、そのまま人に渡せば同じ答えが開きます。
       </p>
     </div>
   );
