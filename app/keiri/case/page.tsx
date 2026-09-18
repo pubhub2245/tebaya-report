@@ -243,29 +243,51 @@ export default async function KeiriCasePage() {
         <ul className="mt-3 text-sm space-y-1 opacity-95">
           <li>・{KEIRI_PRICE.freeTrial ? "初月無料" : "初期費用なし・初月無料はありません"}</li>
           <li>・{KEIRI_PRICE.cancelAnytime ? "いつでも解約できます（ご自身の画面から。連絡は不要です）" : ""}</li>
-          <li>・申し込みから使い始めまで、人の手は入りません。支払い後すぐに使えます</li>
+          {/* ★カードの受付口が無い間は「人の手は入りません」は事実でなくなる
+                （担当が折り返してお支払いの方法をご案内するため）。正直なほうに出し分ける。 */}
+          <li>
+            ・
+            {link
+              ? "申し込みから使い始めまで、人の手は入りません。支払い後すぐに使えます"
+              : "お申し込みのあと、担当からお支払いの方法をご案内します（通常1営業日以内）"}
+          </li>
         </ul>
         {link ? (
-          <a
-            href={link}
-            className="mt-5 flex items-center justify-center w-full h-14 rounded-2xl bg-white text-amber-700 font-bold text-lg shadow hover:bg-amber-50 transition"
-          >
-            申し込む
-          </a>
+          <div className="mt-5">
+            <a
+              href={link}
+              className="flex items-center justify-center w-full h-14 rounded-2xl bg-white text-amber-700 font-bold text-lg shadow hover:bg-amber-50 transition"
+            >
+              申し込む
+            </a>
+            {/* ★カードが使えない・請求書で払いたいお店のために、申し込みフォームも残す。
+                カードが本線なので、こちらは小さく添えるだけにする。 */}
+            <p className="mt-3 text-sm leading-relaxed opacity-95">
+              カード以外でのお支払いをご希望の方は{" "}
+              <Link href="/keiri/apply" className="underline font-bold">
+                お申し込みフォーム
+              </Link>{" "}
+              からどうぞ。
+            </p>
+          </div>
         ) : (
           <div className="mt-5">
-            <p className="flex items-center justify-center w-full h-14 rounded-2xl bg-amber-600/60 text-white font-bold">
-              申し込み受付は準備中です
-            </p>
-            {/* ★カードの受付口が用意できていない間は、届く宛先を1つだけ出す。
+            {/* ★カードの受付口（Stripe の支払いリンク）が用意できていない間も、
+                「申し込みます」と言える道は必ず1本置く。
                 「準備中」で行き止まりにすると、せっかく開いた店主がそのまま離れてしまう。
-                宛先は特定商取引法に基づく表記に出しているものと同じ（別の宛先を作らない）。 */}
+                フォームではお金は動かさない（お支払いの方法は折り返しでご案内する）。 */}
+            <Link
+              href="/keiri/apply"
+              className="flex items-center justify-center w-full h-14 rounded-2xl bg-white text-amber-700 font-bold text-lg shadow hover:bg-amber-50 transition"
+            >
+              申し込む
+            </Link>
             <p className="mt-3 text-sm leading-relaxed opacity-95">
-              お急ぎの方は{" "}
+              いまはカード決済の受付を準備中のため、お申し込みフォームからお受けします（この画面でお支払いは発生しません）。
+              メールでも受け付けています：{" "}
               <a href={`mailto:${KEIRI_COMPANY.email}`} className="underline font-bold">
                 {KEIRI_COMPANY.email}
-              </a>{" "}
-              までご連絡ください。こちらから折り返します。
+              </a>
             </p>
           </div>
         )}
