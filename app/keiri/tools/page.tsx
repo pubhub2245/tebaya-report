@@ -2,13 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
+import { keiriMetadata } from "@/lib/keiri/metadata";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = keiriMetadata({
+  path: "/keiri/tools",
+  type: "website",
   title: "飲食店の無料計算ツール｜赤字ライン・原価率・FL比率（登録不要）",
   description:
     "飲食店・屋台の数字をその場で出す無料の計算ツール。損益分岐点（赤字にならない売上）と、原価率・FL比率。" +
     "登録もメールアドレスも要りません。入力した数字はどこにも送りません。",
-};
+});
 
 const TOOLS: { path: string; title: string; lead: string }[] = [
   {

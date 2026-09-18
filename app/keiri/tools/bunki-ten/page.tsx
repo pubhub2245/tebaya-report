@@ -2,15 +2,17 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
+import { keiriMetadata } from "@/lib/keiri/metadata";
 import { priceLabel } from "@/lib/keiri/caseNumbers";
 import BunkiForm from "./form";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = keiriMetadata({
+  path: "/keiri/tools/bunki-ten",
   title: "飲食店の損益分岐点（赤字ライン）計算ツール｜月にいくら売ればトントンか",
   description:
     "家賃・人件費・原価率を入れるだけで、飲食店が赤字にならない売上（損益分岐点）を出します。" +
     "1営業日あたりの売上と必要な客数まで。登録不要・無料、入力した数字はどこにも送りません。",
-};
+});
 
 const STEPS: { q: string; a: string }[] = [
   {

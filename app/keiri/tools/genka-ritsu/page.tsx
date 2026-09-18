@@ -2,15 +2,17 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
+import { keiriMetadata } from "@/lib/keiri/metadata";
 import { priceLabel } from "@/lib/keiri/caseNumbers";
 import GenkaForm from "./form";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = keiriMetadata({
+  path: "/keiri/tools/genka-ritsu",
   title: "原価率・FL比率の計算ツール（飲食店）｜売上・仕入・人件費を入れるだけ",
   description:
     "飲食店の原価率（F）・人件費率（L）・FL比率を、1か月の売上と仕入と給料から出します。" +
     "登録不要・無料。入力した数字はどこにも送りません。",
-};
+});
 
 const NOTES: { q: string; a: string }[] = [
   {
