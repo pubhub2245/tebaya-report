@@ -59,3 +59,40 @@ test("checkKey: 正しい鍵はそのまま通る", () => {
   assert.equal(r.ok, true);
   if (r.ok) assert.equal(r.key, "eyJhbGciOiJIUzI1NiJ9.payload.signature");
 });
+
+/**
+ * 2026-09-19 追加：貼り付けのしそこないを「前後だけ」直す。
+ *
+ * 本番の SUPABASE_SERVICE_ROLE_KEY が「値は入っているが使えない」状態だったため。
+ * 前後に全角スペースや見えない印が紛れ込んだだけなら、人の作業ゼロで直る。
+ * 途中に混ざっていたときは、今までどおり「壊れている」と正直に出す（勝手に直さない）。
+ */
+test("checkKey: 前後の全角スペースは取り除いて使えるようにする", () => {
+  const r = checkKey("　eyJhbGciOiJIUzI1NiJ9.payload.signature　");
+  assert.equal(r.ok, true);
+  if (r.ok) assert.equal(r.key, "eyJhbGciOiJIUzI1NiJ9.payload.signature");
+});
+
+test("checkKey: 見えない印（BOM・ゼロ幅）も前後なら取り除く", () => {
+  const r = checkKey("﻿eyJhbGciOiJIUzI1NiJ9.payload.signature​");
+  assert.equal(r.ok, true);
+  if (r.ok) assert.equal(r.key, "eyJhbGciOiJIUzI1NiJ9.payload.signature");
+});
+
+test("checkKey: 全角の引用符で囲まれていても取り除く", () => {
+  const r = checkKey("「eyJhbGciOiJIUzI1NiJ9.payload.signature」");
+  assert.equal(r.ok, true);
+  if (r.ok) assert.equal(r.key, "eyJhbGciOiJIUzI1NiJ9.payload.signature");
+});
+
+test("checkKey: 値の途中に全角が混ざっているときは、勝手に直さず「壊れている」と出す", () => {
+  const r = checkKey("　eyJhbGci（OiJIUzI1NiJ9.payload　");
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.reason, "全角などの使えない文字が入っている");
+});
+
+test("checkKey: 全角スペースだけの値は「未設定」と同じ扱いにする", () => {
+  const r = checkKey("　　");
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.reason, "未設定");
+});

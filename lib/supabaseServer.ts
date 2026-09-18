@@ -44,11 +44,39 @@ export function isUsableKey(value: string): boolean {
 }
 
 /**
+ * 貼り付けのしそこないを、**前後だけ**きれいにする。
+ *
+ * ■ なぜ「前後だけ」なのか
+ *   値の途中に使えない文字が入っているときは、鍵そのものが違うということなので、
+ *   直しようがない（人が貼り直すしかない）。勝手に消すと、間違った鍵で
+ *   「使えるつもりのまま」動いてしまい、かえって原因が分からなくなる。
+ *   取り除くのは、貼り付けのときに前後へ紛れ込むだけの文字に限る。
+ *
+ * ■ 取り除くもの
+ *   半角の空白・改行・タブ／**全角の空白（　）**／見えない印（BOM・ゼロ幅）／
+ *   前後を囲む引用符（" ' 「 」 “ ” ）
+ *
+ * ■ なぜ足したか（2026-09-19）
+ *   本番の SUPABASE_SERVICE_ROLE_KEY が「値は入っているが使えない」状態だった。
+ *   2026-08-28 と同じ全角混入。もし紛れ込んでいたのが前後の全角スペースだけなら、
+ *   ここで取り除くだけで直る（人の作業がゼロで済む）。
+ *   途中に混ざっていたときは、今までどおり「壊れている」と正直に出す。
+ */
+export function tidyPastedValue(raw: string): string {
+  // 前後の「空白のようなもの」と見えない印を落とす
+  let v = raw.replace(/^[\s\u3000\uFEFF\u200B-\u200D]+/, "").replace(/[\s\u3000\uFEFF\u200B-\u200D]+$/, "");
+  // 前後を囲む引用符を落とす（1組だけ）
+  v = v.replace(/^["'「“]/, "").replace(/["'」”]$/, "");
+  // 引用符の内側にまた空白が残ることがあるので、もう一度だけ落とす
+  return v.replace(/^[\s\u3000\uFEFF\u200B-\u200D]+/, "").replace(/[\s\u3000\uFEFF\u200B-\u200D]+$/, "");
+}
+
+/**
  * 環境変数の値を、鍵として使えるか調べて返す。
  * 前後の空白や引用符は、よくあるコピペのしそこないなので取り除く。
  */
 export function checkKey(raw: string | undefined | null): KeyCheck {
-  const trimmed = (raw ?? "").trim().replace(/^["']|["']$/g, "");
+  const trimmed = tidyPastedValue(raw ?? "");
   if (!trimmed) return { ok: false, reason: "未設定" };
   if (!isUsableKey(trimmed)) {
     return { ok: false, reason: "全角などの使えない文字が入っている" };
