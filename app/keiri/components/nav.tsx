@@ -37,6 +37,11 @@ export const KEIRI_PUBLIC_PAGES: { path: string; title: string; lead: string }[]
     lead: "日報を書くだけで、月の利益と今の現金が分かる。実際に使っている店の数字と価格。",
   },
   {
+    path: "/keiri/apply",
+    title: "お申し込み",
+    lead: "お店の名前・お名前・メールアドレスをいただければ、担当からご案内します。この画面でお支払いは発生しません。",
+  },
+  {
     path: "/keiri/excel",
     title: "エクセルの売上管理をやめたい",
     lead: "エクセルの何がつらいのか、日報に置き換えると何が変わるのかを並べました。",
