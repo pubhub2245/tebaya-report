@@ -8,11 +8,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  KEIRI_APPLY_COPY_TO,
   KEIRI_APPLY_LIMITS,
   keiriApplyMailto,
   keiriApplyNotificationText,
+  keiriApplyRecipients,
   normalizeKeiriApplication,
 } from "../lib/keiri/apply";
+import { KEIRI_COMPANY, tokushohoRows } from "../lib/keiri/legal";
 import { KEIRI_PUBLIC_PAGES } from "../app/keiri/components/nav";
 
 function ok(input: Parameters<typeof normalizeKeiriApplication>[0]) {
@@ -176,8 +179,49 @@ test("届けられなかったときのメール下書き：入れてもらっ�
   assert.match(mail.body, /メール：you@example.com/);
   assert.match(mail.body, /電話：090-0000-0000/);
   assert.match(mail.body, /レシートの入力が大変です/);
-  assert.ok(mail.url.startsWith("mailto:jun@example.co.jp?subject="));
+  assert.ok(mail.url.startsWith("mailto:jun@example.co.jp?"));
+  assert.ok(mail.url.includes("subject="));
   assert.ok(mail.url.includes(encodeURIComponent("屋台 手羽屋")));
+});
+
+// ── ここから kp63（2026-09-19）──────────────────────────────
+// 今月は LINE も倉庫の控えも止まっていて、受け口は「メールの下書き」1本だけ。
+// その宛先が司令室の読めない受信箱1つだけだと、申し込みが静かに消える。
+
+test("メール下書き：既定で手羽屋のGmailにも写し（CC）が付く", () => {
+  const mail = keiriApplyMailto({ to: "jun@example.co.jp", shopName: "手羽屋" });
+  assert.equal(mail.cc, KEIRI_APPLY_COPY_TO);
+  assert.ok(mail.url.includes(`cc=${encodeURIComponent(KEIRI_APPLY_COPY_TO)}`));
+  // 届く先は2か所（To と写し）
+  assert.deepEqual(mail.recipients, ["jun@example.co.jp", KEIRI_APPLY_COPY_TO]);
+});
+
+test("メール下書き：宛先と写しが同じときは二重に書かない", () => {
+  const mail = keiriApplyMailto({ to: KEIRI_APPLY_COPY_TO, shopName: "手羽屋" });
+  assert.equal(mail.cc, null);
+  assert.ok(!mail.url.includes("cc="));
+  assert.deepEqual(mail.recipients, [KEIRI_APPLY_COPY_TO]);
+});
+
+test("メール下書き：写しを付けないと明示したときは付かない", () => {
+  const mail = keiriApplyMailto({ to: "a@b.co", cc: null, shopName: "手羽屋" });
+  assert.equal(mail.cc, null);
+  assert.deepEqual(mail.recipients, ["a@b.co"]);
+});
+
+test("本番の下書きは、特商法の連絡先と司令室の受信箱の2か所に届く", () => {
+  const list = keiriApplyRecipients(KEIRI_COMPANY.email, KEIRI_APPLY_COPY_TO);
+  assert.equal(list.length, 2);
+  assert.ok(list.includes(KEIRI_COMPANY.email));
+  assert.ok(list.includes(KEIRI_APPLY_COPY_TO));
+});
+
+test("特定商取引法のページに出す連絡先は変えない（表示は法律の話・写しは受け取りの話）", () => {
+  assert.notEqual(KEIRI_COMPANY.email, KEIRI_APPLY_COPY_TO);
+  assert.ok(
+    tokushohoRows().some((r) => r.value === KEIRI_COMPANY.email),
+    "特商法の表記の連絡先が、これまでどおり出ていること",
+  );
 });
 
 test("メール下書き：任意の欄が空でも壊れない", () => {

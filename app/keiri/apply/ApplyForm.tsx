@@ -121,9 +121,14 @@ export default function ApplyForm({ email, tel }: { email: string; tel?: string 
 
         <p className="mt-4 text-sm text-stone-700 leading-relaxed">
           メールが開かないときは、下の文をそのまま{" "}
-          <a href={`mailto:${email}`} className="underline font-bold">
-            {email}
-          </a>{" "}
+          {mail.recipients.map((to, i) => (
+            <span key={to}>
+              {i > 0 && " または "}
+              <a href={`mailto:${to}`} className="underline font-bold">
+                {to}
+              </a>
+            </span>
+          ))}{" "}
           までお送りください。
           {tel && (
             <>

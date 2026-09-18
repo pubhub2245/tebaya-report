@@ -8,6 +8,8 @@ import {
   type NotifyFacts,
 } from "@/lib/keiri/notifyHealth";
 import { paymentLinkUrl } from "@/lib/keiri/caseNumbers";
+import { KEIRI_APPLY_COPY_TO, keiriApplyRecipients } from "@/lib/keiri/apply";
+import { KEIRI_COMPANY } from "@/lib/keiri/legal";
 import {
   buildSignupReadiness,
   describeTableError,
@@ -125,6 +127,8 @@ export async function GET() {
   const delivery = describeApplicationDelivery({
     notifyOk: notify.ok,
     recordOk: applicationsStore.ok,
+    // 届かなかったときに店主が開く「メールの下書き」の宛先（kp63）
+    mailRecipients: keiriApplyRecipients(KEIRI_COMPANY.email, KEIRI_APPLY_COPY_TO),
   });
 
   const readiness = buildSignupReadiness({

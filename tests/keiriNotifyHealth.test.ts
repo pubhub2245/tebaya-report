@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   describeApplicationDelivery,
+  describeMailFallback,
   describeNotify,
   remainingMessages,
   type NotifyFacts,
@@ -64,4 +65,36 @@ test("知らせと控えの両方が死んでいるときだけ「届かない�
   const dead = describeApplicationDelivery({ notifyOk: false, recordOk: false });
   assert.equal(dead.ok, false);
   assert.match(dead.note, /誰にも届きません/);
+});
+
+// ── kp63（2026-09-19）メールの下書きの宛先 ──────────────────
+// 受け口が「メールの下書き」1本しかない月に、その宛先が1か所だけだと
+// 申し込みが静かに消える。外から1回で分かるようにする。
+
+test("下書きの宛先が1か所だけなら、そのことを警告として出す", () => {
+  const r = describeMailFallback(["jun@example.co.jp"]);
+  assert.equal(r.count, 1);
+  assert.match(r.note, /1か所だけ/);
+});
+
+test("下書きの宛先が2か所あれば、何か所に届くかを出す", () => {
+  const r = describeMailFallback(["jun@example.co.jp", "hikae@example.com"]);
+  assert.equal(r.count, 2);
+  assert.match(r.note, /2 か所/);
+});
+
+test("同じ宛先を二重に数えない・空は数えない", () => {
+  const r = describeMailFallback(["a@b.co", "a@b.co", "", "  "]);
+  assert.deepEqual(r.recipients, ["a@b.co"]);
+  assert.equal(r.count, 1);
+});
+
+test("届くかの見立てに、下書きの宛先の数がいつでも付いてくる", () => {
+  const r = describeApplicationDelivery({
+    notifyOk: false,
+    recordOk: false,
+    mailRecipients: ["jun@example.co.jp", "hikae@example.com"],
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.mail_fallback.count, 2);
 });

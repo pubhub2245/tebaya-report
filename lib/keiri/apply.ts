@@ -17,6 +17,25 @@
  *   日報・シフト・レジ・LINE の送り方・お金の計算（lib/money.ts）は変えていない。
  */
 
+/**
+ * お申し込みの「メールでそのまま送る」下書きの、写し（CC）の宛先。
+ *
+ * ■ なぜ要るのか（2026-09-19・kp63）
+ *   今月は LINE の知らせが止まっていて（今月ぶんの送信数を使い切り。毎月1日に戻る）、
+ *   倉庫の控えも鍵が壊れていて残らない（kp55）。
+ *   ＝ **いまの受け口は、この「メールの下書き」1本だけ**。
+ *   ところがその宛先は特定商取引法の表記と同じ1つだけで、
+ *   司令室が読める受信箱（手羽屋の Gmail）ではなかった。
+ *   このままだと、申し込みが入っても司令室は気づけず「0件」と書き続ける
+ *   （訪問 kp54・控え kp57 と同じ「数えられていないのに0に見える」形）。
+ *
+ * ★ 表に出す連絡先（特定商取引法のページ）は変えない。
+ *   あちらは「法律で表示が要るもの」、こちらは「受け取りの控え」で別の話。
+ * ★ ここから誰かにメールを送ることはしない。
+ *   店主の画面に立ち上がる下書きの宛先欄を1つ増やすだけ。
+ */
+export const KEIRI_APPLY_COPY_TO = "tebaya1222@gmail.com";
+
 /** 入れてもらう欄の長さの上限（長すぎる貼り付けをそのまま通さない） */
 export const KEIRI_APPLY_LIMITS = {
   shopName: 80,
@@ -183,12 +202,24 @@ export function keiriApplyNotificationText(args: {
 export function keiriApplyMailto(args: {
   /** 送り先（KEIRI_COMPANY.email） */
   to: string;
+  /** 写し（CC）の宛先。何も渡さなければ KEIRI_APPLY_COPY_TO。null を渡すと写しを付けない */
+  cc?: string | null;
   shopName?: unknown;
   contactName?: unknown;
   email?: unknown;
   phone?: unknown;
   note?: unknown;
-}): { subject: string; body: string; url: string } {
+}): {
+  subject: string;
+  body: string;
+  url: string;
+  /** 宛先（To） */
+  to: string;
+  /** 写し（CC）。付けないときは null */
+  cc: string | null;
+  /** その下書きが届く先の一覧（重複なし） */
+  recipients: string[];
+} {
   const shopName = text(args.shopName);
   const contactName = text(args.contactName);
   const email = text(args.email);
@@ -211,6 +242,37 @@ export function keiriApplyMailto(args: {
   lines.push("", "（お申し込みフォームから送れなかったため、メールでお送りしています）");
 
   const body = lines.join("\n");
-  const url = `mailto:${args.to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  return { subject, body, url };
+
+  // 写し（CC）。同じ宛先を二重に書かない
+  const asked = args.cc === undefined ? KEIRI_APPLY_COPY_TO : args.cc;
+  const copyTo = asked && asked.trim() !== "" && asked !== args.to ? asked : null;
+
+  const query = [
+    copyTo ? `cc=${encodeURIComponent(copyTo)}` : null,
+    `subject=${encodeURIComponent(subject)}`,
+    `body=${encodeURIComponent(body)}`,
+  ]
+    .filter((v): v is string => v !== null)
+    .join("&");
+
+  return {
+    subject,
+    body,
+    url: `mailto:${args.to}?${query}`,
+    to: args.to,
+    cc: copyTo,
+    recipients: keiriApplyRecipients(args.to, copyTo),
+  };
+}
+
+/**
+ * その下書きが届く先の一覧（重複なし）。
+ * 診断（/api/keiri/diagnose）で「宛先が何か所あるか」を出すのに使う。
+ * ＝次に誰が見ても、受け口が1か所しかない状態に1回で気づける。
+ */
+export function keiriApplyRecipients(to: string, cc: string | null): string[] {
+  const list = [to, cc].filter(
+    (v): v is string => typeof v === "string" && v.trim() !== "",
+  );
+  return Array.from(new Set(list));
 }
