@@ -204,6 +204,15 @@ export function keiriApplyMailto(args: {
   to: string;
   /** 写し（CC）の宛先。何も渡さなければ KEIRI_APPLY_COPY_TO。null を渡すと写しを付けない */
   cc?: string | null;
+  /**
+   * どの場面の下書きか（2026-09-19・kp69）。
+   * "fallback"（既定）… 自動の受け付けができなかったとき。これを送らないと届かない。
+   * "copy" … 受け付けはできたが、倉庫に控えが残らなかったとき。
+   *           知らせは LINE で飛んでいるので届いてはいるが、
+   *           あとから一覧で見返せる形が1つも無い状態。
+   *           そのための「念のための控え」で、送らなくても申し込みは生きている。
+   */
+  kind?: "fallback" | "copy";
   shopName?: unknown;
   contactName?: unknown;
   email?: unknown;
@@ -226,12 +235,14 @@ export function keiriApplyMailto(args: {
   const phone = text(args.phone);
   const note = text(args.note);
 
-  const subject = shopName
-    ? `経理パッケージ お申し込み（${shopName}）`
-    : "経理パッケージ お申し込み";
+  const kind = args.kind ?? "fallback";
+  const head = kind === "copy" ? "経理パッケージ お申し込みの控え" : "経理パッケージ お申し込み";
+  const subject = shopName ? `${head}（${shopName}）` : head;
 
   const lines = [
-    "経理パッケージに申し込みます。",
+    kind === "copy"
+      ? "経理パッケージに申し込みました（控えです）。"
+      : "経理パッケージに申し込みます。",
     "",
     `お店：${shopName || "（未記入）"}`,
     `お名前：${contactName || "（未記入）"}`,
@@ -239,7 +250,12 @@ export function keiriApplyMailto(args: {
   ];
   if (phone) lines.push(`電話：${phone}`);
   if (note) lines.push("", "ひとこと：", note);
-  lines.push("", "（お申し込みフォームから送れなかったため、メールでお送りしています）");
+  lines.push(
+    "",
+    kind === "copy"
+      ? "（お申し込みフォームからの受け付けは済んでいます。控えとしてお送りしています）"
+      : "（お申し込みフォームから送れなかったため、メールでお送りしています）",
+  );
 
   const body = lines.join("\n");
 

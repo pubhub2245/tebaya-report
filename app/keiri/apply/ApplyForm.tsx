@@ -45,6 +45,10 @@ function readForm(f: FormData): Entered {
 export default function ApplyForm({ email, tel }: { email: string; tel?: string }) {
   const [state, setState] = useState<State>("input");
   const [errors, setErrors] = useState<string[]>([]);
+  // ★受け付けはできたが、倉庫に控えが残らなかったか（2026-09-19・kp69）。
+  //   残っていないときだけ、成功の画面に「念のための控えメール」を出す。
+  //   既定は true（余計なお願いをしないため。古い受け口が何も返さないときも出さない）
+  const [savedRecord, setSavedRecord] = useState(true);
   // ★打ち直しをお願いしないために、入れてもらった中身は必ず手元に残す
   const [entered, setEntered] = useState<Entered>(EMPTY);
 
@@ -75,8 +79,10 @@ export default function ApplyForm({ email, tel }: { email: string; tel?: string 
         ok?: boolean;
         reason?: string;
         errors?: string[];
+        saved?: boolean;
       };
       if (res.ok && data.ok) {
+        setSavedRecord(data.saved !== false);
         setState("done");
         return;
       }
@@ -176,6 +182,26 @@ export default function ApplyForm({ email, tel }: { email: string; tel?: string 
           </a>{" "}
           までご連絡ください。
         </p>
+
+        {!savedRecord && (
+          <div className="mt-5 rounded-xl border border-stone-300 bg-white p-4">
+            <p className="text-sm font-bold text-stone-900">
+              お手すきのときで構いません：控えのメールを1通だけ
+            </p>
+            <p className="mt-2 text-sm text-stone-700 leading-relaxed">
+              お申し込みは受け付けています。ただ、いまこちらの控えの保存が止まっているため、
+              念のため同じ内容のメールをいただけると確実です。
+              下のボタンで、中身の入った下書きが開きます（打ち直しは要りません）。
+              送らなくてもお申し込みは有効です。
+            </p>
+            <a
+              href={keiriApplyMailto({ to: email, kind: "copy", ...entered }).url}
+              className="mt-3 flex items-center justify-center w-full h-12 rounded-xl border border-amber-500 text-amber-700 font-bold hover:bg-amber-50 transition"
+            >
+              控えのメールを開く
+            </a>
+          </div>
+        )}
       </div>
     );
   }

@@ -117,5 +117,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  return NextResponse.json({ ok: true });
+  // ★どの道で受け取れたかを画面に返す（2026-09-19・kp69）。
+  //   いちばん危ないのは「LINE には飛んだが、倉庫に控えが残らなかった」とき。
+  //   画面は「受け付けました」と出るが、**あとから一覧で見返せる形がどこにも無い**。
+  //   LINE のグループは司令室からは読めないので、気づかないまま
+  //   「申込0件」と書き続けることになる（訪問 kp54・控え kp57 と同じ形）。
+  //   そこで saved を返し、残っていないときだけ画面に
+  //   「念のための控えメール」を1つ出す（送らなくても申し込みは生きている）。
+  return NextResponse.json({ ok: true, notified, saved });
 }

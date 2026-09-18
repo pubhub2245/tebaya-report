@@ -230,3 +230,43 @@ test("メール下書き：任意の欄が空でも壊れない", () => {
   assert.match(mail.body, /お店：（未記入）/);
   assert.ok(!mail.body.includes("電話："));
 });
+
+/* ------------------------------------------------------------------
+ * 2026-09-19（kp69）
+ * 「LINE には飛んだが、倉庫に控えが残らなかった」ときの念のための控え。
+ *
+ * いちばん危ない形は、画面が「受け付けました」と出るのに、
+ * あとから一覧で見返せる形がどこにも無い状態。
+ * LINE のグループは司令室からは読めないので、
+ * 最初の1件が入っても気づかれないまま「申込0件」と書き続けることになる。
+ * ------------------------------------------------------------------ */
+
+test("控えの下書き：件名で「控え」と分かる（本物の申し込みと取り違えない）", () => {
+  const mail = keiriApplyMailto({ to: "jun@example.co.jp", kind: "copy", shopName: "手羽屋" });
+  assert.equal(mail.subject, "経理パッケージ お申し込みの控え（手羽屋）");
+  assert.match(mail.body, /控えとしてお送りしています/);
+  assert.ok(
+    !mail.body.includes("送れなかったため"),
+    "受け付けは済んでいるので、送れなかったとは書かない",
+  );
+});
+
+test("控えの下書き：既定（fallback）の文面はこれまでどおり", () => {
+  const mail = keiriApplyMailto({ to: "jun@example.co.jp", shopName: "手羽屋" });
+  assert.equal(mail.subject, "経理パッケージ お申し込み（手羽屋）");
+  assert.match(mail.body, /送れなかったため/);
+  assert.ok(!mail.body.includes("控えとして"));
+});
+
+test("控えの下書きも、司令室の受信箱に写し（CC）が付く", () => {
+  const mail = keiriApplyMailto({
+    to: KEIRI_COMPANY.email,
+    kind: "copy",
+    shopName: "手羽屋",
+    contactName: "川畑",
+    email: "tencho@example.com",
+  });
+  assert.deepEqual(mail.recipients, [KEIRI_COMPANY.email, KEIRI_APPLY_COPY_TO]);
+  assert.match(mail.body, /お名前：川畑/);
+  assert.match(mail.body, /メール：tencho@example.com/);
+});
