@@ -125,8 +125,64 @@ export function describeNotify(facts: NotifyFacts): NotifyReport {
 export function describeApplicationDelivery(args: {
   notifyOk: boolean;
   recordOk: boolean;
-}): { ok: boolean; note: string } {
+  /**
+   * 届けられなかったときに開く「メールの下書き」の宛先（To と写し）。
+   * 2026-09-19（kp63）に追加。ここが1か所しかないと、
+   * その1つの受信箱を誰も見ていない月に、申し込みが静かに消える。
+   */
+  mailRecipients?: string[];
+}): { ok: boolean; note: string; mail_fallback: MailFallbackReport } {
   const { notifyOk, recordOk } = args;
+  const mail_fallback = describeMailFallback(args.mailRecipients ?? []);
+  const wrap = (r: { ok: boolean; note: string }) => ({ ...r, mail_fallback });
+  return wrap(deliveryVerdict(notifyOk, recordOk));
+}
+
+/** 「メールの下書き」の宛先の見立て */
+export type MailFallbackReport = {
+  /** 宛先が何か所あるか */
+  count: number;
+  /** 宛先（メールアドレス。ここは公開ページにも出ている値なので隠さない） */
+  recipients: string[];
+  note: string;
+};
+
+/**
+ * 下書きの宛先が何か所あるかを言葉にする。
+ * **1か所だけ**のときは、そのことを警告として出す
+ * （kp54・kp57 と同じ「数えられていないのに0に見える」形を、次に誰が見ても1回で分かるように）。
+ */
+export function describeMailFallback(recipients: string[]): MailFallbackReport {
+  const list = Array.from(
+    new Set(recipients.filter((v) => typeof v === "string" && v.trim() !== "")),
+  );
+  if (list.length === 0) {
+    return {
+      count: 0,
+      recipients: [],
+      note: "メールの下書きの宛先がありません。届かなかった申し込みは、どこにも残りません",
+    };
+  }
+  if (list.length === 1) {
+    return {
+      count: 1,
+      recipients: list,
+      note:
+        `メールの下書きの宛先は ${list[0]} の1か所だけです。` +
+        "この受信箱を誰も見ていない期間があると、申し込みが入っても気づけません",
+    };
+  }
+  return {
+    count: list.length,
+    recipients: list,
+    note: `メールの下書きは ${list.length} か所に届きます（${list.join("、")}）`,
+  };
+}
+
+function deliveryVerdict(
+  notifyOk: boolean,
+  recordOk: boolean,
+): { ok: boolean; note: string } {
   if (notifyOk && recordOk) {
     return { ok: true, note: "届きます（LINE の知らせと、倉庫の控えの両方が通ります）" };
   }
