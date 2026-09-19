@@ -80,11 +80,43 @@ export function priceLabel(): string {
  * LINE で URL を開いた店主が、最初の画面で「いくら・やめられるか」を確かめられるようにする。
  * 新しい約束は足さない。下の価格の枠に元から書いてある言葉を、そのまま1行に並べ直すだけ。
  */
-export function priceSummaryLine(): string {
+export function priceSummaryLine(cardLive = false): string {
   const parts = [priceLabel()];
   if (KEIRI_PRICE.setupFeeYen === 0) parts.push("初期費用なし");
-  if (KEIRI_PRICE.cancelAnytime) parts.push("いつでも自分の画面から解約");
+  if (KEIRI_PRICE.cancelAnytime) parts.push(cancelShortLabel(cardLive));
   return parts.join("・");
+}
+
+/**
+ * 解約のしかたの短い言い方（価格の1行に入れるぶん）。
+ *
+ * ★カードの受付口（Stripe の支払いリンク）がまだ無いあいだは、
+ *   「ご自身の画面から解約」は**事実ではない**。
+ *   その画面（Stripe のカスタマーポータル）は、カードで契約した人にしか無いため。
+ *   いまは こちらが個別にお支払いをご案内する形なので、解約も連絡でお受けする。
+ *   カードの受付口ができた瞬間に、自動で元の言い方に戻る（書き換え不要）。
+ */
+export function cancelShortLabel(cardLive = false): string {
+  return cardLive ? "いつでも自分の画面から解約" : "いつでも解約（最低利用期間なし）";
+}
+
+/** 解約のしかたの長い言い方（価格の枠・お申し込みページに出すぶん） */
+export function cancelLongLabel(cardLive = false): string {
+  return cardLive
+    ? "いつでも解約できます（ご自身の画面から。連絡は不要です）"
+    : "いつでも解約できます（最低利用期間はありません。メールかお電話でお知らせください）";
+}
+
+/**
+ * いま、カードでその場で払える状態か。
+ *
+ * ★「画面に何と書くか」を決める唯一の根拠。
+ *   支払いリンクが入っていなければ false ＝ 正直なほう（連絡でご案内する形）の文言になる。
+ *   既定を false にしてあるのは、**渡し忘れたときに嘘のほうへ倒れないため**。
+ * ★サーバー側でだけ呼ぶこと（paymentLinkUrl と同じ理由）。
+ */
+export function cardCheckoutLive(env: NodeJS.ProcessEnv = process.env): boolean {
+  return paymentLinkUrl(env) !== null;
 }
 
 /**

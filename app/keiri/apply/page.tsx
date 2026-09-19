@@ -7,7 +7,7 @@ import { KEIRI_OFFER_ITEMS } from "@/lib/keiri/offer";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
 import { keiriContactMailto } from "@/lib/keiri/apply";
 import { keiriMetadata } from "@/lib/keiri/metadata";
-import { priceLabel, priceSummaryLine } from "@/lib/keiri/caseNumbers";
+import { cancelLongLabel, cardCheckoutLive, priceLabel, priceSummaryLine } from "@/lib/keiri/caseNumbers";
 
 /**
  * 経理パッケージの「お申し込み」。
@@ -28,12 +28,15 @@ export const metadata: Metadata = keiriMetadata({
 });
 
 export default function KeiriApplyPage() {
+  /* カードでその場で払えるか。解約のしかたの書き方はここだけを見て決める */
+  const cardLive = cardCheckoutLive();
+
   return (
     <main className="max-w-2xl mx-auto px-4 py-10 min-h-screen">
       <header className="mb-8">
         <p className="text-xs font-bold text-amber-700 tracking-wide">経理パッケージ</p>
         <h1 className="mt-2 text-3xl font-bold text-stone-900 leading-tight">お申し込み</h1>
-        <p className="mt-3 text-stone-700 leading-relaxed">{priceSummaryLine()}</p>
+        <p className="mt-3 text-stone-700 leading-relaxed">{priceSummaryLine(cardLive)}</p>
         <p className="mt-2 text-sm text-stone-600 leading-relaxed">
           下の4つをいただければ、担当からご連絡します。
           <strong className="font-bold">この画面ではお支払いは発生しません。</strong>
@@ -51,7 +54,7 @@ export default function KeiriApplyPage() {
           ))}
         </ul>
         <p className="mt-3 text-xs text-stone-500 leading-relaxed">
-          初期費用はかかりません。いつでもご自身の画面から解約できます。詳しくは{" "}
+          初期費用はかかりません。{cancelLongLabel(cardLive)}。詳しくは{" "}
           <Link href="/keiri/legal" className="underline">
             特定商取引法に基づく表記
           </Link>

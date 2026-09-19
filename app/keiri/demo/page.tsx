@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
 import { keiriMetadata } from "@/lib/keiri/metadata";
-import { priceSummaryLine } from "@/lib/keiri/caseNumbers";
+import { cardCheckoutLive, priceSummaryLine } from "@/lib/keiri/caseNumbers";
 import { DEMO_SHOP_NAME, demoTodayJst } from "@/lib/keiri/demo";
 import DemoBoard from "./board";
 
@@ -71,7 +71,7 @@ export default function KeiriDemoPage() {
           </li>
           <li className="flex gap-2">
             <span aria-hidden className="flex-none text-amber-600 font-bold">・</span>
-            <span>{priceSummaryLine()}</span>
+            <span>{priceSummaryLine(cardCheckoutLive())}</span>
           </li>
         </ul>
       </header>

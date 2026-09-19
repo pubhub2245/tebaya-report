@@ -437,13 +437,17 @@ function DemoExpenseRow({
 }) {
   return (
     <div className="flex gap-2">
+      {/* ★min-w-0 を外さないこと。
+           入力欄には「これ以上は縮まない」既定の幅があり、min-w-0 が無いと
+           横に並べた2つが画面より広くなって、**スマホでページが横にずれる**。
+           2026-09-19 に実機幅390pxで実測して9pxはみ出していた所（tests/keiriDemo.test.ts で固定）。 */}
       <input
         type="text"
         value={name}
         placeholder={placeholderName}
         aria-label="経費の内容"
         onChange={(e) => onName(e.target.value)}
-        className="flex-1 rounded-lg border border-stone-300 px-3 py-2 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
+        className="min-w-0 flex-1 rounded-lg border border-stone-300 px-3 py-2 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
       />
       <input
         type="text"
@@ -452,7 +456,7 @@ function DemoExpenseRow({
         placeholder={placeholderAmount}
         aria-label="経費の金額"
         onChange={(e) => onAmount(e.target.value)}
-        className="w-32 rounded-lg border border-stone-300 px-3 py-2 text-right tabular-nums focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
+        className="w-28 shrink-0 rounded-lg border border-stone-300 px-3 py-2 text-right tabular-nums focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100"
       />
     </div>
   );

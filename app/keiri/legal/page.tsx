@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
 import { KEIRI_COMPANY, companyRows, tokushohoRows } from "@/lib/keiri/legal";
+import { cardCheckoutLive } from "@/lib/keiri/caseNumbers";
 
 /**
  * 特定商取引法に基づく表記・会社概要（無人販売の入口に必要な法律上のページ）。
@@ -36,6 +37,11 @@ function Rows({ rows }: { rows: { label: string; value: string }[] }) {
 }
 
 export default function KeiriLegalPage() {
+  /* ★いま、その場でカードで払えるか。
+       払えないあいだは「申し込み時に決済」「カスタマーポータルから解約」と書かない
+       （どちらも実際には起きないため）。受付口ができたら自動で元に戻る。 */
+  const cardLive = cardCheckoutLive();
+
   return (
     <main className="max-w-2xl mx-auto px-4 py-10 min-h-screen">
       <KeiriBreadcrumb items={[{ name: "特定商取引法に基づく表記" }]} />
@@ -46,7 +52,7 @@ export default function KeiriLegalPage() {
       </p>
 
       <section className="mt-6 mb-10">
-        <Rows rows={tokushohoRows()} />
+        <Rows rows={tokushohoRows(cardLive)} />
       </section>
 
       <h2 className="text-xl font-bold text-stone-900">会社概要</h2>

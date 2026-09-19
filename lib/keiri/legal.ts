@@ -7,8 +7,8 @@
  * ★店の中のデータは一切読まない。手羽屋の日報・シフト・レジ・LINE には関係しない。
  */
 
-import { KEIRI_PRICE, priceLabel } from "./caseNumbers";
-import { KEIRI_MONTHLY_CLOSE_TIMING, KEIRI_OFFER_ITEMS } from "./offer";
+import { KEIRI_PRICE, cancelLongLabel, priceLabel } from "./caseNumbers";
+import { KEIRI_OFFER_ITEMS, monthlyCloseTiming } from "./offer";
 
 /**
  * 特商法の表記に出す「サービスの内容」の1行。
@@ -35,8 +35,17 @@ export type LegalRow = { label: string; value: string };
 /**
  * 特定商取引法に基づく表記の中身。
  * 販売価格だけは caseNumbers.ts の値から作る（値上げしたときに2か所直さなくて済むように）。
+ *
+ * ★cardLive ＝「いま、その場でカードで払えるか」。
+ *   これを渡すのは、**書いてあることと、実際に起きることを合わせるため**。
+ *   カードの受付口（Stripe の支払いリンク）がまだ無いあいだ、
+ *   「お申し込み時に初回分を決済」「Stripe のカスタマーポータルから解約」は
+ *   **どちらも起きない**（フォームでお申し込みいただき、担当がお支払いの方法をご案内する）。
+ *   ここは法律で出すことが決まっているページなので、いちばん嘘があってはいけない。
+ *   受付口ができた瞬間、自動でカードの書き方に戻る（このファイルを直す必要は無い）。
+ * ★既定は false ＝ 渡し忘れても、正直なほうに倒れる。
  */
-export function tokushohoRows(): LegalRow[] {
+export function tokushohoRows(cardLive = false): LegalRow[] {
   return [
     { label: "販売事業者名", value: KEIRI_COMPANY.name },
     { label: "運営統括責任者", value: "川畑 潤一郎" },
@@ -48,23 +57,33 @@ export function tokushohoRows(): LegalRow[] {
       label: "商品代金以外に必要な費用",
       value: "なし（インターネット接続料・通信料はお客様のご負担となります）",
     },
-    { label: "支払方法", value: "クレジットカード決済（Stripe）" },
+    {
+      label: "支払方法",
+      value: cardLive
+        ? "クレジットカード決済（Stripe）"
+        : "お申し込みのあと、担当よりお支払いの方法をご案内します（クレジットカード決済は準備中です）",
+    },
     {
       label: "支払時期",
-      value: "お申し込み時に初回分を決済し、以後は毎月同日に自動で決済されます",
+      value: cardLive
+        ? "お申し込み時に初回分を決済し、以後は毎月同日に自動で決済されます"
+        : "お申し込みの時点ではお支払いは発生しません。担当がご案内したお支払い方法で初回分をお支払いいただき、以後は毎月お支払いいただきます",
     },
     { label: "サービスの内容", value: offerSummaryForLegal() },
-    { label: "サービスの提供時期", value: KEIRI_MONTHLY_CLOSE_TIMING },
+    { label: "サービスの提供時期", value: monthlyCloseTiming(cardLive) },
     {
       label: "解約について",
       value: KEIRI_PRICE.cancelAnytime
-        ? "Stripe のカスタマーポータルからいつでも解約できます。解約された場合、次回の請求日以降の課金は行いません"
+        ? cardLive
+          ? "Stripe のカスタマーポータルからいつでも解約できます。解約された場合、次回の請求日以降の課金は行いません"
+          : `${cancelLongLabel(false)}。解約されたあと、次回のご請求は行いません`
         : "解約の条件はお問い合わせください",
     },
     {
       label: "返品・返金について",
-      value:
-        "サービスの性質上、決済後の返金および日割りでの返金は行っておりません。解約後も、その月の期間中はご利用いただけます",
+      value: cardLive
+        ? "サービスの性質上、決済後の返金および日割りでの返金は行っておりません。解約後も、その月の期間中はご利用いただけます"
+        : "サービスの性質上、お支払い後の返金および日割りでの返金は行っておりません。解約後も、その月の期間中はご利用いただけます",
     },
     { label: "動作環境", value: "インターネットに接続できるパソコン・スマートフォンのブラウザ" },
   ];

@@ -262,3 +262,22 @@ test("日本時間の今日を出す（世界標準時のままにしない）",
   assert.equal(demoTodayJst(new Date("2026-09-19T16:30:00Z")), "2026-09-20");
   assert.equal(demoTodayJst(new Date("2026-09-19T00:30:00Z")), "2026-09-19");
 });
+
+// ------------------------------------------------------------------
+// ⑥ スマホで横にずれない（2026-09-19 実機幅390pxで実測して見つけた）
+// ------------------------------------------------------------------
+
+test("経費の行の入力欄は、スマホの幅でも横にはみ出さない作りにしてある", () => {
+  // ★ じゅんが送る8通は、ほとんどスマホで開かれる。
+  //   横に並べた2つの入力欄は、min-w-0 が無いと画面より広くなり、
+  //   ページ全体が横にずれる（390px で 9px はみ出していた）。
+  //   お試し版は「買う前に触ってみる」唯一の場所なので、ここが崩れて見えると申し込みが落ちる。
+  const board = fs.readFileSync(
+    path.join(ROOT, "app", "keiri", "demo", "board.tsx"),
+    "utf8",
+  );
+  const row = board.slice(board.indexOf("function DemoExpenseRow"));
+  assert.ok(row.includes("min-w-0 flex-1"), "経費の内容の入力欄から min-w-0 が消えている");
+  assert.ok(row.includes("shrink-0"), "経費の金額の入力欄から shrink-0 が消えている");
+  assert.ok(!row.includes('className="flex-1 rounded-lg'), "min-w-0 の無い flex-1 が残っている");
+});

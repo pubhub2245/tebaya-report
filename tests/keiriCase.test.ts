@@ -14,6 +14,9 @@ import {
   paymentLinkEnvName,
   paymentLinkUrl,
   priceLabel,
+  cancelLongLabel,
+  cancelShortLabel,
+  cardCheckoutLive,
   priceSummaryLine,
 } from "../lib/keiri/caseNumbers";
 
@@ -30,12 +33,50 @@ test("価格の1行表示は確定した価格（月額15,000円・税込・1店
 });
 
 test("一番上の1行は「いくら・初期費用・やめられるか」の3つが入る（新しい約束は足さない）", () => {
-  const line = priceSummaryLine();
+  // カードで払える状態のとき（Stripe の支払いリンクが入っているとき）
+  const line = priceSummaryLine(true);
   assert.ok(line.startsWith(priceLabel()));
   assert.ok(line.includes("初期費用なし"));
   assert.ok(line.includes("いつでも自分の画面から解約"));
   // 価格の枠に書いていないこと（無料お試しなど）を足していない
   assert.ok(!line.includes("無料"));
+});
+
+test("カードの受付口が無いときは「自分の画面から解約」と書かない（できないことを書かない）", () => {
+  // ★ 2026-09-19 実測：本番は支払いリンクが未設定で、解約できる「自分の画面」は存在しない。
+  //   ここが崩れると、店主が自分で解約できると思い込んだまま申し込むことになる。
+  const line = priceSummaryLine(false);
+  assert.ok(line.startsWith(priceLabel()));
+  assert.ok(line.includes("初期費用なし"));
+  assert.ok(!line.includes("自分の画面"));
+  assert.ok(!line.includes("ご自身の画面"));
+  assert.ok(line.includes("いつでも解約"));
+  // 渡し忘れたときも、正直なほうに倒れること
+  assert.equal(priceSummaryLine(), priceSummaryLine(false));
+});
+
+test("解約のしかたの言い方は、カードで払えるかどうかだけで決まる", () => {
+  assert.ok(cancelShortLabel(true).includes("自分の画面"));
+  assert.ok(!cancelShortLabel(false).includes("画面"));
+  assert.ok(cancelLongLabel(true).includes("ご自身の画面"));
+  assert.ok(!cancelLongLabel(false).includes("画面"));
+  assert.ok(cancelLongLabel(false).includes("最低利用期間はありません"));
+  // 既定は正直なほう
+  assert.equal(cancelShortLabel(), cancelShortLabel(false));
+  assert.equal(cancelLongLabel(), cancelLongLabel(false));
+});
+
+test("cardCheckoutLive は、いまの価格の支払いリンクが入っているときだけ true", () => {
+  assert.equal(cardCheckoutLive({} as unknown as NodeJS.ProcessEnv), false);
+  // 前の値段（3,000円）のリンクが残っていても使われない
+  assert.equal(
+    cardCheckoutLive({ NEXT_PUBLIC_KEIRI_PAYMENT_LINK_3000: "https://buy.stripe.com/x" } as unknown as NodeJS.ProcessEnv),
+    false,
+  );
+  assert.equal(
+    cardCheckoutLive({ NEXT_PUBLIC_KEIRI_PAYMENT_LINK_15000: "https://buy.stripe.com/x" } as unknown as NodeJS.ProcessEnv),
+    true,
+  );
 });
 
 test("事例の数字は筋が通っている（利益は売上より小さく、正の数。確認日がある）", () => {

@@ -5,6 +5,7 @@ import {
   CASE_TEBAYA,
   KEIRI_PRICE,
   manYen,
+  cancelLongLabel,
   paymentLinkUrl,
   priceLabel,
   priceSummaryLine,
@@ -88,6 +89,8 @@ const FITS: string[] = [
 
 export default async function KeiriCasePage() {
   const link = paymentLinkUrl();
+  /* カードでその場で払えるか。画面の言い方（解約のしかた等）はここだけを見て決める */
+  const cardLive = link !== null;
   const stats = await getCaseStats();
   const c = { shopName: CASE_TEBAYA.shopName, ...stats };
 
@@ -119,7 +122,7 @@ export default async function KeiriCasePage() {
             <span aria-hidden className="flex-none text-amber-600 font-bold">
               ・
             </span>
-            <span className="font-bold text-amber-800">{priceSummaryLine()}</span>
+            <span className="font-bold text-amber-800">{priceSummaryLine(cardLive)}</span>
           </li>
         </ul>
         <p className="mt-4 text-stone-600 leading-relaxed">
@@ -271,7 +274,7 @@ export default async function KeiriCasePage() {
         <p className="mt-1 text-2xl font-bold">{priceLabel()}</p>
         <ul className="mt-3 text-sm space-y-1 opacity-95">
           <li>・{KEIRI_PRICE.freeTrial ? "初月無料" : "初期費用なし・初月無料はありません"}</li>
-          <li>・{KEIRI_PRICE.cancelAnytime ? "いつでも解約できます（ご自身の画面から。連絡は不要です）" : ""}</li>
+          <li>・{KEIRI_PRICE.cancelAnytime ? cancelLongLabel(cardLive) : ""}</li>
           {/* ★カードの受付口が無い間は「人の手は入りません」は事実でなくなる
                 （担当が折り返してお支払いの方法をご案内するため）。正直なほうに出し分ける。 */}
           <li>
