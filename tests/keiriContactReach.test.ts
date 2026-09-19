@@ -52,7 +52,15 @@ test("写しを付けない指定もできる（いままでどおりの素の�
 });
 
 test("売るページの「メールでも受け付けています」は、素の mailto のままにしない", () => {
-  for (const page of ["app/keiri/case/page.tsx", "app/keiri/apply/page.tsx"]) {
+  for (const page of [
+    "app/keiri/case/page.tsx",
+    "app/keiri/apply/page.tsx",
+    // ★特定商取引法のページ（2026-09-19 追加）。
+    //   8通を受け取った店主が、申し込む前・解約するときに必ず開くページ。
+    //   ここだけ素の文字のままで、押しても下書きが開かず、写し（CC）も付かなかった。
+    //   ＝このページを見て連絡した1件は、司令室の見ていない受信箱に1通だけ届く。
+    "app/keiri/legal/page.tsx",
+  ]) {
     const src = read(page);
     assert.ok(
       src.includes("keiriContactMailto"),
@@ -84,5 +92,21 @@ test("特定商取引法に出す連絡先は、これまでどおり変えて�
   assert.ok(
     !read("lib/keiri/legal.ts").includes(KEIRI_APPLY_COPY_TO),
     "表示は法律の話・写しは受け取りの話。特商法の連絡先に写しの宛先を混ぜない",
+  );
+});
+
+test("特商法のページの連絡先は、押すと写し付きの下書きが開く（表示する文字は変えない）", () => {
+  const src = read("app/keiri/legal/page.tsx");
+  assert.ok(
+    src.includes("keiriContactMailto"),
+    "特商法のページも下書き付きのリンクを使うこと（写しが付かないと司令室が気づけない）",
+  );
+  assert.ok(
+    src.includes("{KEIRI_COMPANY.email}"),
+    "画面に出す文字は、これまでどおり KEIRI_COMPANY.email をそのまま出すこと",
+  );
+  assert.ok(
+    !src.includes(KEIRI_APPLY_COPY_TO),
+    "写しの宛先を画面の文字として出さない（表示は法律の話・写しは受け取りの話）",
   );
 });
