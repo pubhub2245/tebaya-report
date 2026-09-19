@@ -6,6 +6,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   KEIRI_APPLY_COPY_TO,
@@ -269,4 +270,44 @@ test("控えの下書きも、司令室の受信箱に写し（CC）が付く", 
   assert.deepEqual(mail.recipients, [KEIRI_COMPANY.email, KEIRI_APPLY_COPY_TO]);
   assert.match(mail.body, /お名前：川畑/);
   assert.match(mail.body, /メール：tencho@example.com/);
+});
+
+// ------------------------------------------------------------
+// 倉庫に流す SQL の約束（kp97）
+//   2026-09-19 19:05、申し込みの棚に「表をまるごと空にする権利（TRUNCATE）」が
+//   外から来る人に残っていた。Supabase が新しい表に自動で付ける既定のもので、
+//   A が本番で取り上げたが、**倉庫のファイルに書かないと流し直しで黙って戻る**。
+//   ここで固定しておく。
+// ------------------------------------------------------------
+
+test("SQL：申し込みの棚は、外から来る人に『入れる』以外を渡さない", () => {
+  const files = [
+    "supabase/migrations/keiri_applications_insert_only.sql",
+    "supabase/migrations/keiri_applications_paid_pending.sql",
+  ];
+
+  for (const file of files) {
+    const sql = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
+
+    // ★この1行を消すと、流し直したときに「誰でも申し込みを全部消せる」状態へ戻る
+    assert.match(
+      sql,
+      /revoke truncate, references, trigger on table public\.keiri_applications from anon, authenticated;/,
+      `${file}：TRUNCATE などを anon, authenticated から取り上げていません`,
+    );
+
+    // 渡してよいのは INSERT だけ（読み出し・書き換え・削除は渡さない）
+    const grants = sql
+      .split("\n")
+      .filter((l) => /^grant /.test(l.trim()) && l.includes("keiri_applications"));
+    assert.ok(grants.length >= 1, `${file}：grant が1行も無い`);
+    for (const line of grants) {
+      assert.match(line, /^grant insert on table public\.keiri_applications to anon, authenticated;$/);
+    }
+
+    // 手羽屋が毎日使う表には触らない
+    for (const table of ["daily_reports", "shifts", "setup_checks", "line_groups", "expenses"]) {
+      assert.ok(!sql.includes(table), `${file} が ${table} に触れています`);
+    }
+  }
 });

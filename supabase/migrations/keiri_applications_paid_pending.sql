@@ -42,6 +42,14 @@
 
 alter table public.keiri_applications enable row level security;
 
+-- ★ここが 2026-09-19 19:05 に実際に空いていた穴です（kp97）。
+--   Supabase は新しく作った表に「anon・authenticated が使ってよい」既定の権利を自動で付けます。
+--   そこには TRUNCATE（表をまるごと空にする）も入っていて、
+--   **外から来た人が申し込みを全部消せる状態**でした（A が本番で取り上げました）。
+--   下の grant は INSERT を足すだけなので、この行が無いと**流し直すたびに黙って戻ります**。
+--   ＝ 申し込みの受け付けには影響しません（入れることは今までどおりできます）。
+revoke truncate, references, trigger on table public.keiri_applications from anon, authenticated;
+
 -- 入れるのに要る権限だけを渡す（すでに渡っていれば何も変わらない）
 grant insert on table public.keiri_applications to anon, authenticated;
 
@@ -75,7 +83,8 @@ create policy "keiri_applications_insert_paid_pending"
 --
 --   select grantee, privilege_type from information_schema.role_table_grants
 --    where table_name = 'keiri_applications' and grantee in ('anon','authenticated');
---   -- → INSERT だけが並ぶ（SELECT / UPDATE / DELETE が出たらおかしい）
+--   -- → INSERT だけが並ぶ
+--   --   （SELECT / UPDATE / DELETE / TRUNCATE が出たらおかしい）
 --
 --   -- 外から来る人（anon）になりきって1行入れてみる → 入る／読めない
 --   -- 確かめに使った行は消してください（運営の鍵からなら消せます）
