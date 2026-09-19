@@ -36,13 +36,17 @@ test("リンクはアプリの中（/で始まる）だけ", () => {
   assert.ok(FEEDBACK_PATH.startsWith("/"));
 });
 
-test("問い合わせ先は未設定なら null、設定されていればその値", () => {
+/*
+ * ★2026-09-20 に決まりを1つ変えた（kp112）。
+ *   もとは「未設定なら null（画面は『準備中』）」だった。
+ *   ところが本番はこの設定が入っておらず、窓口が **ずっと「準備中」のまま**で、
+ *   同じ宛先が特商法のページには載っている、という食い違いになっていた。
+ *   いまは「未設定なら、特商法と同じ連絡先に戻す」。
+ *   前後の空白を落とすこと・設定があればそれを優先することは変えていない。
+ */
+test("問い合わせ先は、設定されていればその値（前後の空白は落とす）", () => {
   const before = process.env.NEXT_PUBLIC_KEIRI_SUPPORT_EMAIL;
   try {
-    delete process.env.NEXT_PUBLIC_KEIRI_SUPPORT_EMAIL;
-    assert.equal(supportEmail(), null);
-    process.env.NEXT_PUBLIC_KEIRI_SUPPORT_EMAIL = "   ";
-    assert.equal(supportEmail(), null);
     process.env.NEXT_PUBLIC_KEIRI_SUPPORT_EMAIL = " help@example.com ";
     assert.equal(supportEmail(), "help@example.com");
   } finally {
@@ -95,4 +99,41 @@ test("初回設定の入力は3つのまま（案内を足しても、入れる�
   }
   // 入力欄（<input）の数は、店名・数え始めの日・その日の手元の現金の3つだけ
   assert.equal((src.match(/<input/g) ?? []).length, 3, "初回設定の入力欄は3つのまま");
+});
+
+/* ──────────────────────────────────────────────────────────────
+ * 2026-09-20 追加（司令室 kp112）
+ *
+ * 「困ったとき」のページに出る窓口が、本番で **ずっと「準備中」のまま**だった。
+ * 設定（NEXT_PUBLIC_KEIRI_SUPPORT_EMAIL）が入っていなかったため。
+ * いっぽう同じ宛先は、特商法のページと紹介ページには載っている。
+ * ＝ 法律で出すページには宛先があるのに、
+ *   月15,000円に含まれる「聞かれたことに答える窓口」だけが準備中、という食い違い。
+ *   払ったお店が最初に困ったとき、行き先が1つも無い状態だった。
+ * ────────────────────────────────────────────────────────────── */
+
+import { KEIRI_COMPANY } from "../lib/keiri/legal";
+
+test("窓口の宛先：設定が無くても「準備中」にしない（特商法と同じ連絡先に戻す）", () => {
+  const before = process.env.NEXT_PUBLIC_KEIRI_SUPPORT_EMAIL;
+  try {
+    delete process.env.NEXT_PUBLIC_KEIRI_SUPPORT_EMAIL;
+    assert.equal(supportEmail(), KEIRI_COMPANY.email);
+    process.env.NEXT_PUBLIC_KEIRI_SUPPORT_EMAIL = "   ";
+    assert.equal(supportEmail(), KEIRI_COMPANY.email, "空白だけの設定も「無い」と同じ扱い");
+  } finally {
+    if (before === undefined) delete process.env.NEXT_PUBLIC_KEIRI_SUPPORT_EMAIL;
+    else process.env.NEXT_PUBLIC_KEIRI_SUPPORT_EMAIL = before;
+  }
+});
+
+test("窓口の宛先：別の宛先に分けたいときは、設定したほうが優先される", () => {
+  const before = process.env.NEXT_PUBLIC_KEIRI_SUPPORT_EMAIL;
+  try {
+    process.env.NEXT_PUBLIC_KEIRI_SUPPORT_EMAIL = "support@example.com";
+    assert.equal(supportEmail(), "support@example.com");
+  } finally {
+    if (before === undefined) delete process.env.NEXT_PUBLIC_KEIRI_SUPPORT_EMAIL;
+    else process.env.NEXT_PUBLIC_KEIRI_SUPPORT_EMAIL = before;
+  }
 });
