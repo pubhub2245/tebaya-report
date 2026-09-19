@@ -136,7 +136,16 @@ export default async function KeiriCasePage() {
         <p className="mt-1 text-sm text-stone-500">
           {c.month}の実績。このアプリの日報から{c.auto ? "自動で" : ""}集計した数字です（{c.checkedOn} 確認）。
         </p>
-        <dl className="mt-5 grid grid-cols-3 gap-3 text-center">
+        {/*
+          利益は、確かめた値が無いとき（c.profitMan === null）は枠ごと出さない。
+          「—」や 0 を出すと、数字が無いのに数字があるように見えてしまうため。
+          その場合は残り2枠なので、並びも2列にする。
+        */}
+        <dl
+          className={`mt-5 grid gap-3 text-center ${
+            c.profitMan === null ? "grid-cols-2" : "grid-cols-3"
+          }`}
+        >
           <div className="rounded-xl bg-stone-50 py-4">
             <dt className="text-xs text-stone-500">出店</dt>
             <dd className="mt-1 text-2xl font-bold text-stone-900">
@@ -148,10 +157,12 @@ export default async function KeiriCasePage() {
             <dt className="text-xs text-stone-500">売上</dt>
             <dd className="mt-1 text-2xl font-bold text-stone-900">{manYen(c.salesMan)}</dd>
           </div>
-          <div className="rounded-xl bg-amber-50 py-4">
-            <dt className="text-xs text-amber-800">月の利益</dt>
-            <dd className="mt-1 text-2xl font-bold text-amber-800">{manYen(c.profitMan)}</dd>
-          </div>
+          {c.profitMan !== null && (
+            <div className="rounded-xl bg-amber-50 py-4">
+              <dt className="text-xs text-amber-800">月の利益</dt>
+              <dd className="mt-1 text-2xl font-bold text-amber-800">{manYen(c.profitMan)}</dd>
+            </div>
+          )}
         </dl>
         <p className="mt-4 text-sm text-stone-600 leading-relaxed">
           手羽屋では、スタッフが営業後にスマホで日報を書くだけ。オーナーは経理画面を開けば、その月のもうけと手元のお金がその場で分かります。

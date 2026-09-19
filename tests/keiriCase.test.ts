@@ -41,9 +41,14 @@ test("一番上の1行は「いくら・初期費用・やめられるか」の3
 test("事例の数字は筋が通っている（利益は売上より小さく、正の数。確認日がある）", () => {
   assert.ok(CASE_TEBAYA.days > 0);
   assert.ok(CASE_TEBAYA.salesMan > 0);
-  assert.ok(CASE_TEBAYA.profitMan > 0);
-  assert.ok(CASE_TEBAYA.profitMan < CASE_TEBAYA.salesMan);
   assert.match(CASE_TEBAYA.checkedOn, /^\d{4}-\d{2}-\d{2}$/);
+  // 利益は「確かめていないので null」でよい（推測で数字を作らない・2026-09-19 kp73）。
+  // 値を入れるなら、正の数で売上より小さいこと。
+  const profit: number | null = CASE_TEBAYA.profitMan;
+  if (profit !== null) {
+    assert.ok(profit > 0);
+    assert.ok(profit < CASE_TEBAYA.salesMan);
+  }
 });
 
 test("支払いリンクを入れる環境変数の名前には、いまの価格が入る", () => {

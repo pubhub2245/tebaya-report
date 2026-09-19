@@ -12,6 +12,7 @@ import {
   summarize,
   toMan,
   fallbackStats,
+  isCaseShopRow,
 } from "../lib/keiri/caseStats";
 import { CASE_TEBAYA } from "../lib/keiri/caseNumbers";
 
@@ -77,4 +78,46 @@ test("倉庫が読めないときは、手で確認した控えの数字に戻�
   assert.equal(f.month, CASE_TEBAYA.month);
   assert.equal(f.salesMan, CASE_TEBAYA.salesMan);
   assert.equal(f.days, CASE_TEBAYA.days);
+});
+
+/* ------------------------------------------------------------------
+ * 2026-09-19 追加（司令室 kp73）
+ *
+ * 同じアプリには「手羽屋」と「もも屋」の日報が同じ棚に入っている。
+ * 紹介ページは「屋台『手羽屋』の実績」と名乗っているので、
+ * もも屋の売上・出店回数を足してはいけない。
+ * 送り先は同じ催事に出ている同業なので、出店回数の水増しはすぐ分かる。
+ * ------------------------------------------------------------------ */
+
+test("もも屋の日報は数えない（出店回数・売上・利益のどれにも入れない）", () => {
+  const rows = [
+    { date: "2026-08-01", shop: "手羽屋", sales_amount: 50000, labor: 10000, expenses_total: 5000 },
+    { date: "2026-08-01", shop: "もも屋", sales_amount: 40000, labor: 10000, expenses_total: 4000 },
+    { date: "2026-08-02", shop: "手羽屋", sales_amount: 30000, labor: 10000, expenses_total: 2000 },
+  ];
+  // 手羽屋の2件だけ：売上 80,000／利益 80,000−20,000−7,000＝53,000
+  assert.deepEqual(summarize(rows), { days: 2, salesYen: 80000, profitYen: 53000 });
+});
+
+test("屋号が空の古い日報は、手羽屋として数える（既定が手羽屋のため）", () => {
+  assert.equal(isCaseShopRow({ shop: null }), true);
+  assert.equal(isCaseShopRow({ shop: "" }), true);
+  assert.equal(isCaseShopRow({ shop: " 手羽屋 " }), true);
+  assert.equal(isCaseShopRow({}), true);
+  assert.equal(isCaseShopRow({ shop: "もも屋" }), false);
+});
+
+test("もも屋しか無い月は、出店0回・売上0円になる（控えの数字に戻る合図）", () => {
+  const rows = [
+    { date: "2026-08-01", shop: "もも屋", sales_amount: 471500, labor: 10000, expenses_total: 0 },
+  ];
+  assert.deepEqual(summarize(rows), { days: 0, salesYen: 0, profitYen: 0 });
+});
+
+test("控えの数字は手羽屋だけの値。確かめていない利益は null にする（推測で書かない）", () => {
+  const f = fallbackStats();
+  assert.equal(f.days, 26);
+  assert.equal(f.salesMan, 73.0);
+  // ★ここが 0 や適当な数になっていたら、紹介ページに根拠の無い利益が出てしまう
+  assert.equal(f.profitMan, null);
 });

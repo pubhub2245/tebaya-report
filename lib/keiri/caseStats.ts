@@ -7,6 +7,10 @@
  *
  * ■ 決めごと
  *   - 数えるのは **前の月（まるまる終わった月）** だけ。途中の月は「実績」と呼べない
+ *   - 数えるのは **手羽屋の日報だけ**（`shop` が「手羽屋」か空の行）。
+ *     同じアプリには **もも屋** の日報も入っており、混ぜると
+ *     紹介ページが「屋台『手羽屋』の実績」と名乗ったまま別の屋号の売上まで足してしまう。
+ *     送り先は同じ催事に出ている同業なので、出店回数を水増しすると すぐ分かる
  *   - 集計に使うのは合計だけ。経費の明細は取りに行かない（CLAUDE.md 4-2）
  *   - 利益は **実績ベース**（calcActualProfit）。推定（食材25%・場代10%）は使わない
  *   - 倉庫が読めない・日報が1件も無いときは **手で確認した控えの数字に戻す**。
@@ -26,8 +30,8 @@ export type CaseStats = {
   days: number;
   /** 売上高（万円・小数1桁） */
   salesMan: number;
-  /** 実績ベースの利益（万円・小数1桁） */
-  profitMan: number;
+  /** 実績ベースの利益（万円・小数1桁）。控えに確かめた値が無いときは null（画面は出さない） */
+  profitMan: number | null;
   /** 数字を確認した日（自動なら集計した日） */
   checkedOn: string;
   /** 日報から自動で出した数字か（false＝手で確認した控え） */
@@ -36,11 +40,31 @@ export type CaseStats = {
 
 type ReportRow = {
   date: string;
+  /** どの屋号の日報か（「手羽屋」／「もも屋」）。空＝古い日報で、既定は手羽屋 */
+  shop?: string | null;
   sales_amount: number | null;
   labor: number | null;
   expenses_total?: number | null;
   expenses?: unknown;
 };
+
+/**
+ * 事例1号として数える屋号。
+ * このアプリには手羽屋ともも屋の日報が同じ棚に入っているので、名乗ったほうだけを数える。
+ */
+export const CASE_SHOP = "手羽屋";
+
+/**
+ * その日報を事例1号（手羽屋）として数えてよいか。
+ *
+ * 空（null・空文字）は **手羽屋** として数える。
+ * 日報の既定が手羽屋で、もも屋を選んだときだけ「もも屋」が入るため
+ * （lib/formState.ts の shop の既定値）。古い日報に空が残っていても取りこぼさない。
+ */
+export function isCaseShopRow(row: { shop?: string | null }): boolean {
+  const s = String(row.shop ?? "").trim();
+  return s === "" || s === CASE_SHOP;
+}
 
 /** 円 → 万円（小数1桁）。0.05万円未満は 0 になる */
 export function toMan(yen: number): number {
@@ -67,13 +91,15 @@ export function previousMonthRange(today: Date): { start: string; end: string; l
 export function summarize(rows: ReportRow[]): { days: number; salesYen: number; profitYen: number } {
   let salesYen = 0;
   let profitYen = 0;
-  for (const r of rows) {
+  // ★もも屋の日報は数えない。倉庫から取るときにも絞っているが、
+  //   片方だけ直しても数字が狂わないように、ここでも必ず落とす。
+  for (const r of rows.filter(isCaseShopRow)) {
     const sales = Number(r.sales_amount) || 0;
     const labor = Number(r.labor) || 0;
     salesYen += sales;
     profitYen += calcActualProfit(sales, labor, expensesTotalOf(r)).profit;
   }
-  return { days: rows.length, salesYen, profitYen };
+  return { days: rows.filter(isCaseShopRow).length, salesYen, profitYen };
 }
 
 /** 手で確認した控え（倉庫が読めないとき・日報が無いときはこれを出す） */
@@ -96,7 +122,8 @@ export async function getCaseStats(today: Date = new Date()): Promise<CaseStats>
     const { data, error } = await db
       .from("daily_reports")
       // 合計だけ。経費の明細（expenses）は取りに行かない（CLAUDE.md 4-2）
-      .select("date, sales_amount, labor, expenses_total")
+      // shop は「手羽屋の日報だけを数える」ために要る（もも屋を混ぜない）
+      .select("date, sales_amount, labor, expenses_total, shop")
       // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
       .is("tenant_id", null)
       .gte("date", start)
