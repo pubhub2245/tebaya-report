@@ -7,7 +7,11 @@ import {
   serviceRoleKeyStatus,
   serviceRoleKeyRepair,
 } from "@/lib/supabaseServer";
-import { describeRecordStore, describeServerKey } from "@/lib/keiri/serverHealth";
+import { describeServerKey } from "@/lib/keiri/serverHealth";
+import {
+  describeApplicationStore,
+  probeApplicationStore,
+} from "@/lib/keiri/applicationStore";
 import {
   describeApplicationDelivery,
   describeNotify,
@@ -42,7 +46,8 @@ export const dynamic = "force-dynamic";
  *   「調べる → 渡す → 返す」だけです。
  *
  * ★ 合言葉・鍵の値そのものは絶対に返しません（設定済み／未設定だけ）。
- * ★ 読むだけです。1行も書き込みません。
+ * ★ 記録は1行も増やしません。1か所だけ「**わざと断られる行**」を入れてみますが、
+ *   決まりに必ず断られるので残りません（申し込みの控えが本当に残るかの確かめ・kp103）。
  * ★ 手羽屋の日報・シフト・LINE には一切触れていません。
  */
 
@@ -118,6 +123,31 @@ async function checkNotify(): Promise<NotifyFacts> {
     facts.tokenValid = false;
   }
   return facts;
+}
+
+/**
+ * お申し込みの控え（keiri_applications）が **本当に残るか** を確かめる（kp103）。
+ *
+ * ■ なぜ「1行読んでみる」ではだめなのか
+ *   この棚は 9/19 に「入れることだけ許す郵便ポスト」の形にした。
+ *   ＝ **外から1行ずつ読めないのが正しい状態**なのに、読めないことを理由に
+ *   「読む許可がありません（鍵が使えていない可能性）」と報告していた。
+ *   訪問（site_visits）で直したのと同じ形の見落とし。
+ *   いま申し込みの受け口は「LINE の知らせ（今月あと数通）」と「この控え」の2本だけなので、
+ *   ここでうそをつくと **送ってよいかの判断をまちがえる**。
+ *
+ * ■ どう確かめるか
+ *   **わざと決まりに引っかかる行**を1件入れてみて、断られ方を読む。
+ *   決まりは status='new' しか通さないので必ず断られ、**行は1件も増えない**。
+ *
+ * ★1行も残しません。誰にも知らせません。連絡先も入れません。
+ */
+async function checkApplications(direct: TableCheck): Promise<RecordStoreReport> {
+  // 1行ずつ読めた＝サーバー側の合鍵が生きている。いちばん強い状態
+  if (direct.ok) return describeApplicationStore({ outcome: "unknown", detail: "" }, true);
+  const db = serviceClientOrNull({ fresh: true }) ?? serverClient({ fresh: true });
+  const probe = await probeApplicationStore(db);
+  return describeApplicationStore(probe, false);
 }
 
 /**
@@ -213,7 +243,7 @@ export async function GET() {
     broken: repair.broken,
   });
 
-  const applicationsStore = describeRecordStore(applications, serverKey);
+  const applicationsStore = await checkApplications(applications);
   const visitsStore = await checkVisits(visits);
   const notify = describeNotify(notifyFacts);
   const delivery = describeApplicationDelivery({

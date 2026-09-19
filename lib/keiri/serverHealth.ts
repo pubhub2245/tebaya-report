@@ -98,7 +98,8 @@ export function describeServerKey(
       usable: false,
       note:
         "設定されていません。Vercel の環境変数 SUPABASE_SERVICE_ROLE_KEY を登録してください。" +
-        "これが無いと、お申し込みの控えと、サイトに来た人の数が記録されません",
+        "これが無いと、お申し込みの控えと、サイトに来た人の数を**一覧として読み返せません**" +
+        "（記録そのものが残るかどうかは、下の records をご覧ください）",
     };
   }
   const detail = repair
@@ -114,7 +115,8 @@ export function describeServerKey(
       `値に全角などの使えない文字が入っています${detail}。` +
       `${shape}` +
       "Vercel の環境変数 SUPABASE_SERVICE_ROLE_KEY を貼り直してください。" +
-      "これが直るまで、お申し込みの控えと、サイトに来た人の数は記録されません",
+      "これが直るまで、お申し込みの控えと、サイトに来た人の数を**一覧として読み返せません**" +
+      "（記録そのものが残るかどうかは、下の records をご覧ください）",
   };
 }
 
