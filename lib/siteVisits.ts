@@ -197,3 +197,59 @@ export function summarize(
 
   return { last7days, weeks };
 }
+
+/**
+ * 「日ごと・サイトごとに数えた結果」だけを受け取って、まとめ直す。
+ *
+ * ■ なぜ2通りあるか（2026-09-19）
+ *   訪問の棚（site_visits）は「入れることだけ許す郵便ポスト」の形にしてある。
+ *   そのため**1行ずつ読み出すことができない**（読む許可がそもそも無い）。
+ *   サーバー側の合鍵が使えれば 1行ずつ読めるので summarize() を使い、
+ *   使えないときは倉庫側の集計だけを返す窓口（site_visits_summary）から
+ *   「日ごとの数」を受け取って、この関数でまとめる。
+ *   どちらの道でも、外に出るのは**合計だけ**でページ名や来た元は出ない。
+ *
+ * ■ 1つだけ違うところ（正直に書く）
+ *   1行ずつ読む道の「直近7日」は **いまから 7×24時間**。
+ *   こちらは日ごとにしか数えられないので **今日を含む7日ぶん（日本時間）**。
+ *   数え方が違うので、境目の日は1日ぶんずれることがある。
+ */
+export function summarizeDaily(
+  rows: { site: string; day: string; hits: number }[],
+  now: Date,
+): VisitSummary {
+  const last7days: Record<string, number> = {};
+  const byWeek = new Map<string, Record<string, number>>();
+  // 今日を含めて7日ぶん（日本時間の日付で比べる）
+  const from = jstDay(new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000));
+
+  for (const r of rows) {
+    if (typeof r.site !== "string" || !r.site) continue;
+    const day = typeof r.day === "string" ? r.day.slice(0, 10) : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    const hits = Number(r.hits);
+    if (!Number.isFinite(hits) || hits <= 0) continue;
+
+    if (day >= from) {
+      last7days[r.site] = (last7days[r.site] ?? 0) + hits;
+    }
+    // その日の昼を代表にして週（月曜はじまり）を出す
+    const w = weekStart(new Date(`${day}T12:00:00+09:00`));
+    const bucket = byWeek.get(w) ?? {};
+    bucket[r.site] = (bucket[r.site] ?? 0) + hits;
+    byWeek.set(w, bucket);
+  }
+
+  const weeks = [...byWeek.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([weekStart, sites]) => ({ weekStart, sites }));
+
+  return { last7days, weeks };
+}
+
+/** その時刻の「日本時間での日付」（YYYY-MM-DD） */
+export function jstDay(at: Date): string {
+  return new Date(at.getTime() + 9 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+}

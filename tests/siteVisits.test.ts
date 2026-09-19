@@ -11,7 +11,10 @@ import {
   summarize,
   toVisitRow,
   weekStart,
+  summarizeDaily,
+  jstDay,
 } from "../lib/siteVisits";
+import { BUILD_STAMP, parseBuildStamp } from "../lib/buildStamp";
 
 test("知らないサイト名は数えない", () => {
   assert.equal(isKnownSite("playmiyazaki"), true);
@@ -119,4 +122,90 @@ test("まとめ：直近7日と、週ごと・サイトごとの数", () => {
   assert.deepEqual(s.weeks[0].sites, { playmiyazaki: 2, keiri: 1 });
   assert.equal(s.weeks[1].weekStart, "2026-09-07");
   assert.deepEqual(s.weeks[1].sites, { keiri: 1 });
+});
+
+// ============================================================
+// 2026-09-19 追加：倉庫側で数えた「日ごとの数」からまとめる道
+// ============================================================
+// 訪問の棚は「入れることだけ許す郵便ポスト」なので、1行ずつ読めない。
+// そのときは倉庫側の集計（site_visits_summary）から日ごとの数を受け取る。
+test("summarizeDaily: 日ごとの数を、週ごと・サイトごとに足し合わせる", () => {
+  // 2026-09-19（土）の昼を「いま」とする
+  const now = new Date("2026-09-19T03:00:00.000Z"); // = 9/19 12:00 JST
+  const out = summarizeDaily(
+    [
+      { site: "keiri", day: "2026-09-19", hits: 3 },
+      { site: "keiri", day: "2026-09-18", hits: 2 },
+      { site: "playmiyazaki", day: "2026-09-18", hits: 5 },
+      // 週をまたぐ（9/14 は月曜＝その週のはじまり）
+      { site: "keiri", day: "2026-09-14", hits: 1 },
+      // 7日より前（直近7日には入らないが、週の集計には入る）
+      { site: "keiri", day: "2026-09-10", hits: 9 },
+    ],
+    now,
+  );
+
+  // 直近7日＝今日を含む7日ぶん（9/13〜9/19）。9/10 の9件は入らない
+  assert.equal(out.last7days.keiri, 3 + 2 + 1);
+  assert.equal(out.last7days.playmiyazaki, 5);
+
+  // 週は新しい順。9/14〜9/20 の週が先
+  assert.equal(out.weeks[0].weekStart, "2026-09-14");
+  assert.equal(out.weeks[0].sites.keiri, 3 + 2 + 1);
+  assert.equal(out.weeks[0].sites.playmiyazaki, 5);
+  assert.equal(out.weeks[1].weekStart, "2026-09-07");
+  assert.equal(out.weeks[1].sites.keiri, 9);
+});
+
+test("summarizeDaily: 壊れた行は数に入れない（勝手に0や NaN を作らない）", () => {
+  const now = new Date("2026-09-19T03:00:00.000Z");
+  const out = summarizeDaily(
+    [
+      { site: "keiri", day: "2026-09-19", hits: 2 },
+      { site: "", day: "2026-09-19", hits: 5 }, // サイト名が空
+      { site: "keiri", day: "こわれた", hits: 5 }, // 日付でない
+      { site: "keiri", day: "2026-09-19", hits: Number.NaN }, // 数でない
+      { site: "keiri", day: "2026-09-19", hits: 0 }, // 0件
+    ] as { site: string; day: string; hits: number }[],
+    now,
+  );
+  assert.equal(out.last7days.keiri, 2);
+  assert.equal(Object.keys(out.last7days).length, 1);
+  assert.equal(out.weeks.length, 1);
+});
+
+test("summarizeDaily: 何も無ければ空（『数えられていない』を0件と書き換えない）", () => {
+  const out = summarizeDaily([], new Date("2026-09-19T03:00:00.000Z"));
+  assert.deepEqual(out.last7days, {});
+  assert.deepEqual(out.weeks, []);
+});
+
+test("jstDay: 日本時間の日付に直す（日付の境目をまたぐ）", () => {
+  // 9/18 15:00 UTC = 9/19 00:00 JST
+  assert.equal(jstDay(new Date("2026-09-18T15:00:00.000Z")), "2026-09-19");
+  // 9/18 14:59 UTC = 9/18 23:59 JST
+  assert.equal(jstDay(new Date("2026-09-18T14:59:00.000Z")), "2026-09-18");
+});
+
+// ============================================================
+// 2026-09-19 追加：版の合言葉（出したのに古く見える、を終わらせる）
+// ============================================================
+test("parseBuildStamp: コミットの番号と組み立て時刻に分かれる", () => {
+  const p = parseBuildStamp("a34e8b1@2026-09-19T05:42:31.000Z");
+  assert.equal(p.commit, "a34e8b1");
+  assert.equal(p.builtAt, "2026-09-19T05:42:31.000Z");
+});
+
+test("parseBuildStamp: 時刻が無くても壊れない", () => {
+  const p = parseBuildStamp("local");
+  assert.equal(p.commit, "local");
+  assert.equal(p.builtAt, null);
+});
+
+test("BUILD_STAMP: 秘密の値が混ざっていない（英数字と記号だけ・短い）", () => {
+  assert.ok(BUILD_STAMP.length <= 80, "合言葉が長すぎます");
+  assert.ok(
+    /^[A-Za-z0-9@:.\-_]*$/.test(BUILD_STAMP),
+    "合言葉に思わぬ文字が入っています",
+  );
 });

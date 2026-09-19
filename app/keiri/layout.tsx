@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import VisitBeacon from "@/components/VisitBeacon";
+import { BUILD_STAMP } from "@/lib/buildStamp";
 import { KEIRI_PUBLIC_PAGES } from "@/app/keiri/components/nav";
 import { PUBLIC_SITE_URL } from "@/lib/keiri/siteUrl";
 
@@ -30,6 +31,16 @@ export const metadata: Metadata = {
   title: "経理パッケージ",
   description:
     "小さな飲食店・移動販売・催事出店のための経理アプリ。日報を書くだけで、月の利益と今の現金が分かります。",
+  /**
+   * 見えない札（この版がいつ組み立てられたか）。
+   *
+   * 画面には何も出ない。/api/version が返す合言葉と見比べると、
+   * 「いま配られているページが最新かどうか」が1回で分かる。
+   * 2026-09-19 に「出したのに古いままに見える」という誤報が3回出て、
+   * そのたびに売る手が止まったので、目で数えない確かめ方を用意した。
+   * 入るのはコミットの短い番号と組み立て時刻だけで、秘密の値は入らない。
+   */
+  other: { "x-build": BUILD_STAMP },
 };
 
 export default function KeiriLayout({
