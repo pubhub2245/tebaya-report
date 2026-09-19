@@ -3,7 +3,11 @@ import Link from "next/link";
 
 import ApplyForm from "./ApplyForm";
 import { KeiriFooter } from "@/app/keiri/components/nav";
-import { KEIRI_OFFER_ITEMS } from "@/lib/keiri/offer";
+import {
+  KEIRI_OFFER_ITEMS,
+  keiriApplyOptionalLine,
+  keiriApplyRequiredLine,
+} from "@/lib/keiri/offer";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
 import { keiriContactMailto } from "@/lib/keiri/apply";
 import { keiriMetadata } from "@/lib/keiri/metadata";
@@ -37,8 +41,13 @@ export default function KeiriApplyPage() {
         <p className="text-xs font-bold text-amber-700 tracking-wide">経理パッケージ</p>
         <h1 className="mt-2 text-3xl font-bold text-stone-900 leading-tight">お申し込み</h1>
         <p className="mt-3 text-stone-700 leading-relaxed">{priceSummaryLine(cardLive)}</p>
+        {/* ★「いくつ入れるのか」は紹介ページと同じ1本から出す（数を直書きしない）。
+            2026-09-20 まで、ここだけ「下の4つ」と書かれており、
+            紹介ページの「必ず入れるのは3つだけ」と食い違っていた。 */}
         <p className="mt-2 text-sm text-stone-600 leading-relaxed">
-          下の4つをいただければ、担当からご連絡します。
+          {keiriApplyRequiredLine()}
+          {keiriApplyOptionalLine()}
+          いただいたメールアドレスへ、担当からご連絡します。
           <strong className="font-bold">この画面ではお支払いは発生しません。</strong>
           お支払いの方法は、ご連絡のときにご案内します。
         </p>
