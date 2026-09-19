@@ -245,7 +245,21 @@ revoke all on function public.keiri_tenant_create_manual(text, text) from public
 
 grant execute on function public.keiri_tenant_activate(text, text, text, date, numeric, text) to anon, authenticated;
 grant execute on function public.keiri_tenant_login(text) to anon, authenticated;
+
 -- ★ keiri_tenant_create_manual は anon に渡しません（運営が SQL Editor から呼ぶだけ）。
+--
+--   ここが大事です。上の `revoke ... from public` だけでは **足りません**。
+--   Supabase は「これから作る関数は anon と authenticated が呼んでよい」という
+--   既定の決まり（alter default privileges）を入れてあるので、
+--   新しく作った窓口には **anon への権利が自動で直接付きます**。
+--   `from public` の取り上げは、その直接の権利には届きません。
+--   （2026-09-19 17:05・A がこのファイルをそのまま流したところ、
+--     create_manual が外から呼べる状態になっていたのを実測で見つけました。
+--     そのときは A が手で1行足して閉じましたが、
+--     ファイルに書いていないと **次に流し直したときに黙って開きます**。）
+--
+--   ＝ 名指しで取り上げます。これが無いと、誰でもお店の行を作れてしまいます。
+revoke all on function public.keiri_tenant_create_manual(text, text) from anon, authenticated;
 
 
 -- ------------------------------------------------------------

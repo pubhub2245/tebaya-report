@@ -205,6 +205,17 @@ test("SQL：外から来る人に渡すのは2つの窓口だけ。手で作る�
   // ★手で作る道具（申し込みを1行作れてしまう）は、外から来る人に渡さない
   assert.ok(!grants.some((l) => l.includes("keiri_tenant_create_manual")));
 
+  // ★★ここが 2026-09-19 17:05 に実際に空いていた穴です。
+  //    Supabase は「これから作る関数は anon が呼んでよい」という既定の決まりを持っているので、
+  //    新しく作った窓口には anon への権利が**自動で直接**付きます。
+  //    上の `revoke ... from public` では、その直接の権利に届きません。
+  //    名指しで取り上げていないと、流し直すたびに黙って開きます。
+  assert.match(
+    sql,
+    /revoke all on function public\.keiri_tenant_create_manual\(text, text\) from anon, authenticated;/,
+    "keiri_tenant_create_manual を anon, authenticated から名指しで取り上げていません",
+  );
+
   // 窓口は棚を「代わりに触る」ので security definer。触る範囲も固定する
   assert.equal((sql.match(/security definer/g) ?? []).length, 2);
   assert.equal((sql.match(/set search_path = public, pg_temp/g) ?? []).length, 2);
