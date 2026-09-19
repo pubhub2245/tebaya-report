@@ -27,11 +27,13 @@ import {
   accountLabelForCsv,
   UNSET_LOCATION,
   TEBAYA_TEMPLATE,
+  GENERIC_TEMPLATE,
   templateFor,
   type KeiriReport,
   type KeiriPayment,
   type KeiriSettings,
 } from "../lib/keiri";
+import { businessCodeForScope } from "../lib/tenantScope";
 
 const T = TEBAYA_TEMPLATE;
 
@@ -535,6 +537,32 @@ test("templateFor: 知らない業態コードでも落ちない（手羽屋テ�
   assert.equal(templateFor("tebaya").code, "tebaya");
   assert.equal(templateFor("しらない業態").code, "tebaya");
   assert.equal(templateFor(null).code, "tebaya");
+});
+
+/**
+ * kp76（2026-09-19）で見つかった穴の見張り。
+ *
+ * 申し込んだお店の業態コードは `t_<お店の番号>` で、一覧に入っていないため
+ * **手羽屋の対応表で経費が振り分けられていました**（汎用テンプレは作ってあるのに未接続）。
+ * ここが戻ると、よそのお店の「肉 仕入れ」「野菜」が雑費に落ちます。
+ */
+test("templateFor: 申し込んだお店は汎用テンプレ。手羽屋は今までどおり", () => {
+  const shopCode = businessCodeForScope("11111111-2222-3333-4444-555555555555");
+  // lib/tenantScope.ts の形と、lib/keiri/index.ts の見分け方が同じであること
+  assert.equal(templateFor(shopCode).code, "generic");
+  // 手羽屋は1文字も変わらない
+  assert.equal(templateFor(businessCodeForScope(null)).code, "tebaya");
+});
+
+test("汎用テンプレ：ふつうの飲食店の言葉が雑費に落ちない", () => {
+  const words = ["肉 仕入れ", "野菜", "小麦粉", "業務スーパー"];
+  for (const w of words) {
+    const t = classifyExpense(w, GENERIC_TEMPLATE);
+    assert.equal(t.matched, true, `${w} が汎用テンプレで振り分けられていない`);
+    assert.equal(t.account, "purchase", `${w} が仕入になっていない`);
+  }
+  // 手羽屋テンプレでは落ちていた（＝直す価値があったことの記録）
+  assert.equal(classifyExpense("肉 仕入れ", TEBAYA_TEMPLATE).matched, false);
 });
 
 /* ---------- 人件費（当日払い）と賃借料（2026-09 追加） ---------- */

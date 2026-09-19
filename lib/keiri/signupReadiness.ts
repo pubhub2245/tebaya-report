@@ -37,6 +37,21 @@ export type SignupReadinessInput = {
   tenants: TableCheck;
   /** 初回設定の置き場が読めたか */
   settings: TableCheck;
+  /**
+   * サーバー側の鍵（SUPABASE_SERVICE_ROLE_KEY）が使えるか。
+   *
+   * ★2026-09-19（kp76）に足しました。**ここを見ないと嘘の緑が出ます。**
+   *   お店の置き場（keiri_tenants）は鍵（RLS）を掛けてあり、
+   *   サーバー側の鍵でしか読み書きできません。
+   *   ところがその鍵が使えないとき、読みに行っても**エラーにならず「0件」が返る**ので、
+   *   「読めました＝つながっています」に見えてしまいます。
+   *   実際には、申し込んだお店は
+   *     ・初回設定のリンクを開いても「このリンクは使えません」になり
+   *     ・合言葉を入れても「パスワードが違います」になります（どちらも0件が返るため）
+   *   ＝**お金を払っても、1歩も進めません。**
+   *   控え（keiri_applications）で同じ見落としを直したのと同じ考え方です（kp57）。
+   */
+  serverKeyUsable: boolean;
 };
 
 export type SignupReadiness = {
@@ -52,9 +67,22 @@ export type SignupReadiness = {
 };
 
 export function buildSignupReadiness(input: SignupReadinessInput): SignupReadiness {
-  const { paymentLink, secret, tenants, settings } = input;
+  const { paymentLink, secret, serverKeyUsable } = input;
   const hasButton = !!paymentLink;
   const todo: string[] = [];
+
+  // ★鍵が使えないときは、読めていても「つながっている」とは言わない（安全側に倒す）
+  const keyReason =
+    "表はありますが、サーバー側の鍵（SUPABASE_SERVICE_ROLE_KEY）が使えないので、" +
+    "申し込んだお店は初回設定も、合言葉での入室もできません" +
+    "（どちらも0件が返るため「このリンクは使えません」「パスワードが違います」になります）。" +
+    "Vercel の SUPABASE_SERVICE_ROLE_KEY を貼り直してください（kp55）";
+  const tenants: TableCheck = serverKeyUsable
+    ? input.tenants
+    : { ok: false, reason: input.tenants.reason ?? keyReason };
+  const settings: TableCheck = serverKeyUsable
+    ? input.settings
+    : { ok: false, reason: input.settings.reason ?? keyReason };
 
   if (!hasButton) {
     todo.push(
