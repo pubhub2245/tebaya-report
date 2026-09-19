@@ -148,6 +148,8 @@ export async function GET() {
     secret: checkKey(process.env.KEIRI_SIGNUP_WEBHOOK_SECRET),
     tenants,
     settings,
+    // ★鍵が使えないと、読めていてもお店は1歩も進めない（kp76）
+    serverKeyUsable: serverKey.usable,
   });
 
   return NextResponse.json({

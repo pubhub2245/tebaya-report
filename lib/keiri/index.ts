@@ -28,9 +28,38 @@ export const TEMPLATES: Record<string, BusinessTemplate> = {
   [GENERIC_TEMPLATE.code]: GENERIC_TEMPLATE,
 };
 
-/** 業態コードからテンプレートを取り出す。無ければ手羽屋テンプレを使う */
+/**
+ * 申し込んだお店の業態コードのかたち（`t_` ＋ お店の番号）。
+ * ★元は lib/tenantScope.ts の businessCodeForScope()。**形を変えるときは両方直すこと。**
+ *   （tests/keiri.test.ts に、両方が同じ形であることを確かめる検算を置いてあります）
+ */
+const TENANT_CODE_RE =
+  /^t_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * 業態コードからテンプレートを取り出す。
+ *
+ * ■ 2026-09-19（kp76）に直したところ
+ *   経理パッケージを申し込んだお店の業態コードは `t_<お店の番号>` で、
+ *   この一覧（TEMPLATES）には入っていません。そのため**よそのお店の経費が
+ *   手羽屋の対応表で振り分けられていました**。汎用テンプレは作ってあるのに、
+ *   どこからも使われていない状態でした。
+ *   実測：ふつうの飲食店にありそうな経費の言葉13個のうち、
+ *   手羽屋テンプレでは6個が「雑費」に落ち、汎用テンプレでは2個でした
+ *   （「肉 仕入れ」「野菜」「小麦粉」などが仕入に入らない）。
+ *
+ * ■ 手羽屋は何も変わりません
+ *   手羽屋の業態コードは "tebaya" のままなので、これまでどおり手羽屋テンプレです。
+ *   変わるのは `t_...`（申し込んだお店）だけで、いまその形のお店は1軒もありません。
+ */
 export function templateFor(code: string | null | undefined): BusinessTemplate {
-  return TEMPLATES[code ?? ""] ?? TEBAYA_TEMPLATE;
+  const key = code ?? "";
+  const found = TEMPLATES[key];
+  if (found) return found;
+  // 申し込んだお店 → 汎用テンプレ（手羽屋だけの言葉を使わない）
+  if (TENANT_CODE_RE.test(key)) return GENERIC_TEMPLATE;
+  // それ以外（空・知らない文字）は、これまでどおり手羽屋に戻す
+  return TEBAYA_TEMPLATE;
 }
 
 /**

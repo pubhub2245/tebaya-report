@@ -15,6 +15,7 @@ test("4つ全部そろっていれば ready", () => {
     secret: { ok: true },
     tenants: OK_TABLE,
     settings: OK_TABLE,
+    serverKeyUsable: true,
   });
   assert.equal(r.ready, true);
   assert.equal(r.todo.length, 0);
@@ -28,6 +29,7 @@ test("合言葉が未設定なら ready にならず、やることが1件出る
     secret: { ok: false, reason: "未設定" },
     tenants: OK_TABLE,
     settings: OK_TABLE,
+    serverKeyUsable: true,
   });
   assert.equal(r.ready, false);
   assert.equal(r.todo.length, 1);
@@ -41,6 +43,7 @@ test("全角が混ざっていたときは『貼り直す』と言う（未設�
     secret: { ok: false, reason: "全角などの使えない文字が入っている" },
     tenants: OK_TABLE,
     settings: OK_TABLE,
+    serverKeyUsable: true,
   });
   assert.ok(r.todo[0].includes("貼り直してください"));
 });
@@ -51,6 +54,7 @@ test("置き場が無いときは、やることが積み上がる", () => {
     secret: { ok: false, reason: "未設定" },
     tenants: { ok: false, reason: describeTableError("42P01", 'relation "keiri_tenants" does not exist') },
     settings: { ok: false, reason: describeTableError("42P01", 'relation "keiri_settings" does not exist') },
+    serverKeyUsable: true,
   });
   assert.equal(r.ready, false);
   assert.equal(r.todo.length, 4);
@@ -73,6 +77,44 @@ test("合言葉そのものは結果に出さない", () => {
     secret: { ok: true },
     tenants: OK_TABLE,
     settings: OK_TABLE,
+    serverKeyUsable: true,
   });
   assert.ok(!JSON.stringify(r).includes("whsec_"));
+});
+
+/* ---------- kp76（2026-09-19）：嘘の緑を出さない ---------- */
+
+/**
+ * お店の置き場は鍵（RLS）を掛けてあり、サーバー側の鍵でしか読み書きできません。
+ * その鍵が使えないとき、読みに行っても**エラーにならず0件が返る**ので、
+ * これまでは「読めました＝つながっています」と緑が出ていました。
+ * 実際には、申し込んだお店は初回設定も合言葉での入室もできません。
+ */
+test("サーバー側の鍵が使えないときは、読めていても『つながっている』と言わない", () => {
+  const r = buildSignupReadiness({
+    paymentLink: "https://buy.stripe.com/test_abc",
+    secret: { ok: true },
+    tenants: OK_TABLE,
+    settings: OK_TABLE,
+    serverKeyUsable: false,
+  });
+  assert.equal(r.ready, false);
+  assert.equal(r.checks.shop_table, false);
+  assert.equal(r.checks.settings_table, false);
+  assert.equal(r.todo.length, 2);
+  assert.ok(r.todo[0].includes("SUPABASE_SERVICE_ROLE_KEY"));
+  // 直し方が分かる言葉で書いてあること
+  assert.ok(r.todo[0].includes("初回設定"));
+});
+
+test("鍵が使えるときの見え方は、これまでと1文字も変わらない", () => {
+  const r = buildSignupReadiness({
+    paymentLink: "https://buy.stripe.com/test_abc",
+    secret: { ok: true },
+    tenants: OK_TABLE,
+    settings: OK_TABLE,
+    serverKeyUsable: true,
+  });
+  assert.equal(r.ready, true);
+  assert.equal(r.summary, "申し込みから使い始めまで、人の手を借りずにつながっています");
 });
