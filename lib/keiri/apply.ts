@@ -292,3 +292,76 @@ export function keiriApplyRecipients(to: string, cc: string | null): string[] {
   );
   return Array.from(new Set(list));
 }
+
+/**
+ * 「メールでも受け付けています」の宛先を、下書き付きのリンクにする（2026-09-19・kp72）。
+ *
+ * ■ なぜ要るのか
+ *   紹介ページ（/keiri/case）の申し込み枠には
+ *   「メールでも受け付けています：jun@alpha-mj.co.jp」と出している。
+ *   フォームに5つ打ち込むより、そのまま1行返すほうが早い店主は必ずいるので、
+ *   **これは実際に使われる道**。ところがこの宛先は1か所しか無く、
+ *   そこは司令室が読めない受信箱だった。
+ *   ＝ここから来た最初の1件は、じゅんが自分で受信箱を見ないかぎり気づけない。
+ *   kp63（届かなかったときの下書き）と kp69（控えの下書き）で同じ穴を塞いだのに、
+ *   **いちばん人目に付く導線だけが素の mailto のまま残っていた。**
+ *
+ * ■ やること
+ *   写し（CC）に手羽屋の Gmail（司令室が毎時間見ている）を足し、
+ *   件名と、書き出しの雛形を入れておく。
+ *   雛形があると、店主は空白を埋めるだけでよく、
+ *   こちらも折り返すのに要る3つ（お店・お名前・連絡先）が最初から揃う。
+ *
+ * ★ 特定商取引法のページに出す連絡先は変えない（表示は法律の話・写しは受け取りの話）。
+ * ★ ここから誰かにメールを送ることはしない。
+ *   店主の画面に立ち上がる下書きの中身を用意するだけ。
+ * ★ 写しを付けない環境（cc を無視するメールソフト）でも、
+ *   いままでと同じく宛先1つの下書きが開くだけで、悪くなることはない。
+ */
+export function keiriContactMailto(args: {
+  /** 送り先（KEIRI_COMPANY.email） */
+  to: string;
+  /** 写し（CC）。何も渡さなければ KEIRI_APPLY_COPY_TO。null を渡すと写しを付けない */
+  cc?: string | null;
+}): {
+  subject: string;
+  body: string;
+  url: string;
+  to: string;
+  cc: string | null;
+  recipients: string[];
+} {
+  const subject = "経理パッケージのお問い合わせ";
+
+  const body = [
+    "経理パッケージについて聞きたいことがあります。",
+    "",
+    "お店：",
+    "お名前：",
+    "お電話（任意）：",
+    "",
+    "聞きたいこと：",
+    "",
+  ].join("\n");
+
+  // 写し（CC）。同じ宛先を二重に書かない
+  const asked = args.cc === undefined ? KEIRI_APPLY_COPY_TO : args.cc;
+  const copyTo = asked && asked.trim() !== "" && asked !== args.to ? asked : null;
+
+  const query = [
+    copyTo ? `cc=${encodeURIComponent(copyTo)}` : null,
+    `subject=${encodeURIComponent(subject)}`,
+    `body=${encodeURIComponent(body)}`,
+  ]
+    .filter((v): v is string => v !== null)
+    .join("&");
+
+  return {
+    subject,
+    body,
+    url: `mailto:${args.to}?${query}`,
+    to: args.to,
+    cc: copyTo,
+    recipients: keiriApplyRecipients(args.to, copyTo),
+  };
+}

@@ -5,6 +5,7 @@ import ApplyForm from "./ApplyForm";
 import { KeiriFooter } from "@/app/keiri/components/nav";
 import { KEIRI_OFFER_ITEMS } from "@/lib/keiri/offer";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
+import { keiriContactMailto } from "@/lib/keiri/apply";
 import { keiriMetadata } from "@/lib/keiri/metadata";
 import { priceLabel, priceSummaryLine } from "@/lib/keiri/caseNumbers";
 
@@ -64,7 +65,10 @@ export default function KeiriApplyPage() {
         <noscript>
           <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-stone-800 leading-relaxed">
             このブラウザでは入力欄をお使いいただけません。お手数ですが{" "}
-            <a href={`mailto:${KEIRI_COMPANY.email}`} className="underline font-bold">
+            <a
+              href={keiriContactMailto({ to: KEIRI_COMPANY.email }).url}
+              className="underline font-bold"
+            >
               {KEIRI_COMPANY.email}
             </a>{" "}
             まで、お店の名前・お名前・ご連絡先をお送りください。
@@ -87,7 +91,7 @@ export default function KeiriApplyPage() {
         </p>
       </section>
 
-      <KeiriFooter home />
+      <KeiriFooter />
     </main>
   );
 }

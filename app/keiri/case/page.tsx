@@ -11,6 +11,7 @@ import {
 } from "@/lib/keiri/caseNumbers";
 import { getCaseStats } from "@/lib/keiri/caseStats";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
+import { keiriContactMailto } from "@/lib/keiri/apply";
 import {
   KEIRI_OFFER_ITEMS,
   KEIRI_OFFER_NOT_INCLUDED,
@@ -285,7 +286,10 @@ export default async function KeiriCasePage() {
             <p className="mt-3 text-sm leading-relaxed opacity-95">
               いまはカード決済の受付を準備中のため、お申し込みフォームからお受けします（この画面でお支払いは発生しません）。
               メールでも受け付けています：{" "}
-              <a href={`mailto:${KEIRI_COMPANY.email}`} className="underline font-bold">
+              <a
+                href={keiriContactMailto({ to: KEIRI_COMPANY.email }).url}
+                className="underline font-bold"
+              >
                 {KEIRI_COMPANY.email}
               </a>
             </p>
@@ -301,7 +305,7 @@ export default async function KeiriCasePage() {
 
       <KeiriRelated current="/keiri/case" />
 
-      <KeiriFooter home />
+      <KeiriFooter />
     </main>
   );
 }

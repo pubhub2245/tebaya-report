@@ -141,8 +141,16 @@ export function KeiriRelated({ current }: { current: string }) {
  * 外向きページの共通フッター。
  * ★特定商取引法に基づく表記へのリンクは、売っているページの全部から辿れる必要がある。
  *   ここ1か所に置くことで、ページを足したときのリンク漏れを防ぐ。
+ *
+ * ★手羽屋の業務システムへの戻り道は置かない（2026-09-19・kp72。戻さないこと）。
+ *   以前は /keiri/case と /keiri/apply だけにこのリンクが出ていた。
+ *   ＝**外のお店に送る2ページだけ**が、手羽屋の業務システムの入口を出していた。
+ *   送り先は同じ催事に出ている同業のお店なので、
+ *   売り込みのページから他店の業務システムへ1押しで入れる形は置かない。
+ *   （日報などの棚は、いまブラウザからも読める決まりのまま。CLAUDE.md 4-8）
+ *   手羽屋の人は業務システムの側から /keiri に入るので、この戻り道は要らない。
  */
-export function KeiriFooter({ home = false }: { home?: boolean }) {
+export function KeiriFooter() {
   return (
     <footer className="text-center text-xs text-stone-400">
       <p>運営：株式会社Alpha</p>
@@ -151,13 +159,6 @@ export function KeiriFooter({ home = false }: { home?: boolean }) {
           特定商取引法に基づく表記・会社概要
         </Link>
       </p>
-      {home && (
-        <p className="mt-1">
-          <Link href="/" className="underline hover:text-stone-600">
-            手羽屋 業務システムへ戻る
-          </Link>
-        </p>
-      )}
     </footer>
   );
 }
