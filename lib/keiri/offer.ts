@@ -69,3 +69,16 @@ export const KEIRI_OFFER_NOT_INCLUDED: string[] = [
 /** 「毎月の締め」をいつ出すか（特商法の表記と紹介ページで同じ言葉を使う） */
 export const KEIRI_MONTHLY_CLOSE_TIMING =
   "前の月ぶんを、翌月の月はじめにお出しします（決済完了後、アプリはただちにご利用いただけます）";
+
+/**
+ * 「毎月の締め」をいつ出すか。カードの受付口がまだ無いときは言い方を変える。
+ *
+ * ★「決済完了後」はカードで払える状態のときの言い方。
+ *   いまはカードの受付口が無く、担当がご案内した方法でお支払いいただくので、
+ *   「お支払いの確認後」と書くほうが事実に合う。
+ */
+export function monthlyCloseTiming(cardLive = false): string {
+  return cardLive
+    ? KEIRI_MONTHLY_CLOSE_TIMING
+    : "前の月ぶんを、翌月の月はじめにお出しします（お支払いの確認後、アプリはただちにご利用いただけます）";
+}

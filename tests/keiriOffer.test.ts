@@ -51,7 +51,7 @@ test("一番上の3行は「何をしてくれるか2行＋いくら1行」で�
 });
 
 test("特商法の表記は offer.ts と同じ定義から作られる（片方だけ古くならない）", () => {
-  const rows = tokushohoRows();
+  const rows = tokushohoRows(true);
   const content = rows.find((r) => r.label === "サービスの内容");
   const timing = rows.find((r) => r.label === "サービスの提供時期");
   assert.ok(content, "サービスの内容の行が無い");
@@ -69,4 +69,47 @@ test("特商法の販売価格は、いまの価格の定義から作られる",
   const price = rows.find((r) => r.label === "販売価格");
   assert.ok(price);
   assert.equal(price!.value, priceLabel());
+});
+
+test("カードの受付口が無いときの特商法の表記は、実際に起きることだけを書く", () => {
+  // ★ 2026-09-19 実測：本番は NEXT_PUBLIC_KEIRI_PAYMENT_LINK_15000 が未設定。
+  //   つまり「お申し込み時に初回分を決済」も「Stripe のカスタマーポータルから解約」も起きない。
+  //   法律で出すことが決まっているページなので、ここに嘘があってはいけない。
+  const rows = tokushohoRows(false);
+  const get = (label: string) => rows.find((r) => r.label === label)!.value;
+
+  assert.ok(!get("支払方法").startsWith("クレジットカード決済"));
+  assert.ok(get("支払方法").includes("準備中"));
+  assert.ok(!get("支払時期").includes("お申し込み時に初回分を決済"));
+  assert.ok(get("支払時期").includes("お申し込みの時点ではお支払いは発生しません"));
+  assert.ok(!get("解約について").includes("カスタマーポータル"));
+  assert.ok(get("解約について").includes("いつでも解約できます"));
+  assert.ok(!get("サービスの提供時期").includes("決済完了後"));
+
+  // ページ全体を通して「カスタマーポータル」の文字が1つも出ない
+  assert.ok(!rows.map((r) => r.value).join("").includes("カスタマーポータル"));
+
+  // 渡し忘れたときも、正直なほうに倒れる
+  assert.deepEqual(tokushohoRows(), tokushohoRows(false));
+});
+
+test("カードの受付口ができたら、特商法の表記は自動でカードの書き方に戻る", () => {
+  const rows = tokushohoRows(true);
+  const get = (label: string) => rows.find((r) => r.label === label)!.value;
+  assert.equal(get("支払方法"), "クレジットカード決済（Stripe）");
+  assert.ok(get("支払時期").includes("お申し込み時に初回分を決済"));
+  assert.ok(get("解約について").includes("カスタマーポータル"));
+  assert.equal(get("サービスの提供時期"), KEIRI_MONTHLY_CLOSE_TIMING);
+});
+
+test("会社の情報・販売価格は、カードが使えるかどうかで変わらない", () => {
+  const off = tokushohoRows(false);
+  const on = tokushohoRows(true);
+  for (const label of ["販売事業者名", "所在地", "電話番号", "メールアドレス", "販売価格", "サービスの内容"]) {
+    assert.equal(
+      off.find((r) => r.label === label)!.value,
+      on.find((r) => r.label === label)!.value,
+      label + " が食い違っている",
+    );
+  }
 });
