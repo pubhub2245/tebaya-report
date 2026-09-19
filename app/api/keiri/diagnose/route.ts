@@ -23,6 +23,7 @@ import {
   type TableCheck,
 } from "@/lib/keiri/signupReadiness";
 import type { RecordStoreReport } from "@/lib/keiri/serverHealth";
+import { probeTenantRpc } from "@/lib/keiri/tenantAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -164,13 +165,45 @@ async function checkVisits(direct: TableCheck): Promise<RecordStoreReport> {
   };
 }
 
+/**
+ * お店の置き場の「窓口」が本番で使えるかを、実際に1回叩いて確かめる（kp93）。
+ *
+ * ★合うはずのない合言葉（0が64個）で叩きます。
+ *   1行も書き込まず、誰にも知らせません。返ってくるのは必ず0行です。
+ */
+async function checkTenantRpc(): Promise<{ usable: boolean; note: string }> {
+  try {
+    const probe = await probeTenantRpc(serverClient());
+    if (probe.usable) {
+      return {
+        usable: true,
+        note:
+          "使えます。サーバー側の鍵が壊れていても、申し込んだお店は初回設定と" +
+          "合言葉での入室ができます（棚の中身は窓口からも見えません）",
+      };
+    }
+    // ★「窓口がまだ無い」と「呼んだが失敗した」を言い分ける。
+    //   直し方がまったく違うので、ひとまとめにすると判断をまちがえる（kp89 と同じ考え方）。
+    const missing = probe.reason === "窓口がまだありません";
+    return {
+      usable: false,
+      note: missing
+        ? "窓口がまだありません。倉庫の SQL Editor で supabase/migrations/keiri_tenant_rpc.sql を1回流してください"
+        : `窓口を呼べませんでした（${probe.reason ?? "理由は分かりません"}）。SQL はもう流してあるので、原因は別にあります`,
+    };
+  } catch {
+    return { usable: false, note: "窓口を叩けませんでした（通信の失敗）" };
+  }
+}
+
 export async function GET() {
-  const [tenants, settings, applications, visits, notifyFacts] = await Promise.all([
+  const [tenants, settings, applications, visits, notifyFacts, tenantRpc] = await Promise.all([
     checkTable("keiri_tenants"),
     checkTable("keiri_settings"),
     checkTable("keiri_applications"),
     checkTable("site_visits"),
     checkNotify(),
+    checkTenantRpc(),
   ]);
 
   // サーバー側の鍵。値そのものは返さない（設定済み／未設定／壊れている だけ）
@@ -197,6 +230,8 @@ export async function GET() {
     settings,
     // ★鍵が使えないと、読めていてもお店は1歩も進めない（kp76）
     serverKeyUsable: serverKey.usable,
+    // ★ただし倉庫の窓口があれば、鍵が壊れていても進める（kp93）
+    tenantRpcUsable: tenantRpc.usable,
   });
 
   return NextResponse.json({
@@ -212,6 +247,9 @@ export async function GET() {
     //   カード決済が無くても申し込みは受け取れる（LINE で知らせる）ので、
     //   上の ready の判定には入れない。欠けていても行き止まりにはならない。
     server_key: serverKey,
+    // ★お店の置き場の窓口（kp93）。鍵の貼り直し（kp55）を待たずに、
+    //   払ったお店が初回設定と入室をできるかどうかがここで分かる。
+    tenant_rpc: tenantRpc,
     records: {
       applications: applicationsStore,
       visits: visitsStore,

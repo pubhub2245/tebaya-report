@@ -52,6 +52,15 @@ export type SignupReadinessInput = {
    *   控え（keiri_applications）で同じ見落としを直したのと同じ考え方です（kp57）。
    */
   serverKeyUsable: boolean;
+
+  /**
+   * 倉庫の「窓口」（keiri_tenant_activate / keiri_tenant_login）が使えるか。
+   *
+   * ★サーバー側の合鍵が壊れていても、この窓口があれば
+   *   初回設定も合言葉での入室も通ります（2026-09-19・kp93）。
+   *   ＝ここが true なら、鍵の貼り直し（kp55）を待たずにお店は使い始められます。
+   */
+  tenantRpcUsable?: boolean;
 };
 
 export type SignupReadiness = {
@@ -68,6 +77,8 @@ export type SignupReadiness = {
 
 export function buildSignupReadiness(input: SignupReadinessInput): SignupReadiness {
   const { paymentLink, secret, serverKeyUsable } = input;
+  // 合鍵が生きている か、倉庫の窓口がある。どちらかあればお店は進める
+  const tenantAccessOk = serverKeyUsable || input.tenantRpcUsable === true;
   const hasButton = !!paymentLink;
   const todo: string[] = [];
 
@@ -76,12 +87,17 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
     "表はありますが、サーバー側の鍵（SUPABASE_SERVICE_ROLE_KEY）が使えないので、" +
     "申し込んだお店は初回設定も、合言葉での入室もできません" +
     "（どちらも0件が返るため「このリンクは使えません」「パスワードが違います」になります）。" +
-    "Vercel の SUPABASE_SERVICE_ROLE_KEY を貼り直してください（kp55）";
-  const tenants: TableCheck = serverKeyUsable
-    ? input.tenants
+    "Vercel の SUPABASE_SERVICE_ROLE_KEY を貼り直すか、" +
+    "倉庫の SQL Editor で supabase/migrations/keiri_tenant_rpc.sql を1回流してください（kp55／kp93）";
+  const tenants: TableCheck = tenantAccessOk
+    ? input.tenants.ok || input.tenantRpcUsable === true
+      ? { ok: true, reason: null }
+      : input.tenants
     : { ok: false, reason: input.tenants.reason ?? keyReason };
-  const settings: TableCheck = serverKeyUsable
-    ? input.settings
+  const settings: TableCheck = tenantAccessOk
+    ? input.settings.ok || input.tenantRpcUsable === true
+      ? { ok: true, reason: null }
+      : input.settings
     : { ok: false, reason: input.settings.reason ?? keyReason };
 
   if (!hasButton) {
