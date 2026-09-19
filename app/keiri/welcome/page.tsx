@@ -28,6 +28,8 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { normalizeTenantScope, writeTenantScope } from "@/lib/tenantScope";
+import { KEIRI_COMPANY } from "@/lib/keiri/legal";
+import { paidPendingMailto } from "@/lib/keiri/paidPending";
 
 /**
  * ★ 入れ物を1枚かぶせてある理由
@@ -60,6 +62,12 @@ function WelcomeForm() {
   /** このお店の番号。スタッフの端末に配る「日報の入り口」のリンクに使う */
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  /**
+   * 支払いのリンクで先に払われた方が来たとき（kp95）。
+   * お店の行がまだ無いので初回設定は終われないが、**行き止まりにはしない**。
+   * pending.reached が false のときだけ「メールで1通」をお願いする。
+   */
+  const [pending, setPending] = useState<{ message: string; reached: boolean } | null>(null);
 
   const linkMissing = !token && !session;
 
@@ -73,6 +81,15 @@ function WelcomeForm() {
         body: JSON.stringify({ token, session, shopName, openingDate, openingBalance }),
       });
       const json = await res.json();
+      // ★先に「お預かりしました」を見る（kp95）。
+      //   ここを後ろに置くと、赤い「使えません」が出てしまう。
+      if (json?.pending) {
+        setPending({
+          message: String(json?.message ?? "お手続きを確認しています。担当からすぐにご連絡します。"),
+          reached: json?.notified === true || json?.saved === true,
+        });
+        return;
+      }
       if (!res.ok || !json?.ok) {
         setError(String(json?.message ?? "保存できませんでした。もう一度お試しください。"));
         return;
@@ -89,6 +106,61 @@ function WelcomeForm() {
     } finally {
       setSaving(false);
     }
+  }
+
+  // ------------------------------------------------------------------
+  // 支払いのリンクで先に払われた方（お店の行がまだ無い）：kp95
+  //   「このリンクは使えません」で終わらせない。
+  //   こちらが折り返すので、ご本人は待っていればよいと分かる形にする。
+  // ------------------------------------------------------------------
+  if (pending) {
+    const mail = paidPendingMailto({
+      to: KEIRI_COMPANY.email,
+      session,
+      shopName,
+    });
+    return (
+      <main className="max-w-md mx-auto px-4 py-5 pb-10 space-y-4">
+        <h1 className="text-2xl font-bold text-brand-dark">お手続きを確認しています</h1>
+
+        <div className="card text-sm leading-relaxed space-y-2 bg-amber-50 border border-amber-200 text-amber-900">
+          <div className="font-bold">{pending.message}</div>
+          <div>
+            お支払いは済んでいます（この画面を閉じても、お支払いが消えることはありません）。
+            はじめの設定は、こちらでお店のご登録を済ませてから、専用のリンクをお送りします。
+          </div>
+        </div>
+
+        {pending.reached ? (
+          <div className="card text-sm leading-relaxed">
+            担当に届いています。このページは閉じて構いません。
+          </div>
+        ) : (
+          <div className="card text-sm leading-relaxed space-y-2">
+            <div className="font-bold">お手数ですが、1通だけお送りください</div>
+            <div>
+              いまこちらへの自動の連絡がうまくいきませんでした。
+              下のボタンを押すと、必要なことが入った下書きが開きます。送信するだけです。
+            </div>
+            <a href={mail.url} className="btn-primary text-sm inline-block">
+              メールの下書きを開く
+            </a>
+            <div className="text-xs text-stone-500 break-all">
+              うまく開かないときは {mail.to} まで、次の番号を添えてご連絡ください：{session}
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <Link href="/keiri/help" className="btn-secondary text-sm">
+            困ったとき
+          </Link>
+          <Link href="/keiri/case" className="btn-secondary text-sm">
+            ご案内を見る
+          </Link>
+        </div>
+      </main>
+    );
   }
 
   // ------------------------------------------------------------------

@@ -7,6 +7,13 @@ import {
   tenantBusinessCode,
 } from "@/lib/keiri/tenants";
 import { activateTenantViaRpc } from "@/lib/keiri/tenantAccess";
+import {
+  KEIRI_PAID_PENDING_MESSAGE,
+  isPaidPendingArrival,
+  paidPendingApplicationRow,
+  paidPendingNotificationText,
+} from "@/lib/keiri/paidPending";
+import { sendLineGroupMessage } from "@/lib/line/sendMessage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +36,14 @@ export const dynamic = "force-dynamic";
  * ■ 手羽屋のデータは触りません
  *   書き込むのは keiri_tenants と、そのお店ぶんの keiri_settings の行だけです。
  *   手羽屋の設定（tenant_id が空の行）には一切触れません。
+ *
+ * ■ 支払いのリンクで先に払われた人を、行き止まりにしません（2026-09-19・kp95）
+ *   Stripe の戻り先（?session=…）で来たのにお店の行が無いときは、
+ *   「このリンクは使えません」ではなく
+ *   「お手続きを確認しています。担当からすぐにご連絡します」と出し、
+ *   スタッフの LINE へ知らせて、申し込みの控えに1行残します。
+ *   ＝ **払ったのに誰も気づかない、という形を作りません。**
+ *   ?t=（こちらが手で発行したリンク）で来たときは今までどおりです。
  *
  * ■ サーバー側の合鍵が壊れていても通ります（2026-09-19・kp93）
  *   お店の置き場には鍵が掛かっているので、合鍵が壊れている間（kp55）は
@@ -71,6 +86,56 @@ function alreadyDone() {
       message: "このお店の初回設定はもう終わっています。合言葉を忘れた場合は「困ったとき」からご連絡ください。",
     },
     { status: 409 },
+  );
+}
+
+/**
+ * 支払いのリンクで先に払われた方が来たときの受け止め（kp95）。
+ *
+ * ■ 2つやる。どちらか通れば「担当からご連絡します」は嘘にならない
+ *   ① スタッフの LINE グループへ知らせる（人が気づく道。こちらが本命）
+ *   ② 申し込みの控えに1行残す（あとから一覧で追える道）
+ *   ②の棚の決まりは source='form' だけを通す形なので、
+ *   supabase/migrations/keiri_applications_paid_pending.sql を流すまでは静かに失敗する。
+ *   どちらも失敗したときだけ、画面に「メールで1通お送りください」を出す。
+ */
+async function receivePaidPending(session: string, shopName: string) {
+  const notify = async (): Promise<boolean> => {
+    try {
+      return await sendLineGroupMessage(paidPendingNotificationText({ session, shopName }));
+    } catch (e) {
+      console.error("[経理 初回設定] 先払いの知らせを送れませんでした", e);
+      return false;
+    }
+  };
+
+  const save = async (): Promise<boolean> => {
+    try {
+      const db = serviceClientOrNull() ?? serverClient();
+      const { error } = await db
+        .from("keiri_applications")
+        .insert(paidPendingApplicationRow({ session, shopName }));
+      if (error) {
+        console.error(`[経理 初回設定] 先払いの控えを残せませんでした: ${error.message}`);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error("[経理 初回設定] 先払いの控えを残せませんでした", e);
+      return false;
+    }
+  };
+
+  const [notified, saved] = await Promise.all([notify(), save()]);
+  if (!notified && !saved) {
+    console.error("[経理 初回設定] 先払いの知らせも控えも失敗しました");
+  }
+
+  // ★200番台で返す。これは「間違い」ではなく「お預かりした」状態なので、
+  //   画面も赤い警告ではなく落ち着いた案内として出す。
+  return NextResponse.json(
+    { ok: false, pending: true, message: KEIRI_PAID_PENDING_MESSAGE, notified, saved, session },
+    { status: 202 },
   );
 }
 
@@ -120,7 +185,13 @@ export async function POST(req: NextRequest) {
       ...(viaRpc.settingsOk ? {} : { warning: SETTINGS_WARNING }),
     });
   }
-  if (viaRpc.outcome === "not_found") return notFound();
+  if (viaRpc.outcome === "not_found") {
+    // 支払いのリンクで先に払われた方なら、行き止まりにしない（kp95）
+    if (isPaidPendingArrival({ token, session })) {
+      return receivePaidPending(session, checked.value.shopName);
+    }
+    return notFound();
+  }
   if (viaRpc.outcome === "already") return alreadyDone();
 
   // ② 窓口がまだ無いとき（または呼べなかったとき）は、今までどおり棚を直接さわる
@@ -141,7 +212,13 @@ export async function POST(req: NextRequest) {
   }
 
   const tenant = data?.[0];
-  if (!tenant) return notFound();
+  if (!tenant) {
+    // 支払いのリンクで先に払われた方なら、行き止まりにしない（kp95）
+    if (isPaidPendingArrival({ token, session })) {
+      return receivePaidPending(session, checked.value.shopName);
+    }
+    return notFound();
+  }
   if (tenant.status !== "pending") return alreadyDone();
 
   const { error: upErr } = await supabase
