@@ -17,6 +17,11 @@ import Link from "next/link";
  */
 export const KEIRI_PUBLIC_PAGES: { path: string; title: string; lead: string }[] = [
   {
+    path: "/keiri/demo",
+    title: "お試し版（申し込まずに触る）",
+    lead: "登録も申し込みも要らずに、本物の経理画面をそのまま触れます。日報を1件書くと3つの数字がその場で変わります。",
+  },
+  {
     path: "/keiri/tools",
     title: "飲食店の無料計算ツール",
     lead: "登録不要でその場で使える計算の道具。赤字ラインと原価率・FL比率。",

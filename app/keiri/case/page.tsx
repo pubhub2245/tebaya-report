@@ -127,6 +127,23 @@ export default async function KeiriCasePage() {
           毎日の売上と経費を日報に入れるだけで、月の利益・今の現金・まだ払っていないお金が自動で出ます。
           帳簿づけの時間はゼロになります。
         </p>
+
+        {/* ★一番上に「まず触ってみる」を置く（kp80）。
+             値段の説明より先に、中身を自分で確かめられるようにするため。
+             申し込みも登録も要らず、入れた数字は保存されない。 */}
+        <div className="mt-6 rounded-2xl border border-amber-300 bg-amber-50/70 p-5">
+          <p className="font-bold text-stone-900">読むより、触ったほうが早いと思います。</p>
+          <p className="mt-1 text-sm text-stone-600 leading-relaxed">
+            申し込みも登録も要りません。架空のお店の日報が入った本物の画面を、そのまま触れます。
+            日報を1件書くと、3つの数字がその場で変わります。入れた数字は保存されません。
+          </p>
+          <Link
+            href="/keiri/demo"
+            className="mt-4 block w-full rounded-xl bg-amber-500 px-6 py-3 text-center font-bold text-white hover:bg-amber-600"
+          >
+            まず触ってみる（無料・登録不要）
+          </Link>
+        </div>
       </header>
 
       {/* ---------- 事例1号 ---------- */}
