@@ -208,12 +208,43 @@ export default function AdminGate({
             {checking ? "確認中…" : "ログイン"}
           </button>
         </form>
-        <a
-          href="/"
-          className="block text-center text-sm text-stone-500 underline"
-        >
-          ← トップに戻る
-        </a>
+        {/*
+          ★ ここから先の出口を、画面ごとに変えている（2026-09-19・kp89）。
+            /keiri は「経理パッケージ」の入口でもあるので、
+            知らない人（これから申し込むかもしれない店主）も開きます。
+            それまでは出口が「← トップに戻る」（＝手羽屋の業務メニュー）だけで、
+            ・ご案内やお試し版にたどり着けず、そこで終わっていた
+            ・よそのお店の人を、手羽屋の内側の画面に案内してしまっていた
+            の2つが起きていた。allowShops を付けた画面（/keiri だけ）で出口を差し替える。
+            手羽屋専用の画面（/admin・/cash・/shifts など）は今までどおり
+            「← トップに戻る」のままで、1文字も変わらない。
+        */}
+        {allowShops ? (
+          <div className="pt-1 space-y-2 border-t border-stone-200">
+            <p className="text-xs text-stone-500 pt-3">
+              経理パッケージをまだお使いでない方
+            </p>
+            <a
+              href="/keiri/case"
+              className="block text-center text-sm text-brand-dark underline"
+            >
+              経理パッケージのご案内を見る
+            </a>
+            <a
+              href="/keiri/demo"
+              className="block text-center text-sm text-stone-500 underline"
+            >
+              お試し版を触ってみる（無料・登録不要）
+            </a>
+          </div>
+        ) : (
+          <a
+            href="/"
+            className="block text-center text-sm text-stone-500 underline"
+          >
+            ← トップに戻る
+          </a>
+        )}
       </div>
     </main>
   );

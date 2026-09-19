@@ -22,6 +22,7 @@ import {
   STRIPE_MANUAL_SETUP,
   type TableCheck,
 } from "@/lib/keiri/signupReadiness";
+import type { RecordStoreReport } from "@/lib/keiri/serverHealth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -118,6 +119,51 @@ async function checkNotify(): Promise<NotifyFacts> {
   return facts;
 }
 
+/**
+ * 訪問（site_visits）が数えられる状態かを確かめる。
+ *
+ * ■ なぜ専用にするのか（2026-09-19・kp89）
+ *   訪問の棚は 9/19 に「入れることだけ許す郵便ポスト」の形にした（site_visits_insert_only.sql）。
+ *   ＝ **直接1行ずつ読めないのが正しい状態**。
+ *   それまでの診断は1行読んでみるだけだったので、正しい状態を
+ *   「読む許可がありません（鍵が使えていない可能性）」と**まちがって報告していた**。
+ *   実際には倉庫側の「数だけ答える窓口」（site_visits_summary）が動いていて、
+ *   /api/hit/summary からは数が見られる。診断がうそをつくと、
+ *   「送ってよいか」の判断をまちがえるので、ここは実際に窓口を叩いて確かめる。
+ *
+ * ★読むだけ。1行も書き込みません。ページ名も来た元も受け取りません（数だけ）。
+ */
+async function checkVisits(direct: TableCheck): Promise<RecordStoreReport> {
+  // 1行ずつ読めた＝サーバー側の合鍵が生きている。いちばん強い状態
+  if (direct.ok) {
+    return { ok: true, readable: true, note: "数えられます（1行ずつ読めています）" };
+  }
+  // 読めない。では「数だけ答える窓口」は動くか
+  try {
+    const db = serviceClientOrNull() ?? serverClient();
+    const agg = await db.rpc("site_visits_summary", { days: 7 });
+    if (!agg.error && Array.isArray(agg.data)) {
+      return {
+        ok: true,
+        readable: false,
+        note:
+          "数えられます。棚は「入れるだけの郵便ポスト」にしてあるので1行ずつは読めません" +
+          "（これが正しい状態です）。日ごとの数は /api/hit/summary で見られます",
+      };
+    }
+  } catch {
+    // 窓口も叩けなかった。下の「まだ数えられません」に落ちる
+  }
+  return {
+    ok: false,
+    readable: false,
+    note:
+      (direct.reason ?? "読めませんでした") +
+      "。数だけ答える窓口（site_visits_summary）も使えませんでした。" +
+      "倉庫の SQL Editor で supabase/migrations/site_visits_summary_fn.sql を1回流してください",
+  };
+}
+
 export async function GET() {
   const [tenants, settings, applications, visits, notifyFacts] = await Promise.all([
     checkTable("keiri_tenants"),
@@ -135,6 +181,7 @@ export async function GET() {
   });
 
   const applicationsStore = describeRecordStore(applications, serverKey);
+  const visitsStore = await checkVisits(visits);
   const notify = describeNotify(notifyFacts);
   const delivery = describeApplicationDelivery({
     notifyOk: notify.ok,
@@ -167,7 +214,7 @@ export async function GET() {
     server_key: serverKey,
     records: {
       applications: applicationsStore,
-      visits: describeRecordStore(visits, serverKey),
+      visits: visitsStore,
     },
     // ★ここがいちばん大事（2026-09-19・kp60）。
     //   「申し込みボタンが押せるか」ではなく **「押された申し込みが人に届くか」**。
