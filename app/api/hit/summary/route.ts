@@ -31,7 +31,9 @@ export async function GET() {
   const since = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000).toISOString();
   const now = new Date();
 
-  const db = serviceClientOrNull() ?? serverClient();
+  // ★数を見せる所は、答えを覚えさせない（2026-09-19・kp99）。
+  //   覚えると「表に行が入っても 0 を返し続ける」ことが本番で起きた。
+  const db = serviceClientOrNull({ fresh: true }) ?? serverClient({ fresh: true });
 
   // ── 1本目：1行ずつ読む（サーバー側の合鍵が使えるとき）
   const { data, error } = await db
