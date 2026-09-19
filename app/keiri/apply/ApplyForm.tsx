@@ -7,7 +7,9 @@ import { KEIRI_APPLY_LIMITS, keiriApplyMailto } from "@/lib/keiri/apply";
 /**
  * 経理パッケージの申し込みの入力欄。
  *
- * ★入れてもらうのは4つだけ（お店の名前・お名前・メール・電話）。
+ * ★必ず入れてもらうのは3つだけ（お店の名前・お名前・メールアドレス）。
+ *   電話番号とひとことは任意（欄は全部で5つ・required が付くのは3つ）。
+ *   数え方は lib/keiri/offer.ts が正で、画面の文章もそこから作る（kp111）。
  *   多く聞くほど途中でやめられるので、こちらから折り返すのに要るものだけにしている。
  * ★送り先は /api/keiri/apply の1か所だけ。
  * ★お金のやり取りはここではしない（カード番号は入れてもらわない）。
@@ -130,7 +132,21 @@ export default function ApplyForm({ email, tel }: { email: string; tel?: string 
           {mail.recipients.map((to, i) => (
             <span key={to}>
               {i > 0 && " または "}
-              <a href={`mailto:${to}`} className="underline font-bold">
+              {/*
+                ★どちらの宛先を押しても、件名と中身が入った下書きが開くようにする（2026-09-20）。
+                  素の mailto だと空の下書きが開き、店主が打ち直すことになる。
+                  1つめ（表の宛先）には写し（CC）が付き、2つめは写し先そのものなので付けない。
+              */}
+              <a
+                href={
+                  keiriApplyMailto({
+                    to,
+                    cc: to === mail.to ? undefined : null,
+                    ...entered,
+                  }).url
+                }
+                className="underline font-bold"
+              >
                 {to}
               </a>
             </span>
@@ -175,9 +191,19 @@ export default function ApplyForm({ email, tel }: { email: string; tel?: string 
           お支払いの方法と、使い始めるための準備もそのときにご案内します。
           こちらから何かを差し引くことはありませんので、そのままお待ちください。
         </p>
+        {/*
+          ★お急ぎのご連絡は、素の宛先1つにしない（2026-09-20）。
+            ここを押すのは「申し込んだのに返事が来ない」と思った人＝いちばん熱い相手。
+            写し（CC）が付かないと、司令室が毎時間見ている受信箱に1通も届かず、
+            催促に気づけないまま「申込0件」と書き続けることになる（kp72・kp109 と同じ穴）。
+            表に出す文字（宛先そのもの）は変えていない。
+        */}
         <p className="mt-3 text-sm text-stone-600">
           お急ぎのときは{" "}
-          <a href={`mailto:${email}`} className="underline font-bold">
+          <a
+            href={keiriApplyMailto({ to: email, kind: "hurry", ...entered }).url}
+            className="underline font-bold"
+          >
             {email}
           </a>{" "}
           までご連絡ください。

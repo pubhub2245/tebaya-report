@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { keiriContactMailto } from "@/lib/keiri/apply";
 import { FEEDBACK_PATH, KEIRI_FAQ, supportEmail } from "@/lib/keiri/support";
 import { keiriMetadata } from "@/lib/keiri/metadata";
 
@@ -91,7 +92,18 @@ export default function KeiriHelpPage() {
           {mail ? (
             <>
               メールでも受け付けています：
-              <a href={`mailto:${mail}`} className="font-bold text-amber-700 underline">
+              {/*
+                ★素の宛先1つにしない（2026-09-20）。
+                  ここは「払ったあとの窓口」＝月15,000円に含まれる
+                  「聞かれたことに答える窓口」そのもの。写し（CC）が付かないと、
+                  司令室が毎時間見ている受信箱に1通も届かず、
+                  最初のお客さんの質問に気づけない（kp72・kp109 と同じ穴の取り残し）。
+                  表に出す文字（宛先そのもの）は変えていない。
+              */}
+              <a
+                href={keiriContactMailto({ to: mail, kind: "support" }).url}
+                className="font-bold text-amber-700 underline"
+              >
                 {mail}
               </a>
             </>
