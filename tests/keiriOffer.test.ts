@@ -8,12 +8,17 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
+  KEIRI_APPLY_OPTIONAL_FIELDS,
+  KEIRI_APPLY_REQUIRED_FIELDS,
   KEIRI_MONTHLY_CLOSE_TIMING,
   KEIRI_OFFER_ITEMS,
   KEIRI_OFFER_NOT_INCLUDED,
   KEIRI_TOP_LINES,
+  keiriApplyOptionalLine,
+  keiriApplyRequiredLine,
   keiriStartSteps,
 } from "../lib/keiri/offer";
 import { KEIRI_CASE_FAQ_QUESTIONS, KEIRI_FAQ, keiriCaseFaq } from "../lib/keiri/support";
@@ -158,6 +163,62 @@ test("お申し込みで必ず入れるのは3つ、と書いてある（apply �
   assert.ok(
     apply.body.includes("お支払いは発生しません"),
     "この画面でお金が動かないことが書かれていない",
+  );
+});
+
+// ------------------------------------------------------------
+// 「いくつ入れるのか」は、本物の入力欄と必ず一致させる（2026-09-20 追加）
+// ------------------------------------------------------------
+/**
+ * ★ここで守るのは、紹介ページとお申し込みページが違う数を言わないこと。
+ *   2026-09-20 まで、紹介ページは「必ず入れるのは3つだけ」、
+ *   その申し込みボタンの先は「下の4つをいただければ」と書いており、
+ *   店主が1回のタップで食い違う2つの約束を見る形になっていた。
+ *   原因は数を画面に直書きしていたことなので、
+ *   ここで「本物の入力欄」と「文章」を突き合わせて固定する。
+ */
+const APPLY_FORM_SRC = readFileSync("app/keiri/apply/ApplyForm.tsx", "utf8");
+const APPLY_PAGE_SRC = readFileSync("app/keiri/apply/page.tsx", "utf8");
+/** 覚え書き（コメント）は画面に出ないので、数の直書きを探すときは先に外す。 */
+const APPLY_PAGE_CODE = APPLY_PAGE_SRC.replace(/\/\*[\s\S]*?\*\//g, "");
+
+test("必ず入れる欄の数と名前が、お申し込みフォームの required と合っている", () => {
+  // required が付いた入力欄の name を拾う（<input ... name="x" ... required ...>）
+  const names = [...APPLY_FORM_SRC.matchAll(/name="([a-zA-Z]+)"[\s\S]{0,400}?required/g)].map(
+    (m) => m[1],
+  );
+  assert.deepEqual(
+    names,
+    ["shopName", "contactName", "email"],
+    "必ず入れる欄が増えた／減った。lib/keiri/offer.ts の KEIRI_APPLY_REQUIRED_FIELDS も直すこと",
+  );
+  assert.equal(
+    KEIRI_APPLY_REQUIRED_FIELDS.length,
+    names.length,
+    "書いてある数と、本物の入力欄の数が合っていない",
+  );
+  assert.ok(keiriApplyRequiredLine().includes(`${names.length}つだけ`), "数の書き方が合っていない");
+});
+
+test("任意の欄（電話番号・ひとこと）は「必ず入れる」に数えていない", () => {
+  assert.deepEqual([...KEIRI_APPLY_OPTIONAL_FIELDS], ["電話番号", "ひとこと"]);
+  for (const f of KEIRI_APPLY_OPTIONAL_FIELDS) {
+    assert.ok(
+      !keiriApplyRequiredLine().includes(f),
+      f + " を「必ず入れていただく」側に書いている",
+    );
+  }
+  assert.ok(keiriApplyOptionalLine().includes("任意"), "任意だと書かれていない");
+});
+
+test("お申し込みページは、数を直書きせず共通の1文から出している", () => {
+  assert.ok(
+    APPLY_PAGE_SRC.includes("keiriApplyRequiredLine()"),
+    "お申し込みページが共通の1文を使っていない（数が食い違う原因になる）",
+  );
+  assert.ok(
+    !/下の[0-9０-９一二三四五六七八九]つ/.test(APPLY_PAGE_CODE),
+    "お申し込みページに欄の数が直書きされている（紹介ページと食い違う）",
   );
 });
 

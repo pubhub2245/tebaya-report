@@ -104,6 +104,37 @@ export function monthlyCloseTiming(cardLive = false): string {
  *
  * ★ここが唯一の正。画面に文章を直書きしない。
  */
+/**
+ * お申し込みフォームで「必ず入れていただく」欄。
+ *
+ * ★ここが唯一の正。紹介ページの①にも、お申し込みページの見出しにも、
+ *   この1本から出す（画面に数字を直書きしない）。
+ *   app/keiri/apply/ApplyForm.tsx の required が付いた欄と1対1で対応する。
+ *   欄を増やす／減らすときは、ここと ApplyForm.tsx を同時に直すこと。
+ *   合っていないと tests/keiriOffer.test.ts が落ちる。
+ *
+ * ■ なぜ1本にしたか（2026-09-20）
+ *   紹介ページは「必ず入れるのは3つだけ」と書いてあるのに、
+ *   その申し込みボタンを押した先のページは「下の4つをいただければ」と
+ *   書いたままだった。店主が1回のタップで、食い違う2つの約束を見る形。
+ *   数を画面に直書きしていたのが原因なので、数えて作るようにした。
+ */
+export const KEIRI_APPLY_REQUIRED_FIELDS = ["お店の名前", "お名前", "メールアドレス"] as const;
+
+/** 任意の欄（入れなくても申し込める）。こちらは「必ず入れる」数に入れない。 */
+export const KEIRI_APPLY_OPTIONAL_FIELDS = ["電話番号", "ひとこと"] as const;
+
+/** 「必ず入れていただくのは3つだけです（…）。」の1文。数字は数えて作る。 */
+export function keiriApplyRequiredLine(): string {
+  const n = KEIRI_APPLY_REQUIRED_FIELDS.length;
+  return `必ず入れていただくのは${n}つだけです（${KEIRI_APPLY_REQUIRED_FIELDS.join("・")}）。`;
+}
+
+/** 「電話番号とひとことは任意です。」の1文。 */
+export function keiriApplyOptionalLine(): string {
+  return `${KEIRI_APPLY_OPTIONAL_FIELDS.join("と")}は任意です。`;
+}
+
 export type KeiriStartStep = { n: string; title: string; body: string };
 
 /**
@@ -115,9 +146,7 @@ export function keiriStartSteps(cardLive = false): KeiriStartStep[] {
     {
       n: "1",
       title: "お申し込み",
-      body:
-        "必ず入れていただくのは3つだけです（お店の名前・お名前・メールアドレス）。" +
-        "この画面でお支払いは発生しません。",
+      body: keiriApplyRequiredLine() + "この画面でお支払いは発生しません。",
     },
     cardLive
       ? {
