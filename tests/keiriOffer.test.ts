@@ -14,7 +14,9 @@ import {
   KEIRI_OFFER_ITEMS,
   KEIRI_OFFER_NOT_INCLUDED,
   KEIRI_TOP_LINES,
+  keiriStartSteps,
 } from "../lib/keiri/offer";
+import { KEIRI_CASE_FAQ_QUESTIONS, KEIRI_FAQ, keiriCaseFaq } from "../lib/keiri/support";
 import { offerSummaryForLegal, tokushohoRows } from "../lib/keiri/legal";
 import { priceLabel } from "../lib/keiri/caseNumbers";
 
@@ -111,5 +113,68 @@ test("会社の情報・販売価格は、カードが使えるかどうかで�
       on.find((r) => r.label === label)!.value,
       label + " が食い違っている",
     );
+  }
+});
+
+// ============================================================
+// 申し込んでから、使い始めるまで（2026-09-20 追加・kp110）
+// ============================================================
+/**
+ * ★ここで守るのは、紹介ページが「守れない約束」をしないこと。
+ *   とくに、初回設定とお申し込みの「入れるのは3つだけ」は、
+ *   画面の入力欄が増えた瞬間に嘘になる。数字を書いた以上は固定する。
+ */
+test("申し込んでからの流れは4段階で、どれも見出しと中身がある", () => {
+  const steps = keiriStartSteps(false);
+  assert.equal(steps.length, 4);
+  assert.deepEqual(
+    steps.map((s) => s.n),
+    ["1", "2", "3", "4"],
+  );
+  for (const s of steps) {
+    assert.ok(s.title.length > 0, "見出しが空");
+    assert.ok(s.body.length > 0, "中身が空");
+  }
+});
+
+test("カードで払えないときは、②が「担当からご案内」になる（起きないことを書かない）", () => {
+  const off = keiriStartSteps(false)[1];
+  assert.ok(!off.body.includes("カード"), "カードで払えないのにカードと書いている");
+  assert.ok(off.body.includes("1営業日以内"), "いつ連絡が来るかが書かれていない");
+
+  const on = keiriStartSteps(true)[1];
+  assert.ok(on.body.includes("カード"), "カードで払えるのにカードと書いていない");
+});
+
+test("初回設定は3つだけ、と書いてある（welcome の入力欄が増えたら直すこと）", () => {
+  const setup = keiriStartSteps(false)[2];
+  assert.ok(setup.body.includes("3つだけ"), "初回設定が3つだけだと書かれていない");
+  assert.ok(setup.body.includes("書類はありません"), "用意する書類が無いことが書かれていない");
+});
+
+test("お申し込みで必ず入れるのは3つ、と書いてある（apply の required と合わせる）", () => {
+  const apply = keiriStartSteps(false)[0];
+  assert.ok(apply.body.includes("3つだけ"), "必ず入れるのが3つだと書かれていない");
+  assert.ok(
+    apply.body.includes("お支払いは発生しません"),
+    "この画面でお金が動かないことが書かれていない",
+  );
+});
+
+test("紹介ページに出す質問は、よくある質問に実在する（片方だけ消えると黙って減る）", () => {
+  assert.equal(KEIRI_CASE_FAQ_QUESTIONS.length, 4);
+  for (const q of KEIRI_CASE_FAQ_QUESTIONS) {
+    assert.ok(
+      KEIRI_FAQ.some((f) => f.q === q),
+      "よくある質問に無い質問を紹介ページに出そうとしている: " + q,
+    );
+  }
+  assert.equal(keiriCaseFaq().length, KEIRI_CASE_FAQ_QUESTIONS.length);
+});
+
+test("紹介ページの答えは、よくある質問の文をそのまま使う（2か所に書かない）", () => {
+  for (const f of keiriCaseFaq()) {
+    const src = KEIRI_FAQ.find((x) => x.q === f.q)!;
+    assert.equal(f.a, src.a, "答えの文が食い違っている: " + f.q);
   }
 });

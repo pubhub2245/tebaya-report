@@ -17,7 +17,9 @@ import {
   KEIRI_OFFER_ITEMS,
   KEIRI_OFFER_NOT_INCLUDED,
   KEIRI_TOP_LINES,
+  keiriStartSteps,
 } from "@/lib/keiri/offer";
+import { keiriCaseFaq } from "@/lib/keiri/support";
 import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
 import { keiriMetadata } from "@/lib/keiri/metadata";
 
@@ -266,6 +268,50 @@ export default async function KeiriCasePage() {
             </li>
           ))}
         </ul>
+      </section>
+
+      {/* ---------- 申し込んでから、使い始めるまで ---------- */}
+      {/* ★申し込みボタンの「すぐ上」に置く。押したあと自分に何が起きるかを
+            知らないまま押す人はいないので、値段より前ではなく直前に出す。
+            文言は lib/keiri/offer.ts からだけ引く（ここに約束を直書きしない）。 */}
+      <section className="mb-10">
+        <h2 className="text-lg font-bold text-stone-900">申し込んでから、使い始めるまで</h2>
+        <ol className="mt-4 space-y-3">
+          {keiriStartSteps(cardLive).map((s) => (
+            <li key={s.n} className="flex gap-4">
+              <span className="flex-none w-8 h-8 rounded-full bg-stone-200 text-stone-700 font-bold flex items-center justify-center">
+                {s.n}
+              </span>
+              <div>
+                <p className="font-bold text-stone-900">{s.title}</p>
+                <p className="mt-1 text-sm text-stone-600 leading-relaxed">{s.body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      {/* ---------- 申し込む前に、よく聞かれること ---------- */}
+      {/* ★答えは増やさない。lib/keiri/support.ts の KEIRI_FAQ をそのまま出す。
+            「困ったとき」のページ（/keiri/help）にある答えのうち、決める直前に
+            いちばん効く4つだけを、ここへ持ってくる。 */}
+      <section className="mb-10">
+        <h2 className="text-lg font-bold text-stone-900">申し込む前に、よく聞かれること</h2>
+        <dl className="mt-4 space-y-3">
+          {keiriCaseFaq().map((f) => (
+            <div key={f.q} className="rounded-xl bg-white border border-stone-200 p-4">
+              <dt className="font-bold text-stone-900">{f.q}</dt>
+              <dd className="mt-1 text-sm text-stone-600 leading-relaxed">{f.a}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-3 text-sm text-stone-500">
+          ほかの質問は{" "}
+          <Link href="/keiri/help" className="underline font-bold text-stone-700">
+            困ったときのページ
+          </Link>{" "}
+          にまとめてあります。
+        </p>
       </section>
 
       {/* ---------- 価格と申し込み ---------- */}
