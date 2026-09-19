@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 
-import { serverClient } from "@/lib/supabaseServer";
+import { serverClient, serviceClientOrNull } from "@/lib/supabaseServer";
 import { hashSecret } from "@/lib/keiri/tenants";
 import { normalizeTenantScope } from "@/lib/tenantScope";
+import { loginTenantViaRpc } from "@/lib/keiri/tenantAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +31,12 @@ export const dynamic = "force-dynamic";
  *   合言葉そのもの・ハッシュ・他のお店のことは返しません。
  *   合わなかったときは「違います」しか返しません
  *   （「そのお店は無い」と返すと、お店がある／無いが外から分かってしまうため）。
+ *
+ * ■ サーバー側の合鍵が壊れていても通ります（2026-09-19・kp93）
+ *   お店の置き場には鍵が掛かっているので、合鍵が壊れている間（kp55）は
+ *   払った店主が **必ず**「パスワードが違います」になっていました。
+ *   そこで、まず倉庫の窓口（keiri_tenant_login）に聞き、
+ *   窓口がまだ無いときだけ、今までどおり棚を直接さわります。
  */
 
 type Body = { password?: unknown };
@@ -66,11 +73,27 @@ export async function POST(req: NextRequest) {
   }
 
   // ② 申し込んだお店の合言葉（戻せない形で倉庫に置いてある）
-  const supabase = serverClient();
+  const passwordHash = hashSecret(password);
+
+  // まず倉庫の窓口に聞く（サーバー側の合鍵が壊れていても通る道）
+  const viaRpc = await loginTenantViaRpc(serverClient(), passwordHash);
+  if (viaRpc.ok) {
+    const tenantId = normalizeTenantScope(viaRpc.tenant?.tenantId);
+    if (!viaRpc.tenant || !tenantId) return denied();
+    return NextResponse.json({
+      ok: true,
+      scope: "tenant",
+      tenantId,
+      shopName: viaRpc.tenant.shopName,
+    });
+  }
+
+  // 窓口がまだ無いとき（または呼べなかったとき）は、今までどおり棚を直接さわる
+  const supabase = serviceClientOrNull() ?? serverClient();
   const { data, error } = await supabase
     .from("keiri_tenants")
     .select("id, shop_name, status")
-    .eq("admin_password_hash", hashSecret(password))
+    .eq("admin_password_hash", passwordHash)
     .eq("status", "active")
     .limit(1);
 

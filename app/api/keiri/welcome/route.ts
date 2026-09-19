@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { serverClient } from "@/lib/supabaseServer";
+import { serverClient, serviceClientOrNull } from "@/lib/supabaseServer";
 import {
   checkWelcomeInput,
   generateAdminPassword,
   hashSecret,
   tenantBusinessCode,
 } from "@/lib/keiri/tenants";
+import { activateTenantViaRpc } from "@/lib/keiri/tenantAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,13 @@ export const dynamic = "force-dynamic";
  * ■ 手羽屋のデータは触りません
  *   書き込むのは keiri_tenants と、そのお店ぶんの keiri_settings の行だけです。
  *   手羽屋の設定（tenant_id が空の行）には一切触れません。
+ *
+ * ■ サーバー側の合鍵が壊れていても通ります（2026-09-19・kp93）
+ *   お店の置き場には鍵が掛かっているので、合鍵が壊れている間（kp55）は
+ *   ここが必ず「このリンクは使えません」になっていました。
+ *   そこで、まず倉庫の窓口（keiri_tenant_activate）に頼み、
+ *   窓口がまだ無いときだけ、今までどおり棚を直接さわります。
+ *   ＝ 鍵が直っても、窓口を落としても、どちらでも動きます。
  */
 
 type Body = {
@@ -39,6 +47,32 @@ type Body = {
   openingDate?: unknown;
   openingBalance?: unknown;
 };
+
+/**
+ * 数え始めの日と手元の現金だけ入らなかったときの案内。
+ * お店の行はできているので日報は今日から打てる。ここで止めない。
+ */
+const SETTINGS_WARNING =
+  "数え始めの日と手元の現金だけ、こちらで入れます。「困ったとき」からご一報ください（日報は今日から打てます）。";
+
+/** リンクが違うとき */
+function notFound() {
+  return NextResponse.json(
+    { ok: false, message: "このリンクは使えません。申し込み完了の画面から開き直してください。" },
+    { status: 404 },
+  );
+}
+
+/** もう初回設定が終わっているとき */
+function alreadyDone() {
+  return NextResponse.json(
+    {
+      ok: false,
+      message: "このお店の初回設定はもう終わっています。合言葉を忘れた場合は「困ったとき」からご連絡ください。",
+    },
+    { status: 409 },
+  );
+}
 
 export async function POST(req: NextRequest) {
   let body: Body;
@@ -66,7 +100,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, message: checked.message }, { status: 400 });
   }
 
-  const supabase = serverClient();
+  const adminPassword = generateAdminPassword();
+
+  // ① まず倉庫の窓口に頼む（サーバー側の合鍵が壊れていても通る道）
+  const viaRpc = await activateTenantViaRpc(serverClient(), {
+    token,
+    session,
+    shopName: checked.value.shopName,
+    openingDate: checked.value.openingDate,
+    openingBalance: checked.value.openingBalance,
+    adminPasswordHash: hashSecret(adminPassword),
+  });
+
+  if (viaRpc.outcome === "ok") {
+    return NextResponse.json({
+      ok: true,
+      adminPassword,
+      tenantId: viaRpc.tenantId,
+      ...(viaRpc.settingsOk ? {} : { warning: SETTINGS_WARNING }),
+    });
+  }
+  if (viaRpc.outcome === "not_found") return notFound();
+  if (viaRpc.outcome === "already") return alreadyDone();
+
+  // ② 窓口がまだ無いとき（または呼べなかったとき）は、今までどおり棚を直接さわる
+  const supabase = serviceClientOrNull() ?? serverClient();
 
   // どのお店の初回設定かを、長い合言葉で1軒だけ引く
   const query = supabase.from("keiri_tenants").select("id, status").limit(1);
@@ -83,24 +141,8 @@ export async function POST(req: NextRequest) {
   }
 
   const tenant = data?.[0];
-  if (!tenant) {
-    return NextResponse.json(
-      { ok: false, message: "このリンクは使えません。申し込み完了の画面から開き直してください。" },
-      { status: 404 },
-    );
-  }
-
-  if (tenant.status !== "pending") {
-    return NextResponse.json(
-      {
-        ok: false,
-        message: "このお店の初回設定はもう終わっています。合言葉を忘れた場合は「困ったとき」からご連絡ください。",
-      },
-      { status: 409 },
-    );
-  }
-
-  const adminPassword = generateAdminPassword();
+  if (!tenant) return notFound();
+  if (tenant.status !== "pending") return alreadyDone();
 
   const { error: upErr } = await supabase
     .from("keiri_tenants")
@@ -137,18 +179,13 @@ export async function POST(req: NextRequest) {
 
   if (setErr) {
     // 設定の行だけ作れなかった場合。お店の行はできているので日報は打てる。
-    // ここで止めずに、あとで入れ直す約束だけ返す。
     console.error("[経理 初回設定] 設定の行を作れませんでした：", setErr.message);
     return NextResponse.json({
       ok: true,
       adminPassword,
       // このブラウザを「このお店」として覚えるための番号（日報と経理画面の絞り込みに使う）
       tenantId: String(tenant.id),
-      // ★お店の行はできているので、日報は今日から打てる。
-      //   ここで止めない。ただし「管理画面から入れ直して」とは案内しない
-      //   （数え始めの日と手元の現金の画面は、まだ手羽屋ぶんしか無いため）。
-      warning:
-        "数え始めの日と手元の現金だけ、こちらで入れます。「困ったとき」からご一報ください（日報は今日から打てます）。",
+      warning: SETTINGS_WARNING,
     });
   }
 
