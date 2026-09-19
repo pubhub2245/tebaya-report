@@ -70,7 +70,11 @@ test("読めても鍵が壊れていれば、ok にしない（控えが黙っ�
   const r = describeRecordStore({ ok: true, reason: null }, key);
   assert.equal(r.ok, false); // ← ここが肝。読めた＝大丈夫、にしない
   assert.equal(r.readable, true); // 表そのものは在る、という事実は残す
-  assert.ok(r.note.includes("言い切れません"));
+  // 「残っていない」と断定しない言い方であること（2026-09-19・kp89）。
+  // 9/19 に棚を「入れるだけのポスト」にしたので控えは残るが、
+  // ここからは読めないので「確かめられない」が正しい。
+  assert.ok(r.note.includes("確かめられません"));
+  assert.ok(!r.note.includes("残りません"));
 });
 
 test("読めないときは readable も false にする", () => {
