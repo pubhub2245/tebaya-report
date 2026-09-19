@@ -19,6 +19,12 @@ import {
   KEIRI_TOP_LINES,
   keiriStartSteps,
 } from "@/lib/keiri/offer";
+import {
+  SAMPLE_LEAD,
+  SAMPLE_NOTICE,
+  buildMonthlySample,
+  sampleYen,
+} from "@/lib/keiri/monthlySample";
 import { keiriCaseFaq } from "@/lib/keiri/support";
 import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
 import { keiriMetadata } from "@/lib/keiri/metadata";
@@ -94,6 +100,8 @@ export default async function KeiriCasePage() {
   /* カードでその場で払えるか。画面の言い方（解約のしかた等）はここだけを見て決める */
   const cardLive = link !== null;
   const stats = await getCaseStats();
+  /* 毎月お届けするものの見本。架空のお店の数字を、本物と同じ関数に計算させる */
+  const sample = buildMonthlySample();
   const c = { shopName: CASE_TEBAYA.shopName, ...stats };
 
   return (
@@ -268,6 +276,88 @@ export default async function KeiriCasePage() {
             </li>
           ))}
         </ul>
+      </section>
+
+      {/* ---------- 毎月お届けするもの（見本） ---------- */}
+      {/* ★含まれるもの②「毎月の締め」のすぐ下に置く。
+            月15,000円の重いほうは「毎月の締めをこちらでやって渡す」なのに、
+            その渡すものが文章でしか書かれておらず、どこにも見えていなかった。
+            数字は lib/keiri/monthlySample.ts が本物と同じ関数で計算したものだけを出す
+            （ここに金額を直書きしない。書いたらそれは嘘の約束になる）。 */}
+      <section className="mb-10">
+        <h2 className="text-lg font-bold text-stone-900">毎月お届けするもの（見本）</h2>
+        <p className="mt-1 text-sm text-stone-600 leading-relaxed">{SAMPLE_LEAD}</p>
+
+        <div className="mt-4 rounded-2xl border border-stone-200 bg-white p-5">
+          <p className="text-xs font-bold text-amber-700">1枚の要約</p>
+          <p className="mt-1 text-sm text-stone-500">
+            {sample.monthLabel}・{sample.shopName}
+          </p>
+
+          <dl className="mt-3 divide-y divide-stone-100">
+            {sample.headline.map((line) => (
+              <div key={line.label} className="flex items-baseline justify-between gap-3 py-2">
+                <dt className="text-sm text-stone-600">{line.label}</dt>
+                <dd className="font-bold text-stone-900 tabular-nums">{sampleYen(line.yen)}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <p className="mt-4 text-xs font-bold text-stone-500">経費の内訳</p>
+          <ul className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">
+            {sample.expenses.map((e) => (
+              <li
+                key={e.label}
+                className="flex items-baseline justify-between gap-3 text-sm text-stone-700"
+              >
+                <span>{e.label}</span>
+                <span className="tabular-nums">{sampleYen(e.yen)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-stone-200 bg-white p-5">
+          <p className="text-xs font-bold text-amber-700">会計ソフトに取り込めるCSV</p>
+          <p className="mt-1 text-sm text-stone-500">
+            全部で{sample.journalRowCount}行のうち、はじめの{sample.journalRows.length}行です。
+          </p>
+          <div className="mt-3 -mx-1 overflow-x-auto">
+            <table className="w-full min-w-[34rem] text-xs">
+              <thead>
+                <tr className="text-stone-500">
+                  {sample.journalHeaders.map((h) => (
+                    <th key={h} className="px-1 py-1 text-left font-bold whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="text-stone-700">
+                {sample.journalRows.map((r, i) => (
+                  <tr key={`${r.date}-${i}`} className="border-t border-stone-100">
+                    <td className="px-1 py-1 whitespace-nowrap">{r.date}</td>
+                    <td className="px-1 py-1 whitespace-nowrap">{r.debitAccount}</td>
+                    <td className="px-1 py-1 whitespace-nowrap tabular-nums">
+                      {r.debitAmount.toLocaleString("ja-JP")}
+                    </td>
+                    <td className="px-1 py-1 whitespace-nowrap">{r.creditAccount}</td>
+                    <td className="px-1 py-1 whitespace-nowrap tabular-nums">
+                      {r.creditAmount.toLocaleString("ja-JP")}
+                    </td>
+                    <td className="px-1 py-1">{r.note}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs text-stone-500 leading-relaxed">
+            マネーフォワード クラウド会計へは、同じ中身を仕訳帳インポートの形（
+            {sample.mfColumnCount}列）でお出しします。
+          </p>
+        </div>
+
+        <p className="mt-3 text-xs text-stone-500 leading-relaxed">{SAMPLE_NOTICE}</p>
       </section>
 
       {/* ---------- 申し込んでから、使い始めるまで ---------- */}
