@@ -65,12 +65,25 @@ function googleVerificationPaths(): string[] {
   }
 }
 
+/**
+ * 検索エンジンに「必ず」読ませる、ページ一覧まわりの2つ。
+ *
+ * ★ここが今回の直し（2026-09-19）。
+ *   ページ一覧（sitemap.xml）そのものが、下の「原則ぜんぶことわる」に当たっていた。
+ *   ページ一覧は「どのページが在るか」を検索エンジンに渡す紙なので、
+ *   これが読めないと、Search Console に出しても中身を見てもらえない。
+ *   ＝売り場を16ページ許していても、その一覧だけ届かない状態だった。
+ *   robots.txt 自身は仕様上いつでも読まれるが、書いておくほうが誤解が無い。
+ */
+const ALWAYS_ALLOWED = ["/sitemap.xml", "/robots.txt"];
+
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
       {
         userAgent: "*",
         allow: [
+          ...ALWAYS_ALLOWED,
           ...KEIRI_PUBLIC_PAGES.map((p) => p.path),
           ...indexNowKeyPaths(),
           ...googleVerificationPaths(),
