@@ -95,18 +95,50 @@ export function anonKeyStatus(): KeyCheck {
 }
 
 /**
+ * 「毎回、倉庫に取りに行く」ための取り方。
+ *
+ * ■ なぜ要るか（2026-09-19・kp99 で実測して分かったこと）
+ *   Next.js は、サーバー側から出す問い合わせの答えを**覚えておいて使い回す**ことがある。
+ *   数を見せる窓口（/api/hit/summary）でこれが起きると、
+ *   **表に行が入ったあとも、空っぽだった時の答えを返し続ける**。
+ *   実際、9/19 の 10:43（表が空）に一度読んだあと、
+ *   10:44 と 10:47 に行が入っても、10:49 まで「0」を返し続けた。
+ *   ＝ じゅんが見る3つの数字のうち「訪問」が、**動いても動かなく見える**。
+ *
+ * ■ 直し方
+ *   その問い合わせにだけ「覚えないで」と付ける（`cache: "no-store"`）。
+ *   数を数える所・診断する所だけに付け、**手羽屋が毎日使う所には付けない**
+ *   （既定の取り方は1文字も変えていない＝今までどおり動く）。
+ */
+export function noStoreFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  return fetch(input, { ...(init ?? {}), cache: "no-store" });
+}
+
+/** 接続のしかた。`fresh` を付けたときだけ「覚えないで」を足す */
+export type ServerClientOptions = { fresh?: boolean };
+
+function clientOptions(opts?: ServerClientOptions) {
+  return opts?.fresh ? { global: { fetch: noStoreFetch } } : undefined;
+}
+
+/**
  * サーバー側で使う倉庫への接続。
  *
  * マスターキーが使えるならそれを使い、
  * **壊れているときは通常の鍵に戻して動かし続ける**。
  * （マスターキーが要る処理だけが失敗し、アプリ全体は止まらない）
+ *
+ * `{ fresh: true }` を付けると、答えを覚えずに毎回倉庫へ取りに行く（数を見せる所だけで使う）。
  */
-export function serverClient(): SupabaseClient {
+export function serverClient(opts?: ServerClientOptions): SupabaseClient {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
   const service = serviceRoleKeyStatus();
   const anon = anonKeyStatus();
 
-  if (service.ok) return createClient(url, service.key);
+  if (service.ok) return createClient(url, service.key, clientOptions(opts));
 
   if (!service.ok && service.reason !== "未設定") {
     console.error(
@@ -115,21 +147,21 @@ export function serverClient(): SupabaseClient {
     );
   }
   // 通常の鍵も壊れているなら、どのみち動かない。そのまま渡してエラーを出す
-  return createClient(url, anon.ok ? anon.key : "");
+  return createClient(url, anon.ok ? anon.key : "", clientOptions(opts));
 }
 
 /**
  * マスターキーが必要な処理（バックアップ・写真の引っ越しなど）専用の接続。
  * 使えないときは null を返す。呼び出し側は理由を利用者に伝えること。
  */
-export function serviceClientOrNull(): SupabaseClient | null {
+export function serviceClientOrNull(opts?: ServerClientOptions): SupabaseClient | null {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
   // 全角が混ざっているだけなら、形を確かめたうえで直して使う（2026-09-19・kp67）。
   // 直せなければ今までどおり null。ここは「使えないと何もできない」所なので、
   // 直して動くほうが必ず良く、直しが外れても今と同じ（何もできない）で済む。
   const service = serviceRoleKeyRepair(url);
   if (!url || !service.ok) return null;
-  return createClient(url, service.key);
+  return createClient(url, service.key, clientOptions(opts));
 }
 
 /* ============================================================

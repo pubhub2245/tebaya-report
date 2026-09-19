@@ -51,7 +51,7 @@ async function checkTable(table: string): Promise<TableCheck> {
   try {
     // サーバー側の合鍵が使えるならそちらで読む。
     // ＝ ここが「直した鍵が本当に通るか」の実地の確かめにもなる（2026-09-19・kp67）。
-    const supabase = serviceClientOrNull() ?? serverClient();
+    const supabase = serviceClientOrNull({ fresh: true }) ?? serverClient({ fresh: true });
     const { error } = await supabase.from(table).select("*").limit(1);
     if (!error) return { ok: true, reason: null };
     return { ok: false, reason: describeTableError(error.code, error.message) };
@@ -81,7 +81,7 @@ async function checkNotify(): Promise<NotifyFacts> {
   let groupId = process.env.LINE_GROUP_ID;
   if (!groupId) {
     try {
-      const { data } = await serverClient()
+      const { data } = await serverClient({ fresh: true })
         .from("line_groups")
         .select("group_id")
         .eq("is_active", true)
@@ -141,7 +141,7 @@ async function checkVisits(direct: TableCheck): Promise<RecordStoreReport> {
   }
   // 読めない。では「数だけ答える窓口」は動くか
   try {
-    const db = serviceClientOrNull() ?? serverClient();
+    const db = serviceClientOrNull({ fresh: true }) ?? serverClient({ fresh: true });
     const agg = await db.rpc("site_visits_summary", { days: 7 });
     if (!agg.error && Array.isArray(agg.data)) {
       return {
@@ -173,7 +173,7 @@ async function checkVisits(direct: TableCheck): Promise<RecordStoreReport> {
  */
 async function checkTenantRpc(): Promise<{ usable: boolean; note: string }> {
   try {
-    const probe = await probeTenantRpc(serverClient());
+    const probe = await probeTenantRpc(serverClient({ fresh: true }));
     if (probe.usable) {
       return {
         usable: true,
