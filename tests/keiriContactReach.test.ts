@@ -110,3 +110,95 @@ test("特商法のページの連絡先は、押すと写し付きの下書き�
     "写しの宛先を画面の文字として出さない（表示は法律の話・写しは受け取りの話）",
   );
 });
+
+/* ──────────────────────────────────────────────────────────────
+ * 2026-09-20 追加（司令室 kp112）
+ *
+ * 上の守りは「`mailto:${KEIRI_COMPANY.email}` という**そのままの文字**が
+ * 3ページに残っていないか」しか見ていなかった。
+ * ところが同じ間違いを *別の変数名* で書くと、そのまま通り抜けていた：
+ *   ・app/keiri/apply/ApplyForm.tsx … `mailto:${email}`（申し込み完了の「お急ぎのときは」）
+ *   ・app/keiri/help/page.tsx        … `mailto:${mail}`（困ったときの窓口）
+ * どちらも写し（CC）が付かないので、そこから来た連絡は
+ * 司令室が毎時間見ている受信箱に1通も届かない。
+ *
+ * ＝ 変数名に頼るのをやめ、**app/keiri の下に "mailto:" の文字が1つも無いこと**を守る。
+ *   下書きのリンクは lib/keiri/*.ts（keiriApplyMailto / keiriContactMailto）だけが作る。
+ *   こうしておけば、次に誰がどんな変数名で書いても、その場でテストが落ちる。
+ * ────────────────────────────────────────────────────────────── */
+
+import { readdirSync, statSync } from "node:fs";
+import { keiriApplyMailto } from "../lib/keiri/apply";
+
+/** app/keiri の下のファイルを全部あげる（入れ物の中まで見る） */
+function filesUnder(dir: string): string[] {
+  const base = new URL(`../${dir}/`, import.meta.url);
+  const out: string[] = [];
+  for (const name of readdirSync(base)) {
+    const rel = `${dir}/${name}`;
+    if (statSync(new URL(`../${rel}`, import.meta.url)).isDirectory()) {
+      out.push(...filesUnder(rel));
+    } else if (/\.(ts|tsx)$/.test(name)) {
+      out.push(rel);
+    }
+  }
+  return out;
+}
+
+test("経理パッケージの画面には、素の mailto を1つも書かない（変数名に頼らない）", () => {
+  const files = filesUnder("app/keiri");
+  assert.ok(files.length >= 15, `画面のファイルが数えられていること（${files.length}件）`);
+  const offenders = files.filter((f) => read(f).includes("mailto:"));
+  assert.deepEqual(
+    offenders,
+    [],
+    "下書きのリンクは lib/keiri の keiriApplyMailto / keiriContactMailto だけが作ること" +
+      "（写しが付かない宛先を画面に置くと、そこから来た連絡に司令室が気づけない）",
+  );
+});
+
+test("お申し込み完了の「お急ぎのときは」も、写し付きの下書きが開く", () => {
+  const mail = keiriApplyMailto({
+    to: KEIRI_COMPANY.email,
+    kind: "hurry",
+    shopName: "テスト屋",
+    contactName: "川畑",
+    email: "shop@example.com",
+  });
+  assert.equal(mail.cc, KEIRI_APPLY_COPY_TO);
+  assert.deepEqual(mail.recipients, [KEIRI_COMPANY.email, KEIRI_APPLY_COPY_TO]);
+  assert.equal(mail.subject, "経理パッケージ お申し込みのお急ぎのご連絡（テスト屋）");
+  // すでに受け付けが済んでいることを、こちらが読んで分かる形にしておく
+  assert.ok(mail.body.includes("お急ぎでご連絡します。"));
+  assert.ok(mail.body.includes("受け付けは済んでいます"));
+  // 打ち直しをさせない＝入れてもらった中身がそのまま入っている
+  assert.ok(mail.body.includes("テスト屋"));
+  assert.ok(mail.body.includes("shop@example.com"));
+  assert.ok(!mail.body.includes("送れなかったため"), "届かなかったときの文面と混ぜない");
+});
+
+test("困ったときの窓口は、使い方の質問用の下書きになる（写しも付く）", () => {
+  const mail = keiriContactMailto({ to: KEIRI_COMPANY.email, kind: "support" });
+  assert.equal(mail.cc, KEIRI_APPLY_COPY_TO);
+  assert.equal(mail.subject, "経理パッケージ 使い方のご質問");
+  assert.ok(mail.body.includes("使い方で分からないところがあります。"));
+  assert.ok(mail.body.includes("困っていること："));
+  assert.ok(!mail.body.includes("申し込みます"), "問い合わせの下書きを申し込みの文面にしない");
+});
+
+test("買う前の問い合わせの文面は、これまでどおり変えていない", () => {
+  const before = keiriContactMailto({ to: KEIRI_COMPANY.email });
+  assert.equal(before.subject, "経理パッケージのお問い合わせ");
+  assert.ok(before.body.includes("聞きたいこと："));
+});
+
+test("画面ごとに、どの下書きを使うかを決めておく", () => {
+  assert.ok(
+    read("app/keiri/help/page.tsx").includes('keiriContactMailto({ to: mail, kind: "support" })'),
+    "困ったときのページは support の下書きを使うこと",
+  );
+  assert.ok(
+    read("app/keiri/apply/ApplyForm.tsx").includes('kind: "hurry"'),
+    "お申し込み完了の「お急ぎのときは」は hurry の下書きを使うこと",
+  );
+});

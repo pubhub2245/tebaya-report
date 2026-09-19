@@ -211,8 +211,14 @@ export function keiriApplyMailto(args: {
    *           知らせは LINE で飛んでいるので届いてはいるが、
    *           あとから一覧で見返せる形が1つも無い状態。
    *           そのための「念のための控え」で、送らなくても申し込みは生きている。
+   * "hurry" … 受け付けは済んでいて、そのあと本人が急いで連絡してくるとき
+   *           （2026-09-20・お申し込み完了の画面の「お急ぎのときは」）。
+   *           ★ここが一番あぶない。**すでに申し込んだ人**が、返事を待てずに催促する場面で、
+   *             いちばん熱い相手が自分から連絡してくる。
+   *             それまで素の宛先1つ（写しなし）だったので、
+   *             司令室が毎時間見ている受信箱には1通も届かなかった。
    */
-  kind?: "fallback" | "copy";
+  kind?: "fallback" | "copy" | "hurry";
   shopName?: unknown;
   contactName?: unknown;
   email?: unknown;
@@ -236,13 +242,20 @@ export function keiriApplyMailto(args: {
   const note = text(args.note);
 
   const kind = args.kind ?? "fallback";
-  const head = kind === "copy" ? "経理パッケージ お申し込みの控え" : "経理パッケージ お申し込み";
+  const head =
+    kind === "copy"
+      ? "経理パッケージ お申し込みの控え"
+      : kind === "hurry"
+        ? "経理パッケージ お申し込みのお急ぎのご連絡"
+        : "経理パッケージ お申し込み";
   const subject = shopName ? `${head}（${shopName}）` : head;
 
   const lines = [
     kind === "copy"
       ? "経理パッケージに申し込みました（控えです）。"
-      : "経理パッケージに申し込みます。",
+      : kind === "hurry"
+        ? "経理パッケージに申し込んだ件で、お急ぎでご連絡します。"
+        : "経理パッケージに申し込みます。",
     "",
     `お店：${shopName || "（未記入）"}`,
     `お名前：${contactName || "（未記入）"}`,
@@ -254,7 +267,9 @@ export function keiriApplyMailto(args: {
     "",
     kind === "copy"
       ? "（お申し込みフォームからの受け付けは済んでいます。控えとしてお送りしています）"
-      : "（お申し込みフォームから送れなかったため、メールでお送りしています）",
+      : kind === "hurry"
+        ? "（お申し込みフォームからの受け付けは済んでいます。急ぎのご連絡です）"
+        : "（お申し込みフォームから送れなかったため、メールでお送りしています）",
   );
 
   const body = lines.join("\n");
@@ -323,6 +338,16 @@ export function keiriContactMailto(args: {
   to: string;
   /** 写し（CC）。何も渡さなければ KEIRI_APPLY_COPY_TO。null を渡すと写しを付けない */
   cc?: string | null;
+  /**
+   * どの窓口から出す下書きか（2026-09-20）。
+   * "contact"（既定）… 買う前の問い合わせ（紹介ページ・特商法のページ）
+   * "support" … すでに使っているお店からの使い方の質問（困ったときのページ）。
+   *   ★ここは「払ったあとの窓口」なので、届かないと商品の約束
+   *     （月15,000円に含まれる「聞かれたことに答える窓口」）そのものが成り立たない。
+   *     それまで素の宛先1つ（写しなし）だったので、
+   *     司令室が毎時間見ている受信箱には1通も届かなかった。
+   */
+  kind?: "contact" | "support";
 }): {
   subject: string;
   body: string;
@@ -331,16 +356,20 @@ export function keiriContactMailto(args: {
   cc: string | null;
   recipients: string[];
 } {
-  const subject = "経理パッケージのお問い合わせ";
+  const kind = args.kind ?? "contact";
+  const subject =
+    kind === "support" ? "経理パッケージ 使い方のご質問" : "経理パッケージのお問い合わせ";
 
   const body = [
-    "経理パッケージについて聞きたいことがあります。",
+    kind === "support"
+      ? "経理パッケージの使い方で分からないところがあります。"
+      : "経理パッケージについて聞きたいことがあります。",
     "",
     "お店：",
     "お名前：",
     "お電話（任意）：",
     "",
-    "聞きたいこと：",
+    kind === "support" ? "困っていること：" : "聞きたいこと：",
     "",
   ].join("\n");
 
