@@ -30,6 +30,7 @@ import { useSearchParams } from "next/navigation";
 import { normalizeTenantScope, writeTenantScope } from "@/lib/tenantScope";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
 import { paidPendingMailto } from "@/lib/keiri/paidPending";
+import { KEIRI_FIRST_DAY_INTRO, KEIRI_FIRST_DAY_STEPS } from "@/lib/keiri/support";
 
 /**
  * ★ 入れ物を1枚かぶせてある理由
@@ -197,6 +198,23 @@ function WelcomeForm() {
             営業が終わったら「営業後日報」を打つだけです。
             月の利益・いまの手元の現金・まだ払っていないお金は自動で出ます。
           </div>
+        </div>
+
+        {/* ★はじめの1回だけの案内（2026-09-19）。
+            初回設定では3つしか入れないので、出店場所・担当者・商品の一覧は空で始まる。
+            そのことを先に言っておかないと、最初に日報を開いたときに
+            「選択肢が空＝まだ使えない」と受け取られる。文言は lib/keiri/support.ts が正。 */}
+        <div className="card text-sm leading-relaxed space-y-3">
+          <div className="font-bold">はじめの1回だけ：お店の設定</div>
+          <div className="text-stone-600">{KEIRI_FIRST_DAY_INTRO}</div>
+          <ul className="space-y-2">
+            {KEIRI_FIRST_DAY_STEPS.map((s) => (
+              <li key={s.title} className="rounded-xl bg-stone-100 px-3 py-2">
+                <div className="font-bold text-stone-800">{s.title}</div>
+                <div className="text-stone-600 mt-0.5">{s.body}</div>
+              </li>
+            ))}
+          </ul>
         </div>
 
         {tenantId && (

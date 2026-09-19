@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
 import { KEIRI_COMPANY, companyRows, tokushohoRows } from "@/lib/keiri/legal";
+import { keiriContactMailto } from "@/lib/keiri/apply";
 import { cardCheckoutLive } from "@/lib/keiri/caseNumbers";
 
 /**
@@ -42,6 +43,15 @@ export default function KeiriLegalPage() {
        （どちらも実際には起きないため）。受付口ができたら自動で元に戻る。 */
   const cardLive = cardCheckoutLive();
 
+  /* ★お問い合わせの宛先は「押すと下書きが開く」形にする（2026-09-19）。
+       表に出す文字は KEIRI_COMPANY.email のまま（特商法の表示は法律の話）。
+       変えるのは受け取り方だけで、下書きには写し（CC）として
+       手羽屋の Gmail が付く。ここが素の文字のままだと、
+       このページを見て連絡した最初の1件が、司令室の見ていない受信箱に
+       1通だけ届いて気づかれない（/keiri/case と /keiri/apply は
+       2026-09-19 に同じ形へ直してある。このページだけ残っていた）。 */
+  const contact = keiriContactMailto({ to: KEIRI_COMPANY.email });
+
   return (
     <main className="max-w-2xl mx-auto px-4 py-10 min-h-screen">
       <KeiriBreadcrumb items={[{ name: "特定商取引法に基づく表記" }]} />
@@ -63,7 +73,11 @@ export default function KeiriLegalPage() {
       <section className="mb-10 rounded-2xl bg-stone-100 p-5">
         <h2 className="text-base font-bold text-stone-900">お問い合わせ</h2>
         <p className="mt-2 text-sm text-stone-700 leading-relaxed">
-          サービスの内容・お支払いについてのご連絡は {KEIRI_COMPANY.email} へお願いします。
+          サービスの内容・お支払い・解約のご連絡は{" "}
+          <a href={contact.url} className="underline font-bold hover:text-stone-900">
+            {KEIRI_COMPANY.email}
+          </a>{" "}
+          へお願いします（押すとメールの下書きが開きます）。
           使い方でお困りのときは、
           <Link href="/keiri/help" className="underline hover:text-stone-900">
             困ったとき（よくある質問）
