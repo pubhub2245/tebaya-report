@@ -34,6 +34,7 @@ import { STAFF_OPTIONS } from "@/lib/formState";
 import { resizeImage } from "@/lib/imageResize";
 import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
 import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
+import TebayaOnlyGate, { useIsTebaya } from "@/app/components/TebayaOnlyGate";
 
 /** 業態コード。手羽屋のみなので画面には出さず固定 */
 const BUSINESS_TYPE_CODE = "tebaya";
@@ -60,6 +61,13 @@ type AdvanceRow = {
 };
 
 export default function KeiriAdvancesPage() {
+  /**
+   * ★ 立替の棚（keiri_advance_expenses）には、まだ「どの店のものか」の印の欄が
+   *   ありません。よそのお店には画面を開かない（下の TebayaOnlyGate）のに加えて、
+   *   **手羽屋の棚を読みに行くこと自体もしません**。
+   */
+  const { checking: scopeChecking, isTebaya } = useIsTebaya();
+
   // ── 選択肢のマスタ ──
   const [mappings, setMappings] = useState<Mapping[]>([]);
   const [staffNames, setStaffNames] = useState<string[]>(STAFF_OPTIONS);
@@ -91,6 +99,8 @@ export default function KeiriAdvancesPage() {
 
   useEffect(() => {
     (async () => {
+      // よそのお店のときは、手羽屋の棚を読みに行かない（画面も出さない）
+      if (scopeChecking || !isTebaya) return;
       setLoading(true);
       setLoadError(null);
       try {
@@ -131,7 +141,7 @@ export default function KeiriAdvancesPage() {
       }
       loadRecent();
     })();
-  }, [loadRecent]);
+  }, [loadRecent, scopeChecking, isTebaya]);
 
   const selected = useMemo(
     () => mappings.find((m) => m.source_type === sourceType) ?? null,
@@ -190,6 +200,13 @@ export default function KeiriAdvancesPage() {
   };
 
   return (
+    /**
+     * ★ 現場の立替（keiri_advance_expenses）の棚には、まだ「どの店のものか」の
+     *   印の欄がありません。絞りようが無いので、欄ができるまでは
+     *   よそのお店には開きません（手羽屋は印が空なので、これまでどおりそのまま出ます）。
+     *   → lib/tenantScope.ts の TABLES_WITHOUT_TENANT_COLUMN
+     */
+    <TebayaOnlyGate title="🧾 立替経費">
     <main className="max-w-md mx-auto px-4 py-5 pb-10 space-y-4">
       <header className="flex items-center justify-between gap-2 flex-wrap">
         <h1 className="text-2xl font-bold text-brand-dark">🧾 立替経費</h1>
@@ -427,5 +444,6 @@ export default function KeiriAdvancesPage() {
         </section>
       )}
     </main>
+    </TebayaOnlyGate>
   );
 }

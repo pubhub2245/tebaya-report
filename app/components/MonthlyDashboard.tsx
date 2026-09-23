@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { yen } from "@/lib/format";
 import MonthlySummary from "./MonthlySummary";
 import SalesBreakdown from "./SalesBreakdown";
+import { useIsTebaya } from "@/app/components/TebayaOnlyGate";
 import {
   LineChart,
   Line,
@@ -69,6 +70,15 @@ export default function MonthlyDashboard() {
   const [ym, setYm] = useState(today.slice(0, 7));
   const { start, end, m, lastDay } = getMonthRange(ym);
 
+  /**
+   * ★ この枠も「出店予定（shifts）の目標額」と「日報の売上」から作っています。
+   *   出店予定の棚には、まだ「どの店のものか」の印の欄がありません。
+   *   そのため よそのお店の管理者が開くと、目標も売上も**手羽屋の数字**になります。
+   *   欄ができるまでは、よそのお店にはこの枠を出しません
+   *   （手羽屋は印が空なので、これまでどおりそのまま出ます）。
+   */
+  const { checking: scopeChecking, isTebaya } = useIsTebaya();
+
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,6 +87,8 @@ export default function MonthlyDashboard() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // よそのお店のときは、手羽屋の棚を読みに行かない（画面に出さないだけでなく、取りにも行かない）
+      if (scopeChecking || !isTebaya) return;
       setLoading(true);
       setError(null);
       try {
@@ -108,7 +120,7 @@ export default function MonthlyDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [start, end]);
+  }, [start, end, scopeChecking, isTebaya]);
 
   const chartData = useMemo(() => {
     const shiftsByDate = new Map<string, number>();
@@ -200,6 +212,9 @@ export default function MonthlyDashboard() {
       : rate >= 90
       ? "text-yellow-600"
       : "text-red-600";
+
+  // よそのお店（印がある）には、この枠そのものを出さない（上のコメント参照）
+  if (scopeChecking || !isTebaya) return null;
 
   return (
     <section className="space-y-5">

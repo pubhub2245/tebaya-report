@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
 import { calcCashBalance } from "@/lib/money";
+import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 
 type CashSettings = {
   id: number;
@@ -30,7 +31,7 @@ type AdvanceRow = {
   date: string;
 };
 
-export default function CashPage() {
+function CashPageInner() {
   return (
     <AdminGate>
       <CashInner />
@@ -337,5 +338,19 @@ function SettingsForm({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * ★ この画面は、手羽屋の数字（💰 現金残高）を出します。
+ *   もとになっている棚には、まだ「どの店のものか」の印の欄が無いものが混じっているため、
+ *   経理パッケージを申し込んだお店には開きません（→ lib/tenantScope.ts）。
+ *   手羽屋は印が空なので、これまでどおりそのまま出ます。
+ */
+export default function CashPage() {
+  return (
+    <TebayaOnlyGate title="💰 現金残高">
+      <CashPageInner />
+    </TebayaOnlyGate>
   );
 }

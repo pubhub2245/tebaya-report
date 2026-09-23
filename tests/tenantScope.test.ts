@@ -18,6 +18,8 @@ import {
   rowsInScope,
   tenantStamp,
   writeTenantScope,
+  isTebayaScope,
+  TABLES_WITHOUT_TENANT_COLUMN,
 } from "../lib/tenantScope";
 import { tenantBusinessCode } from "../lib/keiri/tenants";
 
@@ -403,5 +405,189 @@ test("日報の一覧を絞っても、手羽屋の行は1行も減らない", (
   assert.deepEqual(
     rowsInScope(reports, SHOP_A).map((r) => r.location),
     ["よその店の会場"],
+  );
+});
+
+/* ---------- 印の欄がまだ無い棚（出店予定・現場の立替）を守る門 ---------- */
+
+/**
+ * `shifts`（出店予定）と `keiri_advance_expenses`（現場の立替）の2つには、
+ * 「どの店のものか」の印の欄が**まだ棚そのものに無い**。
+ * 絞りようが無いので、その画面は手羽屋以外には開かない（TebayaOnlyGate）。
+ *
+ * ★これが無いと
+ *   ・申し込んだお店のスタッフに、手羽屋の出店予定（日付・場所・担当）と
+ *     立替（払った人・金額・レシート写真）がそのまま見える
+ *   ・逆に、申し込んだお店が入れた予定・立替が、手羽屋の画面に混ざる
+ *   の両方が起きる（2026-09-24 実測して直した）。
+ */
+
+test("isTebayaScope: 手羽屋だけ true。よそのお店は false", () => {
+  assert.equal(isTebayaScope(TEBAYA_SCOPE), true);
+  assert.equal(isTebayaScope(""), true); // 形が違う値は手羽屋に倒す
+  assert.equal(isTebayaScope("tebaya"), true);
+  assert.equal(isTebayaScope(SHOP_A), false);
+  assert.equal(isTebayaScope(SHOP_A.toUpperCase()), false);
+});
+
+test("印の欄がまだ無い棚の一覧に、出店予定と現場の立替が入っている", () => {
+  assert.deepEqual([...TABLES_WITHOUT_TENANT_COLUMN], [
+    "shifts",
+    "keiri_advance_expenses",
+  ]);
+});
+
+/** 印の欄が無い棚を読む画面と、そこに掛けた門 */
+const GATED_SCREENS: { file: string; table: string }[] = [
+  // 出店予定。ShiftsView / VenuesView を包んでいるのが CombinedClient
+  { file: "app/shifts/CombinedClient.tsx", table: "shifts" },
+  { file: "app/keiri/advances/page.tsx", table: "keiri_advance_expenses" },
+];
+
+test("印の欄が無い棚の画面には、手羽屋だけに開く門が掛かっている", () => {
+  for (const { file } of GATED_SCREENS) {
+    const src = readFileSync(file, "utf8");
+    assert.ok(
+      src.includes("TebayaOnlyGate"),
+      `${file} に TebayaOnlyGate が掛かっていません（よそのお店に手羽屋の中身が見えます）`,
+    );
+    assert.ok(
+      /<TebayaOnlyGate[\s\S]*<\/TebayaOnlyGate>/.test(src),
+      `${file} の TebayaOnlyGate が閉じていません（中身を包めていません）`,
+    );
+  }
+});
+
+test("門そのものは、手羽屋のときだけ中身をそのまま出す作りになっている", () => {
+  const src = readFileSync("app/components/TebayaOnlyGate.tsx", "utf8");
+  assert.ok(
+    src.includes("isTebayaScope(scope)") && src.includes("{children}"),
+    "TebayaOnlyGate が isTebayaScope で出し分けていません",
+  );
+  assert.ok(
+    src.includes("readTenantScope()"),
+    "TebayaOnlyGate が「いまどのお店か」を読んでいません",
+  );
+});
+
+test("印の欄がまだ無い棚を、門の外の画面が新たに読み始めていない", () => {
+  /**
+   * 合言葉（管理者パスワード）の要らない画面から、この2つの棚を読む所が増えたら
+   * そこにも門が要る。増えたことにその場で気づけるように、いまの一覧を固定しておく。
+   * ★ /admin 配下と /api 配下は、合言葉かサーバー側の鍵の内側なので対象外。
+   */
+  const found: string[] = [];
+  for (const file of sourceFiles("app")) {
+    const rel = file.replace(/\\/g, "/");
+    if (rel.startsWith("app/admin/") || rel.startsWith("app/api/")) continue;
+    const src = readFileSync(file, "utf8");
+    for (const table of TABLES_WITHOUT_TENANT_COLUMN) {
+      if (!src.includes(`.from("${table}")`)) continue;
+      // 門（ページ全体）か、枠だけ出さない道具（useIsTebaya）のどちらかが要る
+      if (src.includes("TebayaOnlyGate") || src.includes("useIsTebaya")) continue;
+      found.push(`${rel}（${table}）`);
+    }
+  }
+  assert.deepEqual(
+    found,
+    [
+      // 入り口を外している画面（2026-08-27）。トップにリンクが無いので開かれない
+      "app/report/cancel/page.tsx（shifts）",
+      // 出店予定の中身。包んでいるのは app/shifts/CombinedClient.tsx
+      "app/shifts/ShiftsView.tsx（shifts）",
+    ],
+    `印の欄が無い棚を、門の掛かっていない画面が読んでいます：\n${found.join("\n")}`,
+  );
+});
+
+test("月間の売上まとめ（トップと管理者ページ）は、よそのお店には出さない", () => {
+  /**
+   * この2つの枠は「出店予定の目標額」と「日報の売上」から作っている。
+   * 出店予定に印の欄が無いので、よそのお店が開くと **手羽屋の数字** が出てしまう。
+   * ★とくにトップ（/）は合言葉が要らないので、申し込んだお店のスタッフが
+   *   開いた瞬間に手羽屋の今月の売上金額が見える（2026-09-24 実測して直した）。
+   */
+  for (const file of [
+    "app/components/MonthlySummary.tsx",
+    "app/components/MonthlyDashboard.tsx",
+  ]) {
+    const src = readFileSync(file, "utf8");
+    assert.ok(
+      src.includes("useIsTebaya()"),
+      `${file} が「いまどのお店か」を見ていません`,
+    );
+    assert.ok(
+      /if\s*\(scopeChecking\s*\|\|\s*!isTebaya\)\s*return null;/.test(src),
+      `${file} が、よそのお店のときに枠を出さない形になっていません`,
+    );
+    assert.ok(
+      /if\s*\(scopeChecking\s*\|\|\s*!isTebaya\)\s*return;/.test(src),
+      `${file} が、よそのお店のときに手羽屋の棚を読みに行かない形になっていません`,
+    );
+  }
+});
+
+test("よそのお店のときは、印の欄が無い棚を読みに行くこと自体をしない", () => {
+  /**
+   * 画面に出さないだけだと、中身はブラウザまで届いている。
+   * 「出さない」と「取りに行かない」を両方そろえて初めて、
+   *   入れたデータは他のお店から見えません（/keiri/help のお約束）
+   * と言い切れる。
+   */
+  const src = readFileSync("app/keiri/advances/page.tsx", "utf8");
+  assert.ok(
+    /if\s*\(scopeChecking\s*\|\|\s*!isTebaya\)\s*return;/.test(src),
+    "app/keiri/advances/page.tsx が、よそのお店のときに読み込みを止めていません",
+  );
+});
+
+/* ---------- 合言葉の要らない「お金の画面」は、よそのお店には開かない ---------- */
+
+/**
+ * 経理パッケージを申し込んだお店のスタッフは、このアプリの画面をそのまま開ける
+ * （合言葉が要るのは管理者ページだけ）。
+ * ところが下の画面は、どれも**手羽屋の金額**を出す：
+ *   現金残高・立替と精算・レジ突き合わせ・売上報告・中間報告・出店先ごとの売上分析。
+ * 日報は印で絞ってあるが、現金の設定・立替・設営後チェック・中間報告・出店予定には
+ * まだ印の欄が無く、絞りようが無い。
+ *
+ * /keiri/help のお約束は「入れたデータは他のお店から見えません。
+ * 売上の金額を、他のお店の画面に出すことはありません」。
+ * 欄ができるまでは、**画面ごと開かない**ことでその約束を守る。
+ * 手羽屋は印が空なので、どの画面もこれまでどおり出る。
+ */
+const MONEY_SCREENS_FOR_TEBAYA_ONLY = [
+  "app/analytics/page.tsx",
+  "app/cash/page.tsx",
+  "app/cash/advances/page.tsx",
+  "app/cash/register/page.tsx",
+  "app/sales-report/page.tsx",
+  "app/interim/page.tsx",
+  "app/shifts/CombinedClient.tsx",
+  "app/keiri/advances/page.tsx",
+];
+
+test("合言葉の要らないお金の画面には、手羽屋だけに開く門が掛かっている", () => {
+  const missing: string[] = [];
+  for (const file of MONEY_SCREENS_FOR_TEBAYA_ONLY) {
+    const src = readFileSync(file, "utf8");
+    if (!/<TebayaOnlyGate[\s\S]*<\/TebayaOnlyGate>/.test(src)) missing.push(file);
+  }
+  assert.deepEqual(
+    missing,
+    [],
+    `次の画面に門が掛かっていません（よそのお店に手羽屋の金額が見えます）：\n${missing.join("\n")}`,
+  );
+});
+
+test("出店先ごとの売上は、よそのお店が呼んでも何も読まずに空で返す", () => {
+  /**
+   * ここは3か所（トップのランキング・出店先の分析・出店先問い合わせ）が呼ぶ出入口。
+   * 1か所で止めれば、呼ぶ側が増えても漏れない。
+   */
+  const src = readFileSync("lib/analytics/outletAnalytics.ts", "utf8");
+  assert.ok(
+    /if\s*\(!isTebayaScope\(readTenantScope\(\)\)\)\s*return \[\];/.test(src),
+    "getOutletAnalytics が、よそのお店のときに空で返す形になっていません",
   );
 });
