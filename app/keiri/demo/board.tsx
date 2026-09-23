@@ -22,6 +22,7 @@ import Link from "next/link";
 import { yen, slashDate } from "@/lib/format";
 import {
   DISPLAY_EXPENSE_ACCOUNTS,
+  NEUTRAL_OUTSOURCING_ACCOUNT_LABEL,
   calcCashPosition,
   calcUnpaid,
   mergedExpenseByAccount,
@@ -237,7 +238,10 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
               </tr>
               {DISPLAY_EXPENSE_ACCOUNTS.map((a) => (
                 <tr key={a.key} className="border-b border-stone-100">
-                  <td className="py-2 pl-3 text-stone-700">{a.label}</td>
+                  {/* お試し版は架空のお店なので、手羽屋だけの外注先の呼び名は出さない */}
+                  <td className="py-2 pl-3 text-stone-700">
+                    {a.key === "outsourcing" ? NEUTRAL_OUTSOURCING_ACCOUNT_LABEL : a.label}
+                  </td>
                   <td className="py-2 text-right tabular-nums">{yen(mergedExpense[a.key])}</td>
                 </tr>
               ))}

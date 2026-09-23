@@ -11,6 +11,7 @@ import type {
   TodaySetupContext,
   TodayShiftEntry,
 } from "@/lib/setupCheck/types";
+import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 
 const WEEKDAY_LABEL = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -25,7 +26,7 @@ type View =
   | { kind: "form"; initial: SetupCheckFormInitial }
   | { kind: "done"; lineText: string; record: SetupCheckRecord };
 
-export default function SetupCheckPage() {
+function SetupCheckPageInner() {
   const [context, setContext] = useState<TodaySetupContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -175,5 +176,22 @@ export default function SetupCheckPage() {
         />
       )}
     </main>
+  );
+}
+
+/**
+ * ★ この画面は、その日の手羽屋のシフト（スタッフの実名・出店場所・売上目標）と、
+ *   同じ号車の前回のレジ金額をそのまま出します。さらに送信すると、
+ *   手羽屋の設営後チェックとして保存され、手羽屋のスタッフのLINEグループへ文面が飛びます。
+ *   もとになっている棚（shifts / setup_checks）には、まだ「どの店のものか」の印の欄が
+ *   ありません（→ lib/tenantScope.ts）。絞りようが無いので、
+ *   経理パッケージを申し込んだお店には開きません。
+ *   手羽屋は印が空なので、これまでどおりそのまま出ます。
+ */
+export default function SetupCheckPage() {
+  return (
+    <TebayaOnlyGate title="✅ 設営後チェック">
+      <SetupCheckPageInner />
+    </TebayaOnlyGate>
   );
 }
