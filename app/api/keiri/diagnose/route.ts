@@ -11,6 +11,10 @@ import { describeServerKey } from "@/lib/keiri/serverHealth";
 import {
   describeApplicationStore,
   probeApplicationStore,
+  describePendingApplications,
+  countApplicationsViaWindow,
+  type ApplicationCountResult,
+  type PendingApplications,
 } from "@/lib/keiri/applicationStore";
 import {
   describeApplicationDelivery,
@@ -27,7 +31,7 @@ import {
   type TableCheck,
 } from "@/lib/keiri/signupReadiness";
 import type { RecordStoreReport } from "@/lib/keiri/serverHealth";
-import { probeTenantRpc } from "@/lib/keiri/tenantAccess";
+import { probeTenantRpc, isMissingFunction } from "@/lib/keiri/tenantAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -151,6 +155,61 @@ async function checkApplications(direct: TableCheck): Promise<RecordStoreReport>
 }
 
 /**
+ * 「まだ手当てしていない申し込みが何件あるか」を数える（kp124）。
+ *
+ * ■ なぜ要るのか
+ *   いま申し込みが1件入ったとき、人が気づける道は LINE の知らせ1本だけ。
+ *   今月の残り通数には限りがあり、使い切ると知らせが届かない。
+ *   **最初の1件を取りこぼすのがいちばん痛い**ので、
+ *   「棚に何件たまっているか」を、この診断からいつでも見られるようにする。
+ *
+ * ■ 数え方の優先順
+ *   1. 合鍵が生きて1行ずつ読める → 棚をそのまま数える
+ *   2. 数だけ答える窓口（keiri_applications_summary）を叩く
+ *   3. どちらも駄目 → 「まだ数えられません」と正直に出す
+ *
+ * ★読むだけ。1行も書き込みません。
+ * ★返すのは**数と時刻だけ**。お店の名前・ご連絡先は1文字も返しません。
+ */
+async function checkPendingApplications(direct: TableCheck): Promise<PendingApplications> {
+  // 1. 1行ずつ読める＝合鍵が生きている。棚をそのまま数えるのがいちばん確か
+  if (direct.ok) {
+    try {
+      const db = serviceClientOrNull({ fresh: true }) ?? serverClient({ fresh: true });
+      const [pending, total, latest] = await Promise.all([
+        db.from("keiri_applications").select("id", { count: "exact", head: true }).eq("status", "new"),
+        db.from("keiri_applications").select("id", { count: "exact", head: true }),
+        db
+          .from("keiri_applications")
+          .select("created_at")
+          .order("created_at", { ascending: false })
+          .limit(1),
+      ]);
+      if (!pending.error && !total.error) {
+        const rows = (latest.data ?? []) as { created_at?: string | null }[];
+        const result: ApplicationCountResult = {
+          outcome: "counted",
+          readable: true,
+          count: {
+            pending: pending.count ?? 0,
+            total: total.count ?? 0,
+            latestAt: rows[0]?.created_at ?? null,
+          },
+        };
+        return describePendingApplications(result);
+      }
+    } catch {
+      // 数えられなかっただけ。下の窓口に落ちる
+    }
+  }
+
+  // 2. 数だけ答える窓口を叩く（棚は郵便ポストのままでよい）
+  const db = serviceClientOrNull({ fresh: true }) ?? serverClient({ fresh: true });
+  const viaWindow = await countApplicationsViaWindow(db, isMissingFunction);
+  return describePendingApplications(viaWindow);
+}
+
+/**
  * 訪問（site_visits）が数えられる状態かを確かめる。
  *
  * ■ なぜ専用にするのか（2026-09-19・kp89）
@@ -244,6 +303,7 @@ export async function GET() {
   });
 
   const applicationsStore = await checkApplications(applications);
+  const applicationsPending = await checkPendingApplications(applications);
   const visitsStore = await checkVisits(visits);
   const notify = describeNotify(notifyFacts);
   const delivery = describeApplicationDelivery({
@@ -282,6 +342,10 @@ export async function GET() {
     tenant_rpc: tenantRpc,
     records: {
       applications: applicationsStore,
+      // ★「まだ手当てしていない申し込み ◯件」（kp124）。
+      //   知らせ（LINE）を見落としても、ここを見れば取りこぼしに気づける。
+      //   数と時刻だけで、お店の名前・ご連絡先は返さない。
+      applications_pending: applicationsPending,
       visits: visitsStore,
     },
     // ★ここがいちばん大事（2026-09-19・kp60）。
