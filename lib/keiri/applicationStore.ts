@@ -180,3 +180,172 @@ export async function probeApplicationStore(
     };
   }
 }
+
+/* ==========================================================================
+ * ここから下：「まだ手当てしていない申し込みが何件あるか」を数える（kp124）
+ *
+ * ■ なぜ要るのか
+ *   上の probeApplicationStore は「入れる道が生きているか」しか見ていない。
+ *   ＝ **入った件数は誰も見られない**（棚は郵便ポストの形、合鍵は壊れたまま・kp55）。
+ *   いま申し込みが1件入っても、気づけるのは LINE の知らせ1本だけ。
+ *   見落とすと最初の1件を取りこぼすので、**数だけ**を見られるようにする。
+ *
+ * ■ 数え方の優先順（上から順に試す）
+ *   1. サーバー側の合鍵が生きている → 棚をそのまま数える（いちばん強い）
+ *   2. 数だけ答える窓口（keiri_applications_summary）→ 件数と最新時刻だけ返る
+ *   3. どちらも駄目 → 「まだ数えられません」と正直に出し、直し方を1つだけ書く
+ *
+ * ★ 返すのは**数と時刻だけ**。お店の名前・お名前・メール・電話は受け取りません。
+ * ★ 1行も書き込みません。誰にも知らせません。
+ * ★ 手羽屋の日報・シフト・レジ・LINE・お金の計算には一切さわっていません。
+ * ========================================================================== */
+
+/** 「まだ手当てしていない申し込み」の数（連絡先は一切入らない） */
+export type PendingApplications = {
+  /** 数えられたか */
+  countable: boolean;
+  /** まだ手当てしていない件数（数えられないときは null） */
+  pending: number | null;
+  /** これまでに入った全件数（数えられないときは null） */
+  total: number | null;
+  /** いちばん新しい申し込みが入った時刻（無ければ null） */
+  latestAt: string | null;
+  /** 人の言葉での説明 */
+  note: string;
+};
+
+/** 窓口・棚から返ってきた「数」の素（通信はここに入らない） */
+export type ApplicationCount = {
+  pending: number;
+  total: number;
+  latestAt: string | null;
+};
+
+/** 数え方の結果（見分け） */
+export type ApplicationCountResult =
+  /** 数えられた */
+  | { outcome: "counted"; count: ApplicationCount; readable: boolean }
+  /** 窓口がまだ無い（SQL を1回流せば数えられる） */
+  | { outcome: "no_window" }
+  /** 窓口はあるが呼べなかった */
+  | { outcome: "failed"; detail: string };
+
+/**
+ * 数え方の結果を、診断に出す言葉に直す（通信はしない・純粋な判定）。
+ *
+ * ★ここは「0件」と「数えられない」を**必ず言い分ける**。
+ *   ひとまとめにすると「申し込みが来ていない」のか
+ *   「来ているのに見えていない」のか分からなくなり、判断をまちがえる（kp89 と同じ考え方）。
+ */
+export function describePendingApplications(result: ApplicationCountResult): PendingApplications {
+  if (result.outcome === "counted") {
+    const { pending, total, latestAt } = result.count;
+    const how = result.readable
+      ? "（棚をそのまま数えました）"
+      : "（数だけ答える窓口で数えました。棚は「入れるだけの郵便ポスト」のままです）";
+    if (pending > 0) {
+      return {
+        countable: true,
+        pending,
+        total,
+        latestAt,
+        note:
+          `★まだ手当てしていないお申し込みが ${pending} 件あります${how}。` +
+          (latestAt ? `いちばん新しいのは ${latestAt} に入りました。` : "") +
+          "中身（お店の名前・ご連絡先）は Supabase の Table Editor で " +
+          "keiri_applications を開くと見られます",
+      };
+    }
+    return {
+      countable: true,
+      pending: 0,
+      total,
+      latestAt,
+      note:
+        `まだ手当てしていないお申し込みは 0 件です${how}。` +
+        `これまでに入った数は ${total} 件です` +
+        (latestAt ? `（いちばん新しいのは ${latestAt}）` : ""),
+    };
+  }
+
+  if (result.outcome === "no_window") {
+    return {
+      countable: false,
+      pending: null,
+      total: null,
+      latestAt: null,
+      note:
+        "まだ数えられません（数だけ答える窓口がありません）。" +
+        "倉庫の SQL Editor で supabase/migrations/keiri_applications_summary_fn.sql を" +
+        "1回流すと数えられるようになります。" +
+        "Vercel の SUPABASE_SERVICE_ROLE_KEY を貼り直しても数えられます（kp55）。" +
+        "※ 数えられないあいだも、お申し込みは控えとして残り、LINE でも知らせます",
+    };
+  }
+
+  return {
+    countable: false,
+    pending: null,
+    total: null,
+    latestAt: null,
+    note:
+      `まだ数えられません（${result.detail}）。` +
+      "SQL はもう流してあるので、原因は別にあります。" +
+      "※ 数えられないあいだも、お申し込みは控えとして残り、LINE でも知らせます",
+  };
+}
+
+/** 窓口が返した1行を「数」に直す（通信はしない・純粋な判定） */
+export function readApplicationCount(data: unknown): ApplicationCount | null {
+  const row = Array.isArray(data)
+    ? (data[0] as Record<string, unknown> | undefined)
+    : (data as Record<string, unknown> | null);
+  if (!row || typeof row !== "object") return null;
+  const num = (v: unknown): number | null => {
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) return Number(v);
+    return null;
+  };
+  const pending = num(row.pending);
+  const total = num(row.total);
+  if (pending === null || total === null) return null;
+  const latest = row.latest_at;
+  return {
+    pending,
+    total,
+    latestAt: typeof latest === "string" && latest.trim() !== "" ? latest : null,
+  };
+}
+
+/** 数えるときに使う相手（Supabase のクライアント。試験では差し替える） */
+export type ApplicationCountClient = {
+  rpc(
+    name: string,
+    args?: Record<string, unknown>,
+  ): PromiseLike<{ data: unknown; error: { code?: string; message?: string } | null }>;
+};
+
+/**
+ * 「数だけ答える窓口」を1回叩いて数える。
+ * ★読むだけ。1行も書き込みません。連絡先は受け取りません。
+ */
+export async function countApplicationsViaWindow(
+  db: ApplicationCountClient,
+  isMissing: (error: { code?: string; message?: string } | null) => boolean,
+): Promise<ApplicationCountResult> {
+  try {
+    const { data, error } = await db.rpc("keiri_applications_summary");
+    if (error) {
+      if (isMissing(error)) return { outcome: "no_window" };
+      return { outcome: "failed", detail: String(error.message ?? "呼べませんでした") };
+    }
+    const count = readApplicationCount(data);
+    if (!count) return { outcome: "failed", detail: "窓口の返事を読めませんでした" };
+    return { outcome: "counted", count, readable: false };
+  } catch (e) {
+    return {
+      outcome: "failed",
+      detail: e instanceof Error ? e.message : "通信に失敗しました",
+    };
+  }
+}
