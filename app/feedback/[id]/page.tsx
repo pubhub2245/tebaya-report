@@ -10,6 +10,7 @@ import {
   copyToClipboard,
 } from "@/lib/feedbackPrompt";
 import ReplyThread from "./_components/ReplyThread";
+import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 
 type FeedbackDetail = {
   id: string;
@@ -39,7 +40,7 @@ function formatDateTime(iso: string | null): string {
   });
 }
 
-export default function FeedbackDetailPage() {
+function FeedbackDetailPageInner() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
 
@@ -245,5 +246,19 @@ export default function FeedbackDetailPage() {
         </>
       )}
     </main>
+  );
+}
+
+/**
+ * ★ この画面は、手羽屋のスタッフが実名で書いた意見の中身とやり取りを出します。
+ *   もとになっている棚（→ lib/tenantScope.ts）には、まだ「どの店のものか」の
+ *   印の欄がありません。絞りようが無いので、経理パッケージを申し込んだお店には開きません。
+ *   手羽屋は印が空なので、これまでどおりそのまま出ます。
+ */
+export default function FeedbackDetailPage() {
+  return (
+    <TebayaOnlyGate title="💡 意見箱">
+      <FeedbackDetailPageInner />
+    </TebayaOnlyGate>
   );
 }

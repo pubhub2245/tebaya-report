@@ -22,6 +22,7 @@ import {
   TABLES_WITHOUT_TENANT_COLUMN,
 } from "../lib/tenantScope";
 import { tenantBusinessCode } from "../lib/keiri/tenants";
+import { FEEDBACK_PATH } from "../lib/keiri/support";
 
 const SHOP_A = "11111111-2222-4333-8444-555555555555";
 const SHOP_B = "99999999-8888-4777-8666-555555555555";
@@ -430,10 +431,13 @@ test("isTebayaScope: 手羽屋だけ true。よそのお店は false", () => {
   assert.equal(isTebayaScope(SHOP_A.toUpperCase()), false);
 });
 
-test("印の欄がまだ無い棚の一覧に、出店予定と現場の立替が入っている", () => {
+test("印の欄がまだ無い棚の一覧は、いまこの5つ", () => {
   assert.deepEqual([...TABLES_WITHOUT_TENANT_COLUMN], [
     "shifts",
     "keiri_advance_expenses",
+    "feedback_box",
+    "feedback_replies",
+    "agenda_items",
   ]);
 });
 
@@ -491,6 +495,8 @@ test("印の欄がまだ無い棚を、門の外の画面が新たに読み始�
   assert.deepEqual(
     found,
     [
+      // 意見箱の中身（返信のやり取り）。包んでいるのは app/feedback/[id]/page.tsx
+      "app/feedback/[id]/_components/ReplyThread.tsx（feedback_replies）",
       // 入り口を外している画面（2026-08-27）。トップにリンクが無いので開かれない
       "app/report/cancel/page.tsx（shifts）",
       // 出店予定の中身。包んでいるのは app/shifts/CombinedClient.tsx
@@ -510,6 +516,8 @@ test("月間の売上まとめ（トップと管理者ページ）は、よそ�
   for (const file of [
     "app/components/MonthlySummary.tsx",
     "app/components/MonthlyDashboard.tsx",
+    // 意見箱の管理（管理者ページの中）。合言葉は申し込んだお店も自分のぶんを持っている
+    "app/components/FeedbackBoxAdmin.tsx",
   ]) {
     const src = readFileSync(file, "utf8");
     assert.ok(
@@ -589,5 +597,83 @@ test("出店先ごとの売上は、よそのお店が呼んでも何も読ま�
   assert.ok(
     /if\s*\(!isTebayaScope\(readTenantScope\(\)\)\)\s*return \[\];/.test(src),
     "getOutletAnalytics が、よそのお店のときに空で返す形になっていません",
+  );
+});
+
+/* ---------- 意見箱とミーティング議題（2026-09-24 kp119） ---------- */
+
+/**
+ * 金額は出ないが、ここには**手羽屋のスタッフが実名で書いた困りごと・相談**が並ぶ。
+ * さらにミーティング議題は、画面の「削除」ボタンからよその店でも消せてしまう。
+ * /keiri/help のお約束（入れたデータは他のお店から見えません）に反するので、
+ * 棚に「どの店か」の欄ができるまでは画面ごと開かない。
+ */
+const VOICE_SCREENS_FOR_TEBAYA_ONLY = [
+  "app/feedback/page.tsx",
+  "app/feedback/[id]/page.tsx",
+  "app/agenda/page.tsx",
+];
+
+test("意見箱とミーティング議題には、手羽屋だけに開く門が掛かっている", () => {
+  const missing: string[] = [];
+  for (const file of VOICE_SCREENS_FOR_TEBAYA_ONLY) {
+    const src = readFileSync(file, "utf8");
+    if (!/<TebayaOnlyGate[\s\S]*<\/TebayaOnlyGate>/.test(src)) missing.push(file);
+  }
+  assert.deepEqual(
+    missing,
+    [],
+    `次の画面に門が掛かっていません（よそのお店に手羽屋のスタッフの書き込みが見えます）：\n${missing.join("\n")}`,
+  );
+});
+
+test("印の欄が無い棚の一覧に、意見箱とミーティング議題が入っている", () => {
+  for (const t of ["feedback_box", "feedback_replies", "agenda_items"]) {
+    assert.ok(
+      (TABLES_WITHOUT_TENANT_COLUMN as readonly string[]).includes(t),
+      `${t} が「まだ印の欄が無い棚」の一覧に入っていません`,
+    );
+  }
+});
+
+test("困ったときの窓口（意見箱への投稿）は、よそのお店にも開いたままにする", () => {
+  /**
+   * ここだけは門を掛けない。月15,000円に含まれる「聞かれたことに答える窓口」の
+   * 行き先そのもので（lib/keiri/support.ts の FEEDBACK_PATH）、
+   * 塞ぐと払ったお店の行き先が無くなる。
+   */
+  const src = readFileSync("app/feedback/new/page.tsx", "utf8");
+  assert.ok(
+    !/<TebayaOnlyGate/.test(src),
+    "お問い合わせの投稿画面まで塞いでいます（払ったお店の行き先が無くなります）",
+  );
+  assert.strictEqual(
+    FEEDBACK_PATH,
+    "/feedback/new",
+    "困ったときの窓口の行き先が変わっています",
+  );
+});
+
+test("よそのお店には、手羽屋のスタッフ名の選択肢を出さない", () => {
+  /**
+   * 直す前は、投稿者名が **手羽屋のスタッフ4人の実名から選ぶ**形だった。
+   * よその店の方は自分の名前を入れられず、しかも他店の従業員の名前が見えていた。
+   */
+  const src = readFileSync("app/feedback/new/page.tsx", "utf8");
+  assert.ok(
+    /isTebaya \? \(\s*<select/.test(src),
+    "スタッフ名の選択肢が、手羽屋のときだけに絞られていません",
+  );
+  assert.ok(
+    /if \(scopeChecking\) \{/.test(src),
+    "どのお店か分かる前に画面を出しています（一瞬スタッフ名が見えます）",
+  );
+});
+
+test("よそのお店は、送ったあと手羽屋の意見箱の一覧へ飛ばされない", () => {
+  const src = readFileSync("app/feedback/new/page.tsx", "utf8");
+  assert.ok(
+    /if \(isTebaya\) router\.push\("\/feedback"\);/.test(src),
+    "送信後の行き先が、手羽屋のときだけに絞られていません",
   );
 });

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { STAFF_OPTIONS } from "@/lib/formState";
+import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 
 /**
  * ミーティング議題（アジェンダ）募集ページ。
@@ -41,7 +42,7 @@ function fmtDate(iso: string): string {
   return `${j.getUTCMonth() + 1}/${j.getUTCDate()}`;
 }
 
-export default function AgendaPage() {
+function AgendaPageInner() {
   const [items, setItems] = useState<Agenda[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -341,5 +342,19 @@ function AgendaCard({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * ★ この画面は、手羽屋のスタッフが実名で書いた議題を出し、削除もできます。
+ *   もとになっている棚（→ lib/tenantScope.ts）には、まだ「どの店のものか」の
+ *   印の欄がありません。絞りようが無いので、経理パッケージを申し込んだお店には開きません。
+ *   手羽屋は印が空なので、これまでどおりそのまま出ます。
+ */
+export default function AgendaPage() {
+  return (
+    <TebayaOnlyGate title="🗣️ ミーティング議題">
+      <AgendaPageInner />
+    </TebayaOnlyGate>
   );
 }

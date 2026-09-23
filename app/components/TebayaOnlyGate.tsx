@@ -60,6 +60,18 @@ export function useIsTebaya(): { checking: boolean; isTebaya: boolean } {
   return { checking, isTebaya: tebaya };
 }
 
+/**
+ * ページ全体ではなく「1つのかたまりだけ、よそのお店には出さない」ときの入れ物。
+ *
+ * 出さないだけで、中身のリンク先そのものには門（TebayaOnlyGate）が別に掛かっています。
+ * ここは「押しても開けないボタンを、そもそも見せない」ためのものです。
+ */
+export function TebayaOnlyBlock({ children }: { children: React.ReactNode }) {
+  const { checking, isTebaya } = useIsTebaya();
+  if (checking || !isTebaya) return null;
+  return <>{children}</>;
+}
+
 export default function TebayaOnlyGate({
   /** 画面の名前（「出店予定」「立替経費」など。お知らせの文に出ます） */
   title,

@@ -14,6 +14,7 @@ import {
   buildClaudeCodePrompt,
   copyToClipboard,
 } from "@/lib/feedbackPrompt";
+import { useIsTebaya } from "@/app/components/TebayaOnlyGate";
 
 type FeedbackRow = {
   id: string;
@@ -57,7 +58,16 @@ function formatDateTime(iso: string | null): string {
   });
 }
 
+/**
+ * ★ 意見箱の棚（feedback_box / feedback_replies）には、まだ「どの店のものか」の
+ *   印の欄がありません（→ lib/tenantScope.ts）。
+ *   管理者ページは合言葉の内側ですが、**申し込んだお店には自分の合言葉があります**
+ *   （初回設定の最後に1回だけ出るもの）。つまりここは手羽屋専用ではありません。
+ *   欄ができるまでは、よそのお店には枠を出さず、棚も読みに行きません。
+ *   手羽屋は印が空なので、これまでどおりそのまま出ます。
+ */
 export default function FeedbackBoxAdmin() {
+  const { checking: scopeChecking, isTebaya } = useIsTebaya();
   const [rows, setRows] = useState<FeedbackRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +115,7 @@ export default function FeedbackBoxAdmin() {
   };
 
   const reload = async () => {
+    if (scopeChecking || !isTebaya) return;
     setLoading(true);
     setError(null);
     try {
@@ -141,7 +152,7 @@ export default function FeedbackBoxAdmin() {
   useEffect(() => {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [scopeChecking, isTebaya]);
 
   const sorted = useMemo(() => {
     return [...rows].sort((a, b) => {
@@ -313,6 +324,8 @@ export default function FeedbackBoxAdmin() {
       setTimeout(() => setFeedback(null), 5000);
     }
   };
+
+  if (scopeChecking || !isTebaya) return null;
 
   return (
     <section className="card space-y-3">

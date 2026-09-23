@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 import {
   getStatusColor,
   getStatusLabel,
@@ -36,7 +37,7 @@ function formatDate(iso: string | null): string {
   return `${y}/${m}/${day} ${h}:${mi}`;
 }
 
-export default function FeedbackListPage() {
+function FeedbackListPageInner() {
   const [rows, setRows] = useState<FeedbackRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -160,5 +161,19 @@ export default function FeedbackListPage() {
         ))}
       </div>
     </main>
+  );
+}
+
+/**
+ * ★ この画面は、手羽屋のスタッフが実名で書いた意見の一覧を出します。
+ *   もとになっている棚（→ lib/tenantScope.ts）には、まだ「どの店のものか」の
+ *   印の欄がありません。絞りようが無いので、経理パッケージを申し込んだお店には開きません。
+ *   手羽屋は印が空なので、これまでどおりそのまま出ます。
+ */
+export default function FeedbackListPage() {
+  return (
+    <TebayaOnlyGate title="💡 意見箱">
+      <FeedbackListPageInner />
+    </TebayaOnlyGate>
   );
 }

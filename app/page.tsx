@@ -1,6 +1,7 @@
 import Link from "next/link";
 import MonthlySummary from "./components/MonthlySummary";
 import LocationRankingSummary from "./components/LocationRankingSummary";
+import { TebayaOnlyBlock } from "./components/TebayaOnlyGate";
 
 /** グループ見出し */
 function GroupLabel({ children }: { children: React.ReactNode }) {
@@ -108,7 +109,10 @@ export default function MenuPage() {
         </Link>
       </section>
 
-      {/* みんなの声 */}
+      {/* みんなの声 …… 意見箱とミーティング議題は、まだ お店ごとに分かれていない棚を
+          読むので、経理パッケージを申し込んだお店には出しません（→ lib/tenantScope.ts）。
+          手羽屋は印が空なので、これまでどおり出ます。 */}
+      <TebayaOnlyBlock>
       <section className="mb-5">
         <GroupLabel>🗣️ みんなの声</GroupLabel>
         <div className="grid grid-cols-2 gap-3">
@@ -126,6 +130,7 @@ export default function MenuPage() {
           />
         </div>
       </section>
+      </TebayaOnlyBlock>
 
       <section className="mb-4">
         <LocationRankingSummary />
