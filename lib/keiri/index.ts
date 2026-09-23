@@ -128,3 +128,12 @@ export function defaultSettingsFor(code: string | null | undefined): KeiriSettin
 export function outsourcingLabelFor(code: string | null | undefined): string {
   return isTenantBusinessCode(code) ? "外注費" : "Alpha";
 }
+
+/**
+ * 「科目ごとの表」に出す外注費の科目名。
+ * 手羽屋は accounts.ts のとおり「外注費（Alpha）」のまま。
+ * 申し込んだお店には、よその会社の名前を出さない。
+ */
+export function outsourcingAccountLabelFor(code: string | null | undefined): string {
+  return isTenantBusinessCode(code) ? "外注費" : "外注費（Alpha）";
+}
