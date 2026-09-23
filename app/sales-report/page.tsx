@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
 import { calcCashBalance, expensesTotalOf, sumExpenses } from "@/lib/money";
+import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 
 /**
  * 手羽屋「売上報告」画面（フェアリー精算の売上報告タブ相当）。
@@ -47,7 +48,7 @@ type AdvanceRow = {
   date: string;
 };
 
-export default function SalesReportPage() {
+function SalesReportPageInner() {
   return (
     <AdminGate>
       <SalesReportInner />
@@ -433,4 +434,18 @@ function buildReportText(
   );
 
   return lines.join("\n");
+}
+
+/**
+ * ★ この画面は、手羽屋の数字（💹 売上報告）を出します。
+ *   もとになっている棚には、まだ「どの店のものか」の印の欄が無いものが混じっているため、
+ *   経理パッケージを申し込んだお店には開きません（→ lib/tenantScope.ts）。
+ *   手羽屋は印が空なので、これまでどおりそのまま出ます。
+ */
+export default function SalesReportPage() {
+  return (
+    <TebayaOnlyGate title="💹 売上報告">
+      <SalesReportPageInner />
+    </TebayaOnlyGate>
+  );
 }

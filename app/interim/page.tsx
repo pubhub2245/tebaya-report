@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { yen } from "@/lib/format";
 import { STAFF_OPTIONS } from "@/lib/formState";
 import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
+import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 
 type Location = {
   id: string | number;
@@ -74,7 +75,7 @@ type AchievementRate = {
 
 const TOTAL_STEPS = 5;
 
-export default function InterimPage() {
+function InterimPageInner() {
   const [step, setStep] = useState(1);
   const [staff, setStaff] = useState("");
   const [isStaffOther, setIsStaffOther] = useState(false);
@@ -771,5 +772,19 @@ export default function InterimPage() {
         </nav>
       )}
     </main>
+  );
+}
+
+/**
+ * ★ この画面は、手羽屋の数字（📊 中間報告）を出します。
+ *   もとになっている棚には、まだ「どの店のものか」の印の欄が無いものが混じっているため、
+ *   経理パッケージを申し込んだお店には開きません（→ lib/tenantScope.ts）。
+ *   手羽屋は印が空なので、これまでどおりそのまま出ます。
+ */
+export default function InterimPage() {
+  return (
+    <TebayaOnlyGate title="📊 中間報告">
+      <InterimPageInner />
+    </TebayaOnlyGate>
   );
 }

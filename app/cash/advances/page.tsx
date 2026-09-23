@@ -7,6 +7,7 @@ import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
 import { resizeImage } from "@/lib/imageResize";
 import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
+import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 
 type Advance = {
   id: number;
@@ -22,7 +23,7 @@ type Advance = {
 
 const PRESET_PAYERS = ["緒方", "川畑"];
 
-export default function AdvancesPage() {
+function AdvancesPageInner() {
   return (
     <AdminGate>
       <AdvancesInner />
@@ -469,5 +470,19 @@ function AddForm({ onAdded }: { onAdded: () => void }) {
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * ★ この画面は、手羽屋の数字（🧾 立替・精算）を出します。
+ *   もとになっている棚には、まだ「どの店のものか」の印の欄が無いものが混じっているため、
+ *   経理パッケージを申し込んだお店には開きません（→ lib/tenantScope.ts）。
+ *   手羽屋は印が空なので、これまでどおりそのまま出ます。
+ */
+export default function AdvancesPage() {
+  return (
+    <TebayaOnlyGate title="🧾 立替・精算">
+      <AdvancesPageInner />
+    </TebayaOnlyGate>
   );
 }

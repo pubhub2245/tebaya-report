@@ -9,6 +9,7 @@ import {
   type OutletStats,
   type RankKind,
 } from "@/lib/analytics/outletAnalytics";
+import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 
 /**
  * ランクバッジの色。
@@ -196,7 +197,7 @@ function OutletCard({ s }: { s: OutletStats }) {
   );
 }
 
-export default function AnalyticsPage() {
+function AnalyticsPageInner() {
   const [outlets, setOutlets] = useState<OutletStats[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -271,5 +272,19 @@ export default function AnalyticsPage() {
         自動で変わりません。
       </p>
     </main>
+  );
+}
+
+/**
+ * ★ この画面は、手羽屋の数字（📍 出店先 売上分析）を出します。
+ *   もとになっている棚には、まだ「どの店のものか」の印の欄が無いものが混じっているため、
+ *   経理パッケージを申し込んだお店には開きません（→ lib/tenantScope.ts）。
+ *   手羽屋は印が空なので、これまでどおりそのまま出ます。
+ */
+export default function AnalyticsPage() {
+  return (
+    <TebayaOnlyGate title="📍 出店先 売上分析">
+      <AnalyticsPageInner />
+    </TebayaOnlyGate>
   );
 }

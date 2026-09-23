@@ -12,6 +12,7 @@ import {
   type CloseRecord,
   type OpenRecord,
 } from "@/lib/registerChain";
+import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 
 /**
  * レジ突き合わせ画面（管理者）。
@@ -46,7 +47,7 @@ function daysAgoStr(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export default function RegisterCheckPage() {
+function RegisterCheckPageInner() {
   return (
     <AdminGate>
       <RegisterCheckInner />
@@ -302,5 +303,19 @@ function StatCard({
       <div className="text-xs text-stone-500">{label}</div>
       <div className={`text-xl font-bold ${color}`}>{value}</div>
     </div>
+  );
+}
+
+/**
+ * ★ この画面は、手羽屋の数字（🔍 レジ突き合わせ）を出します。
+ *   もとになっている棚には、まだ「どの店のものか」の印の欄が無いものが混じっているため、
+ *   経理パッケージを申し込んだお店には開きません（→ lib/tenantScope.ts）。
+ *   手羽屋は印が空なので、これまでどおりそのまま出ます。
+ */
+export default function RegisterCheckPage() {
+  return (
+    <TebayaOnlyGate title="🔍 レジ突き合わせ">
+      <RegisterCheckPageInner />
+    </TebayaOnlyGate>
   );
 }

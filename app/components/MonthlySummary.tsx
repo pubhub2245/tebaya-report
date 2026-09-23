@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { yen } from "@/lib/format";
+import { useIsTebaya } from "@/app/components/TebayaOnlyGate";
 
 type Props = {
   yearMonth?: string;
@@ -32,6 +33,16 @@ export default function MonthlySummary({
   const upTo = today < start ? start : today > end ? end : today;
   const upToLabel = `${parseInt(upTo.slice(5, 7), 10)}/${parseInt(upTo.slice(8, 10), 10)}`;
 
+  /**
+   * ★ この枠は「出店予定（shifts）の目標額」と「日報の売上」から作っています。
+   *   出店予定の棚には、まだ「どの店のものか」の印の欄がありません。
+   *   そのため よそのお店が開くと、目標額も売上も**手羽屋の数字**になってしまいます
+   *   （売上の側は印が空＝手羽屋のぶんだけを読む書き方になっているため）。
+   *   欄ができるまでは、よそのお店にはこの枠を出しません。
+   *   手羽屋は印が空なので、これまでどおりそのまま出ます。
+   */
+  const { checking: scopeChecking, isTebaya } = useIsTebaya();
+
   const [target, setTarget] = useState(0);
   const [expected, setExpected] = useState(0);
   const [actual, setActual] = useState(0);
@@ -41,6 +52,8 @@ export default function MonthlySummary({
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // よそのお店のときは、手羽屋の棚を読みに行かない（画面に出さないだけでなく、取りにも行かない）
+      if (scopeChecking || !isTebaya) return;
       setLoading(true);
       setError(null);
       try {
@@ -93,7 +106,7 @@ export default function MonthlySummary({
     return () => {
       cancelled = true;
     };
-  }, [start, end, upTo]);
+  }, [start, end, upTo, scopeChecking, isTebaya]);
 
   const rate = expected > 0 ? Math.round((actual / expected) * 100) : 0;
   const diff = actual - expected;
@@ -126,6 +139,9 @@ export default function MonthlySummary({
   const valueSize = isLarge ? "text-2xl" : "text-xl";
   const barH = isLarge ? "h-5" : "h-4";
   const barPct = Math.min(100, Math.max(0, rate));
+
+  // よそのお店（印がある）には、この枠そのものを出さない（上のコメント参照）
+  if (scopeChecking || !isTebaya) return null;
 
   return (
     <div

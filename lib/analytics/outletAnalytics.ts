@@ -29,7 +29,7 @@ import {
   toDailySales,
   type RankCode,
 } from "@/lib/locationRank";
-import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
+import { applyTenantScope, isTebayaScope, readTenantScope } from "@/lib/tenantScope";
 
 // -----------------------------------------------------------------------------
 // 定数（あとで変えたくなる数字はここに集約）
@@ -360,6 +360,16 @@ export function computeOutletStats(
  * 手羽屋の規模なら全件取得でも十分速い。
  */
 export async function getOutletAnalytics(): Promise<OutletStats[]> {
+  /**
+   * ★ ここは「出店先ごとの売上」を作る所です。
+   *   もとになる日報は印が空（＝手羽屋）のものだけを読む書き方なので、
+   *   よそのお店が呼ぶと **手羽屋の売上** が返ってしまいます。
+   *   出店予定（shifts）にも印の欄がまだありません。
+   *   なので、手羽屋以外のときは何も読まずに空で返します
+   *   （画面に出さないだけでなく、取りにも行きません）。
+   */
+  if (!isTebayaScope(readTenantScope())) return [];
+
   const now = new Date();
   const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 

@@ -8,6 +8,7 @@ import {
   type OutletStats,
   type RankKind,
 } from "@/lib/analytics/outletAnalytics";
+import { useIsTebaya } from "@/app/components/TebayaOnlyGate";
 
 /** トップ画面に出す上位店舗数 */
 const TOP_N = 5;
@@ -23,12 +24,21 @@ const RANK_BADGE: Record<RankKind, string> = {
 };
 
 export default function LocationRankingSummary() {
+  /**
+   * ★ この枠は出店先ごとの売上（手羽屋の数字）を出します。
+   *   トップ（/）は合言葉が要らないので、申し込んだお店のスタッフも開けます。
+   *   よそのお店には、この枠そのものを出しません（読みにも行きません）。
+   */
+  const { checking: scopeChecking, isTebaya } = useIsTebaya();
+
   const [outlets, setOutlets] = useState<OutletStats[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // よそのお店のときは、手羽屋の棚を読みに行かない
+      if (scopeChecking || !isTebaya) return;
       try {
         const data = await getOutletAnalytics();
         if (!cancelled) setOutlets(data);
@@ -39,7 +49,10 @@ export default function LocationRankingSummary() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [scopeChecking, isTebaya]);
+
+  // よそのお店（印がある）には、この枠そのものを出さない（上のコメント参照）
+  if (scopeChecking || !isTebaya) return null;
 
   if (error) return null; // トップ画面では静かに非表示（既存機能を邪魔しない）
 

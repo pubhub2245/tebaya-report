@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import ShiftsView, { type OpenNewShiftRequest } from "./ShiftsView";
 import VenuesView from "@/app/venues/VenuesView";
+import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 
 type Tab = "shifts" | "venues";
 
@@ -30,6 +31,13 @@ export default function CombinedClient({
   };
 
   return (
+    /**
+     * ★ 出店予定（shifts）の棚には、まだ「どの店のものか」の印の欄がありません。
+     *   絞りようが無いので、欄ができるまでは よそのお店には開きません
+     *   （手羽屋は印が空なので、これまでどおりそのまま出ます）。
+     *   → lib/tenantScope.ts の TABLES_WITHOUT_TENANT_COLUMN
+     */
+    <TebayaOnlyGate title="📅 シフト・出店先">
     <main className="max-w-md mx-auto px-4 py-5 pb-24">
       <header className="mb-4 flex items-center justify-between gap-2">
         <Link
@@ -76,5 +84,6 @@ export default function CombinedClient({
         <VenuesView onRegisterShift={handleRegisterShift} />
       </div>
     </main>
+    </TebayaOnlyGate>
   );
 }
