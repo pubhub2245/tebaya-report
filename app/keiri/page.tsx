@@ -30,14 +30,16 @@ import {
 import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
 import {
-  DEFAULT_SETTINGS,
   DISPLAY_EXPENSE_ACCOUNTS,
   buildJournalRows,
   calcCashPosition,
   calcUnpaid,
+  defaultSettingsFor,
   expenseSlices,
   mergedExpenseByAccount,
+  isTenantBusinessCode,
   monthKey,
+  outsourcingLabelFor,
   summarizeByLocation,
   summarizeMonth,
   templateFor,
@@ -113,6 +115,30 @@ function KeiriInner() {
   const [payments, setPayments] = useState<(KeiriPayment & { id: number })[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * そのお店ぶんの「設定の行」が見つからなかったか。
+   * 見つからないと、数え始めの日・手元の現金・家賃・外注費の率が分かりません。
+   * ★手羽屋には起きません（'tebaya' の行は必ずあります）。
+   */
+  const [settingsMissing, setSettingsMissing] = useState(false);
+
+  /**
+   * 設定が読めなかったときに使う値。
+   * 手羽屋はこれまでどおり手羽屋の決めごと、
+   * 申し込んだお店は**決めごとを1つも持たない値**（家賃0円・外注費0%）。
+   * ここを手羽屋の値のままにすると、よそのお店の経費に
+   * 払っていない家賃35,000円と売上の10%が出てしまいます。
+   */
+  const fallbackSettings = useMemo(
+    () => defaultSettingsFor(BUSINESS_CODE),
+    [BUSINESS_CODE],
+  );
+
+  /** 外注先の呼び名（手羽屋は「Alpha」、申し込んだお店は「外注費」） */
+  const outsourcingLabel = useMemo(
+    () => outsourcingLabelFor(BUSINESS_CODE),
+    [BUSINESS_CODE],
+  );
 
   const ym = monthKey(year, month);
   const template = useMemo(() => templateFor(BUSINESS_CODE), [BUSINESS_CODE]);
@@ -130,6 +156,7 @@ function KeiriInner() {
         .eq("business_type_code", BUSINESS_CODE)
         .maybeSingle();
       if (sErr) throw sErr;
+      setSettingsMissing(!s);
       setSettings(
         s
           ? {
@@ -139,14 +166,14 @@ function KeiriInner() {
               monthly_rent: Number((s as any).monthly_rent) || 0,
               rent_start_month: (s as any).rent_start_month ?? "",
             }
-          : DEFAULT_SETTINGS,
+          : fallbackSettings,
       );
 
       // 日報。経費の種類を決めるのに「説明の文字」が要るので明細も取る。
       // ★ただし daily_reports から直接は取らない。keiri_reports というビュー
       //   （レシート写真の住所を抜いた軽い日報）から取る。
       //   写真ごと取ると1か月ぶんで数百KBになり画面が重くなるため（CLAUDE.md 4-2）。
-      const from = (s as any)?.opening_date ?? DEFAULT_SETTINGS.opening_date;
+      const from = (s as any)?.opening_date ?? fallbackSettings.opening_date;
       // 表示中の月が期首日より前でも見られるように、月初とどちらか早いほうから取る
       const gte = `${ym}-01` < from ? `${ym}-01` : from;
       // ★そのお店のぶんだけ読む（手羽屋は印が空なので、読む範囲はいままでと同じ）
@@ -175,13 +202,13 @@ function KeiriInner() {
     } finally {
       setLoading(false);
     }
-  }, [ym, scope, BUSINESS_CODE]);
+  }, [ym, scope, BUSINESS_CODE, fallbackSettings]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const effective = settings ?? DEFAULT_SETTINGS;
+  const effective = settings ?? fallbackSettings;
 
   const summary = useMemo(
     () => summarizeMonth({ ym, reports, template, settings: effective }),
@@ -305,6 +332,20 @@ function KeiriInner() {
       )}
       {loading && <p className="text-stone-500 text-sm px-1">読み込み中…</p>}
 
+      {/*
+        お店の設定が読めなかったときのお知らせ。
+        黙って別の値で計算すると、こちらが数字を作ったことになるので、
+        読めていないことをそのまま出します。
+      */}
+      {settingsMissing && !loading && isTenantBusinessCode(BUSINESS_CODE) && (
+        <p className="card bg-amber-50 text-amber-800 border border-amber-200 text-sm leading-relaxed">
+          お店の設定（数え始めの日・その日の手元の現金）が、まだ読めていません。
+          家賃や外注費のような「毎月決まって出ていくお金」は
+          <strong>0円として計算しています</strong>（こちらで金額を作りません）。
+          下の「⚙️ 設定」から入れるか、「❓ 困ったとき」からご一報ください。
+        </p>
+      )}
+
       {/* 上段：大きな3つの数字 */}
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <BigNumber
@@ -326,7 +367,7 @@ function KeiriInner() {
           title="まだ払っていないお金"
           value={unpaid.total}
           color="text-amber-600"
-          note={`給与 ${yen(unpaid.payroll)}・Alpha ${yen(
+          note={`給与 ${yen(unpaid.payroll)}・${outsourcingLabel} ${yen(
             unpaid.outsourcing,
           )}・家賃 ${yen(unpaid.rent)}`}
         />
@@ -501,7 +542,7 @@ function KeiriInner() {
           )}
           <p className="text-xs text-stone-400">
             「経費」は日報の経費と人件費（日当）の合計です。
-            外注費（Alpha）と家賃（事務所）は月ごとに決まるお金なので、
+            外注費と家賃（事務所）は月ごとに決まるお金なので、
             場所別には入れていません（どの場所のぶんか決められないため）。
             出店場所が空の日報は「未設定」にまとめています。
           </p>
@@ -549,13 +590,18 @@ function KeiriInner() {
       <PaymentSection
         payments={payments}
         onSaved={load}
+        outsourcingLabel={outsourcingLabel}
         unpaidPayroll={unpaid.payroll}
         unpaidOutsourcing={unpaid.outsourcing}
         unpaidRent={unpaid.rent}
       />
 
       {/* 設定 */}
-      <SettingsSection settings={effective} onSaved={load} />
+      <SettingsSection
+        settings={effective}
+        onSaved={load}
+        outsourcingLabel={outsourcingLabel}
+      />
     </main>
   );
 }
@@ -654,12 +700,15 @@ function PaymentSection({
   unpaidPayroll,
   unpaidOutsourcing,
   unpaidRent,
+  outsourcingLabel,
 }: {
   payments: (KeiriPayment & { id: number })[];
   onSaved: () => void;
   unpaidPayroll: number;
   unpaidOutsourcing: number;
   unpaidRent: number;
+  /** 外注先の呼び名（手羽屋は「Alpha」） */
+  outsourcingLabel: string;
 }) {
   const [paidOn, setPaidOn] = useState(todayStr());
   const [amount, setAmount] = useState("");
@@ -696,13 +745,13 @@ function PaymentSection({
   return (
     <section className="card space-y-3">
       <h2 className="text-lg font-bold text-brand-dark">
-        💴 給与・Alpha・家賃に払ったお金の記録
+        💴 給与・{outsourcingLabel}・家賃に払ったお金の記録
       </h2>
       <p className="text-sm text-stone-600 leading-relaxed">
         月に1回、実際に払ったときにここへ入れてください。
         入れると「今の現金」からその分が引かれ、「まだ払っていないお金」が減ります。
         <br />
-        いま残っている未払い：給与 {yen(unpaidPayroll)}・Alpha{" "}
+        いま残っている未払い：給与 {yen(unpaidPayroll)}・{outsourcingLabel}{" "}
         {yen(unpaidOutsourcing)}・家賃 {yen(unpaidRent)}
       </p>
 
@@ -789,9 +838,12 @@ function PaymentSection({
 function SettingsSection({
   settings,
   onSaved,
+  outsourcingLabel,
 }: {
   settings: KeiriSettings;
   onSaved: () => void;
+  /** 外注先の呼び名（手羽屋は「Alpha」） */
+  outsourcingLabel: string;
 }) {
   const [open, setOpen] = useState(false);
   const [openingDate, setOpeningDate] = useState(settings.opening_date);
@@ -884,7 +936,7 @@ function SettingsSection({
               />
             </div>
             <div>
-              <label className="label">Alphaの率（％）</label>
+              <label className="label">{outsourcingLabel}の率（％）</label>
               <input
                 type="number"
                 step="0.1"
