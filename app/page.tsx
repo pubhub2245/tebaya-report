@@ -2,6 +2,7 @@ import Link from "next/link";
 import MonthlySummary from "./components/MonthlySummary";
 import LocationRankingSummary from "./components/LocationRankingSummary";
 import { TebayaOnlyBlock } from "./components/TebayaOnlyGate";
+import AppTitle from "./components/AppTitle";
 
 /** グループ見出し */
 function GroupLabel({ children }: { children: React.ReactNode }) {
@@ -37,9 +38,7 @@ export default function MenuPage() {
   return (
     <main className="max-w-md mx-auto px-4 py-8 min-h-screen flex flex-col">
       <header className="mb-6 text-center">
-        <h1 className="text-2xl font-bold text-brand-dark">
-          手羽屋 業務システム
-        </h1>
+        <AppTitle />
       </header>
 
       <section className="mb-5">
@@ -58,31 +57,37 @@ export default function MenuPage() {
         </Link>
         {/* 仕込み日報（/prep）は 2026-06-09 で運用停止したため入り口を外した。
             画面とデータは残してあるので、再開したいときはここに戻すだけでよい。 */}
-        <div className="grid grid-cols-2 gap-3">
-          <TileLink
-            href="/setup-check"
-            emoji="🪙"
-            label="設営後チェック"
-            color="bg-amber-500 hover:bg-amber-600 active:bg-amber-700"
-          />
-          <TileLink
-            href="/interim"
-            emoji="📊"
-            label="中間報告"
-            color="bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
-          />
-        </div>
+        {/* 設営後チェックと中間報告は、まだ お店ごとに分かれていない棚を読むので
+            手羽屋にだけ出す。押しても開けないボタンを見せないため（→ TebayaOnlyGate）。 */}
+        <TebayaOnlyBlock>
+          <div className="grid grid-cols-2 gap-3">
+            <TileLink
+              href="/setup-check"
+              emoji="🪙"
+              label="設営後チェック"
+              color="bg-amber-500 hover:bg-amber-600 active:bg-amber-700"
+            />
+            <TileLink
+              href="/interim"
+              emoji="📊"
+              label="中間報告"
+              color="bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
+            />
+          </div>
+        </TebayaOnlyBlock>
         {/* 自分のお金で立て替えたときだけ使う入り口。
             レジのお金から払った経費は日報のSTEP5に入れる。 */}
-        <Link
-          href="/keiri/advances"
-          className="flex items-center justify-center gap-2 w-full h-14 mt-3 rounded-2xl bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white font-bold shadow-md transition"
-        >
-          <span className="text-xl">🧾</span>
-          <span className="text-sm leading-tight text-center">
-            立替経費（自分のお金で払ったとき）
-          </span>
-        </Link>
+        <TebayaOnlyBlock>
+          <Link
+            href="/keiri/advances"
+            className="flex items-center justify-center gap-2 w-full h-14 mt-3 rounded-2xl bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white font-bold shadow-md transition"
+          >
+            <span className="text-xl">🧾</span>
+            <span className="text-sm leading-tight text-center">
+              立替経費（自分のお金で払ったとき）
+            </span>
+          </Link>
+        </TebayaOnlyBlock>
         <Link
           href="/report/edit"
           className="block text-center text-sm text-stone-500 underline hover:text-stone-700 mt-3"
@@ -97,17 +102,20 @@ export default function MenuPage() {
         </Link>
       </section>
 
-      {/* シフト・出店 */}
-      <section className="mb-5">
-        <GroupLabel>📅 シフト・出店</GroupLabel>
-        <Link
-          href="/shifts"
-          className="flex items-center justify-center gap-3 w-full h-16 rounded-2xl bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-bold text-lg shadow-md transition"
-        >
-          <span className="text-2xl">📅</span>
-          <span>シフト・出店先問い合わせ</span>
-        </Link>
-      </section>
+      {/* シフト・出店。出店予定（shifts）にはまだ「どの店か」の印の欄が無いので、
+          手羽屋にだけ出す（→ lib/tenantScope.ts）。 */}
+      <TebayaOnlyBlock>
+        <section className="mb-5">
+          <GroupLabel>📅 シフト・出店</GroupLabel>
+          <Link
+            href="/shifts"
+            className="flex items-center justify-center gap-3 w-full h-16 rounded-2xl bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-bold text-lg shadow-md transition"
+          >
+            <span className="text-2xl">📅</span>
+            <span>シフト・出店先問い合わせ</span>
+          </Link>
+        </section>
+      </TebayaOnlyBlock>
 
       {/* みんなの声 …… 意見箱とミーティング議題は、まだ お店ごとに分かれていない棚を
           読むので、経理パッケージを申し込んだお店には出しません（→ lib/tenantScope.ts）。

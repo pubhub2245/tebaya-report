@@ -708,3 +708,46 @@ test("サーバー側の窓口から手羽屋の中身を受け取る画面に�
     );
   }
 });
+
+/**
+ * トップ（/）に、**押しても開けないボタンを出さない**。
+ *
+ * 門を掛けた画面（設営後チェック・中間報告・立替経費・シフト）へのリンクが
+ * トップに出たままだと、お金を払ったお店のスタッフは
+ * 「まだご利用いただけません」に4回ぶつかることになる。
+ * 手羽屋は印が空なので、これまでどおり全部出る。
+ */
+test("トップは、手羽屋だけの画面へのリンクを、よそのお店に見せない", () => {
+  const src = readFileSync("app/page.tsx", "utf8");
+  for (const href of ["/setup-check", "/interim", "/keiri/advances", "/shifts"]) {
+    const at = src.indexOf(`href="${href}"`);
+    assert.ok(at > 0, `トップに ${href} のリンクがありません`);
+    const before = src.slice(0, at);
+    const opened = before.split("<TebayaOnlyBlock>").length - 1;
+    const closed = before.split("</TebayaOnlyBlock>").length - 1;
+    assert.ok(
+      opened > closed,
+      `トップの ${href} が TebayaOnlyBlock の中に入っていません（よそのお店に、開けないボタンが出ます）`,
+    );
+  }
+});
+
+/**
+ * トップの題（タイトル）に、よそのお店の名前（手羽屋）を出さない。
+ * 手羽屋は印が空なので、これまでどおり「手羽屋 業務システム」と出る。
+ */
+test("トップの題は、いまどのお店として開いているかで決まる", () => {
+  const src = readFileSync("app/components/AppTitle.tsx", "utf8");
+  assert.ok(src.includes("readTenantScope()"), "AppTitle が「いまどのお店か」を読んでいません");
+  assert.ok(
+    /if\s*\(isTebayaScope\(scope\)\s*\|\|\s*!scope\)\s*return;/.test(src),
+    "AppTitle が、手羽屋のときは何も変えない形になっていません",
+  );
+  assert.ok(src.includes("手羽屋 業務システム"), "手羽屋の題がこれまでと違います");
+  const page = readFileSync("app/page.tsx", "utf8");
+  assert.ok(page.includes("<AppTitle />"), "トップが AppTitle を使っていません");
+  assert.ok(
+    !/手羽屋 業務システム/.test(page),
+    "トップに手羽屋の名前が直に書かれたままです",
+  );
+});
