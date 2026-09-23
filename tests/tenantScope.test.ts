@@ -336,3 +336,72 @@ test("手羽屋（印が空）の選択肢は、絞っても1件も減らない"
     ["よその店の会場"],
   );
 });
+
+/* ---------- 合言葉の要らない画面で「日報の一覧」を出す所（kp117） ---------- */
+
+/**
+ * 合言葉（管理者パスワード）が要らない画面は、経理パッケージを申し込んだお店の
+ * スタッフもそのまま開ける。そこで日報を**一覧として**読むなら、
+ * 必ず「どの店か」の絞り込みが要る。
+ *
+ * ★これが無いと /report/edit で
+ *   ・申し込んだお店のスタッフに、手羽屋の日報（日付・場所・担当・売上）が並び、
+ *     「修正」を押せば中身まで直せる
+ *   ・手羽屋のスタッフの一覧にも、よそのお店の日報が混ざる
+ *   の両方が起きる（2026-09-24 実測して直した）。
+ */
+const REPORT_TABLE = '.from("daily_reports")';
+
+const OPEN_SCREENS_LISTING_REPORTS = [
+  "app/report/page.tsx",
+  "app/report/edit/page.tsx",
+  "app/interim/page.tsx",
+];
+
+/** 日報の棚を「1件だけ」さわる書き方（混ざりようが無いので絞らなくてよい） */
+const BY_ID_ONLY = /\.eq\("id",/;
+
+test("合言葉の要らない画面で日報を一覧にする所には、必ず『どの店か』の絞り込みが付いている", () => {
+  const missing: string[] = [];
+  for (const file of OPEN_SCREENS_LISTING_REPORTS) {
+    const src = readFileSync(file, "utf8");
+    // その画面の中の「日報の棚を読む・書く」所を1つずつ見る
+    for (let i = src.indexOf(REPORT_TABLE); i >= 0; i = src.indexOf(REPORT_TABLE, i + 1)) {
+      const before = src.slice(Math.max(0, i - 400), i);
+      const after = src.slice(i, i + 400);
+      // id で1件だけさわる所は、よその店のものが混ざりようが無い
+      if (BY_ID_ONLY.test(after)) continue;
+      const scoped =
+        /applyTenantScope[<(]/.test(before) ||
+        after.includes('.is("tenant_id", null)') ||
+        after.includes("tenantStamp(");
+      if (!scoped) {
+        const line = src.slice(0, i).split("\n").length;
+        missing.push(`${file}:${line}`);
+      }
+    }
+  }
+  assert.deepEqual(
+    missing,
+    [],
+    `次の所に「どの店か」の絞り込みが付いていません：\n${missing.join("\n")}`,
+  );
+});
+
+test("日報の一覧を絞っても、手羽屋の行は1行も減らない", () => {
+  // /report/edit は「直近60件」を出す画面。印が空のものだけで絞った結果が、
+  // 手羽屋にとって絞る前と同じであることを固定する。
+  const reports = [
+    { date: "2026-09-20", location: "ながやま三股", tenant_id: null },
+    { date: "2026-09-21", location: "PASIO高城", tenant_id: null },
+    { date: "2026-09-22", location: "よその店の会場", tenant_id: SHOP_A },
+  ];
+  assert.deepEqual(
+    rowsInScope(reports, TEBAYA_SCOPE).map((r) => r.location),
+    ["ながやま三股", "PASIO高城"],
+  );
+  assert.deepEqual(
+    rowsInScope(reports, SHOP_A).map((r) => r.location),
+    ["よその店の会場"],
+  );
+});

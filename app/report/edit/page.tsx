@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
 import { yen, slashDate } from "@/lib/format";
 import EditReportModal, {
   type EditableReport,
@@ -11,6 +12,14 @@ import EditReportModal, {
 /**
  * 従業員が過去の日報を直接修正できるページ（管理者パスワード不要）。
  * 修正すると「誰が・いつ・どこを直したか」が履歴に残る。
+ *
+ * ★一覧は「いま開いているお店のぶんだけ」を出す（lib/tenantScope.ts）。
+ *   合言葉が要らない画面なので、ここが絞られていないと
+ *   ・経理パッケージを申し込んだお店のスタッフに、手羽屋の日報（売上・担当・場所）が
+ *     そのまま並び、押せば中身まで直せてしまう
+ *   ・手羽屋のスタッフの一覧にも、よそのお店の日報が混ざる
+ *   の両方が起きる。
+ *   手羽屋は印が空（tenant_id が null）なので、絞っても出る行はこれまでと1行も変わらない。
  */
 
 type Row = EditableReport & { created_at?: string };
@@ -25,11 +34,15 @@ export default function ReportEditPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const { data, error } = await supabase
-      .from("daily_reports")
-      .select(
-        "id, date, location, staff_name, shop, sales_amount, labor, register_diff, exclude_from_stats",
-      )
+    // ★そのお店のぶんだけ読む（手羽屋は印が空なので、読む範囲はいままでと同じ）
+    const { data, error } = await applyTenantScope<any>(
+      supabase
+        .from("daily_reports")
+        .select(
+          "id, date, location, staff_name, shop, sales_amount, labor, register_diff, exclude_from_stats",
+        ) as any,
+      readTenantScope(),
+    )
       .order("date", { ascending: false })
       .limit(60);
     if (error) setError(error.message);
