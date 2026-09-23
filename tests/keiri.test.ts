@@ -35,6 +35,7 @@ import {
   defaultSettingsFor,
   isTenantBusinessCode,
   outsourcingLabelFor,
+  outsourcingAccountLabelFor,
   type KeiriReport,
   type KeiriPayment,
   type KeiriSettings,
@@ -816,4 +817,13 @@ test("経理画面が、設定の読めない申し込んだお店に手羽屋�
     false,
     "画面に出る文字に Alpha を直書きしないこと（outsourcingLabelFor を使う）",
   );
+});
+
+test("outsourcingAccountLabelFor: 手羽屋は「外注費（Alpha）」のまま／よそのお店には会社名を出さない", () => {
+  assert.equal(outsourcingAccountLabelFor("tebaya"), "外注費（Alpha）");
+  assert.equal(outsourcingAccountLabelFor(null), "外注費（Alpha）");
+  assert.equal(outsourcingAccountLabelFor(TENANT_CODE), "外注費");
+  // 手羽屋の表に出る名前は、科目の定義（accounts.ts）と同じであること
+  const fromAccounts = accountLabelForCsv("outsourcing");
+  assert.equal(outsourcingAccountLabelFor("tebaya"), fromAccounts);
 });

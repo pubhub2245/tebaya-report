@@ -39,6 +39,7 @@ import {
   mergedExpenseByAccount,
   isTenantBusinessCode,
   monthKey,
+  outsourcingAccountLabelFor,
   outsourcingLabelFor,
   summarizeByLocation,
   summarizeMonth,
@@ -137,6 +138,12 @@ function KeiriInner() {
   /** 外注先の呼び名（手羽屋は「Alpha」、申し込んだお店は「外注費」） */
   const outsourcingLabel = useMemo(
     () => outsourcingLabelFor(BUSINESS_CODE),
+    [BUSINESS_CODE],
+  );
+
+  /** 「科目ごとの表」に出す外注費の科目名（手羽屋は「外注費（Alpha）」のまま） */
+  const outsourcingAccountLabel = useMemo(
+    () => outsourcingAccountLabelFor(BUSINESS_CODE),
     [BUSINESS_CODE],
   );
 
@@ -403,8 +410,13 @@ function KeiriInner() {
                 {DISPLAY_EXPENSE_ACCOUNTS.map((a) => (
                   <tr key={a.key} className="border-b border-stone-100">
                     <td className="py-2 pl-3 text-stone-700">
-                      {a.label}
-                      {a.key === "outsourcing" && (
+                      {a.key === "outsourcing" ? outsourcingAccountLabel : a.label}
+                      {/*
+                        率や家賃が 0 のときは「（売上高の0%・自動計算）」と
+                        書かない。決めごとが無いだけなのに、
+                        「0%と決まっている」ように読めてしまうため。
+                      */}
+                      {a.key === "outsourcing" && effective.outsourcing_rate > 0 && (
                         <span className="text-xs text-stone-400">
                           （売上高の{ratePct}%・自動計算）
                         </span>
@@ -418,7 +430,7 @@ function KeiriInner() {
                           ）
                         </span>
                       )}
-                      {a.key === "rent" && (
+                      {a.key === "rent" && effective.monthly_rent > 0 && (
                         <span className="text-xs text-stone-400">
                           （毎月 {yen(effective.monthly_rent)}・自動計算）
                         </span>
