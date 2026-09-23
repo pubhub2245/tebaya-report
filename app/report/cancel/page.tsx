@@ -11,6 +11,7 @@ import {
   type CancellationReasonKey,
 } from "@/lib/cancellation/constants";
 import { createCancellation } from "@/lib/cancellation/db";
+import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 
 const LOCATION_FALLBACK_OPTIONS = [
   "ながやま 鷹尾店",
@@ -34,7 +35,7 @@ type ShiftRow = {
   locations: { name: string } | null;
 };
 
-export default function CancelPage() {
+function CancelPageInner() {
   const router = useRouter();
 
   const [businessDate, setBusinessDate] = useState<string>(businessDateStr());
@@ -449,5 +450,19 @@ export default function CancelPage() {
         </div>
       )}
     </main>
+  );
+}
+
+/**
+ * ★ 出店中止の登録は 2026-06-04 に止めた画面ですが、URL を直接開けば今も動きます。
+ *   手羽屋のスタッフの実名と出店場所の一覧を出し、手羽屋のシフトを書き換えるので、
+ *   経理パッケージを申し込んだお店には開きません。
+ *   手羽屋は印が空なので、これまでどおりそのまま出ます（止めた画面のままです）。
+ */
+export default function CancelPage() {
+  return (
+    <TebayaOnlyGate title="🚫 出店中止の登録">
+      <CancelPageInner />
+    </TebayaOnlyGate>
   );
 }

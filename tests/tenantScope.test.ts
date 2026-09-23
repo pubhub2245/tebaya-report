@@ -446,6 +446,8 @@ const GATED_SCREENS: { file: string; table: string }[] = [
   // 出店予定。ShiftsView / VenuesView を包んでいるのが CombinedClient
   { file: "app/shifts/CombinedClient.tsx", table: "shifts" },
   { file: "app/keiri/advances/page.tsx", table: "keiri_advance_expenses" },
+  // 入り口を外してある画面（2026-08-27）。URL を直接開けば今も動くので門が要る
+  { file: "app/report/cancel/page.tsx", table: "shifts" },
 ];
 
 test("印の欄が無い棚の画面には、手羽屋だけに開く門が掛かっている", () => {
@@ -497,8 +499,6 @@ test("印の欄がまだ無い棚を、門の外の画面が新たに読み始�
     [
       // 意見箱の中身（返信のやり取り）。包んでいるのは app/feedback/[id]/page.tsx
       "app/feedback/[id]/_components/ReplyThread.tsx（feedback_replies）",
-      // 入り口を外している画面（2026-08-27）。トップにリンクが無いので開かれない
-      "app/report/cancel/page.tsx（shifts）",
       // 出店予定の中身。包んでいるのは app/shifts/CombinedClient.tsx
       "app/shifts/ShiftsView.tsx（shifts）",
     ],
@@ -676,4 +676,35 @@ test("よそのお店は、送ったあと手羽屋の意見箱の一覧へ飛�
     /if \(isTebaya\) router\.push\("\/feedback"\);/.test(src),
     "送信後の行き先が、手羽屋のときだけに絞られていません",
   );
+});
+
+/**
+ * 合言葉の要らない画面のうち、**棚を直接ではなくサーバー側の窓口（/api）から**
+ * 手羽屋の中身を受け取る画面にも、同じ門が要る（2026-09-24 実測して直した）。
+ *
+ * ★とくに設営後チェック（/setup-check）は
+ *   ・その日の手羽屋のシフト（スタッフの実名・出店場所・売上目標）
+ *   ・同じ号車の前回のレジ金額
+ *   をそのまま出し、送信すると手羽屋の記録として保存され、
+ *   手羽屋のスタッフのLINEグループへ文面が飛ぶ。
+ *   /api の中は「どの店か」で絞りようが無い（shifts に印の欄が無い）ので、
+ *   画面の側で開かないようにしている。
+ */
+test("サーバー側の窓口から手羽屋の中身を受け取る画面にも、門が掛かっている", () => {
+  for (const file of [
+    // 設営後チェック（手羽屋のシフト・レジ金額・LINE送信）
+    "app/setup-check/page.tsx",
+    // 仕込み日報。入り口は外してあるが URL を直接開けば動く
+    "app/prep/page.tsx",
+  ]) {
+    const src = readFileSync(file, "utf8");
+    assert.ok(
+      src.includes("TebayaOnlyGate"),
+      `${file} に TebayaOnlyGate が掛かっていません（よそのお店に手羽屋の中身が見えます）`,
+    );
+    assert.ok(
+      /<TebayaOnlyGate[\s\S]*<\/TebayaOnlyGate>/.test(src),
+      `${file} の TebayaOnlyGate が閉じていません（中身を包めていません）`,
+    );
+  }
 });

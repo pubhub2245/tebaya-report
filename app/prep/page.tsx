@@ -28,6 +28,7 @@ import {
   type MonthlyCostBreakdown,
   type PrepSettings,
 } from "@/lib/prepHelpers";
+import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 
 const STAFF_OPTIONS = ["なぎさ"];
 
@@ -61,7 +62,7 @@ function newSession(): SessionForm {
   };
 }
 
-export default function PrepReportPage() {
+function PrepReportPageInner() {
   const [date, setDate] = useState<string>(todayIso());
   const [staffName, setStaffName] = useState<string>(STAFF_OPTIONS[0]);
   const [products, setProducts] = useState<PrepProduct[]>([]);
@@ -892,5 +893,19 @@ function ChecklistSection({
         })}
       </div>
     </section>
+  );
+}
+
+/**
+ * ★ 仕込み日報は 2026-06-09 に止めた画面ですが、URL を直接開けば今も動きます。
+ *   中身は手羽屋の商品・担当者・仕込み数なので、
+ *   経理パッケージを申し込んだお店には開きません。
+ *   手羽屋は印が空なので、これまでどおりそのまま出ます（止めた画面のままです）。
+ */
+export default function PrepReportPage() {
+  return (
+    <TebayaOnlyGate title="🍗 仕込み日報">
+      <PrepReportPageInner />
+    </TebayaOnlyGate>
   );
 }

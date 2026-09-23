@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
+import { NEUTRAL_OUTSOURCING_ACCOUNT_LABEL } from "@/lib/keiri";
 import {
   DEMO_SHOP_NAME,
   demoInputProblem,
@@ -280,4 +281,23 @@ test("経費の行の入力欄は、スマホの幅でも横にはみ出さな�
   assert.ok(row.includes("min-w-0 flex-1"), "経費の内容の入力欄から min-w-0 が消えている");
   assert.ok(row.includes("shrink-0"), "経費の金額の入力欄から shrink-0 が消えている");
   assert.ok(!row.includes('className="flex-1 rounded-lg'), "min-w-0 の無い flex-1 が残っている");
+});
+
+/**
+ * お試し版（/keiri/demo）は、申し込みを考えている方が最初に触る画面。
+ * 「科目ごとの金額」に手羽屋だけの呼び名（外注費（Alpha））が出ると、
+ * この料金のほかに知らない会社への支払いがあるように読めてしまう。
+ * 2026-09-24 に本番で出ていたので直した。
+ */
+test("お試し版の科目の表に、よその会社の名前（Alpha）を出さない", () => {
+  const src = fs.readFileSync("app/keiri/demo/board.tsx", "utf8");
+  assert.ok(
+    !src.includes("Alpha"),
+    "お試し版の画面に Alpha の文字が入っています",
+  );
+  assert.ok(
+    src.includes("NEUTRAL_OUTSOURCING_ACCOUNT_LABEL"),
+    "外注費の科目名を、手羽屋以外向けの呼び名に差し替えていません",
+  );
+  assert.equal(NEUTRAL_OUTSOURCING_ACCOUNT_LABEL, "外注費");
 });

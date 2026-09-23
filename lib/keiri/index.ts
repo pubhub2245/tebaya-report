@@ -135,5 +135,15 @@ export function outsourcingLabelFor(code: string | null | undefined): string {
  * 申し込んだお店には、よその会社の名前を出さない。
  */
 export function outsourcingAccountLabelFor(code: string | null | undefined): string {
-  return isTenantBusinessCode(code) ? "外注費" : "外注費（Alpha）";
+  return isTenantBusinessCode(code) ? NEUTRAL_OUTSOURCING_ACCOUNT_LABEL : "外注費（Alpha）";
 }
+
+/**
+ * 手羽屋以外に見せるときの外注費の科目名。
+ *
+ * ★お試し版（/keiri/demo）のように「どのお店として開いているか」がそもそも無い画面は、
+ *   この名前を直に使います。申し込みを考えている方が最初に触る画面に
+ *   よその会社の名前（Alpha）が出ると、「この料金のほかに Alpha への支払いがあるのか」と
+ *   読めてしまうためです。
+ */
+export const NEUTRAL_OUTSOURCING_ACCOUNT_LABEL = "外注費";
