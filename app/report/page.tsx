@@ -718,12 +718,18 @@ export default function Page() {
           >
             🏠 トップ
           </a>
-          <a
-            href="/interim"
-            className="inline-flex items-center gap-1 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-bold text-base px-3 py-2"
-          >
-            📊 中間報告
-          </a>
+          {/* 中間報告（/interim）は、棚に「どの店か」の欄がまだ無いので
+              手羽屋以外には開かない画面になっている（→ lib/tenantScope.ts）。
+              押しても門に当たるだけなので、よそのお店には出さない。
+              手羽屋は印が空なので、これまでどおり出る。 */}
+          {!scope && (
+            <a
+              href="/interim"
+              className="inline-flex items-center gap-1 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-bold text-base px-3 py-2"
+            >
+              📊 中間報告
+            </a>
+          )}
         </div>
         {/* 出店中止の登録（/report/cancel）は 2026-06-04 で運用停止したため入り口を外した。
             画面とデータは残してあるので、再開したいときはここに戻すだけでよい。 */}
@@ -783,6 +789,8 @@ export default function Page() {
                 ]
           }
           laborForStaff={laborForStaff}
+          // 屋号の2択は手羽屋だけのもの。よそのお店には出さない。
+          showShopPicker={!scope}
         />
       )}
       {step === 2 && (
@@ -830,6 +838,8 @@ export default function Page() {
           breakdown={breakdown}
           onSave={handleSave}
           saving={saving}
+          // 屋号の行も、2択を出していないお店には出さない
+          showShop={!scope}
         />
       )}
 
@@ -865,6 +875,7 @@ function Step1({
   locationsLoaded,
   staffOptions,
   laborForStaff,
+  showShopPicker,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
@@ -874,6 +885,13 @@ function Step1({
   staffOptions: string[];
   /** 担当者を選んだときの日当。スタッフマスタの値が優先される */
   laborForStaff: (staff: string, isOther?: boolean) => number;
+  /**
+   * 「🍗 手羽屋 / 🍖 もも屋」の2択を出すか。
+   * 手羽屋だけの屋号なので、経理パッケージを申し込んだお店には出さない。
+   * 出さないときは既定の「手羽屋」のまま扱う（＝商品マスタ連動・場代の自動入力が働く、
+   * そのお店にとっての通常の日報）。
+   */
+  showShopPicker: boolean;
 }) {
   const [isOther, setIsOther] = useState(
     form.location.length > 0 && !locationOptions.includes(form.location)
@@ -885,6 +903,11 @@ function Step1({
     <>
     <section className="card space-y-4">
       <h2 className="text-lg font-bold">基本情報</h2>
+      {/* 「手羽屋 / もも屋」は手羽屋だけの屋号なので、
+          経理パッケージを申し込んだお店には出さない（選んでも意味が無いため）。
+          出さないときは既定の「手羽屋」のまま＝そのお店の通常の日報として動く。
+          手羽屋は印が空なので、これまでどおり2択が出る。 */}
+      {showShopPicker && (
       <div>
         <label className="label">お店</label>
         <div className="flex gap-2">
@@ -913,6 +936,7 @@ function Step1({
           ))}
         </div>
       </div>
+      )}
       <div>
         <label className="label">日付</label>
         <input
@@ -2038,6 +2062,7 @@ function Step7({
   breakdown,
   onSave,
   saving,
+  showShop,
 }: {
   form: FormState;
   cumulative: number;
@@ -2046,6 +2071,8 @@ function Step7({
   breakdown: SalesBreakdown;
   onSave: () => void;
   saving: boolean;
+  /** 確認画面に「お店（🍗 手羽屋 / 🍖 もも屋）」の行を出すか。手羽屋のときだけ true */
+  showShop: boolean;
 }) {
   const sales = form.sales_amount || 0;
   // 粗利の計算は lib/money.ts に集約（tests/money.test.ts で検証済み）
@@ -2059,7 +2086,11 @@ function Step7({
       <div className="card space-y-2">
         <h2 className="text-lg font-bold">確認</h2>
         <Row k="日付" v={form.date} />
-        <Row k="お店" v={form.shop === "もも屋" ? "🍖 もも屋" : "🍗 手羽屋"} />
+        {/* 屋号の行も、2択を出していないお店（＝手羽屋以外）には出さない。
+            出すと必ず「🍗 手羽屋」と表示されてしまうため。 */}
+        {showShop && (
+          <Row k="お店" v={form.shop === "もも屋" ? "🍖 もも屋" : "🍗 手羽屋"} />
+        )}
         <Row k="場所" v={form.location} />
         <Row k="担当" v={form.staff_name} />
         <Row k="本日売上" v={yen(sales)} />
