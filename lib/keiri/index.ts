@@ -74,3 +74,57 @@ export const DEFAULT_SETTINGS: KeiriSettings = {
   monthly_rent: 35000,
   rent_start_month: "2026-08",
 };
+
+/**
+ * その業態コードが「経理パッケージを申し込んだお店」のものか。
+ * 手羽屋（'tebaya'）と、知らない文字は false。
+ */
+export function isTenantBusinessCode(code: string | null | undefined): boolean {
+  return TENANT_CODE_RE.test(String(code ?? ""));
+}
+
+/**
+ * 申し込んだお店で、設定の行が読めなかったときの保険。
+ *
+ * ■ なぜ別に持つのか（ここが大事）
+ *   上の DEFAULT_SETTINGS は**手羽屋の決めごと**です
+ *   （期首日 2026-08-10／家賃 毎月35,000円／外注費 売上の10%）。
+ *   これをよそのお店に当てると、
+ *     ・払っていない家賃 35,000円が毎月の経費に出る
+ *     ・売上の10%が「外注費（Alpha）」として引かれる
+ *     ・会計ソフト用のCSVにも「Alpha 業務委託料（売上高の10%）」の行が入る
+ *   ということが起きます。お店が税理士さんに渡す帳簿に、
+ *   **こちらが勝手に作った金額と、よその会社の名前**が載ることになります。
+ *   「勝手に金額を作らない」（CLAUDE.md 4-12）に正面から反するので、
+ *   申し込んだお店の保険は**決めごとを1つも持たない**値にしてあります。
+ *
+ * ■ 数え始めの日
+ *   本当の日が読めていないので、**ある分は全部数える**という意味で
+ *   うんと古い日を入れてあります（日報を隠さないため）。
+ *   画面には「設定がまだ読めていません」と出して、人に直してもらいます。
+ */
+export const TENANT_FALLBACK_SETTINGS: KeiriSettings = {
+  opening_date: "1970-01-01",
+  opening_balance: 0,
+  outsourcing_rate: 0,
+  monthly_rent: 0,
+  rent_start_month: "",
+};
+
+/**
+ * 設定の行が読めなかったときに使う値を、業態コードから選ぶ。
+ * 手羽屋はこれまでどおり DEFAULT_SETTINGS（1つも変わりません）。
+ */
+export function defaultSettingsFor(code: string | null | undefined): KeiriSettings {
+  return isTenantBusinessCode(code) ? TENANT_FALLBACK_SETTINGS : DEFAULT_SETTINGS;
+}
+
+/**
+ * 外注先の呼び名。
+ * 手羽屋は「Alpha」（株式会社Alpha ＝ じゅんさんの会社）のままです。
+ * 申し込んだお店にとって Alpha は**関係のない会社の名前**なので、
+ * その画面では「外注費」という一般の言葉にします。
+ */
+export function outsourcingLabelFor(code: string | null | undefined): string {
+  return isTenantBusinessCode(code) ? "外注費" : "Alpha";
+}

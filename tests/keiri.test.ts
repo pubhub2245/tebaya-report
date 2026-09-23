@@ -6,6 +6,7 @@
  *   壊すと『今の現金』が実際の手元のお金と合わなくなります。
  */
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 
 import {
@@ -29,6 +30,11 @@ import {
   TEBAYA_TEMPLATE,
   GENERIC_TEMPLATE,
   templateFor,
+  DEFAULT_SETTINGS,
+  TENANT_FALLBACK_SETTINGS,
+  defaultSettingsFor,
+  isTenantBusinessCode,
+  outsourcingLabelFor,
   type KeiriReport,
   type KeiriPayment,
   type KeiriSettings,
@@ -688,4 +694,126 @@ test("expenseSlices: グラフでも「人件費（当日払い）」は人件�
   assert.equal(slices.filter((x) => x.key === "payroll_daily").length, 0);
   assert.equal(slices.find((x) => x.key === "payroll")!.value, 15000);
   assert.equal(slices.find((x) => x.key === "lease")!.value, 3000);
+});
+
+// ------------------------------------------------------------------
+// 設定が読めなかったときの保険（2026-09-24）
+//
+// ★ここが壊れると、経理パッケージを申し込んだお店の画面と、
+//   そのお店が税理士さんに渡す CSV に、
+//   「払っていない家賃 35,000円」と「Alpha 業務委託料（売上高の10%）」が出ます。
+//   こちらが金額を作ったことになるので、絶対に手羽屋の値へ戻さないこと。
+// ------------------------------------------------------------------
+
+const TENANT_CODE = "t_11111111-2222-3333-4444-555555555555";
+
+test("isTenantBusinessCode: 申し込んだお店だけ true。手羽屋と知らない文字は false", () => {
+  assert.equal(isTenantBusinessCode(TENANT_CODE), true);
+  assert.equal(isTenantBusinessCode("tebaya"), false);
+  assert.equal(isTenantBusinessCode(""), false);
+  assert.equal(isTenantBusinessCode(null), false);
+  assert.equal(isTenantBusinessCode("t_ながやま"), false);
+});
+
+test("defaultSettingsFor: 手羽屋はこれまでどおりの値のまま（1つも変えない）", () => {
+  assert.deepEqual(defaultSettingsFor("tebaya"), DEFAULT_SETTINGS);
+  assert.deepEqual(defaultSettingsFor(null), DEFAULT_SETTINGS);
+  assert.equal(DEFAULT_SETTINGS.monthly_rent, 35000);
+  assert.equal(DEFAULT_SETTINGS.outsourcing_rate, 0.1);
+});
+
+test("defaultSettingsFor: 申し込んだお店には決めごとを1つも当てない", () => {
+  const s = defaultSettingsFor(TENANT_CODE);
+  assert.deepEqual(s, TENANT_FALLBACK_SETTINGS);
+  assert.equal(s.monthly_rent, 0, "よそのお店に手羽屋の家賃を当ててはいけない");
+  assert.equal(s.outsourcing_rate, 0, "よそのお店に手羽屋の外注費の率を当ててはいけない");
+  assert.equal(s.opening_balance, 0);
+  assert.equal(s.rent_start_month, "");
+  // 数え始めの日が読めないときは、ある分を全部数える（日報を隠さない）
+  assert.ok(s.opening_date < "2000-01-01");
+});
+
+test("設定が読めない申し込んだお店：家賃も外注費も1円も出ない", () => {
+  const reports: KeiriReport[] = [
+    {
+      date: "2026-10-03",
+      location: "駅前",
+      staff_name: "A",
+      sales_amount: 100000,
+      labor: 8000,
+      expenses: [{ description: "肉 仕入れ", amount: 20000 }],
+    },
+  ];
+  const settings = defaultSettingsFor(TENANT_CODE);
+  const sum = summarizeMonth({
+    ym: "2026-10",
+    reports,
+    template: GENERIC_TEMPLATE,
+    settings,
+  });
+  assert.equal(sum.expenseByAccount.rent ?? 0, 0, "払っていない家賃を出してはいけない");
+  assert.equal(sum.expenseByAccount.outsourcing ?? 0, 0, "外注費を作ってはいけない");
+
+  const unpaid = calcUnpaid({ reports, payments: [], settings, currentYm: "2026-10" });
+  assert.equal(unpaid.rent, 0);
+  assert.equal(unpaid.outsourcing, 0);
+
+  // 会計ソフトに渡す仕訳にも、よその会社の名前は1行も出ない
+  const rows = buildJournalRows({
+    ym: "2026-10",
+    reports,
+    payments: [],
+    template: GENERIC_TEMPLATE,
+    settings,
+  });
+  assert.equal(
+    rows.filter((r) => (r.note ?? "").includes("Alpha")).length,
+    0,
+    "よそのお店のCSVに『Alpha 業務委託料』が入ってはいけない",
+  );
+  assert.equal(rows.filter((r) => (r.note ?? "").includes("家賃")).length, 0);
+});
+
+test("手羽屋の保険はこれまでどおり（家賃も外注費も出る）＝この直しで手羽屋は変わらない", () => {
+  const reports: KeiriReport[] = [
+    {
+      date: "2026-08-20",
+      location: "ながやま三股",
+      staff_name: "イデ",
+      sales_amount: 100000,
+      labor: 8000,
+      expenses: [],
+    },
+  ];
+  const settings = defaultSettingsFor("tebaya");
+  const unpaid = calcUnpaid({ reports, payments: [], settings, currentYm: "2026-08" });
+  assert.equal(unpaid.outsourcing, 10000, "手羽屋は売上の10%のまま");
+  assert.ok(unpaid.rent > 0, "手羽屋は家賃が出たまま");
+});
+
+test("outsourcingLabelFor: 手羽屋は Alpha のまま／よそのお店には会社名を出さない", () => {
+  assert.equal(outsourcingLabelFor("tebaya"), "Alpha");
+  assert.equal(outsourcingLabelFor(null), "Alpha");
+  assert.equal(outsourcingLabelFor(TENANT_CODE), "外注費");
+});
+
+test("経理画面が、設定の読めない申し込んだお店に手羽屋の決めごとを当てていないか", async () => {
+  const src = await readFile(new URL("../app/keiri/page.tsx", import.meta.url), "utf8");
+  // 画面が DEFAULT_SETTINGS を直接使うと、よそのお店に手羽屋の家賃が当たる
+  assert.equal(
+    src.includes("DEFAULT_SETTINGS"),
+    false,
+    "app/keiri/page.tsx は defaultSettingsFor(業態コード) を使うこと",
+  );
+  assert.ok(src.includes("defaultSettingsFor"));
+  // 画面に出る文字として会社名を直書きしない（呼び名は業態コードから決める）
+  // 説明書き（コメント）は数えない。数えるのは実際に動く行だけ。
+  const code = src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+  assert.equal(
+    code.includes("Alpha"),
+    false,
+    "画面に出る文字に Alpha を直書きしないこと（outsourcingLabelFor を使う）",
+  );
 });
