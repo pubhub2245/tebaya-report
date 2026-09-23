@@ -65,10 +65,18 @@ export function useIsTebaya(): { checking: boolean; isTebaya: boolean } {
  *
  * 出さないだけで、中身のリンク先そのものには門（TebayaOnlyGate）が別に掛かっています。
  * ここは「押しても開けないボタンを、そもそも見せない」ためのものです。
+ *
+ * ★ブラウザの控えをまだ読んでいないあいだ（checking）は、**中身を出します**。
+ *   ここに入れてよいのは**ボタンとその名前だけ**（金額・人の名前・お店の中身は入れない）で、
+ *   よそのお店に一瞬ボタンの名前が見えても困りませんが、
+ *   逆にすると **手羽屋の毎日の画面から、開いた直後だけボタンが消えます**
+ *   （2026-09-24 に本番で実際にそうなったので直した）。
+ *   金額の出る枠は、この入れ物ではなく useIsTebaya() を直に使い、
+ *   checking のあいだは出さないままにしてあります（MonthlySummary など）。
  */
 export function TebayaOnlyBlock({ children }: { children: React.ReactNode }) {
   const { checking, isTebaya } = useIsTebaya();
-  if (checking || !isTebaya) return null;
+  if (!checking && !isTebaya) return null;
   return <>{children}</>;
 }
 
