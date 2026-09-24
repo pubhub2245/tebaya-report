@@ -1,0 +1,40 @@
+<!doctype html>
+<meta charset="utf-8" />
+<!--
+  経理パッケージの「リンクを貼ったときに出るカード」の絵のもと。
+
+  ■ これは何か
+    LINE やメールに URL を貼ると、相手の画面に横長の絵つきカードが出る。
+    その絵（og:image）がこのファイルから作られる。
+
+  ■ 作り方（外のサービスは使わない・お金もかからない）
+    このファイルを 1200×630 で写真に撮って public/keiri/ogp.png に保存する。
+    手順は tools/ogp/make.mjs のとおり。撮り直したいときだけ動かす。
+    ふだんのビルドでは動かない（出来上がった PNG を倉庫に置いてあるため）。
+
+  ■ 書いてよい言葉
+    案内ページ（/keiri/case）に**すでに書いてある言い方だけ**。
+    新しい約束・値段は1つも書かない（値段は変わるので、絵に焼くと嘘になる）。
+-->
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 630px; }
+  body {
+    font-family: "IPAPGothic", "IPAGothic", sans-serif;
+    background: #fafaf9;              /* stone-50：ページの地の色と同じ */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 88px;
+    position: relative;
+  }
+  /* 左の帯（amber-500）。ページの押しボタンと同じ色 */
+  .bar { position: absolute; left: 0; top: 0; width: 20px; height: 630px; background: #f59e0b; }
+  .label { font-size: 30px; font-weight: 700; color: #b45309; letter-spacing: .12em; }
+  h1 { margin-top: 26px; font-size: 76px; font-weight: 700; color: #1c1917; line-height: 1.32; }
+  .sub { margin-top: 34px; font-size: 32px; color: #57534e; line-height: 1.6; }
+</style>
+<div class="bar"></div>
+<div class="label">経理パッケージ</div>
+<h1>日報を書くだけで、<br />月の利益と今の現金が分かる。</h1>
+<div class="sub">小さな飲食店・移動販売・催事出店のための経理</div>
