@@ -450,6 +450,24 @@ export default async function KeiriCasePage() {
         </div>
 
         <p className="mt-3 text-xs text-stone-500 leading-relaxed">{SAMPLE_NOTICE}</p>
+
+        {/* ★見本を読み終えた「その場」に、申し込みへの道を1本置く（kp142）。
+             2026-09-24 22:40 に本番（版 4f35a6f）をスマホの幅（390×844px）で実測したところ、
+             申し込みへの入口は 731px（一番上の2つ）と 6,938px の2か所しかなく、
+             そのあいだ 6,207px＝画面7.4枚ぶん、押せるものが1つも無かった。
+             毎月の月額を出すか決める最後の材料はこの見本（4,227〜5,300px）なので、
+             読み終えたその場に道を置く。お試し版で同じことをしたのが kp134。
+             新しい約束・新しい値段の言葉は1つも足さない
+             （行き先も言い方も、お試し版・下の申し込み枠とまったく同じ）。 */}
+        <div className="mt-4 text-center">
+          <Link
+            href="/keiri/apply"
+            className="inline-block rounded-xl border border-amber-400 bg-white px-5 py-3 text-sm font-bold text-amber-800 hover:bg-amber-50"
+          >
+            この形で毎月お届けします → お申し込みへ
+          </Link>
+          <p className="mt-2 text-xs text-stone-500">この画面ではお支払いは発生しません。</p>
+        </div>
       </section>
 
       {/* ---------- 申し込んでから、使い始めるまで ---------- */}

@@ -205,3 +205,46 @@ test("紹介ページの一番上で、触るボタンと申し込むボタン�
     "お申し込みページと同じ『この画面ではお支払いは発生しません。』を残してください",
   );
 });
+
+/**
+ * 見本（毎月お届けするもの）を読み終えた所に、申し込みへの道が1本あること（kp142）。
+ *
+ * 2026-09-24 22:40 に本番（版 4f35a6f）をスマホの幅（390×844px）で実測すると、
+ * 申し込みへの入口は 731px（一番上の2つ）と 6,938px の2か所だけで、
+ * そのあいだ 6,207px＝画面7.4枚ぶん、押せるものが1つも無かった。
+ * 月15,000円を出すか決める最後の材料がこの見本なので、読み終えた所に道を置く。
+ * （お試し版で同じことをしたのが kp134。言い方も行き先もそろえてある）
+ *
+ * ★ここで守るのは置き場所だけ。値段・商品・売り文句は じゅんの領分なので触らない。
+ */
+test("見本の直後に、お申し込みへの道が1本ある（kp142）", () => {
+  const src = fs.readFileSync(
+    path.join(process.cwd(), "app", "keiri", "case", "page.tsx"),
+    "utf8",
+  );
+  const noticeAt = src.indexOf("{SAMPLE_NOTICE}");
+  assert.ok(noticeAt > 0, "見本の但し書き（SAMPLE_NOTICE）が見つかりません");
+  const sectionEnd = src.indexOf("</section>", noticeAt);
+  assert.ok(sectionEnd > noticeAt, "見本のかたまりの終わりが見つかりません");
+  const tail = src.slice(noticeAt, sectionEnd);
+
+  assert.ok(
+    tail.includes('href="/keiri/apply"'),
+    "見本を読み終えた所に、お申し込みへのリンクを残してください（消すと押せる所が7画面ぶん空きます）",
+  );
+  // お試し版（/keiri/demo）と同じ言い方にそろえる（2か所で違うことを言わない）
+  assert.ok(
+    tail.includes("この形で毎月お届けします → お申し込みへ"),
+    "言い方はお試し版と同じ「この形で毎月お届けします → お申し込みへ」にそろえてください",
+  );
+  // 本番の /keiri/apply と同じ但し書きを添える
+  assert.ok(
+    tail.includes("この画面ではお支払いは発生しません。"),
+    "お申し込みページと同じ『この画面ではお支払いは発生しません。』を添えてください",
+  );
+  // 値段をここに直書きしない（値段は lib/keiri/caseNumbers.ts が正）
+  assert.ok(
+    !/15,?000/.test(tail),
+    "このリンクのまわりに値段を直書きしないでください（値段は caseNumbers.ts が正です）",
+  );
+});
