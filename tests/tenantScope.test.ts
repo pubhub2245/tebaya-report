@@ -535,17 +535,79 @@ test("月間の売上まとめ（トップと管理者ページ）は、よそ�
   }
 });
 
-test("よそのお店のときは、印の欄が無い棚を読みに行くこと自体をしない", () => {
+test("立替の画面は、門が開くまで棚を読みに行かない（2026-09-24 に作りを変えた）", () => {
   /**
    * 画面に出さないだけだと、中身はブラウザまで届いている。
    * 「出さない」と「取りに行かない」を両方そろえて初めて、
    *   入れたデータは他のお店から見えません（/keiri/help のお約束）
    * と言い切れる。
+   *
+   * ■ 2026-09-24 に作りを変えた（kp126）
+   *   それまでは「よそのお店なら読み込みを止める」という if で止めていた。
+   *   いまは **棚を読む部分そのものを、門の内側の部品（AdvancesForm）に移した**。
+   *   門が「開いてよい」と決めるまで、その部品は画面に出ない＝ useEffect も動かない。
+   *   ＝「取りに行かない」は前より強くなっている（if の書き忘れが起きない）。
    */
   const src = readFileSync("app/keiri/advances/page.tsx", "utf8");
+
+  // ① 棚を読む部品は、門の内側にしか置かれていない
   assert.ok(
-    /if\s*\(scopeChecking\s*\|\|\s*!isTebaya\)\s*return;/.test(src),
-    "app/keiri/advances/page.tsx が、よそのお店のときに読み込みを止めていません",
+    /<TebayaOnlyGate[^>]*>\s*<AdvancesForm\s*\/>\s*<\/TebayaOnlyGate>/.test(src),
+    "立替の画面の中身が、門（TebayaOnlyGate）の内側に置かれていません",
+  );
+
+  // ② その部品の外（門より手前）で棚を読んでいない。
+  //    確かめのための probe は「印の欄があるか」を1行聞くだけで、立替の中身は読まない。
+  const beforeForm = src.slice(0, src.indexOf("function AdvancesForm("));
+  const reads = beforeForm.match(/\.from\("keiri_advance_expenses"\)/g) ?? [];
+  assert.equal(
+    reads.length,
+    1,
+    "門より手前で、立替の棚を読みに行っています（確かめの1回だけのはずです）",
+  );
+  assert.ok(
+    /\.select\(TENANT_COLUMN\)/.test(beforeForm),
+    "確かめが『印の欄があるか』だけを聞く形になっていません（中身を読んでいます）",
+  );
+
+  // ③ 一覧は必ず「このお店のぶんだけ」で読む
+  assert.ok(
+    /applyTenantScope<any>\(base\(\) as any, scope\)/.test(src),
+    "立替の一覧が「このお店のぶんだけ」で読まれていません",
+  );
+
+  // ④ 絞らずに読む道は、印の欄が本当に無いときだけ
+  assert.ok(
+    /if\s*\(!isMissingTenantColumn\(scoped\.error\)\)\s*\{/.test(src),
+    "印の欄が無いとき以外にも、絞らずに読む道が開いています",
+  );
+
+  // ⑤ 保存するときは、印の欄があるときだけ印を付ける
+  assert.ok(
+    /hasTenantColumn \? tenantStamp\(scope\) : \{\}/.test(src),
+    "立替を保存するときに、お店の印を付ける形になっていません",
+  );
+});
+
+test("立替の門は、確かめられなかったら『開かない』側に倒れる", () => {
+  /**
+   * 通信が切れた・権限が無い、のような「分からない」ときに門を開けてしまうと、
+   * いちばん危ないときに守りが外れる。必ず閉じる側に倒すこと。
+   */
+  const gate = readFileSync("app/components/TebayaOnlyGate.tsx", "utf8");
+  assert.ok(
+    /\.catch\(\(\) => \{[\s\S]*setProbed\(false\)/.test(gate),
+    "門が、確かめに失敗したときに閉じる側へ倒れていません",
+  );
+  assert.ok(
+    /if \(probe && !isTebayaScope\(s\)\)/.test(gate),
+    "門が、手羽屋のときにも確かめに行こうとしています（手羽屋は必ず今までどおり）",
+  );
+
+  const page = readFileSync("app/keiri/advances/page.tsx", "utf8");
+  assert.ok(
+    /return !error;/.test(page),
+    "確かめが、欄が無いこと以外の失敗でも『開いてよい』と答えてしまいます",
   );
 });
 

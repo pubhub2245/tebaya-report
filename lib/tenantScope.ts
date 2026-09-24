@@ -173,6 +173,15 @@ export function writeTenantScope(
  * ★ 棚に欄を足したら（Supabase で1列足すだけ）、ここから名前を外し、
  *   ふつうに `applyTenantScope` で絞る形に直してください。
  */
+/**
+ * ★2026-09-24 追記（kp126）：`keiri_advance_expenses` だけは、
+ *   欄を足す SQL を用意し、**アプリが自分で「欄があるか」を見る**形に変えました
+ *   （supabase/migrations/keiri_advance_expenses_tenant_id.sql ＋ lib/keiri/advanceScope.ts）。
+ *   そのため、倉庫でその SQL を1回流した瞬間から、
+ *   **アプリを出し直さずに** 申し込んだお店も立替を使えるようになります。
+ *   欄がまだ無いあいだは、下の門がこれまでどおり掛かります。
+ *   （この一覧からは、欄が本当に出来たときに外してください）
+ */
 export const TABLES_WITHOUT_TENANT_COLUMN = [
   "shifts",
   "keiri_advance_expenses",
