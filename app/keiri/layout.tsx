@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import VisitBeacon from "@/components/VisitBeacon";
 import { BUILD_STAMP } from "@/lib/buildStamp";
 import { KEIRI_PUBLIC_PAGES } from "@/app/keiri/components/nav";
+import { KEIRI_OGP_IMAGE, KEIRI_SITE_NAME } from "@/lib/keiri/metadata";
 import { PUBLIC_SITE_URL } from "@/lib/keiri/siteUrl";
 
 /**
@@ -26,11 +27,36 @@ const PUBLIC_PATHS = KEIRI_PUBLIC_PAGES.map((p) => p.path);
  * ここで経理パッケージの題名に上書きする。
  * 外向きの10ページは、それぞれのページ側でさらに自分の題名に上書きしている。
  */
+const DEFAULT_TITLE = "経理パッケージ";
+const DEFAULT_DESCRIPTION =
+  "小さな飲食店・移動販売・催事出店のための経理アプリ。日報を書くだけで、月の利益と今の現金が分かります。";
+
 export const metadata: Metadata = {
   metadataBase: new URL(PUBLIC_SITE_URL),
-  title: "経理パッケージ",
-  description:
-    "小さな飲食店・移動販売・催事出店のための経理アプリ。日報を書くだけで、月の利益と今の現金が分かります。",
+  title: DEFAULT_TITLE,
+  description: DEFAULT_DESCRIPTION,
+  /**
+   * リンクを貼ったときに出るカードの既定値。
+   *
+   * 外向きの10ページは、それぞれ keiriMetadata() で自分の題名のカードに上書きしている。
+   * ここに置いてあるのは**上書きしていないページ**（/keiri/legal など）のための受け皿で、
+   * これが無いと、そのページを LINE に貼ったときに絵の無い小さな箱で出る。
+   * 言葉はこのページの題名・説明と同じものを使う（新しい約束を足さない）。
+   */
+  openGraph: {
+    type: "website",
+    siteName: KEIRI_SITE_NAME,
+    locale: "ja_JP",
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+    images: [{ ...KEIRI_OGP_IMAGE }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+    images: [KEIRI_OGP_IMAGE.url],
+  },
   /**
    * 見えない札（この版がいつ組み立てられたか）。
    *

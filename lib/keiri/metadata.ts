@@ -18,12 +18,22 @@ import { PUBLIC_SITE_URL } from "@/lib/keiri/siteUrl";
  *   ③ twitter   … X が読むカードの中身
  *   題名と説明はページが持っているものをそのまま使う。新しい文言は作らない。
  *
- * ■ 写真は付けない
- *   出せる写真（店の中・画面の写真）をまだ持っていないため。
- *   無い写真を作ると事実でないものを出すことになるので、文字だけのカードにする。
- *   写真が用意できたら、ここ1か所に image を足せば全ページに効く。
+ * ■ 絵（og:image）
+ *   LINE に貼ると、絵が無いページは**小さな白い箱**になり、あるページは横長のカードになる。
+ *   知り合いから回ってきた1通を開いてもらえるかがここで変わるので、絵を1枚だけ持つ。
+ *   中身は案内ページに**すでに書いてある言い方だけ**（新しい約束も値段も書かない）。
+ *   絵は倉庫の中で作った PNG（public/keiri/ogp.png）で、外のサービスは使っていない。
+ *   作り直し方は tools/ogp/make.mjs。ふだんのビルドでは作らない（＝ビルドが絵で失敗しない）。
  */
 export const KEIRI_SITE_NAME = "経理パッケージ";
+
+/** リンクを貼ったときに出る絵。1200×630。全ページ共通の1枚。 */
+export const KEIRI_OGP_IMAGE = {
+  url: "/keiri/ogp.png",
+  width: 1200,
+  height: 630,
+  alt: "経理パッケージ｜日報を書くだけで、月の利益と今の現金が分かる。",
+} as const;
 
 export function keiriMetadata(args: {
   /** そのページのアドレス。例: "/keiri/case" */
@@ -47,11 +57,13 @@ export function keiriMetadata(args: {
       locale: "ja_JP",
       title,
       description,
+      images: [{ ...KEIRI_OGP_IMAGE }],
     },
     twitter: {
-      card: "summary",
+      card: "summary_large_image",
       title,
       description,
+      images: [KEIRI_OGP_IMAGE.url],
     },
   };
 }

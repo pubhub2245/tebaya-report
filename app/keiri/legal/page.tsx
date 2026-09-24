@@ -4,6 +4,7 @@ import Link from "next/link";
 import { KeiriBreadcrumb, KeiriRelated } from "@/app/keiri/components/nav";
 import { KEIRI_COMPANY, companyRows, tokushohoRows } from "@/lib/keiri/legal";
 import { keiriContactMailto } from "@/lib/keiri/apply";
+import { keiriMetadata } from "@/lib/keiri/metadata";
 import { cardCheckoutLive } from "@/lib/keiri/caseNumbers";
 
 /**
@@ -16,11 +17,12 @@ import { cardCheckoutLive } from "@/lib/keiri/caseNumbers";
  *   ふつうに見えるページにしておく（サイトマップにも載せる）。
  */
 
-export const metadata: Metadata = {
+export const metadata: Metadata = keiriMetadata({
+  path: "/keiri/legal",
   title: "特定商取引法に基づく表記・会社概要｜経理パッケージ",
   description:
     "経理パッケージ（株式会社Alpha）の特定商取引法に基づく表記と会社概要。販売価格・支払方法・提供時期・解約・返金の条件を1ページにまとめています。",
-};
+});
 
 function Rows({ rows }: { rows: { label: string; value: string }[] }) {
   return (
