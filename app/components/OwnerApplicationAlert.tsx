@@ -4,9 +4,19 @@
  * 「お申し込みが入っています」の赤い知らせ（kp156）。
  *
  * ■ 誰に出るか
- *   「今日1軒だけ送りませんか」の帯（kp145）と**まったく同じ印**を使います。
+ *   既定では「今日1軒だけ送りませんか」の帯（kp145）と**まったく同じ印**を使います。
  *   ＝管理者パスワードを一度でも入れた端末（＝じゅんの端末）だけ。
  *   手羽屋のスタッフの端末には、最初から最後まで出ません。
+ *
+ *   例外は1か所だけです（kp165）。「送る1枚」（/keiri/send）では
+ *   `requireOwnerDevice={false}` を渡し、**印を見ずに**出します。
+ *   理由：知らせが出る条件が「印のある端末」だけだと、
+ *   その印を付ける1タップ（kp150）が押されていない間は、
+ *   お申し込みが入っても**どこにも出ません**。
+ *   そして いま じゅんに渡している道は、印の要らない /keiri/send の1本です。
+ *   ＝送る入口だけ印から外して、知らせは印の中に置いたままにすると、
+ *   「送ったのに、返事が来たことに気づけない」がそのまま起きます。
+ *   出すのは**件数と時刻だけ**なので、誰が開いても連絡先は渡りません。
  *
  * ■ 何を出すか
  *   まだ手当てしていないお申し込みの**件数と、入った時刻**だけ。
@@ -19,12 +29,14 @@
  *
  * ■ 日報・集計には触っていません
  *   数を1回聞くだけで、日報のデータは1行も読み書きしません。
- *   印の付いていない端末では、その1回の問い合わせもしません。
+ *   印の付いていない端末では、その1回の問い合わせもしません
+ *   （印を見ない「送る1枚」だけは、件数を1回だけ聞きます）。
  */
 
 import { useEffect, useState } from "react";
 
 import {
+  APPLICATION_ALERT_OPEN_NOTE,
   applicationAlertHeadline,
   applicationAlertWhen,
   readApplicationCountSummary,
@@ -33,7 +45,15 @@ import {
 } from "@/lib/keiri/applicationAlert";
 import { readOwnerDevice } from "@/lib/keiri/outreach";
 
-export default function OwnerApplicationAlert() {
+type Props = {
+  /**
+   * 端末の印（kp150）を条件にするか。既定は true。
+   * false にしてよいのは「送る1枚」（/keiri/send）だけ（kp165）。
+   */
+  requireOwnerDevice?: boolean;
+};
+
+export default function OwnerApplicationAlert({ requireOwnerDevice = true }: Props = {}) {
   const [summary, setSummary] = useState<ApplicationCountSummary | null>(null);
   const [owner, setOwner] = useState(false);
 
@@ -41,7 +61,7 @@ export default function OwnerApplicationAlert() {
     // ★印の付いていない端末（スタッフ）では、数を聞きにも行かない
     const isOwner = readOwnerDevice();
     setOwner(isOwner);
-    if (!isOwner) return;
+    if (requireOwnerDevice && !isOwner) return;
 
     let alive = true;
     (async () => {
@@ -57,9 +77,10 @@ export default function OwnerApplicationAlert() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [requireOwnerDevice]);
 
-  if (!shouldShowApplicationAlert({ ownerDevice: owner, summary })) return null;
+  if (!shouldShowApplicationAlert({ ownerDevice: owner, summary, requireOwnerDevice }))
+    return null;
 
   const pending = summary?.pending ?? 0;
   const when = applicationAlertWhen(summary?.latestAt ?? null);
@@ -75,8 +96,9 @@ export default function OwnerApplicationAlert() {
         </p>
       ) : null}
       <p className="text-xs text-red-800 leading-relaxed">
-        お店の名前とご連絡先は、Supabase の Table Editor で keiri_applications
-        を開くと見られます（この画面には出しません）。折り返しのご連絡だけお願いします。お支払いのリンクは貼らないでください。
+        {requireOwnerDevice
+          ? "お店の名前とご連絡先は、Supabase の Table Editor で keiri_applications を開くと見られます（この画面には出しません）。折り返しのご連絡だけお願いします。お支払いのリンクは貼らないでください。"
+          : APPLICATION_ALERT_OPEN_NOTE}
       </p>
     </section>
   );
