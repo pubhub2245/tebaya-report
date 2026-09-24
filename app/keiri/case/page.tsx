@@ -156,6 +156,21 @@ export default async function KeiriCasePage() {
           >
             まず触ってみる（無料・登録不要）
           </Link>
+          {/* ★もう決めている人のための近道（kp133）。
+               このページはスマホで画面10枚ぶんの長さがあり、「申し込む」は7枚目まで
+               下りないと出てこなかった。知り合いから勧められて開いた人は、読むより先に
+               申し込みたいことがあるので、1画面目から申し込みフォームへ行けるようにする。
+               主役は上の「まず触ってみる」のままにして、こちらは控えめな字のリンクにする。
+               新しい約束はしない（下の申し込み枠と同じ /keiri/apply へ行くだけ）。 */}
+          <Link
+            href="/keiri/apply"
+            className="mt-3 block w-full rounded-xl border border-amber-400 bg-white px-4 py-3 text-center text-sm font-bold text-amber-800 hover:bg-amber-100"
+          >
+            もうお決まりの方は、お申し込みへ進む
+          </Link>
+          <p className="mt-2 text-center text-xs text-stone-500">
+            この画面でお支払いは発生しません。
+          </p>
         </div>
       </header>
 
