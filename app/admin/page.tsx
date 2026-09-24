@@ -24,6 +24,7 @@ import EditReportModal from "@/app/components/EditReportModal";
 import ReceiptMigrationPanel from "@/app/components/ReceiptMigrationPanel";
 import ReceiptReocrPanel from "@/app/components/ReceiptReocrPanel";
 import AdminGate from "@/app/components/AdminGate";
+import OwnerOutreachNudge from "@/app/components/OwnerOutreachNudge";
 
 type Report = {
   id: string;
@@ -346,6 +347,12 @@ export default function AdminPage() {
           </Link>
         </div>
       </header>
+
+      {/* 経理パッケージの「今日1軒だけ送る」の帯（kp145 をここにも・kp146）。
+          ホームだけに置いていたが、合言葉を入れた直後に じゅんが居るのはこの画面なので、
+          出るまで日をまたいでいた。管理者パスワードを入れた端末にだけ出る＝スタッフには出ない。
+          日報のデータは1行も読み書きしない。 */}
+      <OwnerOutreachNudge />
 
       <Link
         href="/admin/shifts"
