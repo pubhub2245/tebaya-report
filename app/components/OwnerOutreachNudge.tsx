@@ -25,6 +25,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  OUTREACH_LINE_SHARE_URL,
   OUTREACH_MESSAGE,
   OUTREACH_SENT_KEY,
   OUTREACH_SHOPS,
@@ -126,12 +127,28 @@ export default function OwnerOutreachNudge() {
         経理パッケージのご案内です。文はできています。1軒10秒、1日1軒で十分です。
       </p>
 
+      {/*
+        ★まずこれ（kp151）。LINE の「送り先を選ぶ」画面が、文を持ったまま開きます。
+        じゅんがやるのは相手を選んで送るだけ。勝手には送られません。
+      */}
+      <a
+        href={OUTREACH_LINE_SHARE_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex w-full h-12 items-center justify-center rounded-xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold shadow-sm transition"
+      >
+        LINEで送る（相手を選ぶだけ）
+      </a>
+      <p className="text-xs text-orange-800 leading-relaxed -mt-1">
+        文は入った状態で開きます。送るのはご自分で押したときだけです。
+      </p>
+
       <button
         type="button"
         onClick={copy}
-        className="w-full h-12 rounded-xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold shadow-sm transition"
+        className="w-full h-11 rounded-xl bg-white border border-orange-300 text-orange-900 font-bold hover:bg-orange-100 active:bg-orange-200 transition"
       >
-        {copied ? "コピーしました（LINEに貼ってください）" : "LINEの文をコピー"}
+        {copied ? "コピーしました（LINEに貼ってください）" : "うまく開かないときは文をコピー"}
       </button>
 
       <div>
