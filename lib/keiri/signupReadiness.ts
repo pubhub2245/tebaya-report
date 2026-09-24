@@ -132,8 +132,21 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
    *   （supabase/migrations/keiri_tenant_rpc.sql にもそう書いてあります）。
    *   行を作るのは支払いの通知を受けたときで、そこはサーバー側の合鍵を使います。
    *   合鍵が壊れたまま支払いだけつながると、**お金は動いたのに行が作られません。**
-   *   お店は戻ってきた先（/keiri/welcome）で「このリンクは使えません」になります。
-   *   ＝ kp76 で直した「嘘の緑」と同じことが、作る側にだけ残っていました。
+   *
+   * ★2026-09-25（kp159）：↑の言い方を直しました。
+   *   9/24 は「お店は戻ってきた先で『このリンクは使えません』になります」と書いて
+   *   いましたが、**本番のコードを読み直したところ、そうはなりません。**
+   *   Stripe の戻り先は /keiri/welcome?session={CHECKOUT_SESSION_ID} で、
+   *   合言葉（t=）が付きません。この形で行が見つからないときは kp95 で
+   *   「お手続きを確認しています。担当からすぐにご連絡します」を返し、
+   *   スタッフのLINEへ支払い画面の番号つきで知らせ、控えにも1行残します
+   *   （app/api/keiri/welcome/route.ts の isPaidPendingArrival → receivePaidPending）。
+   *   ＝ **行き止まりではなく、「自動では始められず、人が引き受ける」状態**です。
+   *   実際より悪く書くと、お支払いの道をつなぐこと自体をためらわせるので直しました。
+   *
+   *   あわせて、最初の1件を鍵の貼り直しより先に始められる回り道を書き添えます
+   *   （supabase/migrations/keiri_tenant_create_manual.sql を1回流すと、
+   *    そのお店の初回設定リンクが1本出ます）。
    *
    *   窓口が無いときは、上の2件がすでに同じ鍵の話をしているので足しません
    *   （同じお願いを3回並べても、やることが増えて見えるだけです）。
@@ -141,12 +154,16 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
   const canCreateShop = serverKeyUsable;
   if (!canCreateShop && tenantAccessOk) {
     todo.push(
-      "お申し込みが決まったときに、お店1軒ぶんの行（keiri_tenants）を**作れません**。" +
+      "お申し込みが決まっても、お店1軒ぶんの行（keiri_tenants）を**自動では作れません**。" +
         "倉庫の窓口が代わりにやってくれるのは「初回設定」と「合言葉での入室」の2つだけで、" +
         "行を作るのはサーバー側の鍵（SUPABASE_SERVICE_ROLE_KEY）だけです。" +
-        "このまま支払いだけつながると、お金は動いたのに行が作られず、" +
-        "お店は戻ってきた先で「このリンクは使えません」になります。" +
-        "Vercel の SUPABASE_SERVICE_ROLE_KEY を貼り直してください（kp55）",
+        "**ただし行き止まりにはなりません。**お支払いのあと戻ってきた方には" +
+        "「お手続きを確認しています。担当からすぐにご連絡します」と出て、" +
+        "スタッフのLINEに支払い画面の番号つきで知らせが飛び、控えにも1行残ります（kp95）。" +
+        "最初の1件は、鍵を待たずに手で始められます" +
+        "（倉庫の SQL Editor で supabase/migrations/keiri_tenant_create_manual.sql を1回流すと、" +
+        "そのお店の初回設定リンクが1本出ます）。" +
+        "自動でつながるようにするには、Vercel の SUPABASE_SERVICE_ROLE_KEY を貼り直してください（kp55）",
     );
   }
 

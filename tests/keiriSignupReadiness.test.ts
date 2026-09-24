@@ -121,3 +121,43 @@ test("鍵が使えるときの見え方は、これまでと1文字も変わら�
   assert.equal(r.ready, true);
   assert.equal(r.summary, "申し込みから使い始めまで、人の手を借りずにつながっています");
 });
+
+/**
+ * 2026-09-25（kp159）：9/24 のこの文は、実際より悪く書いていました。
+ *
+ * Stripe の戻り先は /keiri/welcome?session={CHECKOUT_SESSION_ID} で、合言葉（t=）が
+ * 付きません。この形で行が見つからないときは kp95 の道に入り、
+ * 「お手続きを確認しています。担当からすぐにご連絡します」と出て、
+ * スタッフのLINEへ知らせが飛び、控えにも1行残ります。
+ * ＝ **行き止まり（「このリンクは使えません」）にはなりません。**
+ *
+ * 実際より悪く書くと、お支払いの道をつなぐこと自体をためらわせるので、
+ * この2つを戻り止めにしておきます。
+ */
+test("行を作れないときの案内は、行き止まりだと書かない／手で始める道を書く", () => {
+  const r = buildSignupReadiness({
+    paymentLink: "https://buy.stripe.com/test_abc",
+    secret: { ok: true },
+    tenants: OK_TABLE,
+    settings: OK_TABLE,
+    serverKeyUsable: false,
+    // 倉庫の窓口（keiri_tenant_rpc.sql）は流れている＝置き場の2件は緑になる
+    tenantRpcUsable: true,
+  });
+  assert.equal(r.ready, false);
+  assert.equal(r.checks.shop_table, true);
+  assert.equal(r.checks.settings_table, true);
+  assert.equal(r.checks.shop_create, false);
+  assert.equal(r.todo.length, 1);
+
+  const note = r.todo[0];
+  // ① 事実でないことを書かない
+  assert.ok(!note.includes("このリンクは使えません"));
+  // ② 何が起きるかを正しく書く（kp95 の道）
+  assert.ok(note.includes("行き止まりにはなりません"));
+  assert.ok(note.includes("担当からすぐにご連絡します"));
+  // ③ 最初の1件を、鍵を待たずに始める道を書く
+  assert.ok(note.includes("keiri_tenant_create_manual.sql"));
+  // ④ 恒久的な直し方も残す
+  assert.ok(note.includes("SUPABASE_SERVICE_ROLE_KEY"));
+});
