@@ -92,3 +92,56 @@ export const FALLBACK_ADVANCE_TYPES: AdvanceTypeOption[] = EXPENSE_ACCOUNTS.filt
   tax_category: null,
   needs_tax_advisor_review: true,
 }));
+
+/**
+ * 「立替の棚に、どの店のものかの印の欄ができているか」を言葉に直すだけの部分。
+ *
+ * ■ なぜ要るのか（2026-09-24・kp127 の受け取り確認）
+ *   欄を足す SQL（supabase/migrations/keiri_advance_expenses_tenant_id.sql）は、
+ *   人が倉庫の画面で1回流します。ところが流したあと、
+ *   **本当に流れたのかを確かめる方法が、SQL をもう一度書くことしかありませんでした。**
+ *   流し忘れても画面は静かに「ご案内」を出すだけなので、
+ *   お金を払ったお店がこの機能を使えないまま気づかれない、という形になります。
+ *
+ *   そこで診断（/api/keiri/diagnose）から1回開くだけで分かるようにします。
+ *
+ * ★ここは通信をしません。調べた結果を受け取って、言葉に直すだけです。
+ * ★立替の中身（誰がいくら立て替えたか）は1行も返しません。欄の有無だけです。
+ */
+export type AdvanceTenantColumnReport = {
+  /** 申し込んだお店が「立替経費」を使えるか */
+  usable: boolean;
+  /** 欄の有無を確かめられたか（false＝調べられなかった。分からないだけ） */
+  known: boolean;
+  note: string;
+};
+
+/** 欄を足す SQL の置き場所（言葉の中で1か所だけに書く） */
+export const ADVANCE_TENANT_MIGRATION =
+  "supabase/migrations/keiri_advance_expenses_tenant_id.sql";
+
+export function describeAdvanceTenantColumn(probe: {
+  /** 印の欄を指定して1行読んでみて、断られなかったか */
+  ok: boolean;
+  error?: { message?: string | null; code?: string | null } | null;
+}): AdvanceTenantColumnReport {
+  if (probe.ok) {
+    return {
+      usable: true,
+      known: true,
+      note: "使えます。申し込んだお店も /keiri/advances で自分のぶんだけ立替を記録できます（手羽屋は印が空のままなので、見えるものは今までどおりです）",
+    };
+  }
+  if (isMissingTenantColumn(probe.error)) {
+    return {
+      usable: false,
+      known: true,
+      note: `まだ使えません。倉庫の SQL Editor で ${ADVANCE_TENANT_MIGRATION} を1回流すと、その瞬間から使えるようになります（アプリを出し直す必要はありません。既存の行は1行も書き換わりません）`,
+    };
+  }
+  return {
+    usable: false,
+    known: false,
+    note: "確かめられませんでした（欄が無いのか、読みに行けなかったのかが分かりません）。申し込んだお店には、これまでどおりご案内を出します",
+  };
+}

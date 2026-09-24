@@ -32,6 +32,10 @@ import {
 } from "@/lib/keiri/signupReadiness";
 import type { RecordStoreReport } from "@/lib/keiri/serverHealth";
 import { probeTenantRpc, isMissingFunction } from "@/lib/keiri/tenantAccess";
+import {
+  describeAdvanceTenantColumn,
+  type AdvanceTenantColumnReport,
+} from "@/lib/keiri/advanceScope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -285,15 +289,37 @@ async function checkTenantRpc(): Promise<{ usable: boolean; note: string }> {
   }
 }
 
+/**
+ * 立替の棚に「どの店のものか」の印の欄ができているかを、**読むだけ**で確かめる。
+ *
+ * ★立替の中身は1行も返しません。印の欄を指定して1行読んでみて、
+ *   断られるかどうかだけを見ます（kp127 を流したあとの受け取り確認）。
+ * ★手羽屋の画面には何も影響しません。ここは診断だけです。
+ */
+async function checkAdvanceTenantColumn(): Promise<AdvanceTenantColumnReport> {
+  try {
+    const supabase = serviceClientOrNull({ fresh: true }) ?? serverClient({ fresh: true });
+    const { error } = await supabase
+      .from("keiri_advance_expenses")
+      .select("tenant_id")
+      .limit(1);
+    return describeAdvanceTenantColumn({ ok: !error, error });
+  } catch {
+    return describeAdvanceTenantColumn({ ok: false, error: null });
+  }
+}
+
 export async function GET() {
-  const [tenants, settings, applications, visits, notifyFacts, tenantRpc] = await Promise.all([
-    checkTable("keiri_tenants"),
-    checkTable("keiri_settings"),
-    checkTable("keiri_applications"),
-    checkTable("site_visits"),
-    checkNotify(),
-    checkTenantRpc(),
-  ]);
+  const [tenants, settings, applications, visits, notifyFacts, tenantRpc, advanceColumn] =
+    await Promise.all([
+      checkTable("keiri_tenants"),
+      checkTable("keiri_settings"),
+      checkTable("keiri_applications"),
+      checkTable("site_visits"),
+      checkNotify(),
+      checkTenantRpc(),
+      checkAdvanceTenantColumn(),
+    ]);
 
   // サーバー側の鍵。値そのものは返さない（設定済み／未設定／壊れている だけ）
   const repair = serviceRoleKeyRepair();
@@ -351,6 +377,13 @@ export async function GET() {
     // ★ここがいちばん大事（2026-09-19・kp60）。
     //   「申し込みボタンが押せるか」ではなく **「押された申し込みが人に届くか」**。
     //   知らせ（LINE）と控え（倉庫）の両方が死んでいると、申し込みは誰にも届かない。
+    // ★「お金を払ったお店が、月15,000円に含まれるものを本当に使えるか」。
+    //   申し込めるか（ready）とは別の話なので、ready の判定には入れない。
+    //   欠けていても申し込みは受け取れるが、**払った人が使えない**のはいちばん困るので、
+    //   1回開くだけで分かるようにしてある（2026-09-24・kp127 の受け取り確認）。
+    paid_shop_features: {
+      advance_expenses: advanceColumn,
+    },
     notify,
     application_delivery: delivery,
   });
