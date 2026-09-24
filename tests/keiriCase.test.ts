@@ -6,6 +6,8 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 
 import {
   CASE_TEBAYA,
@@ -113,4 +115,43 @@ test("前の価格のときに登録した支払いリンクは、値上げ後�
     NEXT_PUBLIC_KEIRI_PAYMENT_LINK_3000: "https://buy.stripe.com/old_3000",
   } as unknown as NodeJS.ProcessEnv;
   assert.equal(paymentLinkUrl(old), null);
+});
+
+/**
+ * 1画面目から申し込みフォームへ行けること（kp133）。
+ *
+ * このページはスマホ（幅390px）で画面10枚ぶんの長さがあり、2026-09-24 の実測では
+ * 「申し込む」ボタンは 6,215px＝7.4枚目まで下りないと出てこなかった。
+ * 8軒への1通を受け取った店主は、知り合いからの紹介として開くので、
+ * 読み切る前に申し込みたい人がいる。その人を7枚ぶんスクロールさせない。
+ *
+ * ★ここで守るのは「一番上の枠から /keiri/apply へ行ける」ことだけ。
+ *   主役は「まず触ってみる」のままで、支払いの約束は1つも足さない。
+ */
+test("紹介ページの一番上の枠から、申し込みフォームへ行ける（kp133）", () => {
+  const src = fs.readFileSync(
+    path.join(process.cwd(), "app", "keiri", "case", "page.tsx"),
+    "utf8",
+  );
+  // 一番上の枠＝「まず触ってみる」のボタンがある所。その枠が閉じるまでの間に
+  // /keiri/apply への行き先があることを見る。
+  const heroStart = src.indexOf("読むより、触ったほうが早いと思います。");
+  assert.ok(heroStart > 0, "一番上の枠（お試し版へのご案内）が見つかりません");
+  const heroEnd = src.indexOf("</header>", heroStart);
+  assert.ok(heroEnd > heroStart, "一番上の枠の終わりが見つかりません");
+  const hero = src.slice(heroStart, heroEnd);
+
+  assert.ok(
+    hero.includes('href="/keiri/apply"'),
+    "一番上の枠から申し込みフォーム（/keiri/apply）へ行けなくなっています",
+  );
+  assert.ok(
+    hero.includes("まず触ってみる"),
+    "一番上の主役は『まず触ってみる』のままにしてください",
+  );
+  // この画面では払わない、と書いてあること（下の申し込み枠と食い違わせない）
+  assert.ok(
+    hero.includes("お支払いは発生しません"),
+    "近道のリンクに『この画面でお支払いは発生しません』を残してください",
+  );
 });
