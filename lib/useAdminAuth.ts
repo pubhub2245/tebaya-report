@@ -16,6 +16,7 @@ import {
   ADMIN_PASSWORD_CONFIGURED,
   checkAdminPassword,
 } from "./adminPassword";
+import { markOwnerDevice } from "./keiri/outreach";
 
 // AdminGate.tsx と同一の値をそろえる（キー・パスワード）
 const SS_KEY = "admin-auth";
@@ -40,6 +41,8 @@ export function useAdminAuth() {
       try {
         sessionStorage.setItem(SS_KEY, "1");
       } catch {}
+      // ホームの帯（kp145）の出し分けだけに使う印。合言葉の判定は1文字も変えていない
+      markOwnerDevice();
       setIsAdmin(true);
       return true;
     }
