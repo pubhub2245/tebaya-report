@@ -173,7 +173,22 @@ test("受け皿：鍵が壊れていても、窓口があれば『お店は進�
   });
   assert.equal(withRpc.checks.shop_table, true);
   assert.equal(withRpc.checks.settings_table, true);
-  assert.equal(withRpc.ready, true);
+
+  /*
+   * ★2026-09-24（kp144）ここを直した。
+   *   もとは ready === true だった。つまり診断が
+   *   「申し込みから使い始めまで、人の手を借りずにつながっています」と言っていた。
+   *   ところが窓口が代わりにやるのは「初回設定」と「合言葉での入室」の2つだけで、
+   *   **お店1軒ぶんの行を作ることは入っていない**（行を作るのはサーバー側の鍵だけ）。
+   *   このまま支払いがつながると、お金は動いたのに行が作られず、
+   *   お店は戻ってきた先で「このリンクは使えません」になる。
+   *   ＝ kp76 で直した「嘘の緑」が、作る側にだけ残っていた。
+   *   窓口があるおかげで「すでにある行のお店は進める」のは変わらない（上の2行）。
+   */
+  assert.equal(withRpc.checks.shop_create, false);
+  assert.equal(withRpc.ready, false);
+  assert.equal(withRpc.todo.length, 1);
+  assert.ok(withRpc.todo[0].includes("SUPABASE_SERVICE_ROLE_KEY"));
 
   // 窓口も無ければ、今までどおり「進めない」
   const without = buildSignupReadiness({
@@ -185,6 +200,8 @@ test("受け皿：鍵が壊れていても、窓口があれば『お店は進�
   });
   assert.equal(without.checks.shop_table, false);
   assert.equal(without.ready, false);
+  // 窓口が無いときは、上の2件がすでに同じ鍵の話をしているので、お願いは増やさない
+  assert.equal(without.todo.length, 2);
 });
 
 // ------------------------------------------------------------
