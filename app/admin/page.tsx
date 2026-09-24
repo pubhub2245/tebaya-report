@@ -25,6 +25,7 @@ import ReceiptMigrationPanel from "@/app/components/ReceiptMigrationPanel";
 import ReceiptReocrPanel from "@/app/components/ReceiptReocrPanel";
 import AdminGate from "@/app/components/AdminGate";
 import OwnerOutreachNudge from "@/app/components/OwnerOutreachNudge";
+import OwnerApplicationAlert from "@/app/components/OwnerApplicationAlert";
 
 type Report = {
   id: string;
@@ -347,6 +348,12 @@ export default function AdminPage() {
           </Link>
         </div>
       </header>
+
+      {/* お申し込みが入ったのに誰も気づかない、を防ぐ赤い知らせ（kp156）。
+          知らせる道はスタッフのLINEしかなく、今月あと5通しか残っていない。
+          帯とまったく同じ印を使う＝スタッフには出ない。出すのは件数と時刻だけで、
+          お店の名前・ご連絡先は1文字も出さない。日報のデータは1行も読み書きしない。 */}
+      <OwnerApplicationAlert />
 
       {/* 経理パッケージの「今日1軒だけ送る」の帯（kp145 をここにも・kp146）。
           ホームだけに置いていたが、合言葉を入れた直後に じゅんが居るのはこの画面なので、
