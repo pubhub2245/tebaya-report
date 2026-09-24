@@ -84,18 +84,60 @@ export default function TebayaOnlyGate({
   /** 画面の名前（「出店予定」「立替経費」など。お知らせの文に出ます） */
   title,
   children,
+  probe,
 }: {
   title: string;
   children: React.ReactNode;
+  /**
+   * 「この画面は、もう よそのお店に開いてよいか」をその場で確かめる関数（任意）。
+   *
+   * ■ 何のためにあるか（やさしい説明）
+   *   この門は「棚に『どの店か』の欄がまだ無い」ことへの応急の手当てです。
+   *   欄は Supabase で1列足せば出来ますが、足したあとに
+   *   **アプリを出し直さないと門が外れない**と、せっかく足しても使えません。
+   *   そこで、欄が出来ているかどうかを画面が自分で見に行けるようにしてあります。
+   *
+   * ■ 使い方
+   *   true を返したら中身を出します（＝もう分けられる）。
+   *   false を返したら、これまでどおり「まだご利用いただけません」と伝えます。
+   *   渡さなければ、これまでとまったく同じ動きです。
+   *
+   * ★手羽屋のときは**呼びません**。手羽屋は必ず今までどおり中身が出ます。
+   */
+  probe?: () => Promise<boolean>;
 }) {
   /** ブラウザの控えをまだ読んでいないあいだは true */
   const [checking, setChecking] = useState(true);
   const [scope, setScope] = useState<TenantScope>(TEBAYA_SCOPE);
+  /** probe の答え。null ＝ まだ聞いていない */
+  const [probed, setProbed] = useState<boolean | null>(null);
 
   useEffect(() => {
-    setScope(readTenantScope());
+    const s = readTenantScope();
+    setScope(s);
+    // 手羽屋は今までどおり。よそのお店のときだけ、開いてよいかを確かめる
+    if (probe && !isTebayaScope(s)) {
+      let alive = true;
+      probe()
+        .then((ok) => {
+          if (alive) {
+            setProbed(ok);
+            setChecking(false);
+          }
+        })
+        .catch(() => {
+          // 確かめられなかったときは、**開かない側**に倒す（守りを緩めない）
+          if (alive) {
+            setProbed(false);
+            setChecking(false);
+          }
+        });
+      return () => {
+        alive = false;
+      };
+    }
     setChecking(false);
-  }, []);
+  }, [probe]);
 
   if (checking) {
     return (
@@ -107,6 +149,9 @@ export default function TebayaOnlyGate({
 
   // 手羽屋（印が空）は今までどおり
   if (isTebayaScope(scope)) return <>{children}</>;
+
+  // よそのお店でも、棚が店ごとに分けられていれば開いてよい
+  if (probed === true) return <>{children}</>;
 
   return (
     <main className="max-w-md mx-auto px-4 py-5 pb-10 space-y-4">

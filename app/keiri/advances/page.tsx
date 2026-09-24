@@ -33,11 +33,57 @@ import { yen, slashDate, businessDateStr } from "@/lib/format";
 import { STAFF_OPTIONS } from "@/lib/formState";
 import { resizeImage } from "@/lib/imageResize";
 import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
-import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
-import TebayaOnlyGate, { useIsTebaya } from "@/app/components/TebayaOnlyGate";
+import {
+  applyTenantScope,
+  businessCodeForScope,
+  isTebayaScope,
+  readTenantScope,
+  TENANT_COLUMN,
+  tenantStamp,
+  type TenantScope,
+} from "@/lib/tenantScope";
+import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
+import {
+  FALLBACK_ADVANCE_TYPES,
+  isMissingTenantColumn,
+} from "@/lib/keiri/advanceScope";
 
-/** 業態コード。手羽屋のみなので画面には出さず固定 */
-const BUSINESS_TYPE_CODE = "tebaya";
+/**
+ * 立替の棚に「どの店のものか」の印の欄があるかを、その場で確かめる。
+ *
+ * ある → よそのお店にもこの画面を開く（自分のぶんだけが見える）
+ * 無い → これまでどおり門を出す（手羽屋のものが混ざらないようにするため）
+ *
+ * ★ 倉庫に SQL を流した瞬間から、アプリを出し直さずに開くようになります
+ *   （supabase/migrations/keiri_advance_expenses_tenant_id.sql）。
+ */
+/** 確かめに待つ上限。これを過ぎたら「開かない」に倒す（下の理由） */
+const PROBE_TIMEOUT_MS = 3000;
+
+async function probeTenantColumn(): Promise<boolean> {
+  /**
+   * ★答えが返って来ないときは「開かない」に倒します。
+   *   電波の悪い所では、倉庫への問い合わせが何十秒も返らないことがあります。
+   *   そのあいだ「読み込み中…」のままにすると、画面が固まったように見えます。
+   *   数秒で見切りをつけて、これまでどおりの案内を出すほうが親切ですし、
+   *   守りも緩みません（分からないときは閉じる）。
+   */
+  const answer = (async () => {
+    const { error } = await supabase
+      .from("keiri_advance_expenses")
+      .select(TENANT_COLUMN)
+      .limit(1);
+    if (isMissingTenantColumn(error)) return false;
+    // 欄が無いこと以外の理由で失敗したときも、守りを緩めない（開かない）
+    return !error;
+  })();
+
+  const timeout = new Promise<boolean>((resolve) =>
+    setTimeout(() => resolve(false), PROBE_TIMEOUT_MS),
+  );
+
+  return Promise.race([answer, timeout]);
+}
 
 type Mapping = {
   source_type: string;
@@ -60,13 +106,24 @@ type AdvanceRow = {
   receipt_image_url: string | null;
 };
 
-export default function KeiriAdvancesPage() {
+/**
+ * 立替経費の画面そのもの。
+ *
+ * ★ この中身は、門（TebayaOnlyGate）が「開いてよい」と決めたときだけ動きます。
+ *   手羽屋 … これまでどおり必ず開く
+ *   よそのお店 … 棚に「どの店か」の欄ができていれば開く。無ければ門のまま
+ *   ＝ **開く前に手羽屋の棚を読みに行くことはありません。**
+ */
+function AdvancesForm() {
+  /** いまどのお店として開いているか。null ＝ 手羽屋 */
+  const [scope] = useState<TenantScope>(() => readTenantScope());
+  /** 経理の対応表・保存に使う業態コード（手羽屋は今までどおり "tebaya"） */
+  const businessCode = useMemo(() => businessCodeForScope(scope), [scope]);
   /**
-   * ★ 立替の棚（keiri_advance_expenses）には、まだ「どの店のものか」の印の欄が
-   *   ありません。よそのお店には画面を開かない（下の TebayaOnlyGate）のに加えて、
-   *   **手羽屋の棚を読みに行くこと自体もしません**。
+   * 棚に「どの店か」の欄があるか。
+   * false ＝ まだ無い（手羽屋は欄が無くても今までどおり動く）
    */
-  const { checking: scopeChecking, isTebaya } = useIsTebaya();
+  const [hasTenantColumn, setHasTenantColumn] = useState(false);
 
   // ── 選択肢のマスタ ──
   const [mappings, setMappings] = useState<Mapping[]>([]);
@@ -88,19 +145,35 @@ export default function KeiriAdvancesPage() {
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
   const loadRecent = useCallback(async () => {
-    const { data } = await supabase
-      .from("keiri_advance_expenses")
-      .select("id, expense_date, payer, amount, source_type, memo, receipt_image_url")
-      .order("expense_date", { ascending: false })
-      .order("id", { ascending: false })
-      .limit(10);
+    const cols =
+      "id, expense_date, payer, amount, source_type, memo, receipt_image_url";
+    const base = () =>
+      supabase
+        .from("keiri_advance_expenses")
+        .select(cols)
+        .order("expense_date", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(10);
+
+    // まず「このお店のぶんだけ」で読む
+    const scoped = await applyTenantScope<any>(base() as any, scope);
+    if (!scoped.error) {
+      setHasTenantColumn(true);
+      setRecent((scoped.data as AdvanceRow[]) ?? []);
+      return;
+    }
+    // 欄がまだ無いときだけ、今までどおり絞らずに読む（手羽屋しかここへ来ない）
+    if (!isMissingTenantColumn(scoped.error)) {
+      setRecent([]);
+      return;
+    }
+    setHasTenantColumn(false);
+    const { data } = await base();
     setRecent((data as AdvanceRow[]) ?? []);
-  }, []);
+  }, [scope]);
 
   useEffect(() => {
     (async () => {
-      // よそのお店のときは、手羽屋の棚を読みに行かない（画面も出さない）
-      if (scopeChecking || !isTebaya) return;
       setLoading(true);
       setLoadError(null);
       try {
@@ -110,12 +183,12 @@ export default function KeiriAdvancesPage() {
             .select(
               "source_type, label, account_title, sub_account, tax_category, entry_side, needs_tax_advisor_review, sort_order",
             )
-            .eq("business_type_code", BUSINESS_TYPE_CODE)
+            .eq("business_type_code", businessCode)
             .eq("is_active", true)
             .order("sort_order"),
           applyTenantScope<any>(
             supabase.from("staff_members").select("name") as any,
-            readTenantScope(),
+            scope,
           )
             .eq("is_active", true)
             .order("name"),
@@ -128,12 +201,25 @@ export default function KeiriAdvancesPage() {
         const expenseOnly = ((mapRes.data as Mapping[]) ?? []).filter(
           (m) => m.entry_side === "debit" && !!m.account_title,
         );
-        setMappings(expenseOnly);
+        /**
+         * 申し込んだばかりのお店には、倉庫の対応表がまだ1行もありません。
+         * そのとき選択肢が0個だと、画面はあるのに1件も登録できないので、
+         * このアプリが元から持っている科目を出します（科目は増やしていません）。
+         * → lib/keiri/advanceScope.ts
+         */
+        setMappings(
+          expenseOnly.length > 0
+            ? expenseOnly
+            : (FALLBACK_ADVANCE_TYPES as unknown as Mapping[]),
+        );
 
         const names = ((staffRes.data as { name: string }[]) ?? [])
           .map((s) => s.name)
           .filter(Boolean);
+        // 手羽屋の名簿が引けなかったときだけ、これまでどおりの控えを使う。
+        // よそのお店に手羽屋のスタッフ名を出さないよう、ここで空に戻す。
         if (names.length > 0) setStaffNames(names);
+        else if (!isTebayaScope(scope)) setStaffNames([]);
       } catch (e: any) {
         setLoadError(e?.message || String(e));
       } finally {
@@ -141,7 +227,7 @@ export default function KeiriAdvancesPage() {
       }
       loadRecent();
     })();
-  }, [loadRecent, scopeChecking, isTebaya]);
+  }, [loadRecent, businessCode, scope]);
 
   const selected = useMemo(
     () => mappings.find((m) => m.source_type === sourceType) ?? null,
@@ -174,7 +260,9 @@ export default function KeiriAdvancesPage() {
     setSavedMsg(null);
     try {
       const { error } = await supabase.from("keiri_advance_expenses").insert({
-        business_type_code: BUSINESS_TYPE_CODE,
+        business_type_code: businessCode,
+        // 棚に印の欄があるときだけ印を付ける（欄が無い＝手羽屋しか登録できない）
+        ...(hasTenantColumn ? tenantStamp(scope) : {}),
         expense_date: expenseDate,
         payer,
         amount,
@@ -200,13 +288,6 @@ export default function KeiriAdvancesPage() {
   };
 
   return (
-    /**
-     * ★ 現場の立替（keiri_advance_expenses）の棚には、まだ「どの店のものか」の
-     *   印の欄がありません。絞りようが無いので、欄ができるまでは
-     *   よそのお店には開きません（手羽屋は印が空なので、これまでどおりそのまま出ます）。
-     *   → lib/tenantScope.ts の TABLES_WITHOUT_TENANT_COLUMN
-     */
-    <TebayaOnlyGate title="🧾 立替経費">
     <main className="max-w-md mx-auto px-4 py-5 pb-10 space-y-4">
       <header className="flex items-center justify-between gap-2 flex-wrap">
         <h1 className="text-2xl font-bold text-brand-dark">🧾 立替経費</h1>
@@ -325,7 +406,13 @@ export default function KeiriAdvancesPage() {
                   {selected.sub_account && `（${selected.sub_account}）`}
                 </div>
                 <div className="text-sm text-stone-700">
-                  税区分：<b>{selected.tax_category}</b>
+                  {selected.tax_category ? (
+                    <>
+                      税区分：<b>{selected.tax_category}</b>
+                    </>
+                  ) : (
+                    <>税区分：<b>まだ決まっていません</b>（税理士さんと決めてから入ります）</>
+                  )}
                 </div>
                 <div className="text-xs text-stone-500">
                   ※ これは税理士に見てもらうための下書きです。このアプリは税務の判断をしません。
@@ -444,6 +531,21 @@ export default function KeiriAdvancesPage() {
         </section>
       )}
     </main>
+  );
+}
+
+/**
+ * 入り口。
+ *
+ * 手羽屋は、これまでどおり必ず中身が出ます。
+ * よそのお店は、棚に「どの店のものか」の印の欄ができていれば中身が出て、
+ * まだ無ければ「まだご利用いただけません」とだけ出ます。
+ * ＝ 倉庫に SQL を1回流した瞬間から、**アプリを出し直さずに使えるようになります。**
+ */
+export default function KeiriAdvancesPage() {
+  return (
+    <TebayaOnlyGate title="🧾 立替経費" probe={probeTenantColumn}>
+      <AdvancesForm />
     </TebayaOnlyGate>
   );
 }
