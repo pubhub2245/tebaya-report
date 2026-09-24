@@ -13,6 +13,7 @@ import {
   writeTenantScope,
   type TenantScope,
 } from "@/lib/tenantScope";
+import { markOwnerDevice } from "@/lib/keiri/outreach";
 
 const SS_KEY = "admin-auth";
 
@@ -142,6 +143,9 @@ export default function AdminGate({
       } catch {}
       // この端末に「よそのお店」の印が残っていたら消す（手羽屋の端末に戻す）
       writeTenantScope(TEBAYA_SCOPE);
+      // この端末を「じゅんの端末」として覚える（ホームの帯の出し分けだけに使う）。
+      // 申し込んだお店の合言葉（下の②）では付けない。
+      markOwnerDevice();
       setShopScope(TEBAYA_SCOPE);
       setAuthed(true);
       setError(null);

@@ -3,6 +3,7 @@ import MonthlySummary from "./components/MonthlySummary";
 import LocationRankingSummary from "./components/LocationRankingSummary";
 import { TebayaOnlyBlock } from "./components/TebayaOnlyGate";
 import AppTitle from "./components/AppTitle";
+import OwnerOutreachNudge from "./components/OwnerOutreachNudge";
 
 /** グループ見出し */
 function GroupLabel({ children }: { children: React.ReactNode }) {
@@ -40,6 +41,11 @@ export default function MenuPage() {
       <header className="mb-6 text-center">
         <AppTitle />
       </header>
+
+      {/* 経理パッケージの「今日1軒だけ送る」の帯（kp145）。
+          管理者パスワードを入れたことがある端末にだけ出る＝スタッフには出ない。
+          日報のデータは1行も読み書きしない。 */}
+      <OwnerOutreachNudge />
 
       <section className="mb-5">
         <MonthlySummary />
