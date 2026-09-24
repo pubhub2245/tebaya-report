@@ -12,7 +12,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  ADVANCE_TENANT_MIGRATION,
   FALLBACK_ADVANCE_TYPES,
+  describeAdvanceTenantColumn,
   isMissingTenantColumn,
 } from "../lib/keiri/advanceScope";
 import { ACCOUNTS, EXPENSE_ACCOUNTS } from "../lib/keiri/accounts";
@@ -157,5 +159,46 @@ test("印の欄を足す SQL は、足すだけで何も消さない", () => {
       !sql.toLowerCase().includes(ng),
       `SQL に「${ng}」が入っています。この SQL は足すだけのはずです`,
     );
+  }
+});
+
+/* ---------------- ④ 「欄ができているか」の診断の言葉 ---------------- */
+
+test("欄があれば「使えます」と答える", () => {
+  const r = describeAdvanceTenantColumn({ ok: true });
+  assert.equal(r.usable, true);
+  assert.equal(r.known, true);
+  // 手羽屋のデータが変わらないことを、読む人に必ず伝える
+  assert.ok(r.note.includes("今までどおり"));
+});
+
+test("欄がまだ無ければ「まだ使えません」と答え、流す SQL の名前を出す", () => {
+  const r = describeAdvanceTenantColumn({
+    ok: false,
+    error: { code: "42703", message: 'column "tenant_id" does not exist' },
+  });
+  assert.equal(r.usable, false);
+  assert.equal(r.known, true);
+  assert.ok(r.note.includes(ADVANCE_TENANT_MIGRATION));
+});
+
+test("欄が無いのか読めなかったのか分からないときは、分からないと答える（使えると言わない）", () => {
+  const r = describeAdvanceTenantColumn({
+    ok: false,
+    error: { code: "PGRST301", message: "JWT expired" },
+  });
+  assert.equal(r.usable, false);
+  // ★ここが肝心。分からないものを「欄が無いだけ」と言い切らない
+  assert.equal(r.known, false);
+  assert.ok(!r.note.includes(ADVANCE_TENANT_MIGRATION));
+});
+
+test("通信そのものに失敗しても「使えます」とは決して答えない（戻り止め）", () => {
+  for (const probe of [
+    { ok: false, error: null },
+    { ok: false, error: undefined },
+    { ok: false, error: { message: null, code: null } },
+  ]) {
+    assert.equal(describeAdvanceTenantColumn(probe).usable, false);
   }
 });
