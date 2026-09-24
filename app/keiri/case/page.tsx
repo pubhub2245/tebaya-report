@@ -159,26 +159,35 @@ export default async function KeiriCasePage() {
             申し込みも登録も要りません。架空のお店の日報が入った本物の画面を、そのまま触れます。
             日報を1件書くと、3つの数字がその場で変わります。入れた数字は保存されません。
           </p>
-          <Link
-            href="/keiri/demo"
-            className="mt-4 block w-full rounded-xl bg-amber-500 px-6 py-3 text-center font-bold text-white hover:bg-amber-600"
-          >
-            まず触ってみる（無料・登録不要）
-          </Link>
-          {/* ★もう決めている人のための近道（kp133）。
-               このページはスマホで画面10枚ぶんの長さがあり、「申し込む」は7枚目まで
-               下りないと出てこなかった。知り合いから勧められて開いた人は、読むより先に
-               申し込みたいことがあるので、1画面目から申し込みフォームへ行けるようにする。
-               主役は上の「まず触ってみる」のままにして、こちらは控えめな字のリンクにする。
-               新しい約束はしない（下の申し込み枠と同じ /keiri/apply へ行くだけ）。 */}
-          <Link
-            href="/keiri/apply"
-            className="mt-3 block w-full rounded-xl border border-amber-400 bg-white px-4 py-3 text-center text-sm font-bold text-amber-800 hover:bg-amber-100"
-          >
-            もうお決まりの方は、お申し込みへ進む
-          </Link>
+          {/* ★2つのボタンを「横に並べて」置く（kp141。kp133 の縦積みからの変更）。
+               縦に積んでいたときは、スマホ（幅390px・高さ844px）で実測すると
+               「申し込む」が 817px＝画面のいちばん下の端にかかり、全部は見えなかった。
+               8軒への1通を受け取った店主が最初に見るのはこの1画面なので、
+               「もう決めた」人がその場で申し込めるように、2つとも1画面目に収める。
+               主役は今までどおり「まず触ってみる」（塗りのボタン）。
+               申し込みは枠だけの控えめな見た目にして、上下の差を色と塗りで付ける。
+               新しい約束・新しい値段の言葉は1つも足さない
+               （行き先は下の申し込み枠と同じ /keiri/apply）。 */}
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <Link
+              href="/keiri/demo"
+              className="rounded-xl bg-amber-500 px-3 py-3 text-center font-bold leading-tight text-white hover:bg-amber-600"
+            >
+              まず触ってみる
+              <span className="mt-0.5 block text-[11px] font-normal">無料・登録不要</span>
+            </Link>
+            <Link
+              href="/keiri/apply"
+              className="rounded-xl border border-amber-400 bg-white px-3 py-3 text-center font-bold leading-tight text-amber-800 hover:bg-amber-100"
+            >
+              申し込む
+              <span className="mt-0.5 block text-[11px] font-normal text-stone-500">
+                もうお決まりの方
+              </span>
+            </Link>
+          </div>
           <p className="mt-2 text-center text-xs text-stone-500">
-            この画面でお支払いは発生しません。
+            この画面ではお支払いは発生しません。
           </p>
         </div>
       </header>
