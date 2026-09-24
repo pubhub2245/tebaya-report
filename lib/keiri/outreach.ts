@@ -168,3 +168,46 @@ export function readOwnerDevice(): boolean {
     return false;
   }
 }
+
+/**
+ * 帯が「一度も出ない」を無くすための、1タップの印付けリンク（kp147）。
+ *
+ * ■ なぜ要るか（やさしい説明）
+ *   帯（kp145）は「じゅんの端末」にだけ出します。その印が付くのは
+ *   **管理者ページで合言葉を入れたとき**だけです（kp146 で「入ったままのタブ」も足しました）。
+ *   つまり じゅんが管理者ページを開かないかぎり、印は永久に付かず、
+ *   **帯はホームにも管理者ページにも一度も出ません。**
+ *   毎日開くのはホームと日報なので、このままだと帯は空振りしたまま判定の日を迎えます。
+ *
+ *   そこで「押すだけで、この端末に印が付く」リンクを1本だけ用意します。
+ *   じゅんは1回押すだけ（約2秒）。そのあとはホームを開くたびに帯が出ます。
+ *
+ * ■ 安全のために守っていること
+ *   ・印が付いても、出るのは帯だけ（お店の**種類**と送る文）。
+ *     連絡先・値段・日報のデータは1つも出ません＝知らない人が押しても害がない
+ *   ・**合言葉の判定は1文字も変えていません。** 管理者ページに入れるようにはなりません
+ *   ・`?owner=0` で取り消せます（押し間違えても戻せる）
+ *   ・リンクはスタッフには渡しません。渡らなければスタッフの画面は今までどおりです
+ */
+export const OWNER_MARK_PARAM = "owner";
+
+/** リンクの中身から「印を付ける／外す／何もしない」を決める（画面に触らない素の判定） */
+export function ownerMarkFromQuery(
+  value: string | null | undefined,
+): "mark" | "unmark" | null {
+  if (value === null || value === undefined) return null;
+  const v = value.trim().toLowerCase();
+  if (v === "1" || v === "true" || v === "yes") return "mark";
+  if (v === "0" || v === "false" || v === "no") return "unmark";
+  return null;
+}
+
+/** この端末の印を外す（`?owner=0` と「もう出さない」用） */
+export function clearOwnerDevice(): void {
+  try {
+    localStorage.removeItem(OWNER_DEVICE_KEY);
+  } catch {}
+}
+
+/** じゅんに渡す1タップのリンク（ホームを開いて、その端末に印を付ける） */
+export const OWNER_MARK_LINK = `${PUBLIC_SITE_URL}/?${OWNER_MARK_PARAM}=1`;

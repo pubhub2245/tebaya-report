@@ -16,6 +16,9 @@ import {
   OUTREACH_LINK,
   OUTREACH_MESSAGE,
   OUTREACH_SHOPS,
+  OWNER_MARK_LINK,
+  OWNER_MARK_PARAM,
+  ownerMarkFromQuery,
   parseSent,
   remainingShops,
   serializeSent,
@@ -206,5 +209,63 @@ test("管理者ページにも帯が置かれている", () => {
   assert.ok(
     adminPage.includes("<OwnerOutreachNudge />"),
     "管理者ページに帯が置かれていない",
+  );
+});
+
+/**
+ * 1タップの印付けリンク（kp147）の戻り止め。
+ *
+ * ここが崩れると「帯が一度も出ない」に戻る（印が付く道が合言葉の1本だけになる）か、
+ * 逆に「誰の端末にも勝手に印が付く」になる。
+ */
+test("リンクの中身から、印を付ける／外す／何もしない が正しく決まる", () => {
+  assert.equal(ownerMarkFromQuery("1"), "mark");
+  assert.equal(ownerMarkFromQuery("true"), "mark");
+  assert.equal(ownerMarkFromQuery(" YES "), "mark");
+  assert.equal(ownerMarkFromQuery("0"), "unmark");
+  assert.equal(ownerMarkFromQuery("false"), "unmark");
+  // 印のない普通の表示では、何もしない（＝今までどおり）
+  assert.equal(ownerMarkFromQuery(null), null);
+  assert.equal(ownerMarkFromQuery(undefined), null);
+  assert.equal(ownerMarkFromQuery(""), null);
+  assert.equal(ownerMarkFromQuery("あ"), null);
+});
+
+test("じゅんに渡すリンクは、ホームに ?owner=1 を付けたものである", () => {
+  assert.equal(OWNER_MARK_PARAM, "owner");
+  assert.ok(
+    OWNER_MARK_LINK.endsWith("/?owner=1"),
+    `リンクの形が変わっている: ${OWNER_MARK_LINK}`,
+  );
+  assert.ok(OWNER_MARK_LINK.startsWith("https://"), "リンクが https で始まっていない");
+});
+
+test("帯の側で、リンクを読んで印を付け・外しし、住所から印を消している", () => {
+  const nudge = fs.readFileSync(
+    path.join(process.cwd(), "app", "components", "OwnerOutreachNudge.tsx"),
+    "utf8",
+  );
+  assert.ok(nudge.includes("ownerMarkFromQuery"), "リンクを読んでいない");
+  assert.ok(nudge.includes("markOwnerDevice()"), "印を付けていない");
+  assert.ok(nudge.includes("clearOwnerDevice()"), "印を外せない（押し間違えを戻せない）");
+  assert.ok(
+    nudge.includes("searchParams.delete(OWNER_MARK_PARAM)"),
+    "住所の欄にリンクの印が残ったままになる",
+  );
+});
+
+/** 合言葉の判定は1文字も変えていない（印はあくまで帯の出し分けだけ） */
+test("印を付けても、管理者ページに入れるようにはならない", () => {
+  const gate = fs.readFileSync(
+    path.join(process.cwd(), "app", "components", "AdminGate.tsx"),
+    "utf8",
+  );
+  assert.ok(
+    !gate.includes("readOwnerDevice"),
+    "合言葉の入り口が、端末の印を見て開くようになっている",
+  );
+  assert.ok(
+    !gate.includes(OWNER_MARK_PARAM + "="),
+    "合言葉の入り口がリンクの印を見ている",
   );
 });

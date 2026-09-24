@@ -29,6 +29,10 @@ import {
   OUTREACH_SENT_KEY,
   OUTREACH_SHOPS,
   OUTREACH_SNOOZE_KEY,
+  OWNER_MARK_PARAM,
+  clearOwnerDevice,
+  markOwnerDevice,
+  ownerMarkFromQuery,
   parseSent,
   readOwnerDevice,
   serializeSent,
@@ -45,6 +49,22 @@ export default function OwnerOutreachNudge() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
+    // ★1タップのリンク（kp147）。`?owner=1` で来たら、この端末に印を付ける。
+    //   印が付くのは「合言葉を入れたとき」だけだったので、管理者ページを開かない
+    //   じゅんの端末には印が永久に付かず、帯が一度も出なかった。
+    //   合言葉の判定は1文字も変えていない（管理者ページに入れるようにはならない）。
+    try {
+      const url = new URL(window.location.href);
+      const mark = ownerMarkFromQuery(url.searchParams.get(OWNER_MARK_PARAM));
+      if (mark === "mark") markOwnerDevice();
+      if (mark === "unmark") clearOwnerDevice();
+      if (mark !== null) {
+        // 住所の欄にリンクの印を残さない（ほかの項目はそのまま）
+        url.searchParams.delete(OWNER_MARK_PARAM);
+        window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+      }
+    } catch {}
+
     setOwner(readOwnerDevice());
     try {
       setSent(parseSent(localStorage.getItem(OUTREACH_SENT_KEY)));
