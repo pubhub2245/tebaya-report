@@ -11,8 +11,10 @@
  *   「手羽屋の合言葉が合った」ときだけ。申し込んだお店の合言葉では付きません）。
  *
  * ■ 何をするか
- *   ・［LINEの文をコピー］を押すと、送る4行がそのまま手元に入る（相手の名前だけ空欄）
- *   ・送り先8軒を並べ、押すと「送った」印が付く（印はこの端末に残る）
+ *   ・**今日の1軒を、こちらで1つだけ名指しする**（kp154）。選ぶのに迷わないため
+ *   ・［LINEで送る］で、文を持ったまま LINE の送り先を選ぶ画面が開く
+ *   ・［送りました］を押すと、その1軒に印が付き、次の1軒が出てくる
+ *   ・別の1軒にしたいとき・印を直したいときは、たたんである8軒の一覧から押す
  *   ・8軒ぜんぶに印が付いたら、帯はもう出ない
  *   ・「今日は出さない」で、その日だけ閉じられる
  *
@@ -33,6 +35,7 @@ import {
   OWNER_MARK_PARAM,
   clearOwnerDevice,
   markOwnerDevice,
+  nextShop,
   ownerMarkFromQuery,
   parseSent,
   readOwnerDevice,
@@ -117,6 +120,8 @@ export default function OwnerOutreachNudge() {
   };
 
   const done = sent.length;
+  /** 今日の1軒（まだ送っていない中の、いちばん上の1軒） */
+  const today1 = nextShop(sent);
 
   return (
     <section className="mb-5 rounded-2xl border border-orange-200 bg-orange-50 p-3 space-y-3">
@@ -126,6 +131,20 @@ export default function OwnerOutreachNudge() {
       <p className="text-xs text-orange-800 leading-relaxed">
         経理パッケージのご案内です。文はできています。1軒10秒、1日1軒で十分です。
       </p>
+
+      {/*
+        ★今日の1軒（kp154）。8軒から選ぶのをこちらで済ませ、1軒だけ名指しする。
+        じゅんがやるのは「この1軒に送る／別の1軒にする」の2択だけ。
+      */}
+      {today1 ? (
+        <div className="rounded-xl bg-white border border-orange-200 px-3 py-2">
+          <p className="text-xs text-orange-700">今日の1軒</p>
+          <p className="text-base font-bold text-orange-900 leading-snug">{today1.label}</p>
+          {today1.note ? (
+            <p className="text-xs text-orange-800 leading-relaxed">{today1.note}</p>
+          ) : null}
+        </div>
+      ) : null}
 
       {/*
         ★まずこれ（kp151）。LINE の「送り先を選ぶ」画面が、文を持ったまま開きます。
@@ -151,11 +170,22 @@ export default function OwnerOutreachNudge() {
         {copied ? "コピーしました（LINEに貼ってください）" : "うまく開かないときは文をコピー"}
       </button>
 
-      <div>
-        <p className="text-xs text-orange-800 mb-1">
-          送ったら押してください（{done} / {OUTREACH_SHOPS.length} 軒）
-        </p>
-        <div className="flex flex-wrap gap-2">
+      {/* 送ったら押す。押した1軒に印が付き、次の1軒がひとりでに出てくる（kp154） */}
+      {today1 ? (
+        <button
+          type="button"
+          onClick={() => toggle(today1.id)}
+          className="w-full h-11 rounded-xl bg-white border border-orange-400 text-orange-900 font-bold hover:bg-orange-100 active:bg-orange-200 transition"
+        >
+          送りました（{today1.label}）
+        </button>
+      ) : null}
+
+      <details className="rounded-xl bg-white/60 border border-orange-200 px-3 py-2">
+        <summary className="text-xs text-orange-900 font-bold cursor-pointer min-h-11 flex items-center">
+          別の1軒にする・送った印を直す（{done} / {OUTREACH_SHOPS.length} 軒）
+        </summary>
+        <div className="flex flex-wrap gap-2 pt-2">
           {OUTREACH_SHOPS.map((shop) => {
             const isDone = sent.includes(shop.id);
             return (
@@ -179,7 +209,7 @@ export default function OwnerOutreachNudge() {
             );
           })}
         </div>
-      </div>
+      </details>
 
       <button
         type="button"

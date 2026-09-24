@@ -20,6 +20,7 @@ import {
   OUTREACH_SHOPS,
   OWNER_MARK_LINK,
   OWNER_MARK_PARAM,
+  nextShop,
   ownerMarkFromQuery,
   parseSent,
   remainingShops,
@@ -305,4 +306,45 @@ test("帯にはLINEで送るリンクがあり、うまく開かないときの�
   assert.ok(view.includes("コピー"));
   // 別のタブで開く（日報アプリの画面を置きかえない）
   assert.ok(view.includes('rel="noopener noreferrer"'));
+});
+
+/**
+ * kp154：8軒を一度に並べると、押す前に「どこにしようか」で手が止まる。
+ * こちらで1軒だけ名指しして、じゅんの判断を「この1軒に送る／別にする」の2択にする。
+ */
+test("今日の1軒は、まだ送っていない中の1軒。送るたびに次の1軒に進む", () => {
+  assert.equal(nextShop([])?.id, OUTREACH_SHOPS[0].id);
+  assert.equal(nextShop(["crepe"])?.id, "kaitenyaki");
+  assert.equal(nextShop(OUTREACH_SHOPS.map((s) => s.id)), null);
+});
+
+test("今日の1軒は、LINEで送れる1軒を先に出す（メールのみの1軒は最後）", () => {
+  const mailOnly = OUTREACH_SHOPS.filter((s) => s.note).map((s) => s.id);
+  assert.ok(mailOnly.length > 0, "但し書きの付いた1軒が無い");
+  // LINE で送れる相手が1軒でも残っていれば、そちらを名指しする
+  const lineOnlyLeft = OUTREACH_SHOPS.filter((s) => s.note || s.id === "night").map((s) => s.id);
+  const sentRest = OUTREACH_SHOPS.map((s) => s.id).filter((id) => !lineOnlyLeft.includes(id));
+  assert.equal(nextShop(sentRest)?.id, "night");
+  // メールのみの1軒しか残っていなければ、それを出す
+  const allButMail = OUTREACH_SHOPS.map((s) => s.id).filter((id) => !mailOnly.includes(id));
+  assert.equal(nextShop(allButMail)?.id, mailOnly[0]);
+});
+
+test("帯には『今日の1軒』と『送りました』が出て、8軒の一覧はたたんである", () => {
+  // 説明文（コメント）ではなく、画面に出る所にあること
+  assert.ok(view.includes(">今日の1軒</p>"), "今日の1軒が画面に出ていない");
+  assert.ok(view.includes("{today1.label}"), "今日の1軒のお店の名前が出ていない");
+  assert.ok(view.includes("送りました（"), "送りましたのボタンが無い");
+  assert.ok(view.includes("<details"), "8軒の一覧がたたまれていない");
+  assert.ok(view.includes("別の1軒にする"), "別の1軒にする道が無い");
+  // 8軒ぜんぶを押せる道は残っていること（印を直せなくならないため）
+  assert.ok(view.includes("OUTREACH_SHOPS.map("), "8軒の一覧が消えている");
+});
+
+test("［LINEで送る］は今までどおり、いちばん上の大きいボタンのまま", () => {
+  const line = view.indexOf("LINEで送る（相手を選ぶだけ）");
+  const copy = view.indexOf("うまく開かないときは文をコピー");
+  const sentBtn = view.indexOf("送りました（");
+  assert.ok(line > 0 && copy > line, "コピーの道が LINE より前にある");
+  assert.ok(sentBtn > line, "送りましたが LINE より前にある");
 });
