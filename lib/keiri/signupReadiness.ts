@@ -71,6 +71,16 @@ export type SignupReadiness = {
     signup_notice: boolean;
     shop_table: boolean;
     settings_table: boolean;
+    /**
+     * 申し込みが決まったときに「お店1軒ぶんの行」を**作れる**か。
+     * ★2026-09-24（kp144）に足しました。**ここが無いと嘘の緑が出ます。**
+     *   窓口（keiri_tenant_activate / keiri_tenant_login）が代わりにやってくれるのは
+     *   「初回設定」と「合言葉での入室」の2つだけで、**行を作るのは入っていません**。
+     *   行を作るのはサーバー側の合鍵（SUPABASE_SERVICE_ROLE_KEY）だけです。
+     *   合鍵が壊れたまま支払いがつながると、お金は動いたのに行が作られず、
+     *   お店は戻ってきた先で「このリンクは使えません」になります。
+     */
+    shop_create: boolean;
   };
   todo: string[];
 };
@@ -116,7 +126,31 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
   if (!tenants.ok) todo.push(`お店の置き場（keiri_tenants）：${tenants.reason}`);
   if (!settings.ok) todo.push(`初回設定の置き場（keiri_settings）：${settings.reason}`);
 
-  const ready = hasButton && secret.ok && tenants.ok && settings.ok;
+  /*
+   * ★2026-09-24（kp144）：窓口があっても、**お店1軒ぶんの行を作ることはできません。**
+   *   窓口が代わりにやるのは「初回設定」と「合言葉での入室」の2つだけです
+   *   （supabase/migrations/keiri_tenant_rpc.sql にもそう書いてあります）。
+   *   行を作るのは支払いの通知を受けたときで、そこはサーバー側の合鍵を使います。
+   *   合鍵が壊れたまま支払いだけつながると、**お金は動いたのに行が作られません。**
+   *   お店は戻ってきた先（/keiri/welcome）で「このリンクは使えません」になります。
+   *   ＝ kp76 で直した「嘘の緑」と同じことが、作る側にだけ残っていました。
+   *
+   *   窓口が無いときは、上の2件がすでに同じ鍵の話をしているので足しません
+   *   （同じお願いを3回並べても、やることが増えて見えるだけです）。
+   */
+  const canCreateShop = serverKeyUsable;
+  if (!canCreateShop && tenantAccessOk) {
+    todo.push(
+      "お申し込みが決まったときに、お店1軒ぶんの行（keiri_tenants）を**作れません**。" +
+        "倉庫の窓口が代わりにやってくれるのは「初回設定」と「合言葉での入室」の2つだけで、" +
+        "行を作るのはサーバー側の鍵（SUPABASE_SERVICE_ROLE_KEY）だけです。" +
+        "このまま支払いだけつながると、お金は動いたのに行が作られず、" +
+        "お店は戻ってきた先で「このリンクは使えません」になります。" +
+        "Vercel の SUPABASE_SERVICE_ROLE_KEY を貼り直してください（kp55）",
+    );
+  }
+
+  const ready = hasButton && secret.ok && tenants.ok && settings.ok && canCreateShop;
 
   return {
     ready,
@@ -128,6 +162,7 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
       signup_notice: secret.ok,
       shop_table: tenants.ok,
       settings_table: settings.ok,
+      shop_create: canCreateShop,
     },
     todo,
   };

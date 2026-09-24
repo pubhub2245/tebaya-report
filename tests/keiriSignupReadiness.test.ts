@@ -21,6 +21,7 @@ test("4つ全部そろっていれば ready", () => {
   assert.equal(r.todo.length, 0);
   assert.equal(r.checks.payment_button, true);
   assert.equal(r.checks.signup_notice, true);
+  assert.equal(r.checks.shop_create, true);
 });
 
 test("合言葉が未設定なら ready にならず、やることが1件出る", () => {
@@ -101,6 +102,8 @@ test("サーバー側の鍵が使えないときは、読めていても『つ�
   assert.equal(r.ready, false);
   assert.equal(r.checks.shop_table, false);
   assert.equal(r.checks.settings_table, false);
+  // 行を作れないことも、同じ鍵が原因（お願いは3回に増やさない）
+  assert.equal(r.checks.shop_create, false);
   assert.equal(r.todo.length, 2);
   assert.ok(r.todo[0].includes("SUPABASE_SERVICE_ROLE_KEY"));
   // 直し方が分かる言葉で書いてあること
