@@ -335,6 +335,8 @@ export async function GET() {
   const delivery = describeApplicationDelivery({
     notifyOk: notify.ok,
     recordOk: applicationsStore.ok,
+    // 控えを「読み返せる」か。残るだけでは人は気づけない（2026-09-24・B）
+    recordReadable: applicationsStore.readable,
     // 届かなかったときに店主が開く「メールの下書き」の宛先（kp63）
     mailRecipients: keiriApplyRecipients(KEIRI_COMPANY.email, KEIRI_APPLY_COPY_TO),
   });

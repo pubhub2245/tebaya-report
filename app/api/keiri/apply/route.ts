@@ -7,6 +7,7 @@ import {
   type KeiriApplication,
 } from "@/lib/keiri/apply";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
+import { applicationIsReachable } from "@/lib/keiri/notifyHealth";
 import { sendLineGroupMessage } from "@/lib/line/sendMessage";
 import { serviceClientOrNull, serverClient } from "@/lib/supabaseServer";
 
@@ -124,5 +125,12 @@ export async function POST(req: NextRequest) {
   //   「申込0件」と書き続けることになる（訪問 kp54・控え kp57 と同じ形）。
   //   そこで saved を返し、残っていないときだけ画面に
   //   「念のための控えメール」を1つ出す（送らなくても申し込みは生きている）。
-  return NextResponse.json({ ok: true, notified, saved });
+  // ★「残った」ではなく「**人が気づけるか**」で見る（2026-09-24・B）。
+  //   LINE が飛ばず、控えは残ったが読み返せない（kp55）ときは、
+  //   受け付けた顔をしながら誰にも届いていない。
+  //   その1件を取りこぼさないよう、画面に「控えのメール」を出す。
+  const recordReadable = serviceClientOrNull() !== null;
+  const reachable = applicationIsReachable({ notified, saved, recordReadable });
+
+  return NextResponse.json({ ok: true, notified, saved, reachable });
 }

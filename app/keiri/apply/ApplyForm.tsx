@@ -47,10 +47,14 @@ function readForm(f: FormData): Entered {
 export default function ApplyForm({ email, tel }: { email: string; tel?: string }) {
   const [state, setState] = useState<State>("input");
   const [errors, setErrors] = useState<string[]>([]);
-  // ★受け付けはできたが、倉庫に控えが残らなかったか（2026-09-19・kp69）。
-  //   残っていないときだけ、成功の画面に「念のための控えメール」を出す。
+  // ★受け付けはできたが、**こちら側の誰も気づけない**状態か（2026-09-24・B）。
+  //   もとは「倉庫に控えが残ったか」だけを見ていた（2026-09-19・kp69）。
+  //   ところが本番では、LINE の残り通数が尽きて知らせが飛ばず、
+  //   控えは残るが鍵が壊れていて読み返せない（kp55）という重なりが起こりうる。
+  //   そのとき「ありがとうございます」と出しながら、誰にも届いていない。
+  //   なので「残ったか」ではなく「**気づけるか**」で出し分ける。
   //   既定は true（余計なお願いをしないため。古い受け口が何も返さないときも出さない）
-  const [savedRecord, setSavedRecord] = useState(true);
+  const [reachable, setReachable] = useState(true);
   // ★打ち直しをお願いしないために、入れてもらった中身は必ず手元に残す
   const [entered, setEntered] = useState<Entered>(EMPTY);
 
@@ -82,9 +86,14 @@ export default function ApplyForm({ email, tel }: { email: string; tel?: string 
         reason?: string;
         errors?: string[];
         saved?: boolean;
+        reachable?: boolean;
       };
       if (res.ok && data.ok) {
-        setSavedRecord(data.saved !== false);
+        // 新しい受け口は reachable を返す。返さない（古い）ときは、
+        // これまでどおり「控えが残ったか」で判断する
+        setReachable(
+          data.reachable !== undefined ? data.reachable : data.saved !== false,
+        );
         setState("done");
         return;
       }
@@ -209,13 +218,14 @@ export default function ApplyForm({ email, tel }: { email: string; tel?: string 
           までご連絡ください。
         </p>
 
-        {!savedRecord && (
+        {!reachable && (
           <div className="mt-5 rounded-xl border border-stone-300 bg-white p-4">
             <p className="text-sm font-bold text-stone-900">
               お手すきのときで構いません：控えのメールを1通だけ
             </p>
             <p className="mt-2 text-sm text-stone-700 leading-relaxed">
-              お申し込みは受け付けています。ただ、いまこちらの控えの保存が止まっているため、
+              お申し込みは受け付けています。ただ、いまこちら側の受け取りの仕組みが
+              一部止まっていて、この1件に気づくのが遅れるおそれがあります。
               念のため同じ内容のメールをいただけると確実です。
               下のボタンで、中身の入った下書きが開きます（打ち直しは要りません）。
               送らなくてもお申し込みは有効です。
