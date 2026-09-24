@@ -4,6 +4,7 @@ import LocationRankingSummary from "./components/LocationRankingSummary";
 import { TebayaOnlyBlock } from "./components/TebayaOnlyGate";
 import AppTitle from "./components/AppTitle";
 import OwnerOutreachNudge from "./components/OwnerOutreachNudge";
+import OwnerApplicationAlert from "./components/OwnerApplicationAlert";
 
 /** グループ見出し */
 function GroupLabel({ children }: { children: React.ReactNode }) {
@@ -41,6 +42,12 @@ export default function MenuPage() {
       <header className="mb-6 text-center">
         <AppTitle />
       </header>
+
+      {/* お申し込みが入ったのに誰も気づかない、を防ぐ赤い知らせ（kp156）。
+          知らせる道はスタッフのLINEしかなく、今月あと5通しか残っていない。
+          帯とまったく同じ印を使う＝スタッフには出ない。出すのは件数と時刻だけで、
+          お店の名前・ご連絡先は1文字も出さない。日報のデータは1行も読み書きしない。 */}
+      <OwnerApplicationAlert />
 
       {/* 経理パッケージの「今日1軒だけ送る」の帯（kp145）。
           管理者パスワードを入れたことがある端末にだけ出る＝スタッフには出ない。
