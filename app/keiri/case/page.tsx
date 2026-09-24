@@ -76,7 +76,9 @@ const OUTPUTS: { title: string; body: string }[] = [
   },
   {
     title: "会計ソフト用のCSV",
-    body: "月ごとの仕訳を CSV で出せるので、確定申告や税理士さんへの受け渡しがそのまま済みます。",
+    body:
+      "月ごとの仕訳を CSV で出せるので、確定申告や税理士さんへの受け渡しがそのまま済みます。" +
+      "弥生会計・マネーフォワード クラウド会計・freee会計のどれにも取り込める形でお出しします。",
   },
 ];
 
@@ -366,10 +368,30 @@ export default async function KeiriCasePage() {
               </tbody>
             </table>
           </div>
-          <p className="mt-3 text-xs text-stone-500 leading-relaxed">
-            マネーフォワード クラウド会計へは、同じ中身を仕訳帳インポートの形（
-            {sample.mfColumnCount}列）でお出しします。
-          </p>
+          {/* ★お使いの会計ソフトの名前を、ここで出す（2026-09-24・kp135）。
+                「うちは弥生だから、たぶん使えない」で静かに離れてしまうのを防ぐため。
+                3つとも実際に取り込める形で書き出せることを確かめたうえで書いている
+                （決まりと突き合わせた記録は docs/auto/2026-09-24_会計ソフト取込仕様.md）。
+                新しい約束は足していない。いまできることをそのまま書いただけ。 */}
+          <div className="mt-3 space-y-1.5 text-xs text-stone-500 leading-relaxed">
+            <p className="font-bold text-stone-700">お使いの会計ソフトに、そのまま取り込めます</p>
+            <p>
+              ・<strong>弥生会計／やよいの青色申告</strong>へは、仕訳日記帳インポートの形（
+              {sample.yayoiColumnCount}列・Shift-JIS）でお出しします。
+            </p>
+            <p>
+              ・<strong>マネーフォワード クラウド会計</strong>へは、仕訳帳インポートの形（
+              {sample.mfColumnCount}列）でお出しします。
+            </p>
+            <p>
+              ・<strong>freee会計</strong>は、取り込むときに列を選び直せるので、上の
+              マネーフォワード用のファイルをそのままお使いいただけます。
+            </p>
+            <p className="pt-1">
+              どの形も、税区分は空のままでお出しします（税務のことはこのアプリでは決めません）。
+              どれでも同じ中身です。お試し版で、いま実際に書き出してみられます。
+            </p>
+          </div>
         </div>
 
         <p className="mt-3 text-xs text-stone-500 leading-relaxed">{SAMPLE_NOTICE}</p>

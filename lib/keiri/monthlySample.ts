@@ -34,6 +34,7 @@ import { previousMonthRange } from "./caseStats";
 import { DEMO_SHOP_NAME, demoPayments, demoReports, demoSettings } from "./demo";
 import { JOURNAL_HEADERS, buildJournalRows } from "./journal";
 import { MF_HEADERS } from "./moneyforward";
+import { YAYOI_HEADERS } from "./yayoi";
 import { GENERIC_TEMPLATE } from "./templates/generic";
 
 /** 見本であることを画面に必ず出す1行（画面に文章を直書きしない） */
@@ -74,6 +75,8 @@ export type MonthlySample = {
   journalRowCount: number;
   /** マネーフォワードの仕訳帳インポートの列数（27列） */
   mfColumnCount: number;
+  /** 弥生会計の仕訳インポートの列の数（25） */
+  yayoiColumnCount: number;
 };
 
 /** 見本に見せる仕訳の行数（スマホで開くので、長くしない） */
@@ -128,6 +131,7 @@ export function buildMonthlySample(today: Date = new Date()): MonthlySample {
     })),
     journalRowCount: rows.length,
     mfColumnCount: MF_HEADERS.length,
+    yayoiColumnCount: YAYOI_HEADERS.length,
   };
 }
 
