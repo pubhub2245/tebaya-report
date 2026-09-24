@@ -223,7 +223,7 @@ test("お申し込みページは、数を直書きせず共通の1文から出�
 });
 
 test("紹介ページに出す質問は、よくある質問に実在する（片方だけ消えると黙って減る）", () => {
-  assert.equal(KEIRI_CASE_FAQ_QUESTIONS.length, 4);
+  assert.equal(KEIRI_CASE_FAQ_QUESTIONS.length, 5);
   for (const q of KEIRI_CASE_FAQ_QUESTIONS) {
     assert.ok(
       KEIRI_FAQ.some((f) => f.q === q),
