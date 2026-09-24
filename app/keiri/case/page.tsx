@@ -11,6 +11,7 @@ import {
   priceSummaryLine,
 } from "@/lib/keiri/caseNumbers";
 import { getCaseStats } from "@/lib/keiri/caseStats";
+import { getCaseUsage } from "@/lib/keiri/caseUsage";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
 import { keiriContactMailto } from "@/lib/keiri/apply";
 import {
@@ -41,6 +42,9 @@ import { keiriMetadata } from "@/lib/keiri/metadata";
  *   残っている、という食い違いは起きない（自動で「準備中」に戻る）。
  * ★事例1号の数字（出店回数・売上・利益）は、前の月の日報から自動で出す
  *   （lib/keiri/caseStats.ts）。倉庫が読めないときは caseNumbers.ts の控えに戻る。
+ * ★「続いていること」（日報の枚数・続いている月数）は lib/keiri/caseUsage.ts から。
+ *   こちらは **金額を1つも読まない**（同業の店主が開くページなので手の内を見せない）。
+ *   読めなければ区画ごと出さない。控えの数字を手で書いて置かない。
  * 設計：docs/auto/2026-09-17_経理パッケージ_無人販売の流れ_設計.md（司令室B）
  */
 
@@ -102,6 +106,9 @@ export default async function KeiriCasePage() {
   /* カードでその場で払えるか。画面の言い方（解約のしかた等）はここだけを見て決める */
   const cardLive = link !== null;
   const stats = await getCaseStats();
+  /* 「本当に毎日続いているか」の実測値。金額は1つも読まない（lib/keiri/caseUsage.ts）。
+     倉庫が読めなければ null ＝ その区画ごと出さない（数字を作らない） */
+  const usage = await getCaseUsage();
   /* 毎月お届けするものの見本。架空のお店の数字を、本物と同じ関数に計算させる */
   const sample = buildMonthlySample();
   const c = { shopName: CASE_TEBAYA.shopName, ...stats };
@@ -216,6 +223,45 @@ export default async function KeiriCasePage() {
           給与・外注費・家賃のような「あとでまとめて払うお金」も、払い忘れが出ないように別に数えています。
         </p>
       </section>
+
+      {/* ---------- 続いていること（金額は出さない） ---------- */}
+      {usage && (
+        <section className="mb-10 rounded-2xl bg-white border border-stone-200 p-6 shadow-sm">
+          <p className="text-xs font-bold text-stone-400">見本ではありません</p>
+          <h2 className="mt-1 text-lg font-bold text-stone-900">手羽屋が、毎日の営業で使っています</h2>
+          <dl className="mt-5 grid grid-cols-2 gap-3 text-center">
+            <div className="rounded-xl bg-stone-50 py-4">
+              <dt className="text-xs text-stone-500">書かれた日報</dt>
+              <dd className="mt-1 text-2xl font-bold text-stone-900">
+                {usage.reports}
+                <span className="text-sm font-normal text-stone-500">枚</span>
+              </dd>
+            </div>
+            <div className="rounded-xl bg-stone-50 py-4">
+              <dt className="text-xs text-stone-500">日報が残っている月</dt>
+              <dd className="mt-1 text-2xl font-bold text-stone-900">
+                {usage.months}
+                <span className="text-sm font-normal text-stone-500">か月</span>
+              </dd>
+            </div>
+          </dl>
+          <ul className="mt-4 space-y-2 text-sm text-stone-600 leading-relaxed">
+            <li>
+              {usage.firstMonth}から{usage.lastMonth}まで
+              {usage.noGap ? "、1か月も抜けずに" : "で、合わせて"}
+              {usage.months}か月ぶんの日報が残っています。
+            </li>
+            <li>いちばん新しい日報は {usage.lastDate} に書かれたものです。</li>
+            <li>
+              月末の締めの集計は、お店ではなくこちらで行っています（下の「月額に含まれるもの」に書いてあります）。
+            </li>
+          </ul>
+          <p className="mt-4 text-xs text-stone-500 leading-relaxed">
+            このアプリに残っている日報を、その場で数えた値です（{usage.checkedOn} 集計）。
+            手で書き写した数字ではないので、日報が増えればここも増えます。
+          </p>
+        </section>
+      )}
 
       {/* ---------- 何が出るか ---------- */}
       <section className="mb-10">
