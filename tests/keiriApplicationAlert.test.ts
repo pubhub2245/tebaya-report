@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  APPLICATION_ALERT_OPEN_NOTE,
   applicationAlertHeadline,
   applicationAlertWhen,
   readApplicationCountSummary,
@@ -122,5 +123,96 @@ test("数だけ答える窓口は、連絡先の列を1つも返さない", () =
   // 書き込みをしない
   for (const banned of ["insert", "update", "delete", "upsert"]) {
     assert.ok(!src.includes(`.${banned}(`), `${banned} を呼ばない（読むだけ）`);
+  }
+});
+
+/* ───────────────────────────────────────────────────────────────
+ * kp165：印の要らない1枚（/keiri/send）にも、赤い知らせを出す
+ *
+ * ここが崩れると「送る道は印の外・知らせは印の中」に戻り、
+ * じゅんが送ったあと、返事が来たことに誰も気づけない状態がそのまま残る。
+ * ─────────────────────────────────────────────────────────────── */
+
+test("requireOwnerDevice:false なら、端末の印が無くても件数があれば出す", () => {
+  assert.equal(
+    shouldShowApplicationAlert({
+      ownerDevice: false,
+      summary: counted(1),
+      requireOwnerDevice: false,
+    }),
+    true,
+  );
+});
+
+test("requireOwnerDevice:false でも、0件・数えられないときは出さない", () => {
+  assert.equal(
+    shouldShowApplicationAlert({
+      ownerDevice: false,
+      summary: counted(0),
+      requireOwnerDevice: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldShowApplicationAlert({
+      ownerDevice: false,
+      summary: { countable: false, pending: 3, total: 3, latestAt: null },
+      requireOwnerDevice: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldShowApplicationAlert({
+      ownerDevice: false,
+      summary: null,
+      requireOwnerDevice: false,
+    }),
+    false,
+  );
+});
+
+test("既定（印を見る）は変えていない＝スタッフの画面には今までどおり出ない", () => {
+  // requireOwnerDevice を渡さない呼び方は、これまでとまったく同じふるまい
+  assert.equal(shouldShowApplicationAlert({ ownerDevice: false, summary: counted(3) }), false);
+  assert.equal(
+    shouldShowApplicationAlert({
+      ownerDevice: false,
+      summary: counted(3),
+      requireOwnerDevice: true,
+    }),
+    false,
+  );
+});
+
+test("誰でも開ける1枚に添える文には、倉庫の棚の名前を書かない", () => {
+  // /keiri/send は住所を知っていれば誰でも開ける。内側の手順は書かない。
+  assert.ok(!APPLICATION_ALERT_OPEN_NOTE.includes("keiri_applications"));
+  assert.ok(!/supabase/i.test(APPLICATION_ALERT_OPEN_NOTE));
+  assert.ok(!/@/.test(APPLICATION_ALERT_OPEN_NOTE), "連絡先を書かないこと");
+  assert.ok(
+    APPLICATION_ALERT_OPEN_NOTE.includes("この画面には出しません"),
+    "連絡先はここに出さない、と読み手に伝えること",
+  );
+});
+
+test("送る1枚は、印を待たずに赤い知らせを出す形で呼んでいる", () => {
+  const send = fs.readFileSync(
+    path.join(process.cwd(), "app/keiri/send/page.tsx"),
+    "utf8",
+  );
+  assert.ok(send.includes("OwnerApplicationAlert"), "赤い知らせを載せていること");
+  assert.ok(
+    send.includes("requireOwnerDevice={false}"),
+    "端末の印を待たずに出すこと（印はまだ付いていないため）",
+  );
+});
+
+test("ホームと管理者ページは、これまでどおり印のある端末だけ", () => {
+  for (const rel of ["app/page.tsx", "app/admin/page.tsx"]) {
+    const src = fs.readFileSync(path.join(process.cwd(), rel), "utf8");
+    assert.ok(
+      !src.includes("requireOwnerDevice={false}"),
+      `${rel} で印を外さないこと（スタッフの画面に出てしまう）`,
+    );
   }
 });

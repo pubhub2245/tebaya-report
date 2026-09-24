@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import OwnerApplicationAlert from "@/app/components/OwnerApplicationAlert";
 import {
   OUTREACH_LINE_SHARE_URL,
   OUTREACH_LINK,
@@ -18,9 +19,19 @@ import {
  *   じゅんは、この住所をメモやスマホのホーム画面から開くだけ。
  *
  * ■ この1枚が出すもの（これだけ）
+ *   ・お申し込みが入っているときの赤い知らせ（件数と時刻だけ・kp165）
  *   ・［LINEで送る］の1タップ（送り先を選ぶ画面が、文を持ったまま開く）
  *   ・送る文そのもの（長押しでコピーできる）
  *   ・相手が開く案内ページ（/keiri/case）への確かめリンク
+ *
+ * ■ 赤い知らせを、ここにも置く理由（kp165）
+ *   赤い知らせ（kp156）はホームと管理者ページにありますが、出る条件は
+ *   「端末に印（kp150）が付いていること」でした。その印はまだ付いていません。
+ *   そして この1枚（kp162〜kp164）は、**その印を要らなくするために作った**ものです。
+ *   ＝送る道だけ印の外に出して、返事に気づく道は印の中に置いたままでした。
+ *   そのままだと「送ったのに、返事が来たことに誰も気づかない」が起きます。
+ *   ここは じゅんが送るために毎回開く1枚なので、知らせを置くならここです。
+ *   出すのは**件数と入った時刻だけ**で、お店の名前・ご連絡先は1文字も出しません。
  *
  * ■ 出さないもの（合言葉の要らない住所なので、内側の話は置かない）
  *   ・送り先8軒の一覧と連絡先 … 誰に送るかは司令室の手元だけ
@@ -39,6 +50,9 @@ export const metadata: Metadata = {
 export default function KeiriSendPage() {
   return (
     <main className="mx-auto max-w-lg px-4 py-6 space-y-5">
+      {/* ★お申し込みが入っていれば、送るより先にこれが目に入る（kp165） */}
+      <OwnerApplicationAlert requireOwnerDevice={false} />
+
       <header className="space-y-2">
         <h1 className="text-xl font-bold text-stone-900 leading-snug">
           今日、1軒だけ送る
@@ -89,6 +103,7 @@ export default function KeiriSendPage() {
         送り先は全部で {OUTREACH_SHOPS.length} 軒です。どこに送ったかの控えは、
         ホームに出る帯（管理者の合言葉を入れた端末にだけ出ます）で付けられます。
         この1枚は、思い出したときに開いて1軒送るためだけのものです。
+        お申し込みが入っているときは、いちばん上に赤い知らせが出ます（件数と入った時刻だけ）。
       </p>
     </main>
   );

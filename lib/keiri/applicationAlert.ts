@@ -34,16 +34,36 @@ export type ApplicationCountSummary = {
  * 出すのは「じゅんの端末」「数えられた」「まだ手当てしていない申し込みが1件以上ある」の3つが揃うときだけ。
  * ★数えられなかったとき（countable:false）は**出しません**。
  *   「0件」と「数えられない」を取り違えて嘘の安心・嘘の警報を出さないため。
+ *
+ * ★requireOwnerDevice: false のときだけ、端末の印を見ずに出します（kp165）。
+ *   使うのは「送る1枚」（/keiri/send）だけです。理由は下の kp165 の説明を読んでください。
+ *   それ以外の画面（ホーム・管理者ページ）は、これまでどおり印のある端末にしか出しません。
  */
 export function shouldShowApplicationAlert(input: {
   ownerDevice: boolean;
   summary: ApplicationCountSummary | null;
+  /** 端末の印を条件にするか。既定は true（これまでどおり じゅんの端末だけ） */
+  requireOwnerDevice?: boolean;
 }): boolean {
-  if (!input.ownerDevice) return false;
+  const gated = input.requireOwnerDevice ?? true;
+  if (gated && !input.ownerDevice) return false;
   const s = input.summary;
   if (!s || !s.countable) return false;
   return typeof s.pending === "number" && s.pending > 0;
 }
+
+/**
+ * 印の要らない1枚（/keiri/send）に出すときの、下に添える1行（kp165）。
+ *
+ * ■ なぜ文を分けるか
+ *   /keiri/send は **住所を知っていれば誰でも開ける1枚** です。
+ *   じゅんの端末だけに出る版（ホーム・管理者ページ）には
+ *   「倉庫のどの棚を開けば連絡先が見られるか」を書いてありますが、
+ *   それは内側の話なので、誰でも開ける1枚には書きません。
+ *   出すのは「件数」と「入った時刻」だけ、という決めごとは両方で同じです。
+ */
+export const APPLICATION_ALERT_OPEN_NOTE =
+  "お店の名前とご連絡先は、この画面には出しません（控えのほうに残っています）。折り返しのご連絡だけお願いします。お支払いのリンクは貼らないでください。";
 
 /** 知らせの見出し（件数だけ。連絡先は入れない） */
 export function applicationAlertHeadline(pending: number): string {
