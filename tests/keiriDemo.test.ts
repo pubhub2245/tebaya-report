@@ -396,3 +396,74 @@ test("お試し版は「CSVは本物だけ」と書いていない（自分で�
     "お試し版でCSVを書き出せるのに、「本物ではこのほかにCSV」と書いたままになっている",
   );
 });
+
+// ------------------------------------------------------------------
+// ⑧ 申し込みへの入口が、心の動く所にある（2026-09-24・kp134）
+//
+//   お試し版は「買う前に手で触れる唯一の場所」です。9/24 15:04 の実測で、
+//   申し込みへの入口が**ページ中ほどと一番下の2か所だけ**だと分かりました。
+//   いちばん心が動くのは「会計ソフト用のCSVを自分の手で書き出せた直後」なので、
+//   そこと、1画面目（ページの見出しのすぐ下）にも入口を置きます。
+//   kp133 で紹介ページに入れた直しと同じ考え方です。
+//   新しい約束・新しい価格の言葉は足していないことも、ここで固定します。
+// ------------------------------------------------------------------
+
+test("お試し版の1画面目（見出しのすぐ下）から、お申し込みへ行ける", () => {
+  const page = fs.readFileSync(path.join(DEMO_DIR, "page.tsx"), "utf8");
+  const headerEnd = page.indexOf("</header>");
+  assert.ok(headerEnd > 0, "見出しの範囲が取れていない");
+  const header = page.slice(0, headerEnd);
+  assert.ok(
+    header.includes('href="/keiri/apply"'),
+    "お試し版の1画面目（見出しの中）に、お申し込みへの入口が無い",
+  );
+  assert.ok(
+    header.includes("もうお決まりの方は、お申し込みへ進む"),
+    "もう決めている人のための近道の文が無い",
+  );
+});
+
+test("CSVを書き出すボタンのすぐ下に、お申し込みへの入口がある", () => {
+  const board = fs.readFileSync(path.join(DEMO_DIR, "board.tsx"), "utf8");
+  const buttonAt = board.indexOf("仕訳のCSVを書き出す");
+  assert.ok(buttonAt > 0, "仕訳CSVのボタンが見つからない");
+  // ボタンから、その節の終わり（次の節の見出し）までの間に入口があること
+  const nextSectionAt = board.indexOf("出店場所ごとの成績", buttonAt);
+  assert.ok(nextSectionAt > buttonAt, "CSVの節の終わりが見つからない");
+  const csvSection = board.slice(buttonAt, nextSectionAt);
+  assert.ok(
+    csvSection.includes('href="/keiri/apply"'),
+    "CSVを書き出した直後に、お申し込みへの入口が無い",
+  );
+  assert.ok(
+    csvSection.includes("この形で毎月お届けします"),
+    "書き出したものと申し込みのつながりを説明する文が無い",
+  );
+});
+
+test("お試し版に足した入口は、新しい約束も新しい価格も足していない", () => {
+  const files = demoSourceFiles();
+  for (const f of files) {
+    // 画面に出る所だけを見る（説明書きのコメントは読み手には見えないので外す）
+    const visible = f.text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    // 価格は lib/keiri/caseNumbers の priceSummaryLine から出す（画面に直書きしない）
+    assert.ok(
+      !/15,?000\s*円/.test(visible),
+      `${f.name} の画面に価格が直書きされている（priceSummaryLine を使うこと）`,
+    );
+    // 「初月無料」「返金保証」「今だけ」のような、下の申し込み枠に無い約束を足していないこと
+    assert.ok(
+      !/初月無料|返金保証|今だけ|キャンペーン/.test(visible),
+      `${f.name} に、申し込み枠に無い約束が書かれている`,
+    );
+  }
+  // お支払いが発生しない旨は、入口のそばに必ず添える（紹介ページと同じ書き方）
+  const page = fs.readFileSync(path.join(DEMO_DIR, "page.tsx"), "utf8");
+  const board = fs.readFileSync(path.join(DEMO_DIR, "board.tsx"), "utf8");
+  for (const [name, text] of [["page.tsx", page], ["board.tsx", board]] as const) {
+    assert.ok(
+      text.includes("この画面でお支払いは発生しません"),
+      `${name} の入口に「この画面でお支払いは発生しません」が無い`,
+    );
+  }
+});

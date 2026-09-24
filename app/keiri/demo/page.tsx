@@ -76,6 +76,20 @@ export default function KeiriDemoPage() {
             <span>{priceSummaryLine(cardCheckoutLive())}</span>
           </li>
         </ul>
+
+        {/* ★もう決めている人のための近道（kp134）。
+             知り合いからの紹介で開いた人は、読むより先に申し込みたいことがある。
+             主役は下の「触ってみる本体」のままにして、こちらは控えめな枠線のリンク。
+             新しい約束はしない（行き先は下の申し込み枠と同じ /keiri/apply）。 */}
+        <Link
+          href="/keiri/apply"
+          className="mt-5 block w-full rounded-xl border border-amber-400 bg-white px-4 py-3 text-center text-sm font-bold text-amber-800 hover:bg-amber-50"
+        >
+          もうお決まりの方は、お申し込みへ進む
+        </Link>
+        <p className="mt-2 text-center text-xs text-stone-500">
+          この画面でお支払いは発生しません。
+        </p>
       </header>
 
       <DemoBoard ym={ym} today={today} />

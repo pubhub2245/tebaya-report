@@ -424,6 +424,22 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
           ・本物では、この書き出しを<strong>毎月こちらで行って、要約1枚と一緒にお渡しします</strong>
           （ご自身で押す必要はありません）。
         </p>
+
+        {/* ★書き出せた直後に、申し込みへの道を1本置く（kp134）。
+             お試し版は「買う前に手で触れる唯一の場所」で、いちばん心が動くのは
+             CSV を自分の手で書き出せた直後。ところが申し込みへの入口は
+             ページ中ほどと一番下の2か所だけだった（9/24 15:04 A 実測）。
+             kp133 で紹介ページに入れた直しと同じ考え方を、ここにも入れる。
+             新しい約束・新しい価格の言葉は足さない（行き先は下の枠と同じ /keiri/apply）。 */}
+        <div className="mt-4 text-center">
+          <Link
+            href="/keiri/apply"
+            className="inline-block rounded-xl border border-amber-400 bg-white px-5 py-3 text-sm font-bold text-amber-800 hover:bg-amber-50"
+          >
+            この形で毎月お届けします → お申し込みへ
+          </Link>
+          <p className="mt-2 text-xs text-stone-500">この画面でお支払いは発生しません。</p>
+        </div>
       </section>
 
       {/* ---------- 場所ごと ---------- */}
