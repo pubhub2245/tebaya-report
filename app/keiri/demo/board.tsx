@@ -22,14 +22,23 @@ import Link from "next/link";
 import { yen, slashDate } from "@/lib/format";
 import {
   DISPLAY_EXPENSE_ACCOUNTS,
+  JOURNAL_HEADERS,
   NEUTRAL_OUTSOURCING_ACCOUNT_LABEL,
+  buildJournalRows,
   calcCashPosition,
   calcUnpaid,
   mergedExpenseByAccount,
   summarizeByLocation,
   summarizeMonth,
   templateFor,
+  toCsv,
 } from "@/lib/keiri";
+import {
+  encodeCsv,
+  moneyForwardFileName,
+  toMoneyForwardCsv,
+  type CsvEncoding,
+} from "@/lib/keiri/moneyforward";
 import { GENERIC_TEMPLATE } from "@/lib/keiri/templates/generic";
 import {
   DEMO_SHOP_NAME,
@@ -43,6 +52,9 @@ import {
   sortDemoReports,
 } from "@/lib/keiri/demo";
 import type { KeiriReport } from "@/lib/keiri";
+
+/** 画面に出す仕訳の行数（全部はファイルに入れる） */
+const JOURNAL_PREVIEW = 6;
 
 export default function DemoBoard({ ym, today }: { ym: string; today: string }) {
   const [reports, setReports] = useState<KeiriReport[]>(() => demoReports(ym));
@@ -72,6 +84,57 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
     () => mergedExpenseByAccount(summary.expenseByAccount),
     [summary],
   );
+
+  /**
+   * 会計ソフト用のCSV（仕訳）。
+   * ★本物の経理画面（app/keiri/page.tsx）が呼んでいる buildJournalRows を
+   *   そのまま呼びます。ここに中身を書き写さないこと
+   *   （写すと、本物を直したときにお試し版だけ古い形のCSVを出します）。
+   * ★日報を1件足すと、この行が増えます。そこが見どころです。
+   */
+  const journalRows = useMemo(
+    () => buildJournalRows({ ym, reports, payments, template, settings }),
+    [ym, reports, payments, template, settings],
+  );
+
+  /** いま書き出しているボタンの名前（押されているあいだだけ入る） */
+  const [saving, setSaving] = useState<string | null>(null);
+
+  /**
+   * ファイルをお使いの端末に作る。
+   * ★どこにも送りません。ブラウザの中で作った中身を、そのまま保存するだけです。
+   */
+  const saveFile = (bytes: BlobPart, fileName: string, type: string) => {
+    const blob = new Blob([bytes], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  /** そのまま読める形の仕訳CSV（本物と同じ toCsv） */
+  const downloadJournalCsv = () => {
+    saveFile(toCsv(journalRows), `keiri_demo_${ym}.csv`, "text/csv;charset=utf-8;");
+  };
+
+  /** マネーフォワード クラウド会計の仕訳帳インポートの形（27列・本物と同じ関数） */
+  const downloadMoneyForwardCsv = async (encoding: CsvEncoding) => {
+    setSaving(encoding);
+    try {
+      const bytes = await encodeCsv(toMoneyForwardCsv(journalRows), encoding);
+      saveFile(
+        bytes,
+        moneyForwardFileName(ym, encoding).replace("mf_shiwake_", "mf_shiwake_demo_"),
+        encoding === "utf8" ? "text/csv;charset=utf-8;" : "text/csv;charset=shift_jis;",
+      );
+    } finally {
+      setSaving(null);
+    }
+  };
 
   const set = (key: keyof DemoInput, value: string) =>
     setInput((prev) => ({ ...prev, [key]: value }));
@@ -269,6 +332,98 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
             本物の画面では中身を開いて確かめられます。
           </p>
         )}
+      </section>
+
+      {/* ---------- 毎月お出しするもの（会計ソフト用のCSV） ----------
+           ★ここが月15,000円のいちばん重い部分（毎月の締めをこちらでやって渡す）。
+             これまでお試し版では「本物ではCSVも書き出せます」と**文章で書いてあるだけ**で、
+             値上げの根拠そのものが、触ってみられる唯一の場所で触れませんでした。
+             行は buildJournalRows が作ります（本物と同じ関数）。日報を足すと増えます。 */}
+      <section className="rounded-2xl border border-stone-200 bg-white p-5">
+        <h2 className="text-lg font-bold text-stone-900">会計ソフトに渡すファイル</h2>
+        <p className="mt-2 text-sm text-stone-600 leading-relaxed">
+          上の日報から、<strong>会計ソフトがそのまま読める形（仕訳）</strong>を作ります。
+          いまこの月は <strong className="tabular-nums">{journalRows.length}行</strong>です。
+          上で日報を1件足すと、この行数も増えます。
+          帳簿づけとは、ふだんこの表を手で作る作業のことです。
+        </p>
+
+        {journalRows.length === 0 ? (
+          <p className="mt-4 text-sm text-stone-500">この月の日報がないので、まだ行がありません。</p>
+        ) : (
+          <>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-xs sm:text-sm whitespace-nowrap">
+                <thead>
+                  <tr className="text-stone-500 border-b border-stone-200">
+                    {JOURNAL_HEADERS.map((h) => (
+                      <th key={h} className="py-2 px-2 text-left font-semibold">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {journalRows.slice(0, JOURNAL_PREVIEW).map((r, i) => (
+                    <tr key={`${r.date}-${i}`} className="border-b border-stone-100">
+                      <td className="py-2 px-2 tabular-nums">{slashDate(r.date)}</td>
+                      <td className="py-2 px-2">{r.debitAccount}</td>
+                      <td className="py-2 px-2 text-right tabular-nums">{yen(r.debitAmount)}</td>
+                      <td className="py-2 px-2">{r.creditAccount}</td>
+                      <td className="py-2 px-2 text-right tabular-nums">{yen(r.creditAmount)}</td>
+                      <td className="py-2 px-2 text-stone-600">{r.note}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {journalRows.length > JOURNAL_PREVIEW && (
+              <p className="mt-2 text-xs text-stone-500">
+                ここに出しているのは、はじめの {JOURNAL_PREVIEW} 行だけです（全 {journalRows.length} 行）。
+                下のボタンを押すと、全部入ったファイルが手元にできます。
+              </p>
+            )}
+          </>
+        )}
+
+        <div className="mt-5 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={downloadJournalCsv}
+            disabled={journalRows.length === 0}
+            className="rounded-xl bg-stone-800 px-4 py-2.5 text-sm font-bold text-white hover:bg-stone-900 disabled:opacity-40"
+          >
+            仕訳のCSVを書き出す（Excel向け）
+          </button>
+          <button
+            type="button"
+            onClick={() => downloadMoneyForwardCsv("utf8")}
+            disabled={journalRows.length === 0 || saving !== null}
+            className="rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm font-bold text-stone-700 hover:border-stone-400 disabled:opacity-40"
+          >
+            {saving === "utf8" ? "書き出しています…" : "マネーフォワード用（27列・UTF-8）"}
+          </button>
+          <button
+            type="button"
+            onClick={() => downloadMoneyForwardCsv("shift_jis")}
+            disabled={journalRows.length === 0 || saving !== null}
+            className="rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm font-bold text-stone-700 hover:border-stone-400 disabled:opacity-40"
+          >
+            {saving === "shift_jis" ? "書き出しています…" : "マネーフォワード用（27列・Shift_JIS）"}
+          </button>
+        </div>
+
+        <p className="mt-4 rounded-lg bg-stone-100 px-4 py-3 text-xs text-stone-600 leading-relaxed">
+          ・押すと、<strong>お使いの端末にファイルが1つできるだけ</strong>です。中身はどこにも送られません。
+          <br />
+          ・マネーフォワード クラウド会計は、取り込める文字コードが環境によって違うので2つ置いてあります
+          （うまく取り込めないほうは、もう片方をお使いください）。
+          <br />
+          ・中身は<strong>架空のお店（{DEMO_SHOP_NAME}）の数字</strong>です。実在のお店の数字ではありません。
+          <br />
+          ・本物では、この書き出しを<strong>毎月こちらで行って、要約1枚と一緒にお渡しします</strong>
+          （ご自身で押す必要はありません）。
+        </p>
       </section>
 
       {/* ---------- 場所ごと ---------- */}

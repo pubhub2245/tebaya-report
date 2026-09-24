@@ -36,6 +36,7 @@ export const metadata: Metadata = keiriMetadata({
   description:
     "登録も申し込みも要りません。架空のお店の日報が入った本物の経理画面を、そのまま触れます。" +
     "日報を1件書くと、今月の利益・今の現金・まだ払っていないお金がその場で変わります。" +
+    "会計ソフト（マネーフォワード クラウド会計）に渡す仕訳CSVも、その場で書き出して中身を確かめられます。" +
     "入れた数字はどこにも送られず、保存もされません。",
 });
 
@@ -59,6 +60,7 @@ export default function KeiriDemoPage() {
           {DEMO_SHOP_NAME}の日報が3件だけ入った状態から始まります。
           日報を1件書き足すと、<strong>今月の利益・今の現金・まだ払っていないお金</strong>が
           その場で変わります。計算は、実際にお店で使っているものと同じ仕組みです。
+          <strong>会計ソフトに渡すCSVも、そのまま書き出して中身を確かめられます。</strong>
         </p>
         <ul className="mt-4 space-y-2 text-sm text-stone-700">
           <li className="flex gap-2">
@@ -92,10 +94,9 @@ export default function KeiriDemoPage() {
             <dt className="font-bold text-stone-900">本物とどこが違いますか</dt>
             <dd className="mt-1 text-sm text-stone-600 leading-relaxed">
               保存されないことと、はじめから架空の日報が入っていることだけです。
-              利益・現金・未払い・科目の振り分け・場所ごとの成績は、
-              実際のお店で動いているのと同じ計算です。
-              本物ではこのほかに、レシート写真の読み取り、会計ソフト用のCSV書き出し、
-              払った記録の入力ができます。
+              利益・現金・未払い・科目の振り分け・場所ごとの成績・会計ソフトに渡すCSVは、
+              実際のお店で動いているのと同じ計算です（CSVはこのページから実際に書き出せます）。
+              本物ではこのほかに、レシート写真の読み取りと、払った記録の入力ができます。
             </dd>
           </div>
           <div>

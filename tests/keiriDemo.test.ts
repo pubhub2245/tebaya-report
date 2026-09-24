@@ -29,11 +29,15 @@ import {
   sortDemoReports,
 } from "../lib/keiri/demo";
 import {
+  JOURNAL_HEADERS,
+  buildJournalRows,
   calcCashPosition,
   calcUnpaid,
   summarizeMonth,
   templateFor,
+  toCsv,
 } from "../lib/keiri";
+import { MF_HEADERS, toMoneyForwardCsv } from "../lib/keiri/moneyforward";
 import { GENERIC_TEMPLATE } from "../lib/keiri/templates/generic";
 import { KEIRI_PUBLIC_PAGES } from "../app/keiri/components/nav";
 
@@ -300,4 +304,95 @@ test("お試し版の科目の表に、よその会社の名前（Alpha）を出
     "外注費の科目名を、手羽屋以外向けの呼び名に差し替えていません",
   );
   assert.equal(NEUTRAL_OUTSOURCING_ACCOUNT_LABEL, "外注費");
+});
+
+// ------------------------------------------------------------------
+// ⑦ 会計ソフトに渡すCSVを、買う前にその場で確かめられる（2026-09-24・kp131）
+//
+//   月15,000円の「重いほう」は、毎月の締め（要約1枚 ＋ 会計ソフト用CSV）です。
+//   ところがお試し版は、そのCSVだけ**文章で「本物ではできます」と書いてあるだけ**で、
+//   触ってみられる唯一の場所で触れませんでした。値上げの根拠そのものが
+//   確かめられない状態だったので、実物を書き出せるようにしました。
+//
+//   ここで固定していること：
+//     ① CSV は本物と同じ関数（buildJournalRows / toCsv / toMoneyForwardCsv）で作る
+//        ＝ お試し版に書き写さない（写すと、本物を直したとき片方だけ古くなる）
+//     ② 日報を1件足すと、CSVの行が増える（見どころそのもの）
+//     ③ マネーフォワードの形は27列
+//     ④ 画面に「本物だけの機能」としてCSVを挙げていない（自分で自分に嘘をつかない）
+//     ⑤ 倉庫にも外にも何も送らない（①の見張りと合わせて、fetch も supabase も無い）
+// ------------------------------------------------------------------
+
+test("お試し版のCSVは、本物と同じ関数で作っている（写し取っていない）", () => {
+  const board = demoSourceFiles().find((f) => f.name === "board.tsx");
+  assert.ok(board, "board.tsx が無い");
+  for (const fn of ["buildJournalRows", "toCsv", "toMoneyForwardCsv", "encodeCsv"]) {
+    assert.ok(board!.text.includes(fn), `本物の関数 ${fn} を呼んでいない`);
+  }
+  // CSVの中身を画面に書き写していないこと（写し取りの典型）
+  assert.ok(
+    !/["'`]日付,借方/.test(board!.text),
+    "board.tsx にCSVの見出し行が直書きされている（JOURNAL_HEADERS を使うこと）",
+  );
+  assert.ok(
+    board!.text.includes("JOURNAL_HEADERS"),
+    "見出しを本物の定義（JOURNAL_HEADERS）から出していない",
+  );
+});
+
+test("お試し版に、実際に書き出せるボタンが置いてある", () => {
+  const board = demoSourceFiles().find((f) => f.name === "board.tsx");
+  assert.ok(board!.text.includes("仕訳のCSVを書き出す"), "仕訳CSVのボタンが無い");
+  assert.ok(board!.text.includes("27列・UTF-8"), "マネーフォワード用（UTF-8）のボタンが無い");
+  assert.ok(board!.text.includes("27列・Shift_JIS"), "マネーフォワード用（Shift_JIS）のボタンが無い");
+});
+
+test("お試し版の日報から、本物の関数で仕訳が作れる。日報を1件足すと行が増える", () => {
+  const ym = "2026-09";
+  const settings = demoSettings(ym);
+  const reports = demoReports(ym);
+  const payments = demoPayments();
+  const template = templateFor(GENERIC_TEMPLATE.code);
+
+  const rows = buildJournalRows({ ym, reports, payments, template, settings });
+  assert.ok(rows.length > 0, "仕訳が1行も作れていない");
+  // 借方と貸方の合計は必ず一致する（貸借が合わないCSVは会計ソフトが受け取らない）
+  const debit = rows.reduce((a, r) => a + r.debitAmount, 0);
+  const credit = rows.reduce((a, r) => a + r.creditAmount, 0);
+  assert.equal(debit, credit);
+
+  // 日報を1件足すと行が増える（お試し版の見どころ）
+  const added = sortDemoReports([
+    ...reports,
+    demoInputToReport({
+      ...emptyDemoInput(`${ym}-20`),
+      date: `${ym}-20`,
+      location: "駅前広場",
+      sales: "80000",
+      labor: "8000",
+      expense1Name: "肉 仕入れ",
+      expense1Amount: "18000",
+    }),
+  ]);
+  const rows2 = buildJournalRows({ ym, reports: added, payments, template, settings });
+  assert.ok(
+    rows2.length > rows.length,
+    `日報を足しても仕訳が増えていない（${rows.length} → ${rows2.length}）`,
+  );
+
+  // そのまま読める形と、マネーフォワードの27列。どちらも本物と同じ形
+  // toCsv は Excel で文字化けしないように先頭に目印（BOM）を付けるので、そこを外して見る
+  const csv = toCsv(rows).replace(/^\uFEFF/, "");
+  assert.equal(csv.split("\r\n")[0], JOURNAL_HEADERS.join(","));
+  const mf = toMoneyForwardCsv(rows);
+  assert.equal(mf.split("\n")[0].split(",").length, MF_HEADERS.length);
+  assert.equal(MF_HEADERS.length, 27);
+});
+
+test("お試し版は「CSVは本物だけ」と書いていない（自分で自分に嘘をつかない）", () => {
+  const page = fs.readFileSync(path.join(DEMO_DIR, "page.tsx"), "utf8");
+  assert.ok(
+    !/本物ではこのほかに[^。]*CSV/.test(page),
+    "お試し版でCSVを書き出せるのに、「本物ではこのほかにCSV」と書いたままになっている",
+  );
 });
