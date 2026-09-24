@@ -13,8 +13,10 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  OUTREACH_LINE_SHARE_URL,
   OUTREACH_LINK,
   OUTREACH_MESSAGE,
+  OUTREACH_MESSAGE_SHARE,
   OUTREACH_SHOPS,
   OWNER_MARK_LINK,
   OWNER_MARK_PARAM,
@@ -268,4 +270,39 @@ test("印を付けても、管理者ページに入れるようにはならな�
     !gate.includes(OWNER_MARK_PARAM + "="),
     "合言葉の入り口がリンクの印を見ている",
   );
+});
+
+/* ── LINE を開いて送り先を選ぶだけにするリンク（kp151） ───────────────── */
+
+test("LINEで送るリンクは、LINEの『送り先を選ぶ』画面を開くだけ（勝手に送らない）", () => {
+  const url = new URL(OUTREACH_LINE_SHARE_URL);
+  assert.equal(url.protocol, "https:");
+  assert.equal(url.host, "line.me");
+  assert.equal(url.pathname, "/R/share");
+  // 送り先は入っていない＝誰かに自動で飛ぶことはない
+  assert.equal(url.searchParams.get("to"), null);
+  assert.equal(url.searchParams.get("text"), OUTREACH_MESSAGE_SHARE);
+});
+
+test("送り先を選ぶ画面に渡す文には、宛名の空欄（◯◯さん）を入れない", () => {
+  // 選ぶ画面では文を直せないので、空欄のまま相手に届いてしまう
+  assert.ok(!OUTREACH_MESSAGE_SHARE.includes("◯◯"));
+  assert.ok(OUTREACH_MESSAGE.startsWith("◯◯さん、"));
+  assert.ok(OUTREACH_MESSAGE_SHARE.startsWith("手羽屋の川畑です。"));
+});
+
+test("送り先を選ぶ画面に渡す文も、値段と連絡先を入れない（コピー用と同じ決まり）", () => {
+  assert.ok(!/円/.test(OUTREACH_MESSAGE_SHARE));
+  assert.ok(!/15,?000/.test(OUTREACH_MESSAGE_SHARE));
+  assert.ok(!/@/.test(OUTREACH_MESSAGE_SHARE));
+  assert.equal(OUTREACH_MESSAGE_SHARE.match(/https?:\/\//g)?.length, 1);
+  assert.ok(OUTREACH_MESSAGE_SHARE.includes(OUTREACH_LINK));
+});
+
+test("帯にはLINEで送るリンクがあり、うまく開かないときのコピーも残っている", () => {
+  assert.ok(view.includes("OUTREACH_LINE_SHARE_URL"));
+  assert.ok(view.includes("LINEで送る"));
+  assert.ok(view.includes("コピー"));
+  // 別のタブで開く（日報アプリの画面を置きかえない）
+  assert.ok(view.includes('rel="noopener noreferrer"'));
 });

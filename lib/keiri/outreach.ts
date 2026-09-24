@@ -211,3 +211,38 @@ export function clearOwnerDevice(): void {
 
 /** じゅんに渡す1タップのリンク（ホームを開いて、その端末に印を付ける） */
 export const OWNER_MARK_LINK = `${PUBLIC_SITE_URL}/?${OWNER_MARK_PARAM}=1`;
+
+/**
+ * LINE を開いて、送り先を選ぶだけにするリンク（kp151）。
+ *
+ * ■ なぜ要るか（やさしい説明）
+ *   いまの帯は［LINEの文をコピー］までしかできません。そのあと じゅんは
+ *   ①LINEに持ちかえる ②相手を探す ③貼り付ける ④送る の4手が要ります。
+ *   1軒10秒と書いていますが、実際には「アプリを持ちかえる」ところで止まります。
+ *   LINE には「送る文を持ったまま、送り先を選ぶ画面を開く」入口があるので、
+ *   そこへ1タップで飛ばします。じゅんがやるのは**相手を選んで送るだけ**になります。
+ *
+ * ■ 安全のために守っていること
+ *   ・**文は勝手に送られません。** 開くのは送り先を選ぶ画面までで、送るのは人が押したとき
+ *   ・宛名の空欄（◯◯さん）は入れない。選ぶ画面では宛名を直せないので、
+ *     そのまま送ると「◯◯さん」のまま相手に届いてしまうため
+ *   ・値段・連絡先は入れない（コピー用の文と同じ決まり）
+ *   ・パソコンなど LINE が開けない所のために、［コピー］の道も残す
+ */
+
+/**
+ * 送り先を選ぶ画面に渡す文。コピー用の文から、宛名の空欄だけを外したもの。
+ * （選ぶ画面では文を直せないため、直さないと困る所を最初から入れない）
+ */
+export const OUTREACH_MESSAGE_SHARE = OUTREACH_MESSAGE.replace(
+  /^◯◯さん、/,
+  "",
+);
+
+/** LINE の「送り先を選ぶ」画面を、上の文を持って開くリンク */
+export function lineShareUrl(message: string = OUTREACH_MESSAGE_SHARE): string {
+  return `https://line.me/R/share?text=${encodeURIComponent(message)}`;
+}
+
+/** 帯の［LINEで送る］が開くリンク */
+export const OUTREACH_LINE_SHARE_URL = lineShareUrl();
