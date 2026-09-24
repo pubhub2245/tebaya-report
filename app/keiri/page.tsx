@@ -52,6 +52,7 @@ import {
   toMoneyForwardCsv,
   type CsvEncoding,
 } from "@/lib/keiri/moneyforward";
+import { toYayoiCsv, yayoiFileName } from "@/lib/keiri/yayoi";
 import {
   PAYMENT_KIND_LABEL,
   type KeiriPayment,
@@ -294,6 +295,32 @@ function KeiriInner() {
     const a = document.createElement("a");
     a.href = url;
     a.download = moneyForwardFileName(ym, encoding);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  /**
+   * 弥生会計（やよいの青色申告を含む）の仕訳日記帳インポート用のCSVを書き出す。
+   *
+   * 弥生には「この列は何ですか」と選ぶ画面が無く、25列ぴったりに決まっている。
+   * 見出し行は付けず、文字コードは Shift-JIS で出す（lib/keiri/yayoi.ts）。
+   */
+  const downloadYayoiCsv = async () => {
+    const rows = buildJournalRows({
+      ym,
+      reports,
+      payments,
+      template,
+      settings: effective,
+    });
+    const bytes = await encodeCsv(toYayoiCsv(rows), "shift_jis");
+    const blob = new Blob([bytes], { type: "text/csv;charset=shift_jis;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = yayoiFileName(ym);
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -595,6 +622,25 @@ function KeiriInner() {
               MF用CSV（Shift-JIS）
             </button>
           </div>
+        </div>
+
+        <div className="pt-3 mt-1 border-t border-stone-200 space-y-2">
+          <h3 className="text-sm font-bold text-brand-dark">
+            弥生会計・やよいの青色申告に取り込む場合
+          </h3>
+          <p className="text-sm text-stone-600 leading-relaxed">
+            弥生は取り込むときに「この列は何ですか」と選ぶ画面がなく、並びが25列ぴったりに
+            決まっています。そこで弥生専用の形（見出し行なし・Shift-JIS・日付は
+            2026/09/01 の形）で書き出します。弥生の［ファイル］→［インポート］から、
+            このファイルを選んでください。税区分は空にしてあります
+            （税務のことはこのアプリでは決めません）。
+          </p>
+          <button
+            className="btn-secondary text-sm w-full"
+            onClick={() => void downloadYayoiCsv()}
+          >
+            弥生用CSV（25列・Shift-JIS）
+          </button>
         </div>
       </section>
 

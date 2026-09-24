@@ -39,6 +39,7 @@ import {
   toMoneyForwardCsv,
   type CsvEncoding,
 } from "@/lib/keiri/moneyforward";
+import { toYayoiCsv, yayoiFileName } from "@/lib/keiri/yayoi";
 import { GENERIC_TEMPLATE } from "@/lib/keiri/templates/generic";
 import {
   DEMO_SHOP_NAME,
@@ -130,6 +131,24 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
         bytes,
         moneyForwardFileName(ym, encoding).replace("mf_shiwake_", "mf_shiwake_demo_"),
         encoding === "utf8" ? "text/csv;charset=utf-8;" : "text/csv;charset=shift_jis;",
+      );
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  /**
+   * 弥生会計（やよいの青色申告を含む）の形（25列・見出し行なし・Shift-JIS）。
+   * 本物と同じ関数（toYayoiCsv / encodeCsv）で作る。
+   */
+  const downloadYayoiCsv = async () => {
+    setSaving("yayoi");
+    try {
+      const bytes = await encodeCsv(toYayoiCsv(journalRows), "shift_jis");
+      saveFile(
+        bytes,
+        yayoiFileName(ym).replace("yayoi_shiwake_", "yayoi_shiwake_demo_"),
+        "text/csv;charset=shift_jis;",
       );
     } finally {
       setSaving(null);
@@ -411,13 +430,28 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
           >
             {saving === "shift_jis" ? "書き出しています…" : "マネーフォワード用（27列・Shift_JIS）"}
           </button>
+          <button
+            type="button"
+            onClick={downloadYayoiCsv}
+            disabled={journalRows.length === 0 || saving !== null}
+            className="rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm font-bold text-stone-700 hover:border-stone-400 disabled:opacity-40"
+          >
+            {saving === "yayoi" ? "書き出しています…" : "弥生会計用（25列・Shift_JIS）"}
+          </button>
         </div>
 
         <p className="mt-4 rounded-lg bg-stone-100 px-4 py-3 text-xs text-stone-600 leading-relaxed">
           ・押すと、<strong>お使いの端末にファイルが1つできるだけ</strong>です。中身はどこにも送られません。
           <br />
           ・マネーフォワード クラウド会計は、取り込める文字コードが環境によって違うので2つ置いてあります
-          （うまく取り込めないほうは、もう片方をお使いください）。
+          （Windows なら Shift_JIS、Mac なら UTF-8 が入りやすいです）。
+          <br />
+          ・<strong>弥生会計・やよいの青色申告</strong>は、取り込むときに「この列は何ですか」と選ぶ画面が
+          なく、並びが25列ぴったりに決まっています。そのため弥生専用の形（見出し行なし・Shift_JIS）で
+          別に置いてあります。
+          <br />
+          ・<strong>freee</strong> は取り込んだあとに列を選べるので、上の「マネーフォワード用」を
+          そのままお使いいただけます（取引日→発生日、取引No→伝票番号 の順に選びます）。
           <br />
           ・中身は<strong>架空のお店（{DEMO_SHOP_NAME}）の数字</strong>です。実在のお店の数字ではありません。
           <br />
