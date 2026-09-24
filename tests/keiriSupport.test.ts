@@ -11,9 +11,9 @@ import {
   supportEmail,
 } from "../lib/keiri/support";
 
-test("よくある質問は10問ちょうどで、質問文が重なっていない", () => {
-  assert.equal(KEIRI_FAQ.length, 10);
-  assert.equal(new Set(KEIRI_FAQ.map((f) => f.q)).size, 10);
+test("よくある質問は11問ちょうどで、質問文が重なっていない", () => {
+  assert.equal(KEIRI_FAQ.length, 11);
+  assert.equal(new Set(KEIRI_FAQ.map((f) => f.q)).size, 11);
 });
 
 test("質問も答えも空でない", () => {
