@@ -137,6 +137,29 @@ export function markOwnerDevice(): void {
   } catch {}
 }
 
+/**
+ * すでに入っている（合言葉を前に入れて、そのタブで管理者のままになっている）ときにも
+ * 印を付け直してよいか。
+ *
+ * ■ なぜ要るか（kp146）
+ *   印を付けるのは「合言葉を入力した、その瞬間」だけでした。
+ *   ところが じゅんの端末は、タブを開いたままなら合言葉を入れ直しません。
+ *   その場合この印は永久に付かず、**帯は一度も出ません**。
+ *   入っていること自体が「合言葉を入れた端末である」証拠なので、そのときも印を付けます。
+ *
+ * ■ ゆるくしていないこと
+ *   ・手羽屋の合言葉で入っているときだけ true（申し込んだお店の合言葉では呼ばない）
+ *   ・合言葉が未設定のときは false（未設定なら誰も管理者にしない＝今までどおり）
+ */
+export function shouldMarkOwnerDeviceOnRestore(input: {
+  /** そのタブで手羽屋の管理者として入っているか */
+  tebayaAdminSession: boolean;
+  /** 管理者パスワードが設定されているか */
+  passwordConfigured: boolean;
+}): boolean {
+  return input.passwordConfigured && input.tebayaAdminSession;
+}
+
 /** この端末に印が付いているか */
 export function readOwnerDevice(): boolean {
   try {

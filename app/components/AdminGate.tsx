@@ -13,7 +13,10 @@ import {
   writeTenantScope,
   type TenantScope,
 } from "@/lib/tenantScope";
-import { markOwnerDevice } from "@/lib/keiri/outreach";
+import {
+  markOwnerDevice,
+  shouldMarkOwnerDeviceOnRestore,
+} from "@/lib/keiri/outreach";
 
 const SS_KEY = "admin-auth";
 
@@ -80,7 +83,18 @@ export default function AdminGate({
     //    設定し忘れで管理画面が公開されてしまうのを防ぐため。
     if (!ADMIN_PASSWORD_CONFIGURED) return;
     try {
-      if (sessionStorage.getItem(SS_KEY) === "1") setAuthed(true);
+      const restored = sessionStorage.getItem(SS_KEY) === "1";
+      if (restored) setAuthed(true);
+      // すでに入っている＝前に手羽屋の合言葉を入れた端末なので、
+      // ホームの帯（kp145）の印をここでも付け直す。合言葉の判定は1文字も変えていない。
+      if (
+        shouldMarkOwnerDeviceOnRestore({
+          tebayaAdminSession: restored,
+          passwordConfigured: ADMIN_PASSWORD_CONFIGURED,
+        })
+      ) {
+        markOwnerDevice();
+      }
     } catch {}
   }, [allowShops]);
 

@@ -16,7 +16,10 @@ import {
   ADMIN_PASSWORD_CONFIGURED,
   checkAdminPassword,
 } from "./adminPassword";
-import { markOwnerDevice } from "./keiri/outreach";
+import {
+  markOwnerDevice,
+  shouldMarkOwnerDeviceOnRestore,
+} from "./keiri/outreach";
 
 // AdminGate.tsx と同一の値をそろえる（キー・パスワード）
 const SS_KEY = "admin-auth";
@@ -31,7 +34,17 @@ export function useAdminAuth() {
     // 設定し忘れで管理機能が公開されてしまうのを防ぐため。
     if (!ADMIN_PASSWORD_CONFIGURED) return;
     try {
-      if (sessionStorage.getItem(SS_KEY) === "1") setIsAdmin(true);
+      const restored = sessionStorage.getItem(SS_KEY) === "1";
+      if (restored) setIsAdmin(true);
+      // すでに入っているときも、ホームの帯（kp145）の印を付け直す（kp146）
+      if (
+        shouldMarkOwnerDeviceOnRestore({
+          tebayaAdminSession: restored,
+          passwordConfigured: ADMIN_PASSWORD_CONFIGURED,
+        })
+      ) {
+        markOwnerDevice();
+      }
     } catch {}
   }, []);
 

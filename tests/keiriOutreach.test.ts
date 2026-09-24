@@ -19,6 +19,7 @@ import {
   parseSent,
   remainingShops,
   serializeSent,
+  shouldMarkOwnerDeviceOnRestore,
   shouldShowNudge,
   todayKey,
 } from "../lib/keiri/outreach";
@@ -124,12 +125,30 @@ test("印を付けるのは手羽屋の合言葉が合ったときだけ（お�
     "utf8",
   );
   assert.ok(gate.includes("markOwnerDevice()"));
-  // ①手羽屋の枝（checkAdminPassword）より後、②お店の枝（/api/keiri/login）より前にあること
+  // 印を付ける場所は2か所だけ（kp146 で1か所増やした）
+  //   ①合言葉を入力して合ったとき ②すでに手羽屋の管理者として入っていたとき
+  const marks = [...gate.matchAll(/markOwnerDevice\(\)/g)].map((m) => m.index ?? -1);
+  assert.equal(marks.length, 2, "印を付ける場所が2か所ではない");
+
   const tebaya = gate.indexOf("if (checkAdminPassword(pw))");
-  const mark = gate.indexOf("markOwnerDevice()");
   const shop = gate.indexOf('"/api/keiri/login"');
-  assert.ok(tebaya < mark && mark < shop, "印を付ける場所が手羽屋の枝の中にない");
-  assert.equal(gate.match(/markOwnerDevice\(\)/g)?.length, 1);
+
+  // ②すでに入っているときの1か所。お店の枝（/api/keiri/login）より前で、
+  //   かつ shouldMarkOwnerDeviceOnRestore で守られていること
+  const restore = marks[0];
+  assert.ok(restore < tebaya, "すでに入っているときの印が、合言葉の枝より後にある");
+  const guard = gate.indexOf("shouldMarkOwnerDeviceOnRestore({");
+  assert.ok(guard > 0 && guard < restore, "すでに入っているときの印が守られていない");
+
+  // ①合言葉が合ったときの1か所。手羽屋の枝の中（お店の枝より前）にあること
+  const onLogin = marks[1];
+  assert.ok(tebaya < onLogin && onLogin < shop, "印を付ける場所が手羽屋の枝の中にない");
+
+  // お店の合言葉の枝より後には1つも無いこと
+  assert.ok(
+    marks.every((i) => i < shop),
+    "お店の合言葉の枝で印を付けている",
+  );
 });
 
 test("帯は日報のデータを読み書きしない（倉庫にも外にもつながない）", () => {
@@ -141,4 +160,51 @@ test("帯は日報のデータを読み書きしない（倉庫にも外にも�
 
 test("読み込み中は何も出さない（スタッフの画面に一瞬でも出さない）", () => {
   assert.ok(view.includes("if (checking) return null;"));
+});
+
+/**
+ * kp146：印を付けるのが「合言葉を入力した瞬間」だけだと、
+ * タブを開いたままの端末には印が永久に付かず、帯が一度も出ない。
+ * すでに入っていること自体が「合言葉を入れた端末」の証拠なので、そのときも付ける。
+ */
+test("すでに手羽屋の管理者として入っているなら、じゅんの端末の印を付け直す", () => {
+  assert.equal(
+    shouldMarkOwnerDeviceOnRestore({
+      tebayaAdminSession: true,
+      passwordConfigured: true,
+    }),
+    true,
+  );
+});
+
+test("入っていないときは印を付けない", () => {
+  assert.equal(
+    shouldMarkOwnerDeviceOnRestore({
+      tebayaAdminSession: false,
+      passwordConfigured: true,
+    }),
+    false,
+  );
+});
+
+test("管理者パスワードが未設定なら、入っていても印を付けない（誰も管理者にしない）", () => {
+  assert.equal(
+    shouldMarkOwnerDeviceOnRestore({
+      tebayaAdminSession: true,
+      passwordConfigured: false,
+    }),
+    false,
+  );
+});
+
+/** 帯は、じゅんが合言葉を入れた直後に居る画面（管理者ページ）にも出す */
+test("管理者ページにも帯が置かれている", () => {
+  const adminPage = fs.readFileSync(
+    path.join(process.cwd(), "app", "admin", "page.tsx"),
+    "utf8",
+  );
+  assert.ok(
+    adminPage.includes("<OwnerOutreachNudge />"),
+    "管理者ページに帯が置かれていない",
+  );
 });
