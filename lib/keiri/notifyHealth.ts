@@ -131,10 +131,31 @@ export function describeApplicationDelivery(args: {
    * その1つの受信箱を誰も見ていない月に、申し込みが静かに消える。
    */
   mailRecipients?: string[];
+  /**
+   * 控えを**読み返せる**か（サーバー側の合鍵が生きているか）。2026-09-24 追加。
+   * 控えが残るだけでは「人が気づける」ことになりません（kp55 で読めない間は特に）。
+   * 渡さなければ、これまでとまったく同じ答えになります。
+   */
+  recordReadable?: boolean;
 }): { ok: boolean; note: string; mail_fallback: MailFallbackReport } {
   const { notifyOk, recordOk } = args;
   const mail_fallback = describeMailFallback(args.mailRecipients ?? []);
   const wrap = (r: { ok: boolean; note: string }) => ({ ...r, mail_fallback });
+
+  // ★LINE が届かず、控えも読み返せないときは「届きます」と言ってはいけない
+  //   （2026-09-24・B）。控えは残るので申し込みは消えないが、
+  //   **こちら側の誰も気づけない**ので、いちばん危ない状態として出す。
+  if (!notifyOk && recordOk && args.recordReadable === false) {
+    return wrap({
+      ok: false,
+      note:
+        "★控えは残りますが、**こちら側の誰も気づけません**。" +
+        "LINE の知らせが止まっていて、倉庫の控えも1行ずつ読み返せないためです（kp55）。" +
+        "お申し込みフォームは、この状態のとき店主に「控えのメールを1通だけ」お願いする作りにしてあります。" +
+        "Vercel の SUPABASE_SERVICE_ROLE_KEY を貼り直すか、LINE の残り通数が戻れば解消します",
+    });
+  }
+
   return wrap(deliveryVerdict(notifyOk, recordOk));
 }
 
@@ -214,4 +235,46 @@ function deliveryVerdict(
       "フォームは「受け付けました」と嘘をつかず、その場で" +
       "「メールでそのまま送る」ボタンを出します",
   };
+}
+
+/* ==========================================================================
+ * 「そのお申し込みに、人が気づけるか」（2026-09-24・B）
+ *
+ * ■ 見つけた穴（本番で実測）
+ *   受け口（/api/keiri/apply）は「LINE の知らせ」か「倉庫の控え」の
+ *   **どちらか片方でも通れば**「ありがとうございます」を返します。
+ *   ところが 9月24日の本番はこうなっています：
+ *     ・LINE は今月あと 5 通（手羽屋の日報の知らせと同じ枠を使うので、月末前に尽きます）
+ *     ・倉庫の控えは残るが、サーバー側の鍵が壊れていて**1行も読み返せない**（kp55）
+ *   この2つが重なると「控えは残った → ありがとうございます」と返しながら、
+ *   **誰にも知らされず、誰にも読めない**状態になります。
+ *   お店の人は申し込んだつもりで待ち、こちらは「申込0件」と書き続けます。
+ *   最初の1件でこれが起きるのがいちばん痛いので、ここを言い分けます。
+ *
+ * ■ 考え方
+ *   「残った」ではなく「**人が気づけるか**」で判定します。
+ *     ・LINE が飛んだ → 気づけます
+ *     ・控えが残り、かつ読み返せる（サーバー側の鍵が生きている）→ 気づけます
+ *     ・それ以外 → 気づけません
+ *   気づけないときは、申し込み自体は生かしたまま、
+ *   お店の人に「控えのメールを1通だけ」お願いします（打ち直しは要りません）。
+ *
+ * ★ここは判定だけで、通信も保存もしません。
+ * ★手羽屋の日報・シフト・レジ・LINE・お金の計算には一切さわっていません。
+ * ========================================================================== */
+
+/**
+ * そのお申し込みに、こちら側の誰かが気づけるか。
+ *
+ * @param notified      LINE の知らせが実際に飛んだか
+ * @param saved         倉庫に1行控えられたか
+ * @param recordReadable 控えを**読み返せる**か（サーバー側の合鍵が生きているか）
+ */
+export function applicationIsReachable(args: {
+  notified: boolean;
+  saved: boolean;
+  recordReadable: boolean;
+}): boolean {
+  if (args.notified) return true;
+  return args.saved && args.recordReadable;
 }
