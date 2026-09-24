@@ -26,6 +26,7 @@ import {
 } from "../lib/keiri/aggregate";
 import { JOURNAL_HEADERS, buildJournalRows } from "../lib/keiri/journal";
 import { MF_HEADERS, toMoneyForwardRows } from "../lib/keiri/moneyforward";
+import { YAYOI_HEADERS, toYayoiRows } from "../lib/keiri/yayoi";
 import { DEMO_SHOP_NAME, demoPayments, demoReports, demoSettings } from "../lib/keiri/demo";
 import { GENERIC_TEMPLATE } from "../lib/keiri/templates/generic";
 
@@ -101,6 +102,13 @@ test("会計ソフトの列数は、実際に書き出すCSVの列数と同じ",
   const mf = toMoneyForwardRows(rows);
   assert.ok(mf.length > 0, "書き出す行が1行も無い");
   for (const line of mf) assert.equal(line.length, s.mfColumnCount);
+
+  // ★紹介ページで「弥生は25列でお出しします」と名指しで書いているので、
+  //   実際に書き出す列の数とズレたらここで落とす（嘘の案内を出さないため）。
+  assert.equal(s.yayoiColumnCount, YAYOI_HEADERS.length);
+  const yayoi = toYayoiRows(rows);
+  assert.ok(yayoi.length > 0, "書き出す行が1行も無い");
+  for (const line of yayoi) assert.equal(line.length, s.yayoiColumnCount);
 });
 
 test("見本に実在のお店・出店先の名前が混ざっていない", () => {
