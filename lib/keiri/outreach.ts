@@ -265,3 +265,26 @@ export function lineShareUrl(message: string = OUTREACH_MESSAGE_SHARE): string {
 
 /** 帯の［LINEで送る］が開くリンク */
 export const OUTREACH_LINE_SHARE_URL = lineShareUrl();
+
+/**
+ * どこからでも開ける「送る1枚」（kp162）。
+ *
+ * ■ なぜ要るか（やさしい説明）
+ *   送る材料は6日ぶん用意できているのに、1通も送られていない。
+ *   いまの帯（kp145）は「じゅんの端末に印が付いていて、アプリのホームか
+ *   管理者ページを開いたとき」にだけ出る。つまり
+ *     ① 印を付ける1タップ（kp150）を押す → ② アプリを開く
+ *   の2つが揃わないと、送る入口にたどり着けない。
+ *   そこで **印もアプリも合言葉も要らない1枚**を用意して、その住所を1本だけ渡す。
+ *   じゅんは思い出した所（メモ・スマホのホーム画面・パソコン）から開くだけでよい。
+ *
+ * ■ この1枚に出すもの・出さないもの
+ *   ・出す … 送る文そのものと［LINEで送る］の1タップ
+ *   ・出さない … 送り先8軒の一覧・連絡先・値段
+ *     （合言葉の要らない住所なので、内側の話は1つも置かない）
+ *   決まりは tests/keiriSendPage.test.ts で固定してある。
+ */
+export const OUTREACH_SEND_PATH = "/keiri/send";
+
+/** じゅんに渡す1本の住所（どの端末でも、合言葉なしで開く） */
+export const OUTREACH_SEND_LINK = `${PUBLIC_SITE_URL}${OUTREACH_SEND_PATH}`;
