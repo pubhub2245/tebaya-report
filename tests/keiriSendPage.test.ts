@@ -1,0 +1,91 @@
+/**
+ * 「送る1枚」（/keiri/send・kp162）の決めごとを固定する。
+ *
+ * この1枚は **合言葉も端末の印も要らない住所** なので、崩れると
+ *   ・送り先8軒（同じ出店先の同業）の呼び名や連絡先が、誰でも見られる所に出る
+ *   ・受け取る同業に値段が先に見える
+ *   ・検索結果に出てしまう
+ * のどれかが起きる。どれも取り返しがつかないので、戻り止めを置く。
+ */
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+import {
+  OUTREACH_LINE_SHARE_URL,
+  OUTREACH_LINK,
+  OUTREACH_MESSAGE,
+  OUTREACH_SEND_LINK,
+  OUTREACH_SEND_PATH,
+  OUTREACH_SHOPS,
+} from "../lib/keiri/outreach";
+import { KEIRI_PUBLIC_PAGES } from "../app/keiri/components/nav";
+
+const page = readFileSync(
+  new URL("../app/keiri/send/page.tsx", import.meta.url),
+  "utf8",
+);
+
+test("住所は1本（/keiri/send）で、絶対URLもそこを指す", () => {
+  assert.equal(OUTREACH_SEND_PATH, "/keiri/send");
+  assert.ok(
+    OUTREACH_SEND_LINK.endsWith(OUTREACH_SEND_PATH),
+    "渡す住所の最後が /keiri/send であること",
+  );
+  assert.ok(
+    OUTREACH_SEND_LINK.startsWith("https://"),
+    "そのまま貼れる絶対URLであること",
+  );
+});
+
+test("この1枚の主役は［LINEで送る］の1タップ", () => {
+  assert.ok(
+    page.includes("OUTREACH_LINE_SHARE_URL"),
+    "LINEの送り先を選ぶ画面へのリンクを、共通の定数から出していること",
+  );
+  assert.ok(
+    OUTREACH_LINE_SHARE_URL.startsWith("https://line.me/R/share?text="),
+    "勝手に送らず、送り先を選ぶ画面までしか開かないリンクであること",
+  );
+  assert.ok(page.includes("OUTREACH_MESSAGE"), "送る文を画面に出していること");
+});
+
+test("送り先の呼び名・連絡先・値段を1つも出さない", () => {
+  for (const shop of OUTREACH_SHOPS) {
+    assert.ok(
+      !page.includes(shop.label),
+      `送り先の呼び名（${shop.label}）を、合言葉の要らない1枚に出さないこと`,
+    );
+  }
+  // 画面に書いた文だけを見る（import の "@/lib/..." は連絡先ではない）
+  const body = page
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("import") && !line.includes('"@/'))
+    .join("\n");
+  assert.ok(
+    !/@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/.test(body),
+    "メールアドレスを出さないこと",
+  );
+  assert.ok(!/LINE ?ID|ライン ?ID/i.test(body), "LINEのIDを出さないこと");
+  assert.ok(!page.includes("15,000"), "受け取る同業に値段が先に見えないこと");
+  assert.ok(!OUTREACH_MESSAGE.includes("15,000"), "送る文にも値段を書かないこと");
+});
+
+test("検索には出さない（noindex を付けたまま・sitemap にも載せない）", () => {
+  assert.ok(page.includes("robots:"), "noindex の指定を消していないこと");
+  assert.ok(page.includes("index: false"), "検索結果に出さないこと");
+  assert.ok(
+    !KEIRI_PUBLIC_PAGES.some((p) => p.path === OUTREACH_SEND_PATH),
+    "外向きページの一覧（sitemap と robots の元）に入れないこと",
+  );
+});
+
+test("相手が開く案内ページを、この1枚から確かめられる", () => {
+  assert.ok(page.includes('href="/keiri/case"'), "案内ページへの出口があること");
+  assert.ok(OUTREACH_LINK.endsWith("/keiri/case"), "送る文のリンクも案内ページであること");
+});
+
+test("倉庫（日報・売上）を1行も読まない", () => {
+  assert.ok(!page.includes("supabase"), "この1枚はデータを読み書きしないこと");
+  assert.ok(!page.includes('.from("'), "棚を開かないこと");
+});
