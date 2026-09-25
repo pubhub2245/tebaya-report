@@ -6,6 +6,8 @@ import {
   OUTREACH_LINE_SHARE_URL,
   OUTREACH_LINK,
   OUTREACH_MESSAGE,
+  OUTREACH_REPLY_STEPS,
+  OUTREACH_REPLY_WARNING,
   OUTREACH_SHOPS,
 } from "@/lib/keiri/outreach";
 
@@ -23,6 +25,7 @@ import {
  *   ・［LINEで送る］の1タップ（送り先を選ぶ画面が、文を持ったまま開く）
  *   ・送る文そのもの（長押しでコピーできる）
  *   ・相手が開く案内ページ（/keiri/case）への確かめリンク
+ *   ・**返事が来たときにやること2つ**（kp167）
  *
  * ■ 赤い知らせを、ここにも置く理由（kp165）
  *   赤い知らせ（kp156）はホームと管理者ページにありますが、出る条件は
@@ -97,6 +100,21 @@ export default function KeiriSendPage() {
           案内ページを見る
         </Link>
         <p className="text-xs text-stone-500 break-all">{OUTREACH_LINK}</p>
+      </section>
+
+      {/* ★送ったあとの取りこぼしを止める（kp167）。
+          この1枚から送ると、返事が来たときの決めごとが どこにも書いていなかった。
+          いちばん高くつく間違いは「古い値段の支払いリンクを自分で貼ってしまう」こと。 */}
+      <section className="rounded-2xl border border-amber-300 bg-amber-50 p-3 space-y-2">
+        <h2 className="text-sm font-bold text-stone-900">返事が来たら（やることは2つ）</h2>
+        <ol className="list-decimal pl-5 space-y-1 text-sm text-stone-800 leading-relaxed">
+          {OUTREACH_REPLY_STEPS.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+        <p className="text-xs font-bold text-stone-900 leading-relaxed">
+          {OUTREACH_REPLY_WARNING}
+        </p>
       </section>
 
       <p className="text-xs text-stone-600 leading-relaxed">

@@ -15,6 +15,9 @@ import {
   OUTREACH_LINE_SHARE_URL,
   OUTREACH_LINK,
   OUTREACH_MESSAGE,
+  OUTREACH_REPLY_HOLD,
+  OUTREACH_REPLY_STEPS,
+  OUTREACH_REPLY_WARNING,
   OUTREACH_SEND_LINK,
   OUTREACH_SEND_PATH,
   OUTREACH_SHOPS,
@@ -88,4 +91,48 @@ test("相手が開く案内ページを、この1枚から確かめられる", (
 test("倉庫（日報・売上）を1行も読まない", () => {
   assert.ok(!page.includes("supabase"), "この1枚はデータを読み書きしないこと");
   assert.ok(!page.includes('.from("'), "棚を開かないこと");
+});
+
+/**
+ * 返事が来たあとの決めごと（kp167）。
+ *
+ * この1枚から送ると、返事は じゅんの LINE に直接返ってくる。そのとき
+ * 手元にある支払いのリンクは**古い値段のもの**しかないので、貼られると
+ * いまの値段ではない額で毎月の引き落としが決まってしまう（司令室 kp107 待ち）。
+ * ＝ 最初の1件でいちばん高くつく間違い。ここを戻り止めで固定する。
+ */
+test("返事が来たときにやること2つが、この1枚に出ている", () => {
+  assert.equal(OUTREACH_REPLY_STEPS.length, 2, "やることを3つに増やさないこと");
+  assert.ok(
+    page.includes("OUTREACH_REPLY_STEPS.map("),
+    "やること2つを、共通の定数から画面に並べていること",
+  );
+  assert.ok(
+    OUTREACH_REPLY_STEPS[0].includes(OUTREACH_REPLY_HOLD),
+    "1つ目は『ありがとうございます、折り返します。』とだけ返すこと",
+  );
+  assert.ok(
+    OUTREACH_REPLY_STEPS[1].includes("チャットに貼"),
+    "2つ目は返事の文をそのままチャットに貼ること",
+  );
+});
+
+test("『お支払いのリンクを自分で貼らない』を消さない", () => {
+  assert.ok(
+    page.includes("{OUTREACH_REPLY_WARNING}"),
+    "やってはいけないことを、この1枚の画面に出していること（import だけでは足りない）",
+  );
+  assert.ok(
+    OUTREACH_REPLY_WARNING.includes("お支払いのリンクを貼らないでください"),
+    "自分では貼らない、と書いてあること",
+  );
+});
+
+test("返事の決めごとにも、値段を1つも書かない", () => {
+  for (const text of [...OUTREACH_REPLY_STEPS, OUTREACH_REPLY_WARNING, OUTREACH_REPLY_HOLD]) {
+    assert.ok(
+      !/[0-9０-９][0-9０-９,，]*\s*円/.test(text),
+      `返事の決めごとに金額を書かないこと（${text}）`,
+    );
+  }
 });
