@@ -81,6 +81,32 @@ function firstRow(data: unknown): Record<string, unknown> | null {
   return null;
 }
 
+/**
+ * 合言葉に当たったお店が「ちょうど1軒」のときだけ受け取る（kp177）。
+ *
+ * ■ なぜ要るか（やさしい説明）
+ *   合言葉は倉庫に「戻せない形」で置いてあり、入室のときは
+ *   その形が一致するお店を引いて画面に入れています。
+ *   ところが今までは、当たったお店が2軒以上あっても
+ *   **先に見つかったほうに入れて**いました。
+ *   ＝ もし2軒のお店の合言葉がたまたま同じになったら、
+ *   よその店の帳簿が開いてしまいます。
+ *
+ * ■ ここでの決まり
+ *   当たったお店が2軒以上なら、**どちらにも入れない**（＝入室を断る）。
+ *   「合っているほうに入れる」より「間違ったほうに入れない」を優先します。
+ *   お金の記録が他店に混ざるのは、入れないことより ずっと悪いためです。
+ *
+ * ■ 実際に起きるのか
+ *   いまの合言葉は お店が決めるのではなく、**こちらで作って渡しています**
+ *   （見間違えない31文字から12文字＝約79京通り。lib/keiri/tenants.ts）。
+ *   したがって重なることは まず起きません。これは念のための止め木です。
+ */
+export function pickSingleTenant<T>(rows: readonly T[] | null | undefined): T | null {
+  if (!rows || rows.length !== 1) return null;
+  return rows[0] ?? null;
+}
+
 /** 初回設定を、窓口ごしに済ませる */
 export async function activateTenantViaRpc(
   db: RpcClient,
@@ -134,6 +160,9 @@ export async function loginTenantViaRpc(db: RpcClient, passwordHash: string): Pr
       reason: isMissingFunction(error) ? "窓口がまだありません" : String(error.message ?? "呼べませんでした"),
     };
   }
+
+  // 2軒以上に当たったら、どちらにも入れない（kp177）
+  if (Array.isArray(data) && data.length > 1) return { ok: true, tenant: null };
 
   const row = firstRow(data);
   if (!row) return { ok: true, tenant: null };
