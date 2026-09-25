@@ -13,6 +13,7 @@ import {
 } from "@/lib/keiri/outreach";
 
 import SendActions from "./SendActions";
+import SendProgress from "./SendProgress";
 
 /**
  * 「送る1枚」（kp162）。合言葉も印もアプリも要らない、送るためだけの1枚。
@@ -30,6 +31,7 @@ import SendActions from "./SendActions";
  *   ・送る文そのもの（長押しでコピーできる）
  *   ・相手が開く案内ページ（/keiri/case）への確かめリンク
  *   ・**返事が来たときにやること2つ**（kp167）
+ *   ・**何軒送ったかの控え**（kp171。軒数だけ。お店の呼び名は出さない）
  *
  * ■ 赤い知らせを、ここにも置く理由（kp165）
  *   赤い知らせ（kp156）はホームと管理者ページにありますが、出る条件は
@@ -122,9 +124,15 @@ export default function KeiriSendPage() {
         </p>
       </section>
 
+      {/* ★送った軒数の控え（kp171）。
+          ここには「控えはホームの帯で付けられます」と書いてあった。帯が出るには
+          端末の印（kp150）が要るのに、この1枚は**その印を要らなくするため**に作ったもの。
+          ＝ 印の要らない道だと言いながら、控えを付けるには印をどうぞ、という案内だった。
+          印はまだ一度も付いていないので、この1枚から送っても控えは1つも残らない。 */}
+      <SendProgress />
+
       <p className="text-xs text-stone-600 leading-relaxed">
-        送り先は全部で {OUTREACH_SHOPS.length} 軒です。どこに送ったかの控えは、
-        ホームに出る帯（管理者の合言葉を入れた端末にだけ出ます）で付けられます。
+        送り先は全部で {OUTREACH_SHOPS.length} 軒です。
         この1枚は、思い出したときに開いて1軒送るためだけのものです。
         お申し込みが入っているときは、いちばん上に赤い知らせが出ます（件数と入った時刻だけ）。
       </p>
