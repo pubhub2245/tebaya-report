@@ -6,6 +6,7 @@ import {
   activateTenantViaRpc,
   isMissingFunction,
   loginTenantViaRpc,
+  pickSingleTenant,
   probeTenantRpc,
   type RpcClient,
 } from "../lib/keiri/tenantAccess";
@@ -245,4 +246,78 @@ test("SQL：外から来る人に渡すのは2つの窓口だけ。手で作る�
   // 設定の行には必ずお店の印を付ける（付けないと手羽屋の行とぶつかる）
   assert.match(sql, /business_type_code/);
   assert.match(sql, /'t_' \|\| lower\(v_id::text\)/);
+});
+
+
+/**
+ * 合言葉が2軒で重なったときは、**どちらにも入れない**（kp177）。
+ *
+ * 前は「先に見つかったほう」に入れていたので、
+ * 2軒の合言葉がたまたま同じになると よその店の帳簿が開いていました。
+ * 「合っているほうに入れる」より「間違ったほうに入れない」を優先します。
+ */
+test("同じ合言葉のお店が2軒あったら、窓口は入室を断る（kp177）", async () => {
+  const db = fakeRpc(() => ({
+    data: [
+      { tenant_id: "11111111-1111-4111-8111-111111111111", shop_name: "A店" },
+      { tenant_id: "22222222-2222-4222-8222-222222222222", shop_name: "B店" },
+    ],
+    error: null,
+  }));
+
+  const result = await loginTenantViaRpc(db, HASH);
+  assert.equal(result.ok, true, "窓口は動いている（エラーではない）");
+  assert.equal(
+    result.ok && result.tenant,
+    null,
+    "2軒に当たったのに、どちらかの店に入れてしまっています",
+  );
+});
+
+test("1軒だけ当たったときは、今までどおり入れる（kp177で壊していないこと）", async () => {
+  const db = fakeRpc(() => ({
+    data: [{ tenant_id: "11111111-1111-4111-8111-111111111111", shop_name: "A店" }],
+    error: null,
+  }));
+
+  const result = await loginTenantViaRpc(db, HASH);
+  assert.equal(result.ok, true);
+  assert.equal(result.ok && result.tenant?.shopName, "A店");
+});
+
+test("ちょうど1軒のときだけ受け取る（pickSingleTenant・kp177）", () => {
+  assert.equal(pickSingleTenant(null), null);
+  assert.equal(pickSingleTenant([]), null);
+  assert.deepEqual(pickSingleTenant([{ id: "a" }]), { id: "a" });
+  assert.equal(pickSingleTenant([{ id: "a" }, { id: "b" }]), null);
+});
+
+/**
+ * 倉庫の窓口（SQL）側でも、2軒に当たったら0行を返すこと（kp177）。
+ * アプリ側だけ直しても、窓口が「先に見つかったほう」を返していたら意味がないため。
+ */
+test("SQL の入室窓口が、2軒に当たったときは0行を返す形になっている（kp177）", () => {
+  const sql = readFileSync("supabase/migrations/keiri_tenant_rpc.sql", "utf8");
+  const login = sql.slice(
+    sql.indexOf("create or replace function public.keiri_tenant_login"),
+    sql.indexOf("comment on function public.keiri_tenant_login"),
+  );
+  assert.ok(login.length > 0, "入室窓口が見つかりません");
+  // 「先に見つかったほう」を返す limit 1 に戻っていないこと
+  assert.ok(!/limit 1;/.test(login), "入室窓口が limit 1（先に見つかったほう）に戻っています");
+  assert.match(login, /limit 2/, "2軒目まで引いていません（重なりに気づけません）");
+  assert.match(
+    login,
+    /where \(select count\(\*\) from hit\) = 1;/,
+    "ちょうど1軒のときだけ返す形になっていません",
+  );
+});
+
+/**
+ * アプリ側の入室の道（窓口がまだ無いときに使う回り道）でも同じ決まりであること。
+ */
+test("ログインの回り道も、2軒まで引いて重なりを見る（kp177）", () => {
+  const route = readFileSync("app/api/keiri/login/route.ts", "utf8");
+  assert.match(route, /\.limit\(2\)/, "1件しか引いていないと、重なりに気づけません");
+  assert.match(route, /pickSingleTenant\(/, "ちょうど1軒のときだけ入る形になっていません");
 });

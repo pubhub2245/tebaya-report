@@ -164,6 +164,15 @@ comment on function public.keiri_tenant_activate(text, text, text, date, numeric
 --   受け取る：管理画面の合言葉を戻せない形にしたもの（64文字）
 --   返す    ：合ったお店の番号と店名だけ。合わなければ0行。
 --   ★ 合言葉そのもの・ハッシュ・他のお店のことは返しません。
+--
+--   ★ 2軒以上に当たったら、どちらも返しません（0行）（2026-09-25・kp177）
+--     前は `limit 1` で「先に見つかったほう」を返していました。
+--     もし2軒のお店の合言葉がたまたま同じになると、
+--     **よその店の帳簿が開いてしまいます。**
+--     「合っているほうに入れる」より「間違ったほうに入れない」を優先します。
+--     （いまの合言葉はお店が決めるのではなく、こちらで作って渡しています。
+--       見間違えない31文字から12文字＝約79京通りなので、重なることはまず
+--       起きません。これは念のための止め木です。）
 -- ------------------------------------------------------------
 create or replace function public.keiri_tenant_login(p_password_hash text)
 returns table (tenant_id uuid, shop_name text)
@@ -172,12 +181,17 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select t.id, t.shop_name
-    from public.keiri_tenants t
-   where p_password_hash ~ '^[0-9a-f]{64}$'
-     and t.admin_password_hash = p_password_hash
-     and t.status = 'active'
-   limit 1;
+  with hit as (
+    select t.id, t.shop_name
+      from public.keiri_tenants t
+     where p_password_hash ~ '^[0-9a-f]{64}$'
+       and t.admin_password_hash = p_password_hash
+       and t.status = 'active'
+     limit 2
+  )
+  select h.id, h.shop_name
+    from hit h
+   where (select count(*) from hit) = 1;
 $$;
 
 comment on function public.keiri_tenant_login(text) is
@@ -277,6 +291,11 @@ revoke all on function public.keiri_tenant_create_manual(text, text) from anon, 
 --
 -- 3) 合言葉が合わないときに何も返らないか（0行が正解）
 --    select * from public.keiri_tenant_login(repeat('0', 64));
+--
+-- 4) 同じ合言葉のお店が2軒以上ないか（0行が正解・kp177）
+--    select admin_password_hash, count(*) from public.keiri_tenants
+--     where status = 'active' and admin_password_hash is not null
+--     group by 1 having count(*) > 1;
 --
 -- そのあと、本番の https://tebaya-report.vercel.app/api/keiri/diagnose を開いて
 -- tenant_rpc が "usable": true になっていれば成功です（アプリ側は対応ずみ）。

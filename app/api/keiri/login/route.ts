@@ -4,7 +4,7 @@ import { timingSafeEqual } from "node:crypto";
 import { serverClient, serviceClientOrNull } from "@/lib/supabaseServer";
 import { hashSecret } from "@/lib/keiri/tenants";
 import { normalizeTenantScope } from "@/lib/tenantScope";
-import { loginTenantViaRpc } from "@/lib/keiri/tenantAccess";
+import { loginTenantViaRpc, pickSingleTenant } from "@/lib/keiri/tenantAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -90,12 +90,13 @@ export async function POST(req: NextRequest) {
 
   // 窓口がまだ無いとき（または呼べなかったとき）は、今までどおり棚を直接さわる
   const supabase = serviceClientOrNull() ?? serverClient();
+  // ★ 2件まで引く（1件しか引かないと、2軒に当たっていることに気づけないため・kp177）
   const { data, error } = await supabase
     .from("keiri_tenants")
     .select("id, shop_name, status")
     .eq("admin_password_hash", passwordHash)
     .eq("status", "active")
-    .limit(1);
+    .limit(2);
 
   if (error) {
     // 置き場がまだ無い／鍵が壊れている、など。
@@ -105,8 +106,12 @@ export async function POST(req: NextRequest) {
     return denied();
   }
 
-  const tenant = data?.[0];
-  const tenantId = normalizeTenantScope(tenant?.id);
+  // 当たったお店がちょうど1軒のときだけ入れる。2軒以上なら断る（kp177）
+  const tenant = pickSingleTenant(data as Array<Record<string, unknown>> | null);
+  if (data && data.length > 1) {
+    console.error("[経理 ログイン] 同じ合言葉のお店が2軒以上ありました。どちらにも入れません");
+  }
+  const tenantId = normalizeTenantScope(tenant?.id as string | undefined);
   if (!tenant || !tenantId) return denied();
 
   return NextResponse.json({
