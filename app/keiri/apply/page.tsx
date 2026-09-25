@@ -10,6 +10,7 @@ import {
 } from "@/lib/keiri/offer";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
 import { keiriContactMailto } from "@/lib/keiri/apply";
+import { paymentAfterApplyLine, paymentApplyLine } from "@/lib/keiri/payment";
 import { keiriMetadata } from "@/lib/keiri/metadata";
 import { cancelLongLabel, cardCheckoutLive, priceLabel, priceSummaryLine } from "@/lib/keiri/caseNumbers";
 
@@ -49,7 +50,10 @@ export default function KeiriApplyPage() {
           {keiriApplyOptionalLine()}
           いただいたメールアドレスへ、担当からご連絡します。
           <strong className="font-bold">この画面ではお支払いは発生しません。</strong>
-          お支払いの方法は、ご連絡のときにご案内します。
+          {/* ★お支払いの方法は lib/keiri/payment.ts が唯一の正（2026-09-25・kp184）。
+              ここだけ「方法はご連絡のときに」と書いてあり、紹介ページ（銀行振込と明記）と
+              食い違っていた。押す直前の画面なので、方法を先に書く。 */}
+          {paymentApplyLine(cardLive)}
         </p>
       </header>
 
@@ -86,7 +90,12 @@ export default function KeiriApplyPage() {
             まで、お店の名前・お名前・ご連絡先をお送りください。
           </div>
         </noscript>
-        <ApplyForm email={KEIRI_COMPANY.email} tel={KEIRI_COMPANY.tel} />
+        <ApplyForm
+          email={KEIRI_COMPANY.email}
+          tel={KEIRI_COMPANY.tel}
+          paymentLine={paymentApplyLine(cardLive)}
+          afterApplyLine={paymentAfterApplyLine(cardLive)}
+        />
       </section>
 
       <section className="mb-10">
