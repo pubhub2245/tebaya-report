@@ -145,8 +145,10 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
    *   実際より悪く書くと、お支払いの道をつなぐこと自体をためらわせるので直しました。
    *
    *   あわせて、最初の1件を鍵の貼り直しより先に始められる回り道を書き添えます
-   *   （supabase/migrations/keiri_tenant_create_manual.sql を1回流すと、
-   *    そのお店の初回設定リンクが1本出ます）。
+   *   （倉庫の窓口を1行呼ぶだけです：
+   *    select * from public.keiri_tenant_create_manual('お店の名前');
+   *    手順は supabase/migrations/keiri_tenant_create_manual.sql の方法A。
+   *    ★ファイルを丸ごと貼っても何も起きません。人が1行だけ選んで流す形にしてあります＝kp176）。
    *
    *   窓口が無いときは、上の2件がすでに同じ鍵の話をしているので足しません
    *   （同じお願いを3回並べても、やることが増えて見えるだけです）。
@@ -161,8 +163,8 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
         "「お手続きを確認しています。担当からすぐにご連絡します」と出て、" +
         "スタッフのLINEに支払い画面の番号つきで知らせが飛び、控えにも1行残ります（kp95）。" +
         "最初の1件は、鍵を待たずに手で始められます" +
-        "（倉庫の SQL Editor で supabase/migrations/keiri_tenant_create_manual.sql を1回流すと、" +
-        "そのお店の初回設定リンクが1本出ます）。" +
+        "（倉庫の SQL Editor で select * from public.keiri_tenant_create_manual('お店の名前'); を1行流すと、" +
+        "そのお店の初回設定リンクが1本出ます。手順は supabase/migrations/keiri_tenant_create_manual.sql の方法A）。" +
         "自動でつながるようにするには、Vercel の SUPABASE_SERVICE_ROLE_KEY を貼り直してください（kp55）",
     );
   }
