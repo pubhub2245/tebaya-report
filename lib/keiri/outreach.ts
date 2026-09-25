@@ -318,3 +318,56 @@ export const OUTREACH_SEND_PATH = "/keiri/send";
 
 /** じゅんに渡す1本の住所（どの端末でも、合言葉なしで開く） */
 export const OUTREACH_SEND_LINK = `${PUBLIC_SITE_URL}${OUTREACH_SEND_PATH}`;
+
+/**
+ * 「送る1枚」（/keiri/send）で、何軒送ったかを控える（kp171）。
+ *
+ * ■ なぜ要るか（やさしい説明）
+ *   送る1枚は、印（kp150）もアプリも要らない道として作りました。
+ *   ところが同じ1枚の最後に「どこに送ったかの控えは、ホームに出る帯
+ *   （管理者の合言葉を入れた端末にだけ出ます）で付けられます」と書いてありました。
+ *   帯が出るには印が要ります。＝ **この1枚が要らなくするために作った、その印を
+ *   もう一度やってください、と案内していた**ことになります。
+ *   印はまだ一度も付いていないので、じゅんがこの1枚から1軒送っても、
+ *   控えはどこにも残りません。翌日「昨日どこに送ったか」を思い出せないまま開くことになり、
+ *   同じお店にもう一度送ってしまう恐れもあります。
+ *
+ * ■ 控えるのは「何軒送ったか」だけ
+ *   この住所は合言葉が要らない＝誰でも開けるので、**お店の呼び名は画面に出しません**
+ *   （kp162 の決まり）。数だけを出します。
+ *
+ * ■ 控えの置き場は、帯とまったく同じ1か所
+ *   別に持つと「帯では3軒、この1枚では5軒」のように食い違います。
+ *   帯と同じ `OUTREACH_SENT_KEY` に、帯と同じ順番（nextShop）で印を足します。
+ *   ＝ 記録は1つだけ。あとで印を付けて帯を出しても、続きから進みます。
+ */
+
+/** 送った印を1つ足す（次の1軒＝帯が名指しするのと同じ1軒）。全部送りおわっていれば何もしない */
+export function markNextSent(sent: readonly string[]): string[] {
+  const current = parseSent(sent.join(","));
+  const next = nextShop(current);
+  if (!next) return current;
+  return parseSent([...current, next.id].join(","));
+}
+
+/** 送った印を1つ取り消す（押し間違え用）。順番のいちばん後ろの1つを外す */
+export function undoLastSent(sent: readonly string[]): string[] {
+  const current = parseSent(sent.join(","));
+  if (current.length === 0) return current;
+  let lastId = current[0];
+  for (const id of current) {
+    if (indexOfShop(id) >= indexOfShop(lastId)) lastId = id;
+  }
+  return current.filter((id) => id !== lastId);
+}
+
+/** 画面に出す「◯ / 8 軒」と「あと ◯ 軒」。**お店の呼び名は返さない** */
+export function sentProgress(sent: readonly string[]): {
+  done: number;
+  total: number;
+  remaining: number;
+} {
+  const done = parseSent(sent.join(",")).length;
+  const total = OUTREACH_SHOPS.length;
+  return { done, total, remaining: total - done };
+}
