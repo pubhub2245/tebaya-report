@@ -13,6 +13,7 @@ import {
 import { getCaseStats } from "@/lib/keiri/caseStats";
 import { getCaseUsage } from "@/lib/keiri/caseUsage";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
+import { paymentNoticeLine } from "@/lib/keiri/payment";
 import { keiriContactMailto } from "@/lib/keiri/apply";
 import {
   KEIRI_OFFER_ITEMS,
@@ -553,7 +554,8 @@ export default async function KeiriCasePage() {
             {/* ★カードの受付口（Stripe の支払いリンク）が用意できていない間も、
                 「申し込みます」と言える道は必ず1本置く。
                 「準備中」で行き止まりにすると、せっかく開いた店主がそのまま離れてしまう。
-                フォームではお金は動かさない（お支払いの方法は折り返しでご案内する）。 */}
+                フォームではお金は動かさない（お支払いは銀行振込で、お振込先は折り返しご案内する）。
+                添える1文は lib/keiri/payment.ts が唯一の正（2026-09-25・kp181）。 */}
             <Link
               href="/keiri/apply"
               className="flex items-center justify-center w-full h-14 rounded-2xl bg-white text-amber-700 font-bold text-lg shadow hover:bg-amber-50 transition"
@@ -561,8 +563,7 @@ export default async function KeiriCasePage() {
               申し込む
             </Link>
             <p className="mt-3 text-sm leading-relaxed opacity-95">
-              いまはカード決済の受付を準備中のため、お申し込みフォームからお受けします（この画面でお支払いは発生しません）。
-              メールでも受け付けています：{" "}
+              {paymentNoticeLine()} メールでも受け付けています：{" "}
               <a
                 href={keiriContactMailto({ to: KEIRI_COMPANY.email }).url}
                 className="underline font-bold"
