@@ -6,10 +6,13 @@ import {
   OUTREACH_LINE_SHARE_URL,
   OUTREACH_LINK,
   OUTREACH_MESSAGE,
+  OUTREACH_MESSAGE_SHARE,
   OUTREACH_REPLY_STEPS,
   OUTREACH_REPLY_WARNING,
   OUTREACH_SHOPS,
 } from "@/lib/keiri/outreach";
+
+import SendActions from "./SendActions";
 
 /**
  * 「送る1枚」（kp162）。合言葉も印もアプリも要らない、送るためだけの1枚。
@@ -22,7 +25,8 @@ import {
  *
  * ■ この1枚が出すもの（これだけ）
  *   ・お申し込みが入っているときの赤い知らせ（件数と時刻だけ・kp165）
- *   ・［LINEで送る］の1タップ（送り先を選ぶ画面が、文を持ったまま開く）
+ *   ・［LINEで送る］の1タップ（送り先を選ぶ画面が、文を持ったまま開く／スマホ）
+ *   ・［送る文をコピーする］の1タップ（パソコンではこちらが主役・kp169）
  *   ・送る文そのもの（長押しでコピーできる）
  *   ・相手が開く案内ページ（/keiri/case）への確かめリンク
  *   ・**返事が来たときにやること2つ**（kp167）
@@ -61,20 +65,21 @@ export default function KeiriSendPage() {
           今日、1軒だけ送る
         </h1>
         <p className="text-sm text-stone-700 leading-relaxed">
-          文はできています。下のボタンで、LINEの「送り先を選ぶ画面」がこの文を持ったまま開きます。
+          文はできています。<strong>スマホ</strong>なら下のボタンで、LINEの「送り先を選ぶ画面」が
+          この文を持ったまま開きます。<strong>パソコン</strong>のときは、ボタンが「送る文をコピーする」に
+          入れ替わります（パソコンのLINEでは、送り先を選ぶ画面が開けないため）。
           <strong>送るのは、ご自分で送信を押したときだけ</strong>です。1軒10秒、1日1軒で十分です。
         </p>
       </header>
 
-      {/* ★この1枚の主役。ここだけ押せば送れる状態にしておく */}
-      <a
-        href={OUTREACH_LINE_SHARE_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex w-full h-14 items-center justify-center rounded-xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-base font-bold shadow-sm transition"
-      >
-        LINEで送る（相手を選ぶだけ）
-      </a>
+      {/* ★この1枚の主役。端末に合わせて主役が入れ替わる（kp169）。
+          スマホ＝［LINEで送る］／パソコン＝［送る文をコピーする］。
+          LINEの送り先を選ぶリンクはスマホ専用のしかけなので、
+          パソコンで押しても何も起きない（＝押しても送れない）ため。 */}
+      <SendActions
+        shareUrl={OUTREACH_LINE_SHARE_URL}
+        message={OUTREACH_MESSAGE_SHARE}
+      />
 
       <section className="rounded-2xl border border-stone-200 bg-white p-3 space-y-2">
         <h2 className="text-sm font-bold text-stone-900">送る文（長押しでコピーできます）</h2>
@@ -82,7 +87,7 @@ export default function KeiriSendPage() {
           {OUTREACH_MESSAGE}
         </p>
         <p className="text-xs text-stone-600 leading-relaxed">
-          LINEが開かないときは、この文をコピーしてLINEに貼ってください。
+          ボタンでLINEが開かないとき（パソコンなど）は、この文をコピーしてLINEに貼ってください。
           ボタンから開いた画面では文を直せないので、先頭の「◯◯さん」は入っていません。
           お名前を入れて送りたいときは、この文をコピーしてお使いください。
         </p>

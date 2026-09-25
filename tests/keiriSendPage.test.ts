@@ -53,6 +53,23 @@ test("この1枚の主役は［LINEで送る］の1タップ", () => {
   assert.ok(page.includes("OUTREACH_MESSAGE"), "送る文を画面に出していること");
 });
 
+/**
+ * 端末に合わせて主役を入れ替える（kp169）。
+ * LINE の送り先を選ぶリンクはスマホ専用のしかけで、パソコンでは何も起きない。
+ * ＝ ボタンが1つだけの形に戻すと、パソコンで開いた日は送れないままになる。
+ */
+test("押すところは、端末に合わせて主役が入れ替わる部品にしている", () => {
+  assert.ok(page.includes("<SendActions"), "押すところを SendActions に任せていること");
+  assert.ok(
+    page.includes("shareUrl={OUTREACH_LINE_SHARE_URL}"),
+    "LINEのリンクは共通の定数から渡すこと",
+  );
+  assert.ok(
+    page.includes("message={OUTREACH_MESSAGE_SHARE}"),
+    "コピーする文は宛名の空欄が入っていない方（貼ってすぐ送れる方）を渡すこと",
+  );
+});
+
 test("送り先の呼び名・連絡先・値段を1つも出さない", () => {
   for (const shop of OUTREACH_SHOPS) {
     assert.ok(
