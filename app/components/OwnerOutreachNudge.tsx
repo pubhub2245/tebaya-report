@@ -21,6 +21,11 @@
  * ■ 出さないもの
  *   連絡先（LINEのID・メールアドレス）と、値段。理由は lib/keiri/outreach.ts に。
  *
+ * ■ お店の呼び名を取り込んでよいのは、この帯だけです（kp172）
+ *   この帯は「じゅんの端末（管理者パスワードを入れた端末）」にしか出ないので、
+ *   呼び名を出してよい唯一の場所です。呼び名は lib/keiri/outreachShopLabels.ts にあり、
+ *   **合言葉の要らない住所（/keiri/send）からは取り込みません。**
+ *
  * ■ 日報・集計には触っていません
  *   この帯は日報のデータを1行も読み書きしません。控えはこの端末の中だけです。
  */
@@ -30,12 +35,10 @@ import {
   OUTREACH_LINE_SHARE_URL,
   OUTREACH_MESSAGE,
   OUTREACH_SENT_KEY,
-  OUTREACH_SHOPS,
   OUTREACH_SNOOZE_KEY,
   OWNER_MARK_PARAM,
   clearOwnerDevice,
   markOwnerDevice,
-  nextShop,
   ownerMarkFromQuery,
   parseSent,
   readOwnerDevice,
@@ -43,6 +46,8 @@ import {
   shouldShowNudge,
   todayKey,
 } from "@/lib/keiri/outreach";
+// ★呼び名はこのファイルからだけ取り込む（kp172）。/keiri/send からは取り込まない。
+import { OUTREACH_SHOPS, nextShop } from "@/lib/keiri/outreachShopLabels";
 
 export default function OwnerOutreachNudge() {
   /** ブラウザの控えをまだ読んでいないあいだは true（そのあいだは何も出さない） */
