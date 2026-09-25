@@ -16,6 +16,7 @@ import {
   KEIRI_BANK_TRANSFER,
   paymentAfterApplyLine,
   paymentApplyLine,
+  paymentHandoffLine,
   paymentMethodLine,
   paymentNoticeLine,
   paymentStepBody,
@@ -35,6 +36,7 @@ test("カードがまだ無いときも、受け取り方が必ず書いてあ�
     paymentNoticeLine(),
     paymentApplyLine(false),
     paymentAfterApplyLine(false),
+    paymentHandoffLine(false),
   ]) {
     assert.ok(line.length > 0);
     assert.ok(!line.includes("準備中"), `「準備中」が残っています: ${line}`);
@@ -57,6 +59,8 @@ test("お振込先そのものは、どの文にも入らない", () => {
     paymentApplyLine(true),
     paymentAfterApplyLine(false),
     paymentAfterApplyLine(true),
+    paymentHandoffLine(false),
+    paymentHandoffLine(true),
     ...tokushohoRows(false).map((r) => r.value),
     ...keiriStartSteps(false).map((s) => s.body),
   ].join("");
@@ -137,4 +141,23 @@ test("お申し込みの画面に、お支払いの文が直書きされてい�
   // 口座そのものが出ないことは、文を作る1本（paymentApplyLine 等）の側で確かめてある。
   // ここでソースの文字を数えると、「口座番号は入れてもらわない」という
   // **注意書き** まで拾ってしまうので見ない。
+});
+
+/**
+ * 紹介ページの「価格の箱」の1行（＝［申し込む］ボタンの真上）も、この1本から作る。
+ * 2026-09-25 まで、ここだけ「担当からお支払いの方法をご案内します」と
+ * 方法を言わないままだった（同じページの他の所には銀行振込と書いてあるのに）。
+ */
+test("［申し込む］の真上の1行にも、受け取り方が書いてある", () => {
+  assert.ok(paymentHandoffLine(false).includes(KEIRI_BANK_TRANSFER));
+  assert.ok(!paymentHandoffLine(false).includes("方法をご案内"));
+  assert.ok(!paymentHandoffLine(false).includes("準備中"));
+  // カードが入ったら「人の手は入りません」に戻る
+  assert.ok(paymentHandoffLine(true).includes("人の手は入りません"));
+  assert.ok(!paymentHandoffLine(true).includes(KEIRI_BANK_TRANSFER));
+  assert.equal(paymentHandoffLine(), paymentHandoffLine(false));
+
+  const casePage = readFileSync("app/keiri/case/page.tsx", "utf8");
+  assert.ok(casePage.includes("paymentHandoffLine(cardLive)"));
+  assert.ok(!casePage.includes("担当からお支払いの方法をご案内します（通常1営業日以内）"));
 });

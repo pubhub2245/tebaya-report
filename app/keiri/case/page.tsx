@@ -13,7 +13,7 @@ import {
 import { getCaseStats } from "@/lib/keiri/caseStats";
 import { getCaseUsage } from "@/lib/keiri/caseUsage";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
-import { paymentNoticeLine } from "@/lib/keiri/payment";
+import { paymentHandoffLine, paymentNoticeLine } from "@/lib/keiri/payment";
 import { keiriContactMailto } from "@/lib/keiri/apply";
 import {
   KEIRI_OFFER_ITEMS,
@@ -523,13 +523,10 @@ export default async function KeiriCasePage() {
           <li>・{KEIRI_PRICE.freeTrial ? "初月無料" : "初期費用なし・初月無料はありません"}</li>
           <li>・{KEIRI_PRICE.cancelAnytime ? cancelLongLabel(cardLive) : ""}</li>
           {/* ★カードの受付口が無い間は「人の手は入りません」は事実でなくなる
-                （担当が折り返してお支払いの方法をご案内するため）。正直なほうに出し分ける。 */}
-          <li>
-            ・
-            {link
-              ? "申し込みから使い始めまで、人の手は入りません。支払い後すぐに使えます"
-              : "お申し込みのあと、担当からお支払いの方法をご案内します（通常1営業日以内）"}
-          </li>
+                （担当が折り返してお振込先をご案内するため）。正直なほうに出し分ける。
+                文は lib/keiri/payment.ts が唯一の正（2026-09-25・kp184）。
+                ここは［申し込む］の真上なので、方法を言わないまま終わらせない。 */}
+          <li>・{paymentHandoffLine(cardLive)}</li>
         </ul>
         {link ? (
           <div className="mt-5">
