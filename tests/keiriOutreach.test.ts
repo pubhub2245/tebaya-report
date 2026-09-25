@@ -17,18 +17,17 @@ import {
   OUTREACH_LINK,
   OUTREACH_MESSAGE,
   OUTREACH_MESSAGE_SHARE,
-  OUTREACH_SHOPS,
   OWNER_MARK_LINK,
   OWNER_MARK_PARAM,
-  nextShop,
   ownerMarkFromQuery,
   parseSent,
-  remainingShops,
   serializeSent,
   shouldMarkOwnerDeviceOnRestore,
   shouldShowNudge,
   todayKey,
 } from "../lib/keiri/outreach";
+// 呼び名（クレープ…）は検算からだけ読む。本番の画面に配られる側からは取り込まない（kp172）
+import { OUTREACH_SHOPS, nextShop, remainingShops } from "../lib/keiri/outreachShopLabels";
 
 const lib = fs.readFileSync(
   path.join(process.cwd(), "lib", "keiri", "outreach.ts"),

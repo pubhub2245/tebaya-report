@@ -9,7 +9,7 @@ import {
   OUTREACH_MESSAGE_SHARE,
   OUTREACH_REPLY_STEPS,
   OUTREACH_REPLY_WARNING,
-  OUTREACH_SHOPS,
+  OUTREACH_SHOP_COUNT,
 } from "@/lib/keiri/outreach";
 
 import SendActions from "./SendActions";
@@ -132,7 +132,7 @@ export default function KeiriSendPage() {
       <SendProgress />
 
       <p className="text-xs text-stone-600 leading-relaxed">
-        送り先は全部で {OUTREACH_SHOPS.length} 軒です。
+        送り先は全部で {OUTREACH_SHOP_COUNT} 軒です。
         この1枚は、思い出したときに開いて1軒送るためだけのものです。
         お申し込みが入っているときは、いちばん上に赤い知らせが出ます（件数と入った時刻だけ）。
       </p>

@@ -10,12 +10,16 @@
  *   「今日、1軒だけ送りませんか」と声をかけます。1軒10秒です。
  *
  * ■ ここに入れてよいもの・いけないもの
- *   ・お店の**種類**（クレープ・回転焼き…）は出してよい
+ *   ・**お店の呼び名（種類）は、このファイルには置きません**（kp172）。
+ *     呼び名は lib/keiri/outreachShopLabels.ts に分けてあります。
+ *     このファイルは、合言葉の要らない住所（/keiri/send）からも取り込まれるので、
+ *     ここに呼び名を置くと「画面に出していないのに、配られている中身には入っている」
+ *     状態になります（それが kp172 で見つかった抜けです）。
  *   ・**連絡先（LINEのID・メールアドレス）は1つも出さない**
  *     画面に出す必要がなく、出せば端末を見た人に他人の連絡先が渡るため。
  *     誰がどれかは じゅんの手元（司令室の meta/keiri-line-message）にあります。
  *   ・**値段は書かない**（受け取る8軒は同じ出店先に出ている同業のため）
- *   どれも tests/keiriOutreach.test.ts で固定してあります。
+ *   どれも tests/keiriOutreach.test.ts と tests/keiriOutreachNames.test.ts で固定してあります。
  *
  * ■ 手羽屋のスタッフには出しません
  *   このアプリにはログイン（アカウント）がありません。じゅんだけが持っているものは
@@ -24,31 +28,30 @@
  */
 
 import { PUBLIC_SITE_URL } from "./siteUrl";
-
-/** 送り先1軒 */
-export type OutreachShop = {
-  /** 控えに残す名前（変えると印が外れるので変えない） */
-  id: string;
-  /** 画面に出す呼び名。お店の種類だけ。連絡先は入れない */
-  label: string;
-  /** LINE で送れない相手にだけ付ける但し書き */
-  note?: string;
-};
+import { remainingShopIds } from "./outreachShops";
 
 /**
- * 送り先8軒（ながやまさんの出店でご一緒している同業）。
- * 並び順・id は司令室の送り先一覧（meta/keiri-line-message）と同じ順番。
+ * 送り先の並び順と「何軒送ったか」の控えは lib/keiri/outreachShops.ts にあります（kp172）。
+ * ここから読み直せるようにしておくので、呼ぶ側は今までどおり書けます。
+ * **お店の呼び名だけは、ここからは出しません。**
+ * 呼び名が要るのは「じゅんの端末にだけ出る帯」1か所だけなので、
+ * そこだけが lib/keiri/outreachShopLabels.ts を取り込みます。
  */
-export const OUTREACH_SHOPS: readonly OutreachShop[] = [
-  { id: "crepe", label: "クレープ" },
-  { id: "kaitenyaki", label: "回転焼き" },
-  { id: "tori", label: "鶏のお店" },
-  { id: "bistro", label: "ビストロ" },
-  { id: "kitchencar1", label: "キッチンカー（1軒目）" },
-  { id: "kitchencar2", label: "キッチンカー（2軒目）" },
-  { id: "houjin", label: "法人（複数台）", note: "この1軒はメールのみ" },
-  { id: "night", label: "夜の催事のお店" },
-] as const;
+export {
+  OUTREACH_SENT_KEY,
+  OUTREACH_SHOP_COUNT,
+  OUTREACH_SHOP_ORDER,
+  indexOfShop,
+  isEmailOnly,
+  markNextSent,
+  nextShopId,
+  parseSent,
+  remainingShopIds,
+  sentProgress,
+  serializeSent,
+  undoLastSent,
+} from "./outreachShops";
+export type { OutreachShopId, OutreachShopOrder } from "./outreachShops";
 
 /** 案内ページ（送る文に入れるリンク） */
 export const OUTREACH_LINK = `${PUBLIC_SITE_URL}/keiri/case`;
@@ -96,59 +99,8 @@ export const OUTREACH_REPLY_WARNING =
 
 /** この端末が じゅんのものか（管理者パスワードを入れたことがあるか）の印 */
 export const OWNER_DEVICE_KEY = "tebaya-owner-device.v1";
-/** 送った印（お店の id をカンマでつないで持つ） */
-export const OUTREACH_SENT_KEY = "keiri-outreach-sent.v1";
 /** 「今日は出さない」を押した日（YYYY-MM-DD） */
 export const OUTREACH_SNOOZE_KEY = "keiri-outreach-snooze.v1";
-
-/** 送った印の文字列を、お店の id の一覧に戻す（知らない id は捨てる） */
-export function parseSent(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  const known = new Set(OUTREACH_SHOPS.map((s) => s.id));
-  const out: string[] = [];
-  for (const part of raw.split(",")) {
-    const id = part.trim();
-    if (id && known.has(id) && !out.includes(id)) out.push(id);
-  }
-  return out;
-}
-
-/** 送った印の一覧を、控えに入れる文字列にする */
-export function serializeSent(ids: readonly string[]): string {
-  return parseSent(ids.join(","))
-    .slice()
-    .sort((a, b) => indexOfShop(a) - indexOfShop(b))
-    .join(",");
-}
-
-function indexOfShop(id: string): number {
-  return OUTREACH_SHOPS.findIndex((s) => s.id === id);
-}
-
-/** まだ送っていないお店 */
-export function remainingShops(sent: readonly string[]): OutreachShop[] {
-  const done = new Set(parseSent(sent.join(",")));
-  return OUTREACH_SHOPS.filter((s) => !done.has(s.id));
-}
-
-/**
- * 「今日の1軒」＝まだ送っていない中の、いちばん上の1軒（kp154）。
- *
- * ■ なぜ要るか（やさしい説明）
- *   これまでの帯は、送り先8軒を一度に並べていました。押す前に
- *   「どこにしようか」を8通りから選ぶことになり、そこで手が止まります。
- *   選ぶのをこちらで済ませて、**1軒だけ名指しする**形にします。
- *   じゅんがやるのは「この1軒に送る／別の1軒にする」の2択だけです。
- *   送った印が付けば、次の1軒がひとりでに出てきます。
- *
- * まだ1軒も残っていなければ null（そのときは帯そのものが出ません）。
- */
-export function nextShop(sent: readonly string[]): OutreachShop | null {
-  const rest = remainingShops(sent);
-  // 帯のいちばん大きいボタンは［LINEで送る］なので、LINE で送れる1軒を先に名指しする。
-  // 但し書きの付いた1軒（メールのみ）は、それしか残っていないときだけ出す。
-  return rest.find((s) => !s.note) ?? rest[0] ?? null;
-}
 
 /**
  * 帯を出すかどうか。
@@ -166,7 +118,7 @@ export function shouldShowNudge(input: {
 }): boolean {
   if (!input.ownerDevice) return false;
   if (input.snoozedOn && input.snoozedOn === input.today) return false;
-  return remainingShops(input.sent).length > 0;
+  return remainingShopIds(input.sent).length > 0;
 }
 
 /** 今日の日付（YYYY-MM-DD・日本時間）。「今日は出さない」の判定に使う */
@@ -341,33 +293,8 @@ export const OUTREACH_SEND_LINK = `${PUBLIC_SITE_URL}${OUTREACH_SEND_PATH}`;
  *   帯と同じ `OUTREACH_SENT_KEY` に、帯と同じ順番（nextShop）で印を足します。
  *   ＝ 記録は1つだけ。あとで印を付けて帯を出しても、続きから進みます。
  */
-
-/** 送った印を1つ足す（次の1軒＝帯が名指しするのと同じ1軒）。全部送りおわっていれば何もしない */
-export function markNextSent(sent: readonly string[]): string[] {
-  const current = parseSent(sent.join(","));
-  const next = nextShop(current);
-  if (!next) return current;
-  return parseSent([...current, next.id].join(","));
-}
-
-/** 送った印を1つ取り消す（押し間違え用）。順番のいちばん後ろの1つを外す */
-export function undoLastSent(sent: readonly string[]): string[] {
-  const current = parseSent(sent.join(","));
-  if (current.length === 0) return current;
-  let lastId = current[0];
-  for (const id of current) {
-    if (indexOfShop(id) >= indexOfShop(lastId)) lastId = id;
-  }
-  return current.filter((id) => id !== lastId);
-}
-
-/** 画面に出す「◯ / 8 軒」と「あと ◯ 軒」。**お店の呼び名は返さない** */
-export function sentProgress(sent: readonly string[]): {
-  done: number;
-  total: number;
-  remaining: number;
-} {
-  const done = parseSent(sent.join(",")).length;
-  const total = OUTREACH_SHOPS.length;
-  return { done, total, remaining: total - done };
-}
+/**
+ * 控えの中身（[送りました（1軒）]・[1つ取り消す]・「◯ / 8 軒」）は、
+ * お店の呼び名を持たない lib/keiri/outreachShops.ts にあります（kp172）。
+ * このファイルからも読み直せます（上の export を見てください）。
+ */

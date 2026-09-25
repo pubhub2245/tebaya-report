@@ -12,12 +12,12 @@ import { readFileSync } from "node:fs";
 
 import {
   OUTREACH_SENT_KEY,
-  OUTREACH_SHOPS,
   markNextSent,
-  nextShop,
   sentProgress,
   undoLastSent,
 } from "../lib/keiri/outreach";
+// 呼び名（クレープ…）は検算からだけ読む。本番の画面に配られる側からは取り込まない（kp172）
+import { OUTREACH_SHOPS, nextShop } from "../lib/keiri/outreachShopLabels";
 
 const page = readFileSync(
   new URL("../app/keiri/send/page.tsx", import.meta.url),

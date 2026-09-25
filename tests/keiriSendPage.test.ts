@@ -20,8 +20,9 @@ import {
   OUTREACH_REPLY_WARNING,
   OUTREACH_SEND_LINK,
   OUTREACH_SEND_PATH,
-  OUTREACH_SHOPS,
 } from "../lib/keiri/outreach";
+// 呼び名（クレープ…）は検算からだけ読む。本番の画面に配られる側からは取り込まない（kp172）
+import { OUTREACH_SHOPS } from "../lib/keiri/outreachShopLabels";
 import { KEIRI_PUBLIC_PAGES } from "../app/keiri/components/nav";
 
 const page = readFileSync(
