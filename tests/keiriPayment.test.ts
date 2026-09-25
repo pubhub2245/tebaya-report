@@ -14,6 +14,8 @@ import { readFileSync } from "node:fs";
 
 import {
   KEIRI_BANK_TRANSFER,
+  paymentAfterApplyLine,
+  paymentApplyLine,
   paymentMethodLine,
   paymentNoticeLine,
   paymentStepBody,
@@ -31,6 +33,8 @@ test("カードがまだ無いときも、受け取り方が必ず書いてあ�
     paymentTimingLine(false),
     paymentStepBody(false),
     paymentNoticeLine(),
+    paymentApplyLine(false),
+    paymentAfterApplyLine(false),
   ]) {
     assert.ok(line.length > 0);
     assert.ok(!line.includes("準備中"), `「準備中」が残っています: ${line}`);
@@ -49,6 +53,10 @@ test("お振込先そのものは、どの文にも入らない", () => {
     paymentStepBody(false),
     paymentStepBody(true),
     paymentNoticeLine(),
+    paymentApplyLine(false),
+    paymentApplyLine(true),
+    paymentAfterApplyLine(false),
+    paymentAfterApplyLine(true),
     ...tokushohoRows(false).map((r) => r.value),
     ...keiriStartSteps(false).map((s) => s.body),
   ].join("");
@@ -84,4 +92,49 @@ test("特商法と紹介ページの②は、この1本から作られている�
   const casePage = readFileSync("app/keiri/case/page.tsx", "utf8");
   assert.ok(!casePage.includes("いまはカード決済の受付を準備中のため"));
   assert.ok(casePage.includes("paymentNoticeLine()"));
+});
+
+/**
+ * お申し込みの画面（/keiri/apply）も、この1本から作られていること（2026-09-25・kp184）。
+ *
+ * ★ここが抜けていたために、紹介ページは「銀行振込」と書いてあるのに、
+ *   その次に開く **押す直前の1画面だけ** が
+ *   「お支払いの方法は、ご連絡のときにご案内します」のままでした。
+ */
+test("お申し込みの画面にも、受け取り方が必ず書いてある", () => {
+  assert.ok(paymentApplyLine(false).includes(KEIRI_BANK_TRANSFER));
+  assert.ok(paymentAfterApplyLine(false).includes(KEIRI_BANK_TRANSFER));
+  for (const line of [paymentApplyLine(false), paymentAfterApplyLine(false)]) {
+    assert.ok(!line.includes("準備中"), `「準備中」が残っています: ${line}`);
+    // 「方法はそのときに」で終わらせない
+    assert.ok(!/方法(は|も).{0,8}ご案内/.test(line), `方法を先に書いていません: ${line}`);
+  }
+  // カードの受付口が入ったら、自動でカードの書き方に戻る
+  assert.ok(paymentApplyLine(true).includes("クレジットカード"));
+  assert.ok(!paymentApplyLine(true).includes(KEIRI_BANK_TRANSFER));
+  assert.ok(!paymentAfterApplyLine(true).includes(KEIRI_BANK_TRANSFER));
+  // 渡し忘れたときは、正直なほう（カードではない側）に倒れる
+  assert.equal(paymentApplyLine(), paymentApplyLine(false));
+  assert.equal(paymentAfterApplyLine(), paymentAfterApplyLine(false));
+});
+
+test("お申し込みの画面に、お支払いの文が直書きされていない", () => {
+  const applyPage = readFileSync("app/keiri/apply/page.tsx", "utf8");
+  const applyForm = readFileSync("app/keiri/apply/ApplyForm.tsx", "utf8");
+
+  // 直書きされていた古い文が、どちらにも残っていないこと
+  for (const src of [applyPage, applyForm]) {
+    assert.ok(!src.includes("お支払いの方法は、ご連絡のときにご案内します"));
+    assert.ok(!src.includes("担当からお支払いの方法をご案内します"));
+    assert.ok(!src.includes("お支払いの方法と、使い始めるための準備もそのときにご案内します"));
+  }
+  // 1本から読んでいること
+  assert.ok(applyPage.includes("paymentApplyLine(cardLive)"));
+  assert.ok(applyPage.includes("paymentAfterApplyLine(cardLive)"));
+  assert.ok(applyForm.includes("{paymentLine}"));
+  assert.ok(applyForm.includes("{afterApplyLine}"));
+
+  // 口座そのものが出ないことは、文を作る1本（paymentApplyLine 等）の側で確かめてある。
+  // ここでソースの文字を数えると、「口座番号は入れてもらわない」という
+  // **注意書き** まで拾ってしまうので見ない。
 });

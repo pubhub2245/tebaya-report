@@ -44,7 +44,19 @@ function readForm(f: FormData): Entered {
   };
 }
 
-export default function ApplyForm({ email, tel }: { email: string; tel?: string }) {
+export default function ApplyForm({
+  email,
+  tel,
+  paymentLine,
+  afterApplyLine,
+}: {
+  email: string;
+  tel?: string;
+  /** お支払いの方法の1行。lib/keiri/payment.ts が唯一の正（画面に直書きしない・kp184） */
+  paymentLine: string;
+  /** 受け付けたあとの画面に出す、お支払いの方法の1行（同上） */
+  afterApplyLine: string;
+}) {
   const [state, setState] = useState<State>("input");
   const [errors, setErrors] = useState<string[]>([]);
   // ★受け付けはできたが、**こちら側の誰も気づけない**状態か（2026-09-24・B）。
@@ -197,7 +209,7 @@ export default function ApplyForm({ email, tel }: { email: string; tel?: string 
         <p className="text-lg font-bold text-stone-900">お申し込みを受け付けました。</p>
         <p className="mt-3 text-stone-700 leading-relaxed">
           担当から、いただいたメールアドレスへご連絡します（通常1営業日以内）。
-          お支払いの方法と、使い始めるための準備もそのときにご案内します。
+          {afterApplyLine}
           こちらから何かを差し引くことはありませんので、そのままお待ちください。
         </p>
         {/*
@@ -352,7 +364,7 @@ export default function ApplyForm({ email, tel }: { email: string; tel?: string 
       </button>
 
       <p className="text-xs text-stone-500 leading-relaxed">
-        この画面ではお支払いは発生しません。いただいた内容をもとに、担当からお支払いの方法をご案内します。
+        この画面ではお支払いは発生しません。{paymentLine}
         いただいた連絡先は、このご案内以外には使いません。
       </p>
     </form>
