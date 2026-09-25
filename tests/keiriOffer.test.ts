@@ -86,9 +86,13 @@ test("カードの受付口が無いときの特商法の表記は、実際に�
   const get = (label: string) => rows.find((r) => r.label === label)!.value;
 
   assert.ok(!get("支払方法").startsWith("クレジットカード決済"));
-  assert.ok(get("支払方法").includes("準備中"));
+  // ★2026-09-25（kp181）：「準備中」ではなく、実際に受け取れる方法（銀行振込）を書く。
+  //   受け取り方そのものが決まっていないと、いちばん熱い瞬間に止まるため。
+  assert.ok(get("支払方法").includes("銀行振込"));
+  assert.ok(!get("支払方法").includes("準備中"));
   assert.ok(!get("支払時期").includes("お申し込み時に初回分を決済"));
   assert.ok(get("支払時期").includes("お申し込みの時点ではお支払いは発生しません"));
+  assert.ok(get("支払時期").includes("お振り込み"));
   assert.ok(!get("解約について").includes("カスタマーポータル"));
   assert.ok(get("解約について").includes("いつでも解約できます"));
   assert.ok(!get("サービスの提供時期").includes("決済完了後"));

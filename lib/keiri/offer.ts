@@ -11,6 +11,8 @@
  * ★守れない約束は書かない。日付・期限は、実際に守れる形（月はじめ）だけにする。
  */
 
+import { paymentStepBody } from "./payment";
+
 /**
  * 紹介ページの一番上に出す3行。
  * LINE で URL を開いた店主が、最初の画面だけで
@@ -148,19 +150,11 @@ export function keiriStartSteps(cardLive = false): KeiriStartStep[] {
       title: "お申し込み",
       body: keiriApplyRequiredLine() + "この画面でお支払いは発生しません。",
     },
-    cardLive
-      ? {
-          n: "2",
-          title: "お支払い",
-          body: "そのままカードでお支払いいただけます。お支払いが済んだ時点でお使いいただけます。",
-        }
-      : {
-          n: "2",
-          title: "お支払いのご案内",
-          body:
-            "担当からいただいたメールアドレスへご連絡します（通常1営業日以内）。" +
-            "お支払いの方法は、そのときにご案内します。",
-        },
+    {
+      n: "2",
+      title: cardLive ? "お支払い" : "お支払いのご案内",
+      body: paymentStepBody(cardLive),
+    },
     {
       n: "3",
       title: "初回設定",

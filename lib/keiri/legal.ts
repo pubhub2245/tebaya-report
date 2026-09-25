@@ -8,6 +8,7 @@
  */
 
 import { KEIRI_PRICE, cancelLongLabel, priceLabel } from "./caseNumbers";
+import { paymentMethodLine, paymentTimingLine } from "./payment";
 import { KEIRI_OFFER_ITEMS, monthlyCloseTiming } from "./offer";
 
 /**
@@ -40,7 +41,8 @@ export type LegalRow = { label: string; value: string };
  *   これを渡すのは、**書いてあることと、実際に起きることを合わせるため**。
  *   カードの受付口（Stripe の支払いリンク）がまだ無いあいだ、
  *   「お申し込み時に初回分を決済」「Stripe のカスタマーポータルから解約」は
- *   **どちらも起きない**（フォームでお申し込みいただき、担当がお支払いの方法をご案内する）。
+ *   **どちらも起きない**（フォームでお申し込みいただき、銀行振込でお支払いいただく）。
+ *   ★支払方法・支払時期の文は lib/keiri/payment.ts が唯一の正（2026-09-25・kp181）。
  *   ここは法律で出すことが決まっているページなので、いちばん嘘があってはいけない。
  *   受付口ができた瞬間、自動でカードの書き方に戻る（このファイルを直す必要は無い）。
  * ★既定は false ＝ 渡し忘れても、正直なほうに倒れる。
@@ -59,15 +61,11 @@ export function tokushohoRows(cardLive = false): LegalRow[] {
     },
     {
       label: "支払方法",
-      value: cardLive
-        ? "クレジットカード決済（Stripe）"
-        : "お申し込みのあと、担当よりお支払いの方法をご案内します（クレジットカード決済は準備中です）",
+      value: paymentMethodLine(cardLive),
     },
     {
       label: "支払時期",
-      value: cardLive
-        ? "お申し込み時に初回分を決済し、以後は毎月同日に自動で決済されます"
-        : "お申し込みの時点ではお支払いは発生しません。担当がご案内したお支払い方法で初回分をお支払いいただき、以後は毎月お支払いいただきます",
+      value: paymentTimingLine(cardLive),
     },
     { label: "サービスの内容", value: offerSummaryForLegal() },
     { label: "サービスの提供時期", value: monthlyCloseTiming(cardLive) },
