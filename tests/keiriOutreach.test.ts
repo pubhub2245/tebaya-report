@@ -38,6 +38,28 @@ const view = fs.readFileSync(
   "utf8",
 );
 const home = fs.readFileSync(path.join(process.cwd(), "app", "page.tsx"), "utf8");
+/** この検算ファイル自身（宛先がそのままの文字で紛れ込んでいないかを見張るため） */
+const self = fs.readFileSync(
+  path.join(process.cwd(), "tests", "keiriOutreach.test.ts"),
+  "utf8",
+);
+
+/**
+ * 司令室にある送り先の宛先（メールアドレス・LINEのID）を、読めない形にして持つ。
+ * ★元に戻せる形なので「隠す」ためではなく、**検索に載らないようにする**ためのもの。
+ *   この倉庫は誰でも読めるので、そのままの文字で置くと
+ *   「誰に声をかけようとしているか」が外から検索で分かってしまう（kp185）。
+ */
+const FORBIDDEN_HANDLES_B64: readonly string[] = [
+  "c21pbGUuY3JlcGU=",
+  "a2FpdGVueWFraS44MzE=",
+  "dG9yaW5jaHl1",
+  "YmlzdHJvdG1vbnRwb3J0ZQ==",
+  "Zm9vZHRydWNrLmdpbnlh",
+  "bml0dGFjbw==",
+  "b3V0LXJpcA==",
+  "Z3VyYXB1cm8=",
+] as const;
 
 test("送り先は8軒で、画面に出るのはお店の種類だけ（連絡先は1つも出さない）", () => {
   assert.equal(OUTREACH_SHOPS.length, 8);
@@ -45,19 +67,22 @@ test("送り先は8軒で、画面に出るのはお店の種類だけ（連絡�
   // メールアドレスらしきもの・LINEのIDらしきもの（英字のドット区切り）が無いこと
   assert.ok(!/@/.test(shown), "画面に出す文字にメールアドレスが入っている");
   assert.ok(!/[a-zA-Z0-9]+\.[a-zA-Z0-9]+/.test(shown), "画面に出す文字に連絡先らしきIDが入っている");
-  // ファイル全体でも、司令室にある実際の宛先を写し取っていないこと
-  for (const handle of [
-    "smile.crepe",
-    "kaitenyaki.831",
-    "torinchyu",
-    "bistrotmontporte",
-    "foodtruck.ginya",
-    "nittaco",
-    "out-rip",
-    "gurapuro",
-  ]) {
-    assert.ok(!lib.includes(handle), `連絡先 ${handle} がファイルに入っている`);
-    assert.ok(!view.includes(handle), `連絡先 ${handle} が画面のファイルに入っている`);
+  // ファイル全体でも、司令室にある実際の宛先を写し取っていないこと。
+  //
+  // ★ここに宛先をそのままの文字で書かないこと（2026-09-25・kp185）。
+  //   この倉庫（GitHub）は誰でも読める状態で、しかも検索にも載っている。
+  //   そのままの文字で書くと、**この検算ファイルそのものが「送り先の一覧」になり**、
+  //   お店の名前で検索した人に見つかる。中身は同じまま、読めない形（Base64）で持つ。
+  //   見張る力は1ミリも落ちない（下で元に戻してから照合している）。
+  for (const encoded of FORBIDDEN_HANDLES_B64) {
+    const handle = Buffer.from(encoded, "base64").toString("utf8");
+    assert.ok(!lib.includes(handle), "連絡先がファイルに入っている");
+    assert.ok(!view.includes(handle), "連絡先が画面のファイルに入っている");
+    // この検算ファイル自身にも、そのままの文字で入っていないこと（戻り止め）
+    assert.ok(
+      !self.includes(handle),
+      "連絡先が検算ファイルにそのままの文字で入っている",
+    );
   }
 });
 
