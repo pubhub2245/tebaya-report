@@ -29,6 +29,7 @@ import {
 } from "@/lib/tenantScope";
 import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
+import { keiriLoginNoScriptHtml } from "@/lib/keiri/noscriptFallback";
 import {
   DISPLAY_EXPENSE_ACCOUNTS,
   buildJournalRows,
@@ -87,11 +88,24 @@ type Tab = "table" | "chart" | "location";
 
 export default function KeiriPage() {
   return (
-    // ★申し込んだお店も、自分の合言葉で入れる画面（kp39）。
-    //   手羽屋の入り方はこれまでどおり（app/components/AdminGate.tsx）
-    <AdminGate allowShops>
-      <KeiriInner />
-    </AdminGate>
+    <>
+      {/* ★JavaScript が動かない端末への逃げ道（2026-09-26・B）。
+          この画面は中身をぜんぶ画面側で描くので、JavaScript が動かないと
+          題名だけのページで終わり、連絡する先も出ない。
+          **お金を払ったお店が毎日開く画面**なので、そこで詰まると
+          「払ったのに使えない・どこに言えばいいか分からない」になる。
+          初回設定（/keiri/welcome・kp180）とお申し込み（/keiri/apply）には
+          先に同じ逃げ道があり、**入室の画面だけ抜けていた**。
+          中身は lib/keiri/noscriptFallback.ts の1か所で作る。
+          <noscript> は JavaScript が動く端末には1ピクセルも出ないので、
+          ふだんの見た目は1文字も変わらない。 */}
+      <noscript dangerouslySetInnerHTML={{ __html: keiriLoginNoScriptHtml() }} />
+      {/* ★申し込んだお店も、自分の合言葉で入れる画面（kp39）。
+          手羽屋の入り方はこれまでどおり（app/components/AdminGate.tsx） */}
+      <AdminGate allowShops>
+        <KeiriInner />
+      </AdminGate>
+    </>
   );
 }
 
