@@ -49,18 +49,19 @@ test("全角が混ざっていたときは『貼り直す』と言う（未設�
   assert.ok(r.todo[0].includes("貼り直してください"));
 });
 
-test("置き場が無いときは、やることが積み上がる", () => {
+test("置き場が無いときは、やることが積み上がる（カードの道）", () => {
   const r = buildSignupReadiness({
-    paymentLink: null,
+    paymentLink: "https://buy.stripe.com/test_abc",
     secret: { ok: false, reason: "未設定" },
     tenants: { ok: false, reason: describeTableError("42P01", 'relation "keiri_tenants" does not exist') },
     settings: { ok: false, reason: describeTableError("42P01", 'relation "keiri_settings" does not exist') },
     serverKeyUsable: true,
   });
+  assert.equal(r.route, "card");
   assert.equal(r.ready, false);
-  assert.equal(r.todo.length, 4);
-  assert.equal(r.summary, "つながっていません。残り 4 か所");
-  assert.ok(r.todo[2].includes("SQLをまだ実行していない"));
+  assert.equal(r.todo.length, 3);
+  assert.equal(r.summary, "つながっていません。残り 3 か所");
+  assert.ok(r.todo[1].includes("SQLをまだ実行していない"));
 });
 
 test("表が無いときと、それ以外の読めない理由を言い分ける", () => {
@@ -160,4 +161,108 @@ test("行を作れないときの案内は、行き止まりだと書かない�
   assert.ok(note.includes("keiri_tenant_create_manual.sql"));
   // ④ 恒久的な直し方も残す
   assert.ok(note.includes("SUPABASE_SERVICE_ROLE_KEY"));
+});
+
+
+/* ---------- 2026-09-26（B）：銀行振込の道を、カードの道と混ぜない ---------- */
+
+/**
+ * いまのお支払い方法は**銀行振込**です（2026-09-25・kp181）。
+ * それなのにこの判定はカードの道だけを見ていて、本番は
+ * 「お申し込みを受け付けられる」状態なのに
+ * 「つながっていません。残り3か所」と出し続けていました。
+ * その3か所は全部カードの道の話で、いま要らないものです。
+ *
+ * 要らないものを「残り」に数えると、要らない手続き（カードの受付口づくり）に
+ * 人を向かわせ、いちばん大事な「1軒に送る」から目を離させます。
+ */
+test("支払いリンクが無いときは銀行振込の道で見る。置き場が使えるなら受け付けられる", () => {
+  const r = buildSignupReadiness({
+    paymentLink: null,
+    secret: { ok: false, reason: "未設定" },
+    tenants: OK_TABLE,
+    settings: OK_TABLE,
+    // 鍵は壊れている（本番のいまの状態）
+    serverKeyUsable: false,
+    // 倉庫の窓口は流れている＝お店は初回設定と入室ができる
+    tenantRpcUsable: true,
+    applicationDeliveryOk: true,
+  });
+  assert.equal(r.route, "bank");
+  assert.equal(r.ready, true);
+  assert.equal(r.todo.length, 0);
+  assert.ok(r.summary.includes("銀行振込でお申し込みを受け付けられます"));
+  // 手で行う手順は「欠けているもの」ではないので、残りに数えない
+  assert.equal(r.manual_steps.length, 2);
+  assert.ok(r.manual_steps[0].includes("keiri_tenant_create_manual"));
+  assert.ok(r.manual_steps[1].includes("お振込先"));
+});
+
+test("カードの残りは隠さない。ready には入れず card.todo に全部出す", () => {
+  const r = buildSignupReadiness({
+    paymentLink: null,
+    secret: { ok: false, reason: "未設定" },
+    tenants: OK_TABLE,
+    settings: OK_TABLE,
+    serverKeyUsable: false,
+    tenantRpcUsable: true,
+  });
+  assert.equal(r.card.ready, false);
+  // 支払いリンク・支払いの通知・行の自動づくり の3件
+  assert.equal(r.card.todo.length, 3);
+  assert.ok(r.card.todo[0].includes("NEXT_PUBLIC_KEIRI_PAYMENT_LINK"));
+  assert.ok(r.card.todo[1].includes("KEIRI_SIGNUP_WEBHOOK_SECRET"));
+  assert.ok(r.card.todo[2].includes("SUPABASE_SERVICE_ROLE_KEY"));
+  // facts（checks）は1つも隠さない
+  assert.equal(r.checks.payment_button, false);
+  assert.equal(r.checks.signup_notice, false);
+  assert.equal(r.checks.shop_create, false);
+});
+
+/**
+ * 銀行振込の道では、申し込みに気づく道は「スタッフのLINE」と「倉庫の控え」の2本だけです
+ * （カードの支払い通知が無いため）。両方死んでいると、受け付けた顔をして誰にも届きません。
+ * ここだけは、送るのを止めてもらう必要があるので赤くします。
+ */
+test("入った申し込みがどこにも届かないときは、銀行振込の道でも赤くする", () => {
+  const r = buildSignupReadiness({
+    paymentLink: null,
+    secret: { ok: true },
+    tenants: OK_TABLE,
+    settings: OK_TABLE,
+    serverKeyUsable: true,
+    applicationDeliveryOk: false,
+  });
+  assert.equal(r.route, "bank");
+  assert.equal(r.ready, false);
+  assert.equal(r.todo.length, 1);
+  assert.ok(r.todo[0].includes("どこにも届きません"));
+  assert.ok(r.todo[0].includes("1軒目に送るのは止めてください"));
+});
+
+test("調べていないとき（渡されなかったとき）は『届かない』と書かない", () => {
+  const r = buildSignupReadiness({
+    paymentLink: null,
+    secret: { ok: true },
+    tenants: OK_TABLE,
+    settings: OK_TABLE,
+    serverKeyUsable: true,
+  });
+  assert.equal(r.ready, true);
+  assert.equal(r.todo.length, 0);
+});
+
+test("支払いリンクが入った日は、これまでどおりカードの道で判定する", () => {
+  const r = buildSignupReadiness({
+    paymentLink: "https://buy.stripe.com/test_abc",
+    secret: { ok: true },
+    tenants: OK_TABLE,
+    settings: OK_TABLE,
+    serverKeyUsable: true,
+  });
+  assert.equal(r.route, "card");
+  assert.equal(r.ready, true);
+  assert.equal(r.summary, "申し込みから使い始めまで、人の手を借りずにつながっています");
+  assert.equal(r.manual_steps.length, 0);
+  assert.equal(r.card.ready, true);
 });

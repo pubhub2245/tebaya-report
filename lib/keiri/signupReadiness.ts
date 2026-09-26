@@ -1,15 +1,30 @@
 /**
- * 経理パッケージ「申し込みが入ったとき、人の手を借りずに使い始められるか」の判定。
+ * 経理パッケージ「いま、お申し込みを受け付けられるか」の判定。
  *
  * app/api/keiri/diagnose/route.ts から呼ばれます。
  * ここは通信をしません（調べた結果を受け取って、言葉に直すだけ）。
  *
- * ■ 申し込みは次の4つが全部つながって初めて成立します
- *   ① 申し込みボタン（支払いページへのリンク）が出ている
- *   ② 支払いが終わったという通知を受け取れる（合言葉が入っている）
- *   ③ お店1軒ぶんの行を作る置き場がある（keiri_tenants）
- *   ④ 初回設定を書き込む置き場がある（keiri_settings）
- *   どれか1つでも欠けると、お客さんはお金だけ払って使い始められません。
+ * ■ いま正式なお支払い方法は「銀行振込」です（2026-09-25・kp181）
+ *   カードの受付口（Stripe の支払いリンク）はまだ入れていません。
+ *   **どちらの道を通るかで、「つながっている」の意味が変わります。**
+ *
+ *   〈銀行振込の道〉支払いリンクが入っていないとき ＝ いまの本番
+ *     ① 申し込みフォームで受け取る（/keiri/apply）
+ *     ② 入った申し込みが人に届く（スタッフのLINE か 倉庫の控え）
+ *     ③④ お店の置き場と初回設定の置き場が使える（keiri_tenants／keiri_settings）
+ *     ＋ お店1軒ぶんの行づくりと、お振込先のご案内は**担当が手で行います**
+ *        （これは欠けているものではなく、この道の正しいやり方です）
+ *
+ *   〈カードの道〉支払いリンクが入ったとき
+ *     上に加えて、支払いの通知（合言葉）と、行の自動づくり（サーバー側の鍵）が要ります。
+ *
+ * ■ なぜ分けたか（2026-09-26・B）
+ *   銀行振込に決めたあとも、この判定はカードの道だけを見ていたため、
+ *   本番は**お申し込みを受け付けられる状態なのに**
+ *   「つながっていません。残り3か所」と出し続けていました。
+ *   その3か所は全部カードの道の話で、**いま要らないものです。**
+ *   実際より悪く出すと、要らない手続き（カードの受付口づくり）に人を向かわせ、
+ *   いちばん大事な「1軒に送る」から目を離させます。
  *
  * ★ 合言葉・鍵の値そのものは扱いません（設定済み／未設定だけ）。
  */
@@ -61,6 +76,16 @@ export type SignupReadinessInput = {
    *   ＝ここが true なら、鍵の貼り直し（kp55）を待たずにお店は使い始められます。
    */
   tenantRpcUsable?: boolean;
+
+  /**
+   * 入ったお申し込みが**人に届く**か（スタッフのLINE か 倉庫の控えのどちらかが生きているか）。
+   *
+   * ★銀行振込の道では、ここがいちばん大事です。カードの通知が無いぶん、
+   *   申し込みに気づく道はこれ1本だけになります。
+   *   分からないとき（渡されなかったとき）は true として扱います
+   *   ＝ 調べていないことを「壊れている」と書かないため。
+   */
+  applicationDeliveryOk?: boolean;
 };
 
 export type SignupReadiness = {
@@ -83,6 +108,25 @@ export type SignupReadiness = {
     shop_create: boolean;
   };
   todo: string[];
+
+  /**
+   * いま正式なお支払い方法。"bank"＝銀行振込（kp181）／"card"＝カードでその場で払える。
+   * 支払いリンクが入った瞬間に "card" に変わります（ここを誰かが直す必要はありません）。
+   */
+  route: "bank" | "card";
+
+  /**
+   * 担当が手で行う手順。**欠けているものではありません**（銀行振込の道の正しいやり方）。
+   * カードの道では空になります。
+   */
+  manual_steps: string[];
+
+  /**
+   * カードでその場で払えるようにしたいときの残り。
+   * ★ready の判定には入れません（いまのお支払い方法は銀行振込なので、
+   *   ここが空でなくてもお申し込みは受け付けられます）。
+   */
+  card: { ready: boolean; todo: string[] };
 };
 
 export function buildSignupReadiness(input: SignupReadinessInput): SignupReadiness {
@@ -90,6 +134,14 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
   // 合鍵が生きている か、倉庫の窓口がある。どちらかあればお店は進める
   const tenantAccessOk = serverKeyUsable || input.tenantRpcUsable === true;
   const hasButton = !!paymentLink;
+  // ★支払いリンクが入っているかが、そのまま「どちらの道か」になります。
+  //   入っていない＝銀行振込の道（いまの本番）。入った＝カードの道。
+  //   lib/keiri/caseNumbers.ts の cardPaymentLive() と同じ見方です。
+  const route: "bank" | "card" = hasButton ? "card" : "bank";
+  const deliveryOk = input.applicationDeliveryOk !== false;
+  // カードの道のための残り（銀行振込の道では ready の判定に入れない）
+  const cardSetupTodo: string[] = [];
+  const shopCreateTodo: string[] = [];
   const todo: string[] = [];
 
   // ★鍵が使えないときは、読めていても「つながっている」とは言わない（安全側に倒す）
@@ -111,13 +163,13 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
     : { ok: false, reason: input.settings.reason ?? keyReason };
 
   if (!hasButton) {
-    todo.push(
+    cardSetupTodo.push(
       `申し込みボタンが出ていません。Vercel の環境変数 ${paymentLinkEnvName()} に、いまの価格（${priceLabel()}）の支払いリンクを入れてください。` +
         "※ 名前に金額が入っています。値上げしたときは、新しい金額で支払いリンクを作り直してこの名前で登録してください（前の金額のリンクは自動で使われなくなります）",
     );
   }
   if (!secret.ok) {
-    todo.push(
+    cardSetupTodo.push(
       secret.reason === "未設定"
         ? `支払いが終わった通知を受け取れません。Stripe で通知先（Webhook）を ${STRIPE_MANUAL_SETUP.webhookUrl} に登録し、出てきた合言葉を Vercel の環境変数 KEIRI_SIGNUP_WEBHOOK_SECRET に入れてください`
         : "KEIRI_SIGNUP_WEBHOOK_SECRET に全角などの使えない文字が入っています（貼り直してください）",
@@ -125,6 +177,19 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
   }
   if (!tenants.ok) todo.push(`お店の置き場（keiri_tenants）：${tenants.reason}`);
   if (!settings.ok) todo.push(`初回設定の置き場（keiri_settings）：${settings.reason}`);
+
+  /*
+   * ★銀行振込の道では、申し込みに気づく道は「スタッフのLINE」と「倉庫の控え」だけです
+   *   （カードの支払い通知が無いため）。その両方が死んでいると、
+   *   お申し込みは受け付けた顔をして誰にも届きません。ここは赤くします。
+   */
+  if (!deliveryOk) {
+    todo.push(
+      "入ったお申し込みが、どこにも届きません（スタッフのLINEも、倉庫の控えも通りませんでした）。" +
+        "**これが直るまで、1軒目に送るのは止めてください。**" +
+        "詳しい理由は、この画面の application_delivery をご覧ください",
+    );
+  }
 
   /*
    * ★2026-09-24（kp144）：窓口があっても、**お店1軒ぶんの行を作ることはできません。**
@@ -155,7 +220,7 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
    */
   const canCreateShop = serverKeyUsable;
   if (!canCreateShop && tenantAccessOk) {
-    todo.push(
+    shopCreateTodo.push(
       "お申し込みが決まっても、お店1軒ぶんの行（keiri_tenants）を**自動では作れません**。" +
         "倉庫の窓口が代わりにやってくれるのは「初回設定」と「合言葉での入室」の2つだけで、" +
         "行を作るのはサーバー側の鍵（SUPABASE_SERVICE_ROLE_KEY）だけです。" +
@@ -169,13 +234,55 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
     );
   }
 
-  const ready = hasButton && secret.ok && tenants.ok && settings.ok && canCreateShop;
+  /*
+   * ★ここが 2026-09-26（B）で変えた所です。
+   *
+   *   これまでは、カードの道がそろっているかだけで ready を決めていました。
+   *   いまのお支払い方法は**銀行振込**なので、カードの3か所（支払いリンク・支払いの通知・
+   *   行の自動づくり）は**いま要らないもの**です。要らないものを「残り」に数えると、
+   *   本番は受け付けられる状態なのに「つながっていません」と出続けます。
+   *
+   *   そこで、通る道で判定します。**どちらの道でも、facts（checks）は1つも隠しません。**
+   *   カードの残りは card.todo に、そのまま全部出します。
+   */
+  // カードの道がそろっているか（銀行振込の道でも、参考としてそのまま出す）
+  const cardReady = hasButton && secret.ok && tenants.ok && settings.ok && canCreateShop;
+  const cardTodo = [...cardSetupTodo, ...shopCreateTodo];
+
+  // 銀行振込の道：受け口（置き場）が使えて、入った申し込みが人に届けば受け付けられる
+  const bankReady = tenants.ok && settings.ok && deliveryOk;
+
+  const activeTodo =
+    route === "card" ? [...cardSetupTodo, ...todo, ...shopCreateTodo] : todo;
+  const ready = route === "card" ? cardReady : bankReady;
+
+  /*
+   * 担当が手で行う手順。**欠けているものではありません。**
+   * 銀行振込の道では、これが正しいやり方です（ここを「残り」に数えない）。
+   */
+  const manualSteps =
+    route === "bank"
+      ? [
+          "お申し込みが決まったら、倉庫の SQL Editor で " +
+            "select * from public.keiri_tenant_create_manual('お店の名前'); を1行流します" +
+            "（そのお店の初回設定リンクが1本出ます。手順は " +
+            "supabase/migrations/keiri_tenant_create_manual.sql の方法A）",
+          "お振込先は、担当がいただいたメールアドレスへご案内します" +
+            "（公開ページには口座を書きません）",
+        ]
+      : [];
+
+  const summary = ready
+    ? route === "card"
+      ? "申し込みから使い始めまで、人の手を借りずにつながっています"
+      : "銀行振込でお申し込みを受け付けられます" +
+        "（お店1軒ぶんの用意とお振込先のご案内は、担当が行います）"
+    : `つながっていません。残り ${activeTodo.length} か所`;
 
   return {
     ready,
-    summary: ready
-      ? "申し込みから使い始めまで、人の手を借りずにつながっています"
-      : `つながっていません。残り ${todo.length} か所`,
+    summary,
+    route,
     checks: {
       payment_button: hasButton,
       signup_notice: secret.ok,
@@ -183,7 +290,9 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
       settings_table: settings.ok,
       shop_create: canCreateShop,
     },
-    todo,
+    todo: activeTodo,
+    manual_steps: manualSteps,
+    card: { ready: cardReady, todo: cardTodo },
   };
 }
 
