@@ -350,12 +350,17 @@ export async function GET() {
     serverKeyUsable: serverKey.usable,
     // ★ただし倉庫の窓口があれば、鍵が壊れていても進める（kp93）
     tenantRpcUsable: tenantRpc.usable,
+    // ★銀行振込の道では、申し込みに気づく道はLINEと控えだけ（2026-09-26・B）
+    applicationDeliveryOk: delivery.ok,
   });
 
   return NextResponse.json({
     ...readiness,
     // ★ Stripe 側の「支払いのあとの戻り先」はここからは見えません。
     //    人が Stripe の画面で1回だけ設定します（下の値のとおりに）。
+    //    ★2026-09-26（B）：いまのお支払い方法は銀行振込なので、ここは
+    //      「カードでも払えるようにしたくなった日」のための控えです。
+    //      上の ready の判定には入っていません（readiness.card に分けてあります）。
     manual_check: {
       stripe_return_url: STRIPE_MANUAL_SETUP.returnUrl,
       stripe_webhook_url: STRIPE_MANUAL_SETUP.webhookUrl,
