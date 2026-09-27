@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 import {
   KEIRI_APPLY_OPTIONAL_FIELDS,
   KEIRI_APPLY_REQUIRED_FIELDS,
+  KEIRI_FIRST_MONTH,
   KEIRI_MONTHLY_CLOSE_TIMING,
   KEIRI_OFFER_ITEMS,
   KEIRI_OFFER_NOT_INCLUDED,
@@ -241,5 +242,50 @@ test("紹介ページの答えは、よくある質問の文をそのまま使�
   for (const f of keiriCaseFaq()) {
     const src = KEIRI_FAQ.find((x) => x.q === f.q)!;
     assert.equal(f.a, src.a, "答えの文が食い違っている: " + f.q);
+  }
+});
+
+// ============================================================
+// 始めてからの最初の1か月（kp190）
+// ============================================================
+test("「最初の1か月」は3行あり、札も中身も空でない", () => {
+  assert.equal(KEIRI_FIRST_MONTH.length, 3);
+  for (const f of KEIRI_FIRST_MONTH) {
+    assert.ok(f.label.length > 0, "札が空");
+    assert.ok(f.body.length > 0, "中身が空");
+  }
+});
+
+test("「最初の1か月」に金額を書き写さない（値段は caseNumbers.ts が唯一の正）", () => {
+  for (const f of KEIRI_FIRST_MONTH) {
+    assert.ok(
+      !/[0-9０-９][0-9０-９,，]*\s*円/.test(f.body + f.label),
+      "金額が直書きされている: " + f.label,
+    );
+  }
+});
+
+test("「最初の1か月」は、渡すもの・こちらの手・見え始める日の3つをこの順で書く", () => {
+  const [give, ours, when] = KEIRI_FIRST_MONTH;
+  assert.ok(give.body.includes("日報"), "渡すものに日報が書かれていない");
+  assert.ok(give.body.includes("レシート"), "渡すものにレシートが書かれていない");
+  assert.ok(
+    /ご用意いただく必要はありません|要りません/.test(give.body),
+    "「書類はいらない」と書かれていない（ここが止まる理由になる）",
+  );
+  assert.ok(ours.body.includes("締め"), "こちらがやることに月末の締めが書かれていない");
+  assert.ok(ours.body.includes("CSV"), "こちらがやることにCSVが書かれていない");
+  assert.ok(when.label.includes("数字"), "3つ目が「いつから見えるか」になっていない");
+  assert.ok(
+    when.body.includes("その日"),
+    "いつから数字が見えるかが書かれていない（申し込みの手前でいちばん効く1行）",
+  );
+});
+
+test("紹介ページは「最初の1か月」を共通の定義から出している（直書きしない）", () => {
+  const src = readFileSync(new URL("../app/keiri/case/page.tsx", import.meta.url), "utf8");
+  assert.ok(src.includes("KEIRI_FIRST_MONTH"), "紹介ページが共通の定義を使っていない");
+  for (const f of KEIRI_FIRST_MONTH) {
+    assert.ok(!src.includes(f.body), "紹介ページに中身が直書きされている: " + f.label);
   }
 });
