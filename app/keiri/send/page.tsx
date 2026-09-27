@@ -109,6 +109,24 @@ export default function KeiriSendPage() {
         <p className="text-xs text-stone-500 break-all">{OUTREACH_LINK}</p>
       </section>
 
+      {/* ★送らないで済む道への入口（kp191）。
+          じゅんは出店先で同業の店主と毎回顔を合わせます。そのときは
+          「送る文」ではなく、立ち話のあいだスマホを差し出すだけの1枚が要る。
+          探さなくていいように、送る1枚の中に1行だけ置く。 */}
+      <section className="rounded-2xl border border-stone-200 bg-white p-3 space-y-2">
+        <h2 className="text-sm font-bold text-stone-900">出店先で会ったときは、送らずに見せる</h2>
+        <p className="text-xs text-stone-700 leading-relaxed">
+          隣に出ている方と話しているときは、これを開いて<strong>見せるだけ</strong>で済みます
+          （3画面・送信も返事待ちもありません）。相手のスマホでQRを読み取っていただければ持ち帰れます。
+        </p>
+        <Link
+          href="/keiri/show"
+          className="inline-flex min-h-11 items-center rounded-xl border border-stone-300 bg-white px-3 text-sm font-bold text-stone-900 hover:bg-stone-100 transition"
+        >
+          その場で見せる1枚を開く
+        </Link>
+      </section>
+
       {/* ★送ったあとの取りこぼしを止める（kp167）。
           この1枚から送ると、返事が来たときの決めごとが どこにも書いていなかった。
           いちばん高くつく間違いは「古い値段の支払いリンクを自分で貼ってしまう」こと。 */}
