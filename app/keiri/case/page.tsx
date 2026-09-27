@@ -16,6 +16,7 @@ import { KEIRI_COMPANY } from "@/lib/keiri/legal";
 import { paymentHandoffLine, paymentNoticeLine } from "@/lib/keiri/payment";
 import { keiriContactMailto } from "@/lib/keiri/apply";
 import {
+  KEIRI_FIRST_MONTH,
   KEIRI_OFFER_ITEMS,
   KEIRI_OFFER_NOT_INCLUDED,
   KEIRI_TOP_LINES,
@@ -302,6 +303,24 @@ export default async function KeiriCasePage() {
             </li>
           ))}
         </ol>
+      </section>
+
+      {/* ---------- 始めてからの最初の1か月（kp190） ---------- */}
+      {/* ★送られた店主がいちばん知りたいのは値段ではなく
+            「自分は何を渡せばよくて、いつから数字が見えるのか」。
+            「毎日やること」（手順）の直後に、3行だけ置く。
+            文言は lib/keiri/offer.ts からだけ引く（ここに約束を直書きしない）。
+            金額は1つも出さない（値段は caseNumbers.ts が唯一の正）。 */}
+      <section className="mb-10 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+        <h2 className="text-lg font-bold text-stone-900">始めてからの、最初の1か月</h2>
+        <dl className="mt-4 space-y-4">
+          {KEIRI_FIRST_MONTH.map((f) => (
+            <div key={f.label}>
+              <dt className="text-sm font-bold text-amber-800">{f.label}</dt>
+              <dd className="mt-1 text-sm text-stone-600 leading-relaxed">{f.body}</dd>
+            </div>
+          ))}
+        </dl>
       </section>
 
       {/* ---------- 向いているお店 ---------- */}
