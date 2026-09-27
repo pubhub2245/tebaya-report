@@ -11,7 +11,7 @@ import { useEffect } from "react";
  *
  * ■ 送らないもの
  *   IPアドレス・ブラウザの種類・お客さんを見分ける印は送らない。
- *   送るのは「サイト名・ページの場所・合言葉（utm_campaign）・来た元のドメイン」だけ。
+ *   送るのは「サイト名・ページの場所・合言葉（utm_campaign または from）・来た元のドメイン」だけ。
  *
  * ■ 失敗しても何も起きない
  *   受け口が落ちていても、ページの表示はまったく変わらない。
@@ -34,9 +34,12 @@ export default function VisitBeacon({
       const path = window.location.pathname;
       if (only && !only.includes(path)) return;
 
-      const campaign = new URLSearchParams(window.location.search).get(
-        "utm_campaign",
-      );
+      // 合言葉は2通りの書き方を受ける。
+      // ・utm_campaign … SNS・メールのふつうの書き方
+      // ・from … 紙の札のQR（/keiri/card）のような、人が目にする短い書き方。
+      //   紙は住所ごと読まれるので、長い utm_campaign は刷りたくない（kp193）。
+      const params = new URLSearchParams(window.location.search);
+      const campaign = params.get("utm_campaign") ?? params.get("from");
 
       const body = JSON.stringify({
         site,
