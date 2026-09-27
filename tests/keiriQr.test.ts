@@ -26,6 +26,7 @@ import {
   qrModulePositions,
 } from "../lib/keiri/qr";
 import { SHOW_TAKEAWAY_URL } from "../lib/keiri/show";
+import { CARD_TAKEAWAY_URL } from "../lib/keiri/card";
 
 /**
  * ご案内ページの住所は第4型（33ます）になる。その型の「そろえ用の目印」の中心。
@@ -101,6 +102,8 @@ function decode(matrix: boolean[][]): string {
 test("① 作ったQRを読み戻すと、元の住所にちょうど戻る", () => {
   const samples = [
     SHOW_TAKEAWAY_URL,
+    // 紙の札（/keiri/card）のQR。合言葉（?from=card）が付くぶん型が1つ上がる
+    CARD_TAKEAWAY_URL,
     "https://example.com",
     // 第6型（108文字）いっぱいに近い長さ。型が上がっても崩れないことを見る
     `${SHOW_TAKEAWAY_URL}?${"a".repeat(60)}`,

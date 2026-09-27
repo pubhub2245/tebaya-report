@@ -127,6 +127,24 @@ export default function KeiriSendPage() {
         </Link>
       </section>
 
+      {/* ★声をかけられなくても届く道への入口（kp193）。
+          「見せる1枚」は立ち話になったときだけ届きます。紙なら、レジ横に
+          1枚置いたその1回で、その日その場にいる人の目に入ります。
+          探さなくていいように、ここに1行だけ置く。 */}
+      <section className="rounded-2xl border border-stone-200 bg-white p-3 space-y-2">
+        <h2 className="text-sm font-bold text-stone-900">出店の日は、置いておくだけでも届く</h2>
+        <p className="text-xs text-stone-700 leading-relaxed">
+          A4の紙1枚に、名刺より少し大きい札が<strong>4枚</strong>並びます。印刷して薄い線で切り、
+          レジ横に1枚置くだけです（声をかける必要も、返事を待つ必要もありません）。
+        </p>
+        <Link
+          href="/keiri/card"
+          className="inline-flex min-h-11 items-center rounded-xl border border-stone-300 bg-white px-3 text-sm font-bold text-stone-900 hover:bg-stone-100 transition"
+        >
+          置いておく紙を印刷する
+        </Link>
+      </section>
+
       {/* ★送ったあとの取りこぼしを止める（kp167）。
           この1枚から送ると、返事が来たときの決めごとが どこにも書いていなかった。
           いちばん高くつく間違いは「古い値段の支払いリンクを自分で貼ってしまう」こと。 */}
