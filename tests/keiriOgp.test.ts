@@ -53,7 +53,8 @@ test("外向きページは1つ残らず、自分の題名のカードを持っ�
   // 外向きではない画面（カードが要らない画面）だけ、ここで外す。
   //   welcome / advances … 申し込んだお店の人だけが使う画面
   //   send … じゅんだけが開く「送る1枚」（noindex・sitemap にも載せない・kp162）
-  const skip = new Set(["welcome", "advances", "components", "send"]);
+  //   show … じゅんだけが開く「その場で見せる1枚」（noindex・sitemap にも載せない・kp191）
+  const skip = new Set(["welcome", "advances", "components", "send", "show"]);
   const missing: string[] = [];
   const walk = (d: string, rel: string) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
