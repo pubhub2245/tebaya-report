@@ -141,9 +141,12 @@ test("紹介ページの一番上の枠から、申し込みフォームへ行�
   assert.ok(heroEnd > heroStart, "一番上の枠の終わりが見つかりません");
   const hero = src.slice(heroStart, heroEnd);
 
+  // ★2026-09-28（kp196）：行き先は同じ画面の入力欄（#apply）でもよい。
+  //   入力欄がページの中に来た（kp194）ので、別の画面へ移すほうがむしろ手が止まる。
+  //   守るのは「一番上の枠から申し込みへ行ける」ことで、行き先がどちらかではない。
   assert.ok(
-    hero.includes('href="/keiri/apply"'),
-    "一番上の枠から申し込みフォーム（/keiri/apply）へ行けなくなっています",
+    hero.includes('href="#apply"') || hero.includes('href="/keiri/apply"'),
+    "一番上の枠から申し込み（同じ画面の #apply か /keiri/apply）へ行けなくなっています",
   );
   assert.ok(
     hero.includes("まず触ってみる"),
@@ -228,8 +231,9 @@ test("見本の直後に、お申し込みへの道が1本ある（kp142）", ()
   assert.ok(sectionEnd > noticeAt, "見本のかたまりの終わりが見つかりません");
   const tail = src.slice(noticeAt, sectionEnd);
 
+  // ★2026-09-28（kp196）：行き先は同じ画面の入力欄（#apply）でもよい。
   assert.ok(
-    tail.includes('href="/keiri/apply"'),
+    tail.includes('href="#apply"') || tail.includes('href="/keiri/apply"'),
     "見本を読み終えた所に、お申し込みへのリンクを残してください（消すと押せる所が7画面ぶん空きます）",
   );
   // お試し版（/keiri/demo）と同じ言い方にそろえる（2か所で違うことを言わない）
@@ -290,5 +294,42 @@ test("紹介ページの中に、そのまま送れる入力欄がある（kp194
   assert.ok(
     fs.existsSync(path.join(process.cwd(), "app", "keiri", "apply", "page.tsx")),
     "/keiri/apply は残してください",
+  );
+});
+
+/**
+ * 紹介ページの中の「申し込む」は、別の画面へ移さないこと（kp196）。
+ *
+ * 2026-09-28 に入力欄をこのページの中に置いた（kp194）のに、
+ * ページの中でいちばん押されやすい［申し込む］だけが別の画面（/keiri/apply）へ
+ * 移ったままだった。それでは「画面が変わるところで手が止まる」のを消せていない。
+ *
+ * ★/keiri/apply のページ自体は残す（紙・検索から直接そこへ来る人がいる）。
+ *   守るのは「紹介ページの中の押し所は、同じ画面の入力欄（#apply）へ動くだけ」であること。
+ * ★同じ画面の中で動くだけなので、紙から来た人の合言葉（?from=card）も消えない。
+ */
+test("紹介ページの中の申し込み口は、別の画面へ移さない（kp196）", () => {
+  const src = fs.readFileSync(
+    path.join(process.cwd(), "app", "keiri", "case", "page.tsx"),
+    "utf8",
+  );
+
+  assert.ok(
+    !src.includes('href="/keiri/apply"'),
+    "紹介ページの中に、別の画面（/keiri/apply）へ移すリンクが残っています",
+  );
+  assert.ok(
+    src.includes('id="apply"'),
+    "同じ画面の入力欄の目印（id=\"apply\"）が見つかりません",
+  );
+  // 上・見本のあと・価格 の3か所から、同じ画面の入力欄へ行けること
+  assert.ok(
+    src.split('href="#apply"').length - 1 >= 3,
+    "同じ画面の入力欄へ向かう押し所が3か所より少なくなっています",
+  );
+  // 飛んだ先で見出しが画面の縁に貼り付かないための余白
+  assert.ok(
+    src.includes("scroll-mt-"),
+    "飛んできたときの余白（scroll-mt-）を残してください",
   );
 });
