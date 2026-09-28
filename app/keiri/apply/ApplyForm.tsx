@@ -15,6 +15,19 @@ import { KEIRI_APPLY_LIMITS, keiriApplyMailto } from "@/lib/keiri/apply";
  * ★お金のやり取りはここではしない（カード番号は入れてもらわない）。
  */
 
+/**
+ * いま開いている住所から「どこから来たか」の合言葉を読む（?from=card / ?utm_campaign=…）。
+ * 読めないときは null（申し込みそのものは今までどおり通る）。
+ */
+function readCampaign(): string | null {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("utm_campaign") ?? params.get("from");
+  } catch {
+    return null;
+  }
+}
+
 const LABEL = "block text-sm font-bold text-stone-700";
 const INPUT =
   "mt-1 w-full h-12 rounded-xl border border-stone-300 px-3 text-base text-stone-900 " +
@@ -91,6 +104,10 @@ export default function ApplyForm({
           phone: f.get("phone"),
           note: f.get("note"),
           website: f.get("website"),
+          // ★どこから来た申し込みかを一緒に送る（2026-09-28・kp194）。
+          //   紙の札のQR（?from=card）から来たのかを、あとから見分けるため。
+          //   訪問の数え方（VisitBeacon）と同じ2通りの書き方を受ける。
+          campaign: readCampaign(),
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {

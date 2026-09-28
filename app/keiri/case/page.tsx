@@ -13,13 +13,21 @@ import {
 import { getCaseStats } from "@/lib/keiri/caseStats";
 import { getCaseUsage } from "@/lib/keiri/caseUsage";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
-import { paymentHandoffLine, paymentNoticeLine } from "@/lib/keiri/payment";
+import {
+  paymentAfterApplyLine,
+  paymentApplyLine,
+  paymentHandoffLine,
+  paymentNoticeLine,
+} from "@/lib/keiri/payment";
+import ApplyForm from "@/app/keiri/apply/ApplyForm";
 import { keiriContactMailto } from "@/lib/keiri/apply";
 import {
   KEIRI_FIRST_MONTH,
   KEIRI_OFFER_ITEMS,
   KEIRI_OFFER_NOT_INCLUDED,
   KEIRI_TOP_LINES,
+  keiriApplyOptionalLine,
+  keiriApplyRequiredLine,
   keiriStartSteps,
 } from "@/lib/keiri/offer";
 import {
@@ -594,6 +602,59 @@ export default async function KeiriCasePage() {
             特定商取引法に基づく表記・会社概要
           </Link>
           （だれが売っているか・解約と返金の条件）
+        </p>
+      </section>
+
+      {/* ---------- このページのまま申し込む（kp194） ---------- */}
+      {/* ★なぜ入力欄をここに置くか（2026-09-28・司令室 kp194）
+            9/27 の夜、紙の札（/keiri/card）のQRからこのページが3回読まれたが、
+            申し込みは0件だった。それまでは、読み終わったあとに
+            もう1回ボタンを押して**別の画面**（/keiri/apply）へ移る必要があり、
+            紙や立ち話でその場に見せる場面では、画面が変わるところで手が止まる。
+            そこで、同じ画面のまま送れるようにする。
+          ★/keiri/apply はそのまま残す（カード以外での支払い・検索から直接来る人のため）。
+          ★入力欄・必須の数・値段・解約の言い方は /keiri/apply と**同じ1本**から出す。
+            書き写すと、片方だけ直したときに食い違う。 */}
+      <section id="apply" className="mb-10 rounded-2xl border border-stone-200 bg-white p-5">
+        <h2 className="text-lg font-bold text-stone-900">このまま申し込む</h2>
+        <p className="mt-2 text-sm text-stone-600 leading-relaxed">
+          {keiriApplyRequiredLine()}
+          {keiriApplyOptionalLine()}
+          いただいたメールアドレスへ、担当からご連絡します。
+          <strong className="font-bold">この画面ではお支払いは発生しません。</strong>
+          {paymentApplyLine(cardLive)}
+        </p>
+
+        {/* ★入力欄は JavaScript で送る作りなので、それが動かない環境では使えない。
+              黙って使えないのが一番まずいので、その場合の宛先をここに出しておく。 */}
+        <noscript>
+          <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-stone-800 leading-relaxed">
+            このブラウザでは入力欄をお使いいただけません。お手数ですが{" "}
+            <a
+              href={keiriContactMailto({ to: KEIRI_COMPANY.email }).url}
+              className="underline font-bold"
+            >
+              {KEIRI_COMPANY.email}
+            </a>{" "}
+            まで、お店の名前・お名前・ご連絡先をお送りください。
+          </div>
+        </noscript>
+
+        <div className="mt-5">
+          <ApplyForm
+            email={KEIRI_COMPANY.email}
+            tel={KEIRI_COMPANY.tel}
+            paymentLine={paymentApplyLine(cardLive)}
+            afterApplyLine={paymentAfterApplyLine(cardLive)}
+          />
+        </div>
+
+        <p className="mt-4 text-xs text-stone-500 leading-relaxed">
+          初期費用はかかりません。{cancelLongLabel(cardLive)}。詳しくは{" "}
+          <Link href="/keiri/legal" className="underline">
+            特定商取引法に基づく表記
+          </Link>
+          をご覧ください。税務の個別のご判断は行いません。
         </p>
       </section>
 

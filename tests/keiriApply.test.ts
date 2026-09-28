@@ -128,6 +128,7 @@ test("知らせの本文に、折り返しに要るものが全部入ってい�
       email: "you@example.com",
       phone: "090-0000-0000",
       note: "月末の締めが大変です",
+      campaign: null,
     },
     priceLabel: "月額15,000円（税込）／1店舗",
     at: new Date("2026-09-19T01:34:00+09:00"),
@@ -151,6 +152,7 @@ test("任意の欄が無いときは、その行を出さない（空の行を�
       email: "a@b.jp",
       phone: null,
       note: null,
+      campaign: null,
     },
     priceLabel: "月額15,000円（税込）／1店舗",
   });
@@ -310,4 +312,90 @@ test("SQL：申し込みの棚は、外から来る人に『入れる』以外�
       assert.ok(!sql.includes(table), `${file} が ${table} に触れています`);
     }
   }
+});
+
+/**
+ * どこから来た申し込みかを、記録に一緒に残す（2026-09-28・司令室 kp194）。
+ *
+ * ■ なぜ要るか
+ *   紙の札（/keiri/card）のQRには合言葉（?from=card）が付いている。
+ *   申し込みの控えにも同じ合言葉が残らないと、
+ *   「紙を置いたことが申し込みにつながったのか」があとから分からない。
+ *
+ * ■ ここで必ず守ること
+ *   倉庫の「どこから来たか」の欄（source）は **'form' のまま**にする。
+ *   あの欄は入れてよい中身が 'form' だけに絞られていて（RLS）、
+ *   変えると申し込みそのものが断られる。合言葉は「ひとこと」に1行として残す。
+ */
+test("合言葉（?from=card）は申し込みの記録に残る（kp194）", () => {
+  const r = normalizeKeiriApplication({
+    shopName: "A店",
+    contactName: "山田",
+    email: "a@b.jp",
+    note: "月末の締めが大変です",
+    campaign: "card",
+  });
+  assert.equal(r.ok, true);
+  if (!r.ok || r.spam) throw new Error("受け取れていません");
+  assert.equal(r.value.campaign, "card");
+  assert.ok(r.value.note?.includes("月末の締めが大変です"));
+  assert.ok(r.value.note?.includes("［どこから：card］"));
+});
+
+test("ひとことが空でも合言葉だけは残る。合言葉が無ければ今までどおり（kp194）", () => {
+  const withMark = normalizeKeiriApplication({
+    shopName: "A店",
+    contactName: "山田",
+    email: "a@b.jp",
+    campaign: "card",
+  });
+  if (!withMark.ok || withMark.spam) throw new Error("受け取れていません");
+  assert.equal(withMark.value.note, "［どこから：card］");
+
+  const plain = normalizeKeiriApplication({
+    shopName: "A店",
+    contactName: "山田",
+    email: "a@b.jp",
+  });
+  if (!plain.ok || plain.spam) throw new Error("受け取れていません");
+  assert.equal(plain.value.note, null);
+  assert.equal(plain.value.campaign, null);
+});
+
+test("合言葉に余分な記号が付いてきても、同じ合言葉として残る（kp195と対）", () => {
+  const r = normalizeKeiriApplication({
+    shopName: "A店",
+    contactName: "山田",
+    email: "a@b.jp",
+    campaign: "card`",
+  });
+  if (!r.ok || r.spam) throw new Error("受け取れていません");
+  assert.equal(r.value.campaign, "card");
+});
+
+test("知らせの本文では、どこから来たかを1行で出し、ひとことに重ねない（kp194）", () => {
+  const text = keiriApplyNotificationText({
+    application: {
+      shop_name: "A店",
+      contact_name: "山田",
+      email: "a@b.jp",
+      phone: null,
+      note: "月末の締めが大変です\n［どこから：card］",
+      campaign: "card",
+    },
+    priceLabel: "月額15,000円（税込）／1店舗",
+    at: new Date("2026-09-28T18:34:00+09:00"),
+  });
+  assert.ok(text.includes("どこから：card"));
+  assert.ok(text.includes("ひとこと：月末の締めが大変です"));
+  // 同じことを2回言わない
+  assert.equal(text.split("［どこから：card］").length - 1, 0);
+});
+
+test("倉庫に入れるときの「どこから来たか」の欄は form のまま（変えると申し込みが断られる）", () => {
+  const route = readFileSync("app/api/keiri/apply/route.ts", "utf8");
+  assert.ok(
+    route.includes('source: "form"'),
+    "source は 'form' のままにしてください（棚の決まりが form だけを通します）",
+  );
 });
