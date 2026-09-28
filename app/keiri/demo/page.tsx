@@ -5,6 +5,12 @@ import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/componen
 import { keiriMetadata } from "@/lib/keiri/metadata";
 import { cardCheckoutLive, priceSummaryLine } from "@/lib/keiri/caseNumbers";
 import { DEMO_SHOP_NAME, demoTodayJst } from "@/lib/keiri/demo";
+import {
+  TRIAL_APPLY_HREF,
+  TRIAL_CTA_LABEL,
+  TRIAL_CTA_NOTE,
+  TRIAL_STICKY_LEAD,
+} from "@/lib/keiri/trial";
 import DemoBoard from "./board";
 
 /**
@@ -45,7 +51,7 @@ export default function KeiriDemoPage() {
   const ym = today.slice(0, 7);
 
   return (
-    <main className="max-w-2xl mx-auto px-4 py-10 min-h-screen">
+    <main className="max-w-2xl mx-auto px-4 pt-10 pb-32 min-h-screen">
       <KeiriBreadcrumb items={[{ name: "経理パッケージ", href: "/keiri/case" }, { name: "お試し版" }]} />
 
       <header className="mb-8">
@@ -80,16 +86,15 @@ export default function KeiriDemoPage() {
         {/* ★もう決めている人のための近道（kp134）。
              知り合いからの紹介で開いた人は、読むより先に申し込みたいことがある。
              主役は下の「触ってみる本体」のままにして、こちらは控えめな枠線のリンク。
-             新しい約束はしない（行き先は下の申し込み枠と同じ /keiri/apply）。 */}
+             ★2026-09-28（kp199）：行き先を「別の画面（/keiri/apply）」から
+             **ご案内ページの入力欄そのもの**（/keiri/case?from=trial#apply）に変えた。 */}
         <Link
-          href="/keiri/apply"
+          href={TRIAL_APPLY_HREF}
           className="mt-5 block w-full rounded-xl border border-amber-400 bg-white px-4 py-3 text-center text-sm font-bold text-amber-800 hover:bg-amber-50"
         >
-          もうお決まりの方は、お申し込みへ進む
+          もうお決まりの方は、{TRIAL_CTA_LABEL}
         </Link>
-        <p className="mt-2 text-center text-xs text-stone-500">
-          この画面でお支払いは発生しません。
-        </p>
+        <p className="mt-2 text-center text-xs text-stone-500">{TRIAL_CTA_NOTE}</p>
       </header>
 
       <DemoBoard ym={ym} today={today} />
@@ -139,6 +144,27 @@ export default function KeiriDemoPage() {
 
       <KeiriRelated current="/keiri/demo" />
       <KeiriFooter />
+
+      {/* ★画面の下に貼り付く1本（2026-09-28・kp199）。
+           お試しの画面は縦に長く、触っている途中で「いいな」と思っても
+           そこから申し込みに戻る道が1つもなかった。
+           ・行き先は lib/keiri/trial.ts の1か所からだけ読む（住所をここに書かない）
+           ・値段の言い方は caseNumbers.ts が出す1行をそのまま使う（金額を直書きしない）
+           ・JavaScript が動かなくても出る（ふつうの CSS の貼り付きだけで作っている） */}
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-amber-200 bg-white/95 px-4 py-3 shadow-[0_-2px_10px_rgba(0,0,0,0.06)] backdrop-blur">
+        <div className="mx-auto flex max-w-2xl items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs text-stone-500">{TRIAL_STICKY_LEAD}</p>
+            <p className="truncate text-xs text-stone-700">{priceSummaryLine(cardCheckoutLive())}</p>
+          </div>
+          <Link
+            href={TRIAL_APPLY_HREF}
+            className="flex-none rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-white hover:bg-amber-600"
+          >
+            {TRIAL_CTA_LABEL}
+          </Link>
+        </div>
+      </div>
     </main>
   );
 }

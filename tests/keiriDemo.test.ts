@@ -38,6 +38,7 @@ import {
   toCsv,
 } from "../lib/keiri";
 import { MF_HEADERS, toMoneyForwardCsv } from "../lib/keiri/moneyforward";
+import { TRIAL_CTA_NOTE } from "../lib/keiri/trial";
 import { GENERIC_TEMPLATE } from "../lib/keiri/templates/generic";
 import { KEIRI_PUBLIC_PAGES } from "../app/keiri/components/nav";
 
@@ -413,12 +414,14 @@ test("お試し版の1画面目（見出しのすぐ下）から、お申し込�
   const headerEnd = page.indexOf("</header>");
   assert.ok(headerEnd > 0, "見出しの範囲が取れていない");
   const header = page.slice(0, headerEnd);
+  // ★2026-09-28（kp199）：行き先を「別の画面（/keiri/apply）」から
+  //   ご案内ページの入力欄そのもの（lib/keiri/trial.ts の TRIAL_APPLY_HREF）に変えた。
   assert.ok(
-    header.includes('href="/keiri/apply"'),
+    header.includes("TRIAL_APPLY_HREF"),
     "お試し版の1画面目（見出しの中）に、お申し込みへの入口が無い",
   );
   assert.ok(
-    header.includes("もうお決まりの方は、お申し込みへ進む"),
+    header.includes("もうお決まりの方は、"),
     "もう決めている人のための近道の文が無い",
   );
 });
@@ -432,7 +435,7 @@ test("CSVを書き出すボタンのすぐ下に、お申し込みへの入口�
   assert.ok(nextSectionAt > buttonAt, "CSVの節の終わりが見つからない");
   const csvSection = board.slice(buttonAt, nextSectionAt);
   assert.ok(
-    csvSection.includes('href="/keiri/apply"'),
+    csvSection.includes("TRIAL_APPLY_HREF"),
     "CSVを書き出した直後に、お申し込みへの入口が無い",
   );
   assert.ok(
@@ -460,9 +463,16 @@ test("お試し版に足した入口は、新しい約束も新しい価格も�
   // お支払いが発生しない旨は、入口のそばに必ず添える（紹介ページと同じ書き方）
   const page = fs.readFileSync(path.join(DEMO_DIR, "page.tsx"), "utf8");
   const board = fs.readFileSync(path.join(DEMO_DIR, "board.tsx"), "utf8");
+  // ★2026-09-28（kp199）：この1行の出どころを lib/keiri/trial.ts の
+  //   TRIAL_CTA_NOTE にまとめた（言い方を1か所で持つため）。
+  //   画面には「その1行を使っていること」を求め、文そのものは trial.ts 側で固定する。
+  assert.ok(
+    TRIAL_CTA_NOTE.includes("この画面でお支払いは発生しません"),
+    "お支払いが発生しない旨の1行が、出どころ（lib/keiri/trial.ts）から消えている",
+  );
   for (const [name, text] of [["page.tsx", page], ["board.tsx", board]] as const) {
     assert.ok(
-      text.includes("この画面でお支払いは発生しません"),
+      text.includes("TRIAL_CTA_NOTE") || text.includes("この画面でお支払いは発生しません"),
       `${name} の入口に「この画面でお支払いは発生しません」が無い`,
     );
   }

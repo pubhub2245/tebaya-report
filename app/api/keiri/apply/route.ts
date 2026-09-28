@@ -8,7 +8,11 @@ import {
 } from "@/lib/keiri/apply";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
 import { applicationIsReachable } from "@/lib/keiri/notifyHealth";
-import { sendLineGroupMessage } from "@/lib/line/sendMessage";
+import {
+  describeLineFailure,
+  sendLineGroupMessageDetailed,
+  type LineSendResult,
+} from "@/lib/line/sendMessage";
 import { serviceClientOrNull, serverClient } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
@@ -62,15 +66,25 @@ async function saveApplication(a: KeiriApplication): Promise<boolean> {
   }
 }
 
-/** LINE で知らせる。失敗しても false を返すだけ（例外を外に出さない） */
-async function notifyApplication(a: KeiriApplication): Promise<boolean> {
+/**
+ * LINE で知らせる。失敗しても例外を外に出さず、**なぜ失敗したか**まで返す。
+ *
+ * ★2026-09-28（kp198）：これまでは true/false だけで、理由は
+ *   サーバーのログにしか出ていませんでした。9/28 13:46 に本番で
+ *   「控えは残ったのに知らせだけ届かない」が起きたとき、外からは理由が読めず
+ *   「今月の数を使い切ったのだろう」と見立てるしかありませんでした
+ *   （実際には5通 残っていたので、別の理由です）。
+ *   理由が分からないと直せないので、返事に短い印として載せます。
+ *   **合言葉も送り先のIDも載せません。**
+ */
+async function notifyApplication(a: KeiriApplication): Promise<LineSendResult> {
   try {
-    return await sendLineGroupMessage(
+    return await sendLineGroupMessageDetailed(
       keiriApplyNotificationText({ application: a, priceLabel: priceLabel() }),
     );
   } catch (e) {
     console.error("[経理お申し込み] 知らせを送れませんでした", e);
-    return false;
+    return { ok: false, failure: "push_failed", status: null };
   }
 }
 
@@ -95,10 +109,16 @@ export async function POST(req: NextRequest) {
   if (parsed.spam) return NextResponse.json({ ok: true });
 
   // 知らせと控えは同時に走らせる。片方が遅くても、もう片方は待たされない
-  const [notified, saved] = await Promise.all([
+  const [notifyResult, saved] = await Promise.all([
     notifyApplication(parsed.value),
     saveApplication(parsed.value),
   ]);
+  const notified = notifyResult.ok;
+  // 失敗の理由（人の言葉・1行）。届いたときは null
+  const notifyNote = notifyResult.ok
+    ? null
+    : describeLineFailure(notifyResult.failure, notifyResult.status);
+  if (notifyNote) console.error(`[経理お申し込み] 知らせが届きませんでした：${notifyNote}`);
 
   if (!notified && !saved) {
     // どこにも残らなかった。ここで「受け付けました」と返すのが一番まずい。
@@ -132,5 +152,7 @@ export async function POST(req: NextRequest) {
   const recordReadable = serviceClientOrNull() !== null;
   const reachable = applicationIsReachable({ notified, saved, recordReadable });
 
-  return NextResponse.json({ ok: true, notified, saved, reachable });
+  // ★notifyNote は「なぜ知らせが届かなかったか」の1行（2026-09-28・kp198）。
+  //   届いたときは null。合言葉・送り先のIDは入りません。
+  return NextResponse.json({ ok: true, notified, saved, reachable, notifyNote });
 }
