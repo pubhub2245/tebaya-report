@@ -119,8 +119,21 @@ export function KeiriBreadcrumb({ items }: { items: { name: string; href?: strin
   );
 }
 
-/** 関連ページ（いま開いているページは出さない） */
-export function KeiriRelated({ current }: { current: string }) {
+/**
+ * 関連ページ（いま開いているページは出さない）
+ *
+ * ★linkOverrides は「そのページの中に同じ受け皿がある」ときだけ使う（2026-09-28・kp196）。
+ *   例：/keiri/case には申し込みの入力欄が同じ画面の中にあるので、
+ *   この並びの［お申し込み］は別の画面へ移さず、同じ画面の入力欄（#apply）へ動かす。
+ *   渡さなければ今までどおり（ほかのページの見た目・行き先は1つも変わらない）。
+ */
+export function KeiriRelated({
+  current,
+  linkOverrides,
+}: {
+  current: string;
+  linkOverrides?: Record<string, string>;
+}) {
   const others = KEIRI_PUBLIC_PAGES.filter((p) => p.path !== current);
   return (
     <section className="mb-10">
@@ -129,7 +142,7 @@ export function KeiriRelated({ current }: { current: string }) {
         {others.map((p) => (
           <li key={p.path}>
             <Link
-              href={p.path}
+              href={linkOverrides?.[p.path] ?? p.path}
               className="block rounded-xl bg-white border border-stone-200 p-4 hover:border-amber-300"
             >
               <p className="font-bold text-stone-900">{p.title}</p>

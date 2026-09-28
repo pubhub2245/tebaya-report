@@ -186,15 +186,20 @@ export default async function KeiriCasePage() {
               まず触ってみる
               <span className="mt-0.5 block text-[11px] font-normal">無料・登録不要</span>
             </Link>
-            <Link
-              href="/keiri/apply"
+            {/* ★行き先は同じ画面の入力欄（#apply）。別の画面へ移さない（2026-09-28・kp196）。
+                  画面が変わるところで手が止まるのを消すために kp194 で入力欄を
+                  このページの中に置いたのに、いちばん押されるこのボタンだけ
+                  別の画面（/keiri/apply）のままだった。
+                  同じ画面の中で動くだけなので、紙から来た人の合言葉（?from=card）も消えない。 */}
+            <a
+              href="#apply"
               className="rounded-xl border border-amber-400 bg-white px-3 py-3 text-center font-bold leading-tight text-amber-800 hover:bg-amber-100"
             >
               申し込む
               <span className="mt-0.5 block text-[11px] font-normal text-stone-500">
                 もうお決まりの方
               </span>
-            </Link>
+            </a>
           </div>
           <p className="mt-2 text-center text-xs text-stone-500">
             この画面ではお支払いは発生しません。
@@ -488,12 +493,12 @@ export default async function KeiriCasePage() {
              新しい約束・新しい値段の言葉は1つも足さない
              （行き先も言い方も、お試し版・下の申し込み枠とまったく同じ）。 */}
         <div className="mt-4 text-center">
-          <Link
-            href="/keiri/apply"
+          <a
+            href="#apply"
             className="inline-block rounded-xl border border-amber-400 bg-white px-5 py-3 text-sm font-bold text-amber-800 hover:bg-amber-50"
           >
             この形で毎月お届けします → お申し込みへ
-          </Link>
+          </a>
           <p className="mt-2 text-xs text-stone-500">この画面ではお支払いは発生しません。</p>
         </div>
       </section>
@@ -567,9 +572,9 @@ export default async function KeiriCasePage() {
                 カードが本線なので、こちらは小さく添えるだけにする。 */}
             <p className="mt-3 text-sm leading-relaxed opacity-95">
               カード以外でのお支払いをご希望の方は{" "}
-              <Link href="/keiri/apply" className="underline font-bold">
+              <a href="#apply" className="underline font-bold">
                 お申し込みフォーム
-              </Link>{" "}
+              </a>{" "}
               からどうぞ。
             </p>
           </div>
@@ -580,12 +585,14 @@ export default async function KeiriCasePage() {
                 「準備中」で行き止まりにすると、せっかく開いた店主がそのまま離れてしまう。
                 フォームではお金は動かさない（お支払いは銀行振込で、お振込先は折り返しご案内する）。
                 添える1文は lib/keiri/payment.ts が唯一の正（2026-09-25・kp181）。 */}
-            <Link
-              href="/keiri/apply"
+            {/* ★行き先は同じ画面の入力欄（#apply）。別の画面へ移さない（2026-09-28・kp196）。
+                  ここはページの中でいちばん押されやすい場所。 */}
+            <a
+              href="#apply"
               className="flex items-center justify-center w-full h-14 rounded-2xl bg-white text-amber-700 font-bold text-lg shadow hover:bg-amber-50 transition"
             >
               申し込む
-            </Link>
+            </a>
             <p className="mt-3 text-sm leading-relaxed opacity-95">
               {paymentNoticeLine()} メールでも受け付けています：{" "}
               <a
@@ -615,7 +622,12 @@ export default async function KeiriCasePage() {
           ★/keiri/apply はそのまま残す（カード以外での支払い・検索から直接来る人のため）。
           ★入力欄・必須の数・値段・解約の言い方は /keiri/apply と**同じ1本**から出す。
             書き写すと、片方だけ直したときに食い違う。 */}
-      <section id="apply" className="mb-10 rounded-2xl border border-stone-200 bg-white p-5">
+      {/* ★scroll-mt-4 ＝ 上のボタンから飛んできたとき、見出しが画面の一番上の縁に
+            貼り付かないようにするための余白。JavaScript は使わない（リンクだけで動く）。 */}
+      <section
+        id="apply"
+        className="mb-10 scroll-mt-4 rounded-2xl border border-stone-200 bg-white p-5"
+      >
         <h2 className="text-lg font-bold text-stone-900">このまま申し込む</h2>
         <p className="mt-2 text-sm text-stone-600 leading-relaxed">
           {keiriApplyRequiredLine()}
@@ -658,7 +670,9 @@ export default async function KeiriCasePage() {
         </p>
       </section>
 
-      <KeiriRelated current="/keiri/case" />
+      {/* ★この並びの［お申し込み］も、同じ画面の入力欄へ向ける（2026-09-28・kp196）。
+            ほかのページの「ほかのページ」は今までどおり /keiri/apply を指す。 */}
+      <KeiriRelated current="/keiri/case" linkOverrides={{ "/keiri/apply": "#apply" }} />
 
       <KeiriFooter />
     </main>
