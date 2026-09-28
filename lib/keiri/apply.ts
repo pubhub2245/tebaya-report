@@ -17,6 +17,8 @@
  *   日報・シフト・レジ・LINE の送り方・お金の計算（lib/money.ts）は変えていない。
  */
 
+import { cleanCampaign } from "@/lib/siteVisits";
+
 /**
  * お申し込みの「メールでそのまま送る」下書きの、写し（CC）の宛先。
  *
@@ -43,6 +45,8 @@ export const KEIRI_APPLY_LIMITS = {
   email: 160,
   phone: 40,
   note: 1000,
+  /** 合言葉（?from=card など）。長い貼り付けをそのまま残さない */
+  campaign: 40,
 } as const;
 
 /** 画面から送られてくる中身（何が入っているか分からない前提で受ける） */
@@ -54,6 +58,12 @@ export type KeiriApplyInput = {
   note?: unknown;
   /** 人には見えない囮の欄。ここに何か入っていたら機械の書き込み */
   website?: unknown;
+  /**
+   * どこから来た申し込みか（?from=card など・2026-09-28・kp194）。
+   * 紙の札やその場で見せた1枚から申し込まれたのかを、あとから見分けるため。
+   * 画面（ブラウザ）が住所から拾って送る。入っていなくても申し込みは通る。
+   */
+  campaign?: unknown;
 };
 
 /** 確かめ終わった申し込み1件 */
@@ -65,6 +75,14 @@ export type KeiriApplication = {
   phone: string | null;
   /** 任意。入れていなければ null */
   note: string | null;
+  /**
+   * どこから来たか（?from=card など）。無ければ null。
+   * ★倉庫の「どこから来たか」の欄（source）は 'form' のままにする。
+   *   あの欄は入れてよい中身が 'form' だけに絞られており（RLS）、
+   *   ここを変えると**申し込みそのものが断られる**。
+   *   合言葉は下の applicationNote() で「ひとこと」に1行として残す。
+   */
+  campaign: string | null;
 };
 
 export type KeiriApplyResult =
@@ -96,6 +114,50 @@ function looksLikeEmail(v: string): boolean {
 }
 
 /**
+ * 合言葉（?from=card など）を、記録に残せる形に整える。
+ *
+ * ★掃除のしかたは訪問の数え方（lib/siteVisits.ts）と**同じ1本**を使う。
+ *   2026-09-27 に「card`」（末尾に余分な記号）で記録された件があり、
+ *   別々に掃除すると訪問と申し込みで数え方がずれる（kp195）。
+ */
+export function keiriApplyCampaign(raw: unknown): string | null {
+  const c = cleanCampaign(raw);
+  if (!c) return null;
+  return c.slice(0, KEIRI_APPLY_LIMITS.campaign);
+}
+
+/** 「ひとこと」の末尾に足す、どこから来たかの1行（合言葉が無ければ空） */
+export function campaignNoteMark(campaign: string | null): string {
+  return campaign ? `［どこから：${campaign}］` : "";
+}
+
+/** 合言葉を「ひとこと」に1行として足した文（何も無ければそのまま） */
+export function applicationNote(
+  note: string,
+  campaign: string | null,
+): string | null {
+  const joined = [note, campaignNoteMark(campaign)]
+    .filter((x) => x !== "")
+    .join("\n");
+  return joined === "" ? null : joined;
+}
+
+/** 「ひとこと」から、こちらで足した1行を外して、店主が書いた文だけに戻す */
+export function enteredNote(
+  note: string | null,
+  campaign: string | null,
+): string | null {
+  const mark = campaignNoteMark(campaign);
+  if (!note || mark === "") return note;
+  const rest = note
+    .split("\n")
+    .filter((line) => line !== mark)
+    .join("\n")
+    .trim();
+  return rest === "" ? null : rest;
+}
+
+/**
  * 送られてきた中身を確かめて、申し込み1件に整える。
  * 足りない所は「何が足りないか」を日本語で返す（画面にそのまま出せる形）。
  */
@@ -108,6 +170,7 @@ export function normalizeKeiriApplication(input: KeiriApplyInput): KeiriApplyRes
   const email = text(input.email);
   const phone = text(input.phone);
   const note = text(input.note);
+  const campaign = keiriApplyCampaign(input.campaign);
 
   const errors: string[] = [];
   if (shopName === "") errors.push("お店の名前を入れてください。");
@@ -140,7 +203,9 @@ export function normalizeKeiriApplication(input: KeiriApplyInput): KeiriApplyRes
       contact_name: contactName,
       email,
       phone: phone === "" ? null : phone,
-      note: note === "" ? null : note,
+      // 合言葉は「ひとこと」に1行として残す（倉庫の source は 'form' のまま）
+      note: applicationNote(note, campaign),
+      campaign,
     },
   };
 }
@@ -177,7 +242,11 @@ export function keiriApplyNotificationText(args: {
     `メール：${a.email}`,
   ];
   if (a.phone) lines.push(`電話：${a.phone}`);
-  if (a.note) lines.push("", `ひとこと：${a.note}`);
+  if (a.campaign) lines.push(`どこから：${a.campaign}`);
+  // ★ひとことには、こちらで足した「どこから」の1行が入っている。
+  //   知らせでは上に1行で出しているので、ここでは店主が書いた文だけを出す。
+  const written = enteredNote(a.note, a.campaign);
+  if (written) lines.push("", `ひとこと：${written}`);
   lines.push(
     "",
     `価格：${priceLabel}`,

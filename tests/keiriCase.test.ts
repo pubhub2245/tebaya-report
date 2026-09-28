@@ -248,3 +248,47 @@ test("見本の直後に、お申し込みへの道が1本ある（kp142）", ()
     "このリンクのまわりに値段を直書きしないでください（値段は caseNumbers.ts が正です）",
   );
 });
+
+/**
+ * 紹介ページのまま申し込めること（2026-09-28・司令室 kp194）。
+ *
+ * ■ なぜ検算で固定するか
+ *   9/27 の夜、紙の札（/keiri/card）のQRからこのページが3回読まれたのに、
+ *   申し込みは0件だった。それまでは読み終わったあと**別の画面**へ移らないと
+ *   申し込めず、紙や立ち話でその場に見せる場面では画面が変わるところで手が止まる。
+ *   入力欄がこのページから消えたら、その手止まりが黙って戻る。
+ */
+test("紹介ページの中に、そのまま送れる入力欄がある（kp194）", () => {
+  const src = fs.readFileSync(
+    path.join(process.cwd(), "app", "keiri", "case", "page.tsx"),
+    "utf8",
+  );
+  // 入力欄は /keiri/apply と同じ部品を使う（書き写すと片方だけ直る）
+  assert.ok(
+    src.includes('from "@/app/keiri/apply/ApplyForm"'),
+    "紹介ページの入力欄は /keiri/apply と同じ部品（ApplyForm）を使ってください",
+  );
+  assert.ok(
+    src.includes("<ApplyForm"),
+    "紹介ページの中に入力欄（ApplyForm）を置いてください",
+  );
+  // 押せる所へ飛べる目印
+  assert.ok(src.includes('id="apply"'), "入力欄のかたまりに id=\"apply\" を残してください");
+  // JavaScript が動かない人の逃げ道（kp189 と同じ考え方）
+  const applyAt = src.indexOf('id="apply"');
+  const section = src.slice(applyAt, src.indexOf("</section>", applyAt));
+  assert.ok(
+    section.includes("<noscript>"),
+    "入力欄が使えないブラウザのための宛先（noscript）を残してください",
+  );
+  // 値段はここに直書きしない（値段は caseNumbers.ts が正）
+  assert.ok(
+    !/15,?000/.test(section),
+    "入力欄のまわりに値段を直書きしないでください（値段は caseNumbers.ts が正です）",
+  );
+  // /keiri/apply は残す（カード以外での支払い・検索から直接来る人のため）
+  assert.ok(
+    fs.existsSync(path.join(process.cwd(), "app", "keiri", "apply", "page.tsx")),
+    "/keiri/apply は残してください",
+  );
+});
