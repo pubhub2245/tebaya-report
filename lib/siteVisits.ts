@@ -89,11 +89,94 @@ export function refHost(raw: unknown): string | null {
   }
 }
 
+/**
+ * 合言葉（?from=card や utm_campaign）のまわりに付いてきた「余分な記号」を落とす文字。
+ *
+ * ■ なぜ要るか（2026-09-28・司令室 kp195）
+ *   9/27 の夜、紙の札から来た3件が合言葉 **card`**（末尾にバッククォート）で
+ *   記録されていた。紙のQR自体は正しく `?from=card` で、読み戻しても
+ *   1文字も違わない（9/27 に実測ずみ）。つまり記号は**外から付いてきた**もので、
+ *   文章の中に書かれた住所（`…?from=card` のような囲み記号つき）を
+ *   そのまま写して開くと、最後の記号まで一緒に付いてくる。
+ *   このまま貯めると、2週間あとに「card」だけを数えたときに**0件に見える**。
+ *
+ * ■ どう直すか
+ *   合言葉の**前と後ろだけ**から、住所の一部になりえない記号を削る。
+ *   真ん中は触らない（`spring_2026.a` のような正しい合言葉を壊さないため）。
+ */
+const CAMPAIGN_EDGE_JUNK = new Set([
+  "`",
+  "'",
+  '"',
+  "\u2018",
+  "\u2019",
+  "\u201c",
+  "\u201d",
+  "<",
+  ">",
+  "(",
+  ")",
+  "[",
+  "]",
+  "{",
+  "}",
+  "\uff08", // （
+  "\uff09", // ）
+  "\u300c", // 「
+  "\u300d", // 」
+  ",",
+  ";",
+  ":",
+  "!",
+  "?",
+  ".",
+  "\u3001", // 、
+  "\u3002", // 。
+  "\uff01", // ！
+  "\uff1f", // ？
+  "*",
+  "|",
+  "\\",
+  "/",
+]);
+
+/** 合言葉の前後から、余分な記号と空白を取り除く（真ん中は触らない） */
+export function trimCampaignEdges(value: string): string {
+  let s = value.trim();
+  let before = "";
+  while (s !== before) {
+    before = s;
+    while (s.length > 0 && CAMPAIGN_EDGE_JUNK.has(s[0])) s = s.slice(1);
+    while (s.length > 0 && CAMPAIGN_EDGE_JUNK.has(s[s.length - 1]))
+      s = s.slice(0, -1);
+    s = s.trim();
+  }
+  return s;
+}
+
 /** SNSなどの合言葉（utm_campaign）。無ければ null */
 export function cleanCampaign(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
-  const c = raw.trim().slice(0, 80);
+  const c = trimCampaignEdges(raw).slice(0, 80);
   return c || null;
+}
+
+/**
+ * 合言葉ごとの数をまとめる（どの紙・どの投稿から来たかの答え合わせ用）。
+ *
+ * 古い記録に混じった `card\`` のような形も、上の掃除を通してから数えるので
+ * **`card` と同じ1つとして合算される**（kp195）。合言葉が無い訪問は数えない。
+ */
+export function summarizeCampaigns(
+  rows: { site: string; campaign?: string | null }[],
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of rows) {
+    const key = cleanCampaign(r.campaign);
+    if (!key) continue;
+    out[key] = (out[key] ?? 0) + 1;
+  }
+  return out;
 }
 
 /**

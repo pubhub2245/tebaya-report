@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {
   cleanCampaign,
   cleanPath,
+  summarizeCampaigns,
+  trimCampaignEdges,
   isAllowedOrigin,
   isKnownSite,
   looksLikeBot,
@@ -47,6 +49,34 @@ test("合言葉は80文字まで。無ければ null", () => {
   assert.equal(cleanCampaign("  ig-0918  "), "ig-0918");
   assert.equal(cleanCampaign(""), null);
   assert.equal(cleanCampaign(undefined), null);
+});
+
+test("合言葉の前後に付いた余分な記号は落とす（kp195）", () => {
+  // 2026-09-27 に実際に入った形（文章の中の住所を写したときに付いてくる）
+  assert.equal(cleanCampaign("card`"), "card");
+  assert.equal(cleanCampaign("`card`"), "card");
+  assert.equal(cleanCampaign("card)"), "card");
+  assert.equal(cleanCampaign('"card".'), "card");
+  assert.equal(cleanCampaign("（card）"), "card");
+  assert.equal(cleanCampaign(" card 。"), "card");
+  // 真ん中は触らない（正しい合言葉を壊さない）
+  assert.equal(cleanCampaign("spring_2026.a-b"), "spring_2026.a-b");
+  assert.equal(cleanCampaign("ig-0918"), "ig-0918");
+  // 記号だけなら「合言葉なし」
+  assert.equal(cleanCampaign("``"), null);
+  assert.equal(trimCampaignEdges("`card`"), "card");
+});
+
+test("合言葉ごとの数は、余分な記号つきの古い記録も同じ1つに合算する（kp195）", () => {
+  const tally = summarizeCampaigns([
+    { site: "keiri", campaign: "card`" },
+    { site: "keiri", campaign: "card`" },
+    { site: "keiri", campaign: "card" },
+    { site: "keiri", campaign: null },
+    { site: "keiri" },
+    { site: "keiri", campaign: "ig-0918" },
+  ]);
+  assert.deepEqual(tally, { card: 3, "ig-0918": 1 });
 });
 
 test("ロボットは人として数えない（名乗らないものも数えない）", () => {

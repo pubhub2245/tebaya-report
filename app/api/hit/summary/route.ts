@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { serverClient, serviceClientOrNull, serviceRoleKeyStatus } from "@/lib/supabaseServer";
-import { summarize, summarizeDaily } from "@/lib/siteVisits";
+import { summarize, summarizeCampaigns, summarizeDaily } from "@/lib/siteVisits";
 import { describeTableError } from "@/lib/keiri/signupReadiness";
 import { describeRecordStore, describeServerKey } from "@/lib/keiri/serverHealth";
 
@@ -38,7 +38,7 @@ export async function GET() {
   // ── 1本目：1行ずつ読む（サーバー側の合鍵が使えるとき）
   const { data, error } = await db
     .from("site_visits")
-    .select("site, at")
+    .select("site, at, campaign")
     .gte("at", since)
     .order("at", { ascending: false })
     .limit(50000);
@@ -48,6 +48,12 @@ export async function GET() {
       ok: true,
       source: "rows",
       generatedAt: now.toISOString(),
+      // ★合言葉ごとの数も返す（2026-09-28・kp195）。
+      //   紙の札（?from=card）が効いたかを、倉庫を直に見なくても数えられるように。
+      //   記録に混じった `card`` のような余分な記号は掃除してから数えるので、
+      //   `card` と同じ1つに合算される。出るのは「合言葉と数」だけで、
+      //   誰が来たか・どのページかは出さない。
+      campaigns: summarizeCampaigns(data ?? []),
       ...summarize(data ?? [], now),
     });
   }
@@ -59,7 +65,7 @@ export async function GET() {
     return NextResponse.json({
       ok: true,
       source: "daily",
-      note: "倉庫側で数えた「日ごとの数」からまとめています（1行ずつは読み出していません）。直近7日は『今日を含む7日ぶん・日本時間』です。",
+      note: "倉庫側で数えた「日ごとの数」からまとめています（1行ずつは読み出していません）。直近7日は『今日を含む7日ぶん・日本時間』です。合言葉ごとの数は、この道では出せません（数だけを答える窓口が合言葉を返さないため）。",
       generatedAt: now.toISOString(),
       ...summarizeDaily(agg.data, now),
     });
