@@ -53,6 +53,7 @@ import {
   sortDemoReports,
 } from "@/lib/keiri/demo";
 import type { KeiriReport } from "@/lib/keiri";
+import { TRIAL_APPLY_HREF, TRIAL_CTA_LABEL, TRIAL_CTA_NOTE } from "@/lib/keiri/trial";
 
 /** 画面に出す仕訳の行数（全部はファイルに入れる） */
 const JOURNAL_PREVIEW = 6;
@@ -464,15 +465,18 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
              CSV を自分の手で書き出せた直後。ところが申し込みへの入口は
              ページ中ほどと一番下の2か所だけだった（9/24 15:04 A 実測）。
              kp133 で紹介ページに入れた直しと同じ考え方を、ここにも入れる。
-             新しい約束・新しい価格の言葉は足さない（行き先は下の枠と同じ /keiri/apply）。 */}
+             新しい約束・新しい価格の言葉は足さない。
+             ★2026-09-28（kp199）：行き先を「別の画面（/keiri/apply）」から
+             **ご案内ページの入力欄そのもの**（/keiri/case?from=trial#apply）に変えた。
+             押した瞬間に入力欄が出るので、画面が変わるところで手が止まらない。 */}
         <div className="mt-4 text-center">
           <Link
-            href="/keiri/apply"
+            href={TRIAL_APPLY_HREF}
             className="inline-block rounded-xl border border-amber-400 bg-white px-5 py-3 text-sm font-bold text-amber-800 hover:bg-amber-50"
           >
-            この形で毎月お届けします → お申し込みへ
+            この形で毎月お届けします → {TRIAL_CTA_LABEL}
           </Link>
-          <p className="mt-2 text-xs text-stone-500">この画面でお支払いは発生しません。</p>
+          <p className="mt-2 text-xs text-stone-500">{TRIAL_CTA_NOTE}</p>
         </div>
       </section>
 
@@ -553,10 +557,10 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
             価格と中身を見る
           </Link>
           <Link
-            href="/keiri/apply"
+            href={TRIAL_APPLY_HREF}
             className="rounded-xl border border-stone-300 px-6 py-3 font-bold text-stone-700 hover:border-amber-300"
           >
-            お申し込み
+            {TRIAL_CTA_LABEL}
           </Link>
         </div>
       </section>

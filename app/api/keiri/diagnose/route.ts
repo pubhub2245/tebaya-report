@@ -86,6 +86,7 @@ async function checkNotify(): Promise<NotifyFacts> {
     tokenSet: !!token,
     tokenValid: false,
     groupFound: false,
+    groupReachable: null,
     quota: null,
   };
   if (!token) return facts;
@@ -112,6 +113,20 @@ async function checkNotify(): Promise<NotifyFacts> {
     const client = new messagingApi.MessagingApiClient({ channelAccessToken: token });
     await client.getBotInfo();
     facts.tokenValid = true;
+    // ★送り先に **本当に届くか** を確かめる（2026-09-28・kp198）。
+    //   これまでは「IDが手元にある」だけで緑にしていたが、9/28 13:46 に
+    //   診断が緑のまま実際の送信が失敗した。様子を聞くだけなので、
+    //   **LINE のメッセージは1通も送りません**（残りの通数も減りません）。
+    //   グループ以外の宛先（R… の部屋・U… の個人）には この聞き方が使えないので、
+    //   そのときは確かめずに null のままにする（＝判定を悪い方に倒さない）。
+    if (groupId && groupId.startsWith("C")) {
+      try {
+        await client.getGroupSummary(groupId);
+        facts.groupReachable = true;
+      } catch {
+        facts.groupReachable = false;
+      }
+    }
     try {
       const [quota, used] = await Promise.all([
         client.getMessageQuota(),
@@ -391,7 +406,11 @@ export async function GET() {
     paid_shop_features: {
       advance_expenses: advanceColumn,
     },
-    notify,
+    // ★notify には「届くか／今月あと何通か／人の言葉での理由」が入る。
+    //   2026-09-28（kp198）から、送り先のグループに **本当に届くか** も見ている
+    //   （true＝ボットはまだそのグループにいる／false＝外れている見込み／
+    //     null＝確かめていない・確かめられない宛先）。この確かめでは1通も送らない。
+    notify: { ...notify, groupReachable: notifyFacts.groupReachable ?? null },
     application_delivery: delivery,
   });
 }
