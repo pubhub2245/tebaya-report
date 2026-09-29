@@ -92,7 +92,20 @@ test("⑦日報の入力を邪魔しない（画面に貼り付く帯にしな�
   );
 });
 
-test("⑧ただのリンクである（日報・売上のデータを読まない）", () => {
+test("⑧押せる所は指の幅（44px）以上ある＝余白は押す所の中に置く", () => {
+  // 最初の版は文字の高さ（18px）しか押せなかった（本物の390×844で実測）。
+  // 余白（py-3）が押す所（a）の外に出ると、また18pxに戻る。
+  const anchors = link.match(/className="block[^"]*"/g) ?? [];
+  assert.ok(anchors.length >= 2, "押す所が2つ（ご案内・見せる1枚）ありません");
+  for (const a of anchors) {
+    assert.ok(/py-3/.test(a), `押す所に上下の余白がありません：${a}`);
+  }
+  // 「見せる1枚」は字が小さく、余白だけでは 41px にしかならなかった（実測）。
+  // 高さの下限（44px）を付けて指の幅を確保している
+  assert.ok(/min-h-\[44px\]/.test(link), "小さい方の押す所に高さの下限がありません");
+});
+
+test("⑨ただのリンクである（日報・売上のデータを読まない）", () => {
   for (const mark of ["supabase", "useEffect", "fetch("]) {
     assert.equal(link.includes(mark), false, `${mark} を使っていません`);
   }
