@@ -18,23 +18,26 @@ import {
  * ・日報・売上のデータは1行も読まない。押さなければ何も起きない
  * ・「use client」を付けない＝ホーム（サーバー側で作る画面）でも
  *   管理者ページ（ブラウザ側で動く画面）でも、同じ1つが使える
+ *
+ * ★押せる所は**指の幅（44px）以上**にする。
+ *   最初の版は文字の高さ（18px）しか無く、本物のスマホ（390×844）で測ったら
+ *   指で押しにくい大きさだった。余白（padding）は文字ではなく**押す所の中**に置く。
  */
 export default function KeiriCaseLink() {
   return (
-    <div className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-left">
-      <Link
-        href={APP_CASE_HREF}
-        className="flex items-center justify-between gap-2 text-sm font-bold text-stone-700 hover:text-stone-900"
-      >
-        <span className="leading-tight">{APP_LINK_LABEL}</span>
-        <span className="shrink-0 text-xs underline">{APP_LINK_ACTION} →</span>
+    <div className="rounded-2xl border border-stone-200 bg-stone-50 text-left overflow-hidden">
+      <Link href={APP_CASE_HREF} className="block px-4 py-3 hover:bg-stone-100">
+        <span className="flex items-center justify-between gap-2 text-sm font-bold text-stone-700">
+          <span className="leading-tight">{APP_LINK_LABEL}</span>
+          <span className="shrink-0 text-xs underline">{APP_LINK_ACTION} →</span>
+        </span>
+        <span className="mt-1 block text-xs text-stone-500 leading-snug">
+          {appLinkNote(priceLabel())}
+        </span>
       </Link>
-      <p className="mt-1 text-xs text-stone-500 leading-snug">
-        {appLinkNote(priceLabel())}
-      </p>
       <Link
         href={APP_SHOW_HREF}
-        className="mt-2 inline-block text-xs text-stone-500 underline hover:text-stone-700"
+        className="block min-h-[44px] border-t border-stone-200 px-4 py-3 text-xs text-stone-500 underline hover:bg-stone-100 hover:text-stone-700"
       >
         {APP_SHOW_LABEL} →
       </Link>
