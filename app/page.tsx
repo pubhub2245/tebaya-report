@@ -5,6 +5,7 @@ import { TebayaOnlyBlock } from "./components/TebayaOnlyGate";
 import AppTitle from "./components/AppTitle";
 import OwnerOutreachNudge from "./components/OwnerOutreachNudge";
 import OwnerApplicationAlert from "./components/OwnerApplicationAlert";
+import KeiriCaseLink from "./components/KeiriCaseLink";
 
 /** グループ見出し */
 function GroupLabel({ children }: { children: React.ReactNode }) {
@@ -164,13 +165,11 @@ export default function MenuPage() {
         >
           💰 現金残高（管理者） →
         </Link>
-        {/* 経理パッケージの紹介ページ（外向け・誰でも見られる）。店の中のデータは読まない */}
-        <Link
-          href="/keiri/case"
-          className="block text-xs text-stone-400 underline hover:text-stone-600"
-        >
-          経理パッケージの紹介ページ →
-        </Link>
+        {/* 経理パッケージのご案内へ行く道（kp200）。外向け・誰でも見られる。
+            これまではただの「紹介ページ →」で、①合言葉が付かず②読むところに着くだけ
+            でした。合言葉 app 付きで入力欄まで行く形にそろえ、出店先で見せる1枚への
+            道も隣に置く。店の中のデータは読まない。 */}
+        <KeiriCaseLink />
         <Link
           href="/sales-report"
           className="block text-sm text-stone-500 underline hover:text-stone-700"

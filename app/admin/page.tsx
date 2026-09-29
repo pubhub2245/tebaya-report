@@ -21,6 +21,7 @@ import PrepSettingsManager from "@/app/components/PrepSettingsManager";
 import LineDiagnostics from "@/app/components/LineDiagnostics";
 import SystemHealthPanel from "@/app/components/SystemHealthPanel";
 import EditReportModal from "@/app/components/EditReportModal";
+import KeiriCaseLink from "@/app/components/KeiriCaseLink";
 import ReceiptMigrationPanel from "@/app/components/ReceiptMigrationPanel";
 import ReceiptReocrPanel from "@/app/components/ReceiptReocrPanel";
 import AdminGate from "@/app/components/AdminGate";
@@ -768,6 +769,13 @@ export default function AdminPage() {
           }}
         />
       )}
+      {/* 経理パッケージのご案内への1行（kp200）。管理者ページには1本も無かった。
+          いちばん下だけに置き、日報の一覧・編集には割り込ませない。
+          押さなければ何も起きず、日報・売上のデータも読まない。 */}
+      <section className="mt-8 max-w-md">
+        <KeiriCaseLink />
+      </section>
+
     </main>
     </AdminGate>
   );
