@@ -46,9 +46,16 @@ test("送り先のお店の呼び名は1つも出さない", () => {
   }
 });
 
-test("持ち帰り先はご案内ページ（/keiri/case）1本だけ", () => {
-  assert.equal(SHOW_TAKEAWAY_URL, OUTREACH_LINK, "持ち帰り先が案内ページと違う");
-  assert.match(SHOW_TAKEAWAY_URL, /^https:\/\/[^/]+\/keiri\/case$/, "持ち帰り先の形が違う");
+test("持ち帰り先はご案内ページ（/keiri/case）1本だけ・合言葉 show 付き", () => {
+  assert.ok(
+    SHOW_TAKEAWAY_URL.startsWith(`${OUTREACH_LINK}?`),
+    "持ち帰り先が案内ページと違う",
+  );
+  assert.match(
+    SHOW_TAKEAWAY_URL,
+    /^https:\/\/[^/]+\/keiri\/case\?from=show$/,
+    "持ち帰り先の形が違う（合言葉 show が付いていない）",
+  );
 });
 
 test("日報の明細は読まない（合計だけ・CLAUDE.md 4-2）", () => {
