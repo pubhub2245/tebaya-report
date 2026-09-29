@@ -27,6 +27,7 @@ import {
 } from "../lib/keiri/qr";
 import { SHOW_TAKEAWAY_URL } from "../lib/keiri/show";
 import { CARD_TAKEAWAY_URL } from "../lib/keiri/card";
+import { OUTREACH_LINK } from "../lib/keiri/outreach";
 
 /**
  * ご案内ページの住所は第4型（33ます）になる。その型の「そろえ用の目印」の中心。
@@ -101,12 +102,15 @@ function decode(matrix: boolean[][]): string {
 
 test("① 作ったQRを読み戻すと、元の住所にちょうど戻る", () => {
   const samples = [
+    // ご案内ページの素の住所（合言葉なし）
+    OUTREACH_LINK,
+    // 見せる1枚（/keiri/show）のQR。合言葉（?from=show）が付く（kp201）
     SHOW_TAKEAWAY_URL,
-    // 紙の札（/keiri/card）のQR。合言葉（?from=card）が付くぶん型が1つ上がる
+    // 紙の札（/keiri/card）のQR。合言葉（?from=card）が付く
     CARD_TAKEAWAY_URL,
     "https://example.com",
     // 第6型（108文字）いっぱいに近い長さ。型が上がっても崩れないことを見る
-    `${SHOW_TAKEAWAY_URL}?${"a".repeat(60)}`,
+    `${OUTREACH_LINK}?${"a".repeat(60)}`,
   ];
   for (const text of samples) {
     assert.equal(decode(qrMatrix(text)), text, `読み戻しが合わない：${text}`);
@@ -138,11 +142,15 @@ test("① 角の目印・時計の列・いつも黒い1ますが決まりどお
 });
 
 test("② ご案内ページのQRは、読み取り機で確かめた控えと1ますも変わらない", () => {
+  // 控え（fixture）は **ご案内ページの素の住所**（合言葉なし）で取ったものです。
+  // よその実装と読み取り機で1ますずつ突き合わせた控えなので、
+  // 合言葉が変わっても組み立ての正しさを見張れるよう、ここは素の住所で固定します。
+  // 合言葉付きの住所そのものは、上の①で「読み戻すと元に戻る」ことを見ています。
   const expected = readFileSync(new URL("./fixtures/keiri-case-qr.txt", import.meta.url), "utf8")
     .trim()
     .split("\n")
     .map((line) => line.trim());
-  const m = qrMatrix(SHOW_TAKEAWAY_URL);
+  const m = qrMatrix(OUTREACH_LINK);
   assert.equal(m.length, expected.length, "QRの1辺のます数が控えと違う");
   const actual = m.map((row) => row.map((d) => (d ? "1" : "0")).join(""));
   assert.deepEqual(actual, expected, "QRのます目が控えと違う（読み取れるか確かめ直すこと）");

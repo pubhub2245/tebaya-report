@@ -25,8 +25,18 @@
 
 import { OUTREACH_LINK } from "./outreach";
 
+/**
+ * 「この1枚を見せてもらって来た」という合言葉（2026-09-29・kp201）。
+ *
+ * これを付けるまで、この1枚のQRから来た人は合言葉が空のまま記録されていました。
+ * 空のままだと、紙の札（card）・お試し（trial）・日報アプリ（app）と
+ * **混ざって数えられない**ので、どの一手が効いたのかの答え合わせが崩れます。
+ * 変えるときは tests/keiriShow.test.ts と tests/keiriEntryLinks.test.ts も対で直す。
+ */
+export const SHOW_FROM_KEY = "show";
+
 /** 相手が自分のスマホで持ち帰る先（＝ご案内ページ）。QRもこの1本から作る */
-export const SHOW_TAKEAWAY_URL = OUTREACH_LINK;
+export const SHOW_TAKEAWAY_URL = `${OUTREACH_LINK}?from=${SHOW_FROM_KEY}`;
 
 /** 1画面目の数字に添える1行（数字そのものは日報から出す） */
 export const SHOW_NUMBERS_LEAD = "うちの先月です。日報を書くだけで、この3つが出ています。";
