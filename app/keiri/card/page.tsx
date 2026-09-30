@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 
 import { priceSummaryLine, cardCheckoutLive } from "@/lib/keiri/caseNumbers";
 import { QR_QUIET_ZONE, qrMatrix, qrSvgPath } from "@/lib/keiri/qr";
+import PrintButton from "./PrintButton";
 import {
+  CARD_AUDIENCE,
   CARD_HEADLINE,
   CARD_OWNER_HINT,
   CARD_PRINT_NOTE,
@@ -69,12 +71,16 @@ const PRINT_CSS = `
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  /* 切る所の薄い線（トンボではなく、見て切るための線） */
-  border-right: 0.2mm dashed #b8b8b8;
-  border-bottom: 0.2mm dashed #b8b8b8;
   color: #000000;
   overflow: hidden;
 }
+/*
+ * 切る所の薄い線（トンボではなく、見て切るための線）。
+ * A6はA4のちょうど4分の1なので、**切るのはまん中の十字だけ**です。
+ * 紙のふちに線を引くと、ふちまで刷れないプリンタで線だけ欠けて見えるので引きません。
+ */
+.cell-cut-right { border-right: 0.2mm dashed #b8b8b8; }
+.cell-cut-bottom { border-bottom: 0.2mm dashed #b8b8b8; }
 .cell-qr { width: 34mm; height: 34mm; }
 @media screen {
   .sheet { box-shadow: 0 1px 12px rgba(0,0,0,.18); margin: 0 auto; }
@@ -83,16 +89,36 @@ const PRINT_CSS = `
   @page { size: A4; margin: 0; }
   html, body { margin: 0 !important; padding: 0 !important; background: #ffffff !important; }
   .no-print { display: none !important; }
+  /*
+   * 画面用の余白と地の色を、紙のときだけ全部落とす。
+   * ここを落とさないと、上下の余白（画面では見やすさのための 24px）が
+   * A4の 297mm に足されて **2枚目の白紙が必ず出る**（2026-09-30 kp204 で実測）。
+   * 紙は A4 ちょうど1枚でなければならない（4枚ぶんを切って使うため）。
+   */
+  .card-page { padding: 0 !important; margin: 0 !important; background: #ffffff !important; }
   .sheet { box-shadow: none; margin: 0; }
 }
 `;
 
-/** 札1枚ぶん（4枚まったく同じ中身） */
-function Card({ qrPath, qrSpan }: { qrPath: string; qrSpan: number }) {
+/** 札1枚ぶん（4枚まったく同じ中身。切る線の向きだけが違う） */
+function Card({
+  qrPath,
+  qrSpan,
+  cut,
+}: {
+  qrPath: string;
+  qrSpan: number;
+  /** まん中の十字のうち、この札が受け持つ線 */
+  cut: ("right" | "bottom")[];
+}) {
+  const cutClass = cut.map((side) => `cell-cut-${side}`).join(" ");
   return (
-    <div className="cell">
+    <div className={`cell ${cutClass}`.trim()}>
       <div>
-        <p style={{ fontSize: "5.2mm", fontWeight: 700, lineHeight: 1.45, margin: 0 }}>
+        <p style={{ fontSize: "3.4mm", fontWeight: 700, lineHeight: 1.5, margin: 0 }}>
+          {CARD_AUDIENCE}
+        </p>
+        <p style={{ fontSize: "5.2mm", fontWeight: 700, lineHeight: 1.45, margin: "2.5mm 0 0" }}>
           {CARD_HEADLINE}
         </p>
         <p style={{ fontSize: "3.6mm", lineHeight: 1.6, margin: "3mm 0 0" }}>{CARD_SUBLINE}</p>
@@ -137,12 +163,15 @@ export default function KeiriCardPage() {
   const qrSpan = matrix.length + QR_QUIET_ZONE * 2;
 
   return (
-    <main className="bg-stone-100 py-6">
+    <main className="card-page bg-stone-100 py-6">
       <style dangerouslySetInnerHTML={{ __html: PRINT_CSS }} />
 
       {/* じゅん向けの使い方。紙には刷られない */}
       <section className="no-print mx-auto mb-6 max-w-[210mm] px-4">
         <h1 className="text-xl font-bold text-stone-900">出店の日に置く紙（A4に4枚）</h1>
+        <div className="mt-4">
+          <PrintButton />
+        </div>
         <ul className="mt-3 space-y-2 text-sm leading-relaxed text-stone-700">
           {CARD_OWNER_HINT.map((line) => (
             <li key={line} className="flex gap-2">
@@ -156,10 +185,10 @@ export default function KeiriCardPage() {
 
       {/* ここから下が紙に刷られるぶん */}
       <div className="sheet">
-        <Card qrPath={qrPath} qrSpan={qrSpan} />
-        <Card qrPath={qrPath} qrSpan={qrSpan} />
-        <Card qrPath={qrPath} qrSpan={qrSpan} />
-        <Card qrPath={qrPath} qrSpan={qrSpan} />
+        <Card qrPath={qrPath} qrSpan={qrSpan} cut={["right", "bottom"]} />
+        <Card qrPath={qrPath} qrSpan={qrSpan} cut={["bottom"]} />
+        <Card qrPath={qrPath} qrSpan={qrSpan} cut={["right"]} />
+        <Card qrPath={qrPath} qrSpan={qrSpan} cut={[]} />
       </div>
     </main>
   );
