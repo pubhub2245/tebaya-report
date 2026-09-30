@@ -7,11 +7,13 @@ import {
   CARD_AUDIENCE,
   CARD_HEADLINE,
   CARD_OWNER_HINT,
+  CARD_OWNER_LINE,
   CARD_PRINT_NOTE,
   CARD_QR_LEAD,
   CARD_SIGNER,
   CARD_SUBLINE,
   CARD_TAKEAWAY_URL,
+  CARD_TAKEAWAY_URL_SHORT,
 } from "@/lib/keiri/card";
 
 /**
@@ -27,9 +29,11 @@ import {
  *   切る所には薄い線を入れてあります（トンボではなく、見て切るための線）。
  *   4枚はまったく同じ中身です（同じ紙を4人に渡せる）。
  *
- * ■ 紙に載せるのは5つだけ
- *   ①何ができるか ②誰がやるか ③値段（月額・初期費用なし・いつでも解約）
- *   ④QR（ご案内ページ・`?from=card` 付き） ⑤差し出し主の名前と連絡先
+ * ■ 紙に載せるのは6つだけ（2026-09-30 kp205 で「誰が作って使っているか」を1行足した）
+ *   ①誰に向けた紙か（出店業の困りごと） ②何ができるか ③誰が作って使っているか
+ *   ④値段（月額・初期費用なし・いつでも解約）
+ *   ⑤QR（ご案内ページ・`?from=card` 付き）＋読み取れない人のための短い住所
+ *   ⑥差し出し主の名前と連絡先
  *   **手羽屋の売上・出店先・スタッフの名前は1文字も載せません。**
  *   置いた紙は誰の手にも渡るので、手の内が残る紙にしません。
  *
@@ -121,29 +125,41 @@ function Card({
         <p style={{ fontSize: "5.2mm", fontWeight: 700, lineHeight: 1.45, margin: "2.5mm 0 0" }}>
           {CARD_HEADLINE}
         </p>
-        <p style={{ fontSize: "3.6mm", lineHeight: 1.6, margin: "3mm 0 0" }}>{CARD_SUBLINE}</p>
-        <p style={{ fontSize: "3.6mm", fontWeight: 700, lineHeight: 1.6, margin: "4mm 0 0" }}>
+        <p style={{ fontSize: "3.6mm", lineHeight: 1.6, margin: "2.5mm 0 0" }}>{CARD_SUBLINE}</p>
+        {/*
+          誰が作って使っているものか（kp205）。同じ出店に出ている人が渡される紙なので、
+          「売るために用意された道具」ではないことが、値段より先に分かる位置に置く。
+        */}
+        <p style={{ fontSize: "3.3mm", lineHeight: 1.6, margin: "2.5mm 0 0" }}>{CARD_OWNER_LINE}</p>
+        <p style={{ fontSize: "3.5mm", fontWeight: 700, lineHeight: 1.6, margin: "3mm 0 0" }}>
           {priceSummaryLine(cardCheckoutLive())}
         </p>
       </div>
 
-      <div style={{ display: "flex", alignItems: "flex-end", gap: "4mm" }}>
-        <svg
-          viewBox={`0 0 ${qrSpan} ${qrSpan}`}
-          role="img"
-          aria-label={`ご案内ページ（${CARD_TAKEAWAY_URL}）のQRコード`}
-          className="cell-qr"
-          shapeRendering="crispEdges"
-        >
-          <rect width={qrSpan} height={qrSpan} fill="#ffffff" />
-          <g transform={`translate(${QR_QUIET_ZONE} ${QR_QUIET_ZONE})`}>
-            <path d={qrPath} fill="#000000" />
-          </g>
-        </svg>
-        <div style={{ fontSize: "2.9mm", lineHeight: 1.55 }}>
-          <p style={{ margin: 0 }}>{CARD_QR_LEAD}</p>
-          <p style={{ margin: "1mm 0 0", wordBreak: "break-all" }}>{CARD_TAKEAWAY_URL}</p>
+      <div>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: "4mm" }}>
+          <svg
+            viewBox={`0 0 ${qrSpan} ${qrSpan}`}
+            role="img"
+            aria-label={`ご案内ページ（${CARD_TAKEAWAY_URL}）のQRコード`}
+            className="cell-qr"
+            shapeRendering="crispEdges"
+          >
+            <rect width={qrSpan} height={qrSpan} fill="#ffffff" />
+            <g transform={`translate(${QR_QUIET_ZONE} ${QR_QUIET_ZONE})`}>
+              <path d={qrPath} fill="#000000" />
+            </g>
+          </svg>
+          <p style={{ fontSize: "2.9mm", lineHeight: 1.55, margin: 0 }}>{CARD_QR_LEAD}</p>
         </div>
+        {/*
+          QRが読めない人のための、手で打てる短い住所（kp205）。
+          `https://` と合言葉（?from=card）を外した形なので打ち間違えにくい。
+          QRの行き先（CARD_TAKEAWAY_URL）は変えていない。
+        */}
+        <p style={{ fontSize: "2.9mm", lineHeight: 1.5, margin: "2mm 0 0", wordBreak: "break-all" }}>
+          {CARD_TAKEAWAY_URL_SHORT}
+        </p>
       </div>
 
       <div style={{ borderTop: "0.2mm solid #000000", paddingTop: "3mm", fontSize: "3.1mm", lineHeight: 1.6 }}>

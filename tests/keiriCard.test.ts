@@ -23,11 +23,13 @@ import {
   CARD_AUDIENCE,
   CARD_FROM_KEY,
   CARD_HEADLINE,
+  CARD_OWNER_LINE,
   CARD_PRINT_BUTTON_LABEL,
   CARD_PRINT_FALLBACK,
   CARD_SIGNER,
   CARD_SUBLINE,
   CARD_TAKEAWAY_URL,
+  CARD_TAKEAWAY_URL_SHORT,
 } from "../lib/keiri/card";
 import { priceSummaryLine } from "../lib/keiri/caseNumbers";
 import { KEIRI_PUBLIC_PAGES } from "../app/keiri/components/nav";
@@ -120,8 +122,10 @@ test("載せるのは6つだけ（言葉は lib から。紙に文章を直書�
     "CARD_AUDIENCE",
     "CARD_HEADLINE",
     "CARD_SUBLINE",
+    "CARD_OWNER_LINE",
     "CARD_QR_LEAD",
     "CARD_TAKEAWAY_URL",
+    "CARD_TAKEAWAY_URL_SHORT",
   ]) {
     assert.ok(page.includes(key), `${key} を lib から出していない`);
   }
@@ -166,8 +170,8 @@ test("じゅんが探さずに見つけられる（送る1枚から1本だけ入
 /* ───────── 2026-09-30 kp204：じゅんがその場で刷れて、渡された人が説明ゼロで読める ───────── */
 
 test("渡された紙だけで4つとも分かる（どんなお店向け／何が楽になる／月額／やめられる）", () => {
-  // ①どんなお店向けか
-  assert.match(CARD_AUDIENCE, /(屋台|キッチンカー|飲食店)/, "誰に向けた紙かが書いていない");
+  // ①どんなお店向けか（2026-09-30 kp205：業種の並びではなく出店業の困りごとで名指しする）
+  assert.match(CARD_AUDIENCE, /出店/, "出店業の人に向けた紙だと分かる言葉が入っていない");
   // ②何が楽になるか
   assert.ok(CARD_HEADLINE.length > 0 && CARD_SUBLINE.length > 0, "何が楽になるかが書いていない");
   // ③④値段とやめられること（言葉は値段の出どころ1本からだけ出す）
@@ -176,9 +180,79 @@ test("渡された紙だけで4つとも分かる（どんなお店向け／何�
   assert.match(price, /いつでも解約/, "いつでもやめられることが紙に出ていない");
   // 4つとも「紙に刷られる側」に出ていること（画面だけの案内文に逃げていない）
   const paper = page.slice(page.indexOf("function Card("));
-  for (const key of ["CARD_AUDIENCE", "CARD_HEADLINE", "CARD_SUBLINE", "priceSummaryLine("]) {
+  for (const key of [
+    "CARD_AUDIENCE",
+    "CARD_HEADLINE",
+    "CARD_SUBLINE",
+    "CARD_OWNER_LINE",
+    "priceSummaryLine(",
+  ]) {
     assert.ok(paper.includes(key), `紙に刷られる側に ${key} が無い`);
   }
+});
+
+/* ───────── 2026-09-30 kp205：同じ出店仲間に渡す1枚にする ───────── */
+
+test("いちばん上の1行が、出店業ならではの困りごとを名指ししている", () => {
+  // その日ごとに売上・出店料・仕入れがバラバラ＝出店業の人だけが自分のことだと思う話
+  for (const word of ["出店", "売上", "仕入れ"]) {
+    assert.ok(CARD_AUDIENCE.includes(word), `困りごとの言葉が足りない：${word}`);
+  }
+  // 数えられない言い切り・評価語は入れない
+  for (const word of ["必ず", "最強", "儲か", "劇的"]) {
+    assert.ok(!CARD_AUDIENCE.includes(word), `言い切りが入っている：${word}`);
+  }
+});
+
+test("「同じ出店に出ている手羽屋が自分のために作って使っている」が紙に出る", () => {
+  assert.match(CARD_OWNER_LINE, /出店/, "同じ出店に出ていることが書いていない");
+  assert.match(CARD_OWNER_LINE, /手羽屋/, "誰が作って使っているかが書いていない");
+});
+
+test("kp205 で足した2行にも、出してはいけないものが入っていない", () => {
+  // 他店名・主催者名・手羽屋の売上・スタッフ名は1文字も出さない
+  const forbidden = [
+    "イデ",
+    "かずき",
+    "なぎさ",
+    "ながやま",
+    "PASIO",
+    "マンガ倉庫",
+    "イオンモール",
+    "ニシムタ",
+    "ふれあいまつり",
+    "円",
+  ];
+  for (const word of forbidden) {
+    for (const [name, line] of [
+      ["いちばん上の1行", CARD_AUDIENCE],
+      ["誰が作ったかの1行", CARD_OWNER_LINE],
+    ] as const) {
+      assert.ok(!line.includes(word), `${name}に出してはいけないものが入っている：${word}`);
+    }
+  }
+  for (const shop of OUTREACH_SHOPS) {
+    assert.ok(!CARD_AUDIENCE.includes(shop.label) && !CARD_OWNER_LINE.includes(shop.label));
+  }
+});
+
+test("QRが読めない人のための短い住所が、紙に1行出る", () => {
+  // `https://` と合言葉（?from=card）を外した、手で打てる形
+  assert.equal(
+    CARD_TAKEAWAY_URL_SHORT,
+    OUTREACH_LINK.replace(/^https?:\/\//, ""),
+    "短い住所の作り方が変わっている",
+  );
+  assert.ok(!CARD_TAKEAWAY_URL_SHORT.includes("https"), "短い住所に https が残っている");
+  assert.ok(!CARD_TAKEAWAY_URL_SHORT.includes("?"), "短い住所に合言葉が残っている（打ち間違える）");
+  assert.match(CARD_TAKEAWAY_URL_SHORT, /\/keiri\/case$/, "短い住所の行き先がご案内ページでない");
+  const paper = page.slice(page.indexOf("function Card("));
+  assert.ok(paper.includes("CARD_TAKEAWAY_URL_SHORT"), "短い住所が紙に刷られる側に無い");
+});
+
+test("QRの行き先は kp205 でも変わらない（紙から来た訪問を数え分けられる）", () => {
+  assert.equal(CARD_TAKEAWAY_URL, `${OUTREACH_LINK}?from=${CARD_FROM_KEY}`);
+  assert.equal(CARD_FROM_KEY, "card", "紙の合言葉が変わっている（今までの数え方が壊れる）");
 });
 
 test("じゅんがその場で刷れる（押すだけ）", () => {
