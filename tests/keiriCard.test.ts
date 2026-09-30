@@ -20,17 +20,25 @@ import { OUTREACH_LINK } from "../lib/keiri/outreach";
 // 送り先の呼び名（クレープ…）は検算からだけ読む。配られる側からは取り込まない（kp172）
 import { OUTREACH_SHOPS } from "../lib/keiri/outreachShopLabels";
 import {
+  CARD_AUDIENCE,
   CARD_FROM_KEY,
   CARD_HEADLINE,
+  CARD_PRINT_BUTTON_LABEL,
+  CARD_PRINT_FALLBACK,
   CARD_SIGNER,
   CARD_SUBLINE,
   CARD_TAKEAWAY_URL,
 } from "../lib/keiri/card";
+import { priceSummaryLine } from "../lib/keiri/caseNumbers";
 import { KEIRI_PUBLIC_PAGES } from "../app/keiri/components/nav";
 
 const page = readFileSync(new URL("../app/keiri/card/page.tsx", import.meta.url), "utf8");
 const beacon = readFileSync(new URL("../components/VisitBeacon.tsx", import.meta.url), "utf8");
 const sendPage = readFileSync(new URL("../app/keiri/send/page.tsx", import.meta.url), "utf8");
+const printButton = readFileSync(
+  new URL("../app/keiri/card/PrintButton.tsx", import.meta.url),
+  "utf8",
+);
 
 test("検索には出さない（noindex）", () => {
   assert.match(page, /robots:\s*\{\s*index:\s*false/, "noindex が付いていない");
@@ -107,8 +115,14 @@ test("差し出し主の名前と連絡先が、紙に必ず載る", () => {
   assert.ok(page.includes("CARD_SIGNER.tel"), "紙に連絡先を出していない");
 });
 
-test("載せるのは5つだけ（言葉は lib から。紙に文章を直書きしない）", () => {
-  for (const key of ["CARD_HEADLINE", "CARD_SUBLINE", "CARD_QR_LEAD", "CARD_TAKEAWAY_URL"]) {
+test("載せるのは6つだけ（言葉は lib から。紙に文章を直書きしない）", () => {
+  for (const key of [
+    "CARD_AUDIENCE",
+    "CARD_HEADLINE",
+    "CARD_SUBLINE",
+    "CARD_QR_LEAD",
+    "CARD_TAKEAWAY_URL",
+  ]) {
     assert.ok(page.includes(key), `${key} を lib から出していない`);
   }
   // 数えられない言い切りを紙に書かない
@@ -127,7 +141,7 @@ test("A4（210×297mm）に A6 が2列×2段でちょうど並び、切る線が
   assert.ok(page.includes("@page { size: A4; margin: 0; }"), "印刷の用紙がA4に決まっていない");
   assert.match(page, /border-right:\s*0\.2mm dashed/, "切る所の線が入っていない");
   // 札は4枚ちょうど
-  const cards = page.match(/<Card qrPath=\{qrPath\} qrSpan=\{qrSpan\} \/>/g) ?? [];
+  const cards = page.match(/<Card qrPath=\{qrPath\} qrSpan=\{qrSpan\} cut=\{\[[^\]]*\]\} \/>/g) ?? [];
   assert.equal(cards.length, 4, `A4に並ぶ札が4枚でない（${cards.length}枚）`);
 });
 
@@ -146,5 +160,65 @@ test("じゅんが探さずに見つけられる（送る1枚から1本だけ入
   assert.ok(
     sendPage.includes('href="/keiri/card"'),
     "じゅんが毎回開く1枚（/keiri/send）から、印刷用の紙へ行けない",
+  );
+});
+
+/* ───────── 2026-09-30 kp204：じゅんがその場で刷れて、渡された人が説明ゼロで読める ───────── */
+
+test("渡された紙だけで4つとも分かる（どんなお店向け／何が楽になる／月額／やめられる）", () => {
+  // ①どんなお店向けか
+  assert.match(CARD_AUDIENCE, /(屋台|キッチンカー|飲食店)/, "誰に向けた紙かが書いていない");
+  // ②何が楽になるか
+  assert.ok(CARD_HEADLINE.length > 0 && CARD_SUBLINE.length > 0, "何が楽になるかが書いていない");
+  // ③④値段とやめられること（言葉は値段の出どころ1本からだけ出す）
+  const price = priceSummaryLine(false);
+  assert.match(price, /15,000円/, "紙に出る値段が月15,000円でない");
+  assert.match(price, /いつでも解約/, "いつでもやめられることが紙に出ていない");
+  // 4つとも「紙に刷られる側」に出ていること（画面だけの案内文に逃げていない）
+  const paper = page.slice(page.indexOf("function Card("));
+  for (const key of ["CARD_AUDIENCE", "CARD_HEADLINE", "CARD_SUBLINE", "priceSummaryLine("]) {
+    assert.ok(paper.includes(key), `紙に刷られる側に ${key} が無い`);
+  }
+});
+
+test("じゅんがその場で刷れる（押すだけ）", () => {
+  assert.ok(page.includes("<PrintButton />"), "画面に［印刷する］が無い");
+  assert.ok(printButton.includes("window.print()"), "押しても印刷に回らない");
+  assert.ok(printButton.includes("CARD_PRINT_BUTTON_LABEL"), "ボタンの文字を lib から出していない");
+});
+
+test("［印刷する］は紙には刷られない（案内文と同じ no-print の中にある）", () => {
+  const noPrintBlock = page.slice(page.indexOf('className="no-print'), page.indexOf("</section>"));
+  assert.ok(noPrintBlock.includes("<PrintButton />"), "ボタンが紙に刷られる側にある");
+});
+
+test("ボタンが効かない端末でも刷れる（逃げ道を必ず出す）", () => {
+  assert.match(CARD_PRINT_FALLBACK, /Ctrl\+P/, "キーボードでの刷り方が書いていない");
+  assert.ok(printButton.includes("CARD_PRINT_FALLBACK"), "逃げ道が画面に出ていない");
+});
+
+test("切る線は まん中の十字だけ（紙のふちには引かない）", () => {
+  assert.ok(page.includes(".cell-cut-right"), "縦の切り線が無い");
+  assert.ok(page.includes(".cell-cut-bottom"), "横の切り線が無い");
+  const cuts = page.match(/cut=\{\[([^\]]*)\]\}/g) ?? [];
+  assert.equal(cuts.length, 4, "札が4枚でない");
+  assert.equal(
+    cuts.filter((c) => c.includes("right")).length,
+    2,
+    "縦の切り線は左の列の2枚だけ（ふちに線が出る／十字が欠ける）",
+  );
+  assert.equal(
+    cuts.filter((c) => c.includes("bottom")).length,
+    2,
+    "横の切り線は上の段の2枚だけ（ふちに線が出る／十字が欠ける）",
+  );
+});
+
+test("紙は A4 ちょうど1枚に収まる（画面用の余白を紙に持ち込まない）", () => {
+  assert.ok(page.includes('className="card-page'), "紙の枠に印の付いていない（余白を落とせない）");
+  assert.match(
+    page,
+    /\.card-page \{[^}]*padding: 0 !important/,
+    "印刷のとき、画面用の余白が残る（2枚目の白紙が出る）",
   );
 });
