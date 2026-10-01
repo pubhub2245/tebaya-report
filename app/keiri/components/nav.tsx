@@ -44,7 +44,7 @@ export const KEIRI_PUBLIC_PAGES: { path: string; title: string; lead: string }[]
   {
     path: "/keiri/apply",
     title: "お申し込み",
-    lead: "お店の名前・お名前・メールアドレスをいただければ、担当からご案内します。この画面でお支払いは発生しません。",
+    lead: "お店の名前とお電話番号をいただければ、担当からご案内します。この画面でお支払いは発生しません。",
   },
   {
     path: "/keiri/excel",

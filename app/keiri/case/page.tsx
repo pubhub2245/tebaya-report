@@ -26,6 +26,7 @@ import {
   KEIRI_OFFER_ITEMS,
   KEIRI_OFFER_NOT_INCLUDED,
   KEIRI_TOP_LINES,
+  keiriApplyContactLine,
   keiriApplyOptionalLine,
   keiriApplyRequiredLine,
   keiriStartSteps,
@@ -632,7 +633,8 @@ export default async function KeiriCasePage() {
         <p className="mt-2 text-sm text-stone-600 leading-relaxed">
           {keiriApplyRequiredLine()}
           {keiriApplyOptionalLine()}
-          いただいたメールアドレスへ、担当からご連絡します。
+          {/* ★どう連絡するかは lib/keiri/offer.ts が唯一の正（2026-10-01・kp207） */}
+          {keiriApplyContactLine()}
           <strong className="font-bold">この画面ではお支払いは発生しません。</strong>
           {paymentApplyLine(cardLive)}
         </p>
@@ -648,7 +650,7 @@ export default async function KeiriCasePage() {
             >
               {KEIRI_COMPANY.email}
             </a>{" "}
-            まで、お店の名前・お名前・ご連絡先をお送りください。
+            まで、お店の名前とお電話番号をお送りください。
           </div>
         </noscript>
 
