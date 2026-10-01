@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { unstable_cache } from "next/cache";
 
 import {
   CASE_TEBAYA,
@@ -38,6 +39,7 @@ import {
   sampleYen,
 } from "@/lib/keiri/monthlySample";
 import { keiriCaseFaq } from "@/lib/keiri/support";
+import { CASE_CARD_TOP, showsApplyFirst } from "@/lib/keiri/caseTop";
 import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
 import { keiriMetadata } from "@/lib/keiri/metadata";
 
@@ -61,6 +63,25 @@ import { keiriMetadata } from "@/lib/keiri/metadata";
 
 /** 数字は毎日入れ替わる。1時間ごとに作り直す（毎回DBを叩かない） */
 export const revalidate = 3600;
+
+/**
+ * 倉庫を読むのは1時間に1回だけにする（2026-10-01・kp209）。
+ *
+ * 紙から来た人（?from=card）だけ並びを変えるために、このページは
+ * 住所の「?from=」を見るようになりました。その結果、Next.js の決まりで
+ * **ページは毎回その場で組み立てられる**形になります（前は1時間ごとに1回）。
+ * 何もしないと、開かれるたびに倉庫へ2回問い合わせることになり、
+ * 出店説明会のように人が重なる場面でいちばん遅くなります。
+ * そこで**読んだ数字そのものを1時間しまっておく**ようにし、
+ * 倉庫への問い合わせの回数を、これまでと同じ（1時間に1回）に保ちます。
+ * 数字の新しさも、これまでの revalidate = 3600 とまったく同じです。
+ */
+const cachedCaseStats = unstable_cache(getCaseStats, ["keiri-case-stats"], {
+  revalidate: 3600,
+});
+const cachedCaseUsage = unstable_cache(getCaseUsage, ["keiri-case-usage"], {
+  revalidate: 3600,
+});
 
 export const metadata: Metadata = keiriMetadata({
   path: "/keiri/case",
@@ -112,49 +133,98 @@ const FITS: string[] = [
 /* ★「先にお伝えしておくこと」は lib/keiri/offer.ts の KEIRI_OFFER_NOT_INCLUDED が正。
       同じ内容を2か所に書くと、値上げのたびに片方だけ古くなるのでここには置かない。 */
 
-export default async function KeiriCasePage() {
+export default async function KeiriCasePage({
+  searchParams,
+}: {
+  /* 住所の「?from=」だけを見る。ほかの値は読まない（2026-10-01・kp209） */
+  searchParams?: { from?: string | string[] };
+}) {
+  /* ★紙の札（/keiri/card）のQRから来た人だけ、申し込みの欄をいちばん上に出す。
+       合言葉なし・app・show・trial・gh の見え方は1文字も変えない。
+       判定は lib/keiri/caseTop.ts が唯一の正（ここに合言葉を直書きしない）。 */
+  const applyFirst = showsApplyFirst(searchParams?.from);
   const link = paymentLinkUrl();
   /* カードでその場で払えるか。画面の言い方（解約のしかた等）はここだけを見て決める */
   const cardLive = link !== null;
-  const stats = await getCaseStats();
+  const stats = await cachedCaseStats();
   /* 「本当に毎日続いているか」の実測値。金額は1つも読まない（lib/keiri/caseUsage.ts）。
      倉庫が読めなければ null ＝ その区画ごと出さない（数字を作らない） */
-  const usage = await getCaseUsage();
+  const usage = await cachedCaseUsage();
   /* 毎月お届けするものの見本。架空のお店の数字を、本物と同じ関数に計算させる */
   const sample = buildMonthlySample();
   const c = { shopName: CASE_TEBAYA.shopName, ...stats };
 
-  return (
-    <main className="max-w-2xl mx-auto px-4 py-10 min-h-screen">
-      <KeiriBreadcrumb items={[{ name: "経理パッケージ" }]} />
+  /* ★説明の段落と［まず触ってみる］の箱。中身は1文字も変えていない。
+       紙から来た回（applyFirst）だけ、申し込みの欄のうしろに回す（kp209）。
+       同じものを2か所に書くと、片方だけ直したときに食い違うので変数に1度だけ置く。 */
+  /* ★申し込みの区画。ページの中に置くのは **1つだけ**（lib/keiri/caseTop.ts の決めごと）。
+       入力欄の名札（id）は1組しか無いので、2か所に出すと押し間違いが起きる。
+       紙から来た回は上に出し、そのぶん下には出さない（kp209）。 */
+  const applySection = (
+    <>
+      {/* ---------- このページのまま申し込む（kp194） ---------- */}
+      {/* ★なぜ入力欄をここに置くか（2026-09-28・司令室 kp194）
+            9/27 の夜、紙の札（/keiri/card）のQRからこのページが3回読まれたが、
+            申し込みは0件だった。それまでは、読み終わったあとに
+            もう1回ボタンを押して**別の画面**（/keiri/apply）へ移る必要があり、
+            紙や立ち話でその場に見せる場面では、画面が変わるところで手が止まる。
+            そこで、同じ画面のまま送れるようにする。
+          ★/keiri/apply はそのまま残す（カード以外での支払い・検索から直接来る人のため）。
+          ★入力欄・必須の数・値段・解約の言い方は /keiri/apply と**同じ1本**から出す。
+            書き写すと、片方だけ直したときに食い違う。 */}
+      {/* ★scroll-mt-4 ＝ 上のボタンから飛んできたとき、見出しが画面の一番上の縁に
+            貼り付かないようにするための余白。JavaScript は使わない（リンクだけで動く）。 */}
+      <section
+        id="apply"
+        className="mb-10 scroll-mt-4 rounded-2xl border border-stone-200 bg-white p-5"
+      >
+        <h2 className="text-lg font-bold text-stone-900">このまま申し込む</h2>
+        <p className="mt-2 text-sm text-stone-600 leading-relaxed">
+          {keiriApplyRequiredLine()}
+          {keiriApplyOptionalLine()}
+          {/* ★どう連絡するかは lib/keiri/offer.ts が唯一の正（2026-10-01・kp207） */}
+          {keiriApplyContactLine()}
+          <strong className="font-bold">この画面ではお支払いは発生しません。</strong>
+          {paymentApplyLine(cardLive)}
+        </p>
 
-      {/* ---------- 見出し ---------- */}
-      <header className="mb-10">
-        <p className="text-xs font-bold text-amber-700 tracking-wide">経理パッケージ</p>
-        <h1 className="mt-2 text-3xl font-bold text-stone-900 leading-tight">
-          日報を書くだけで、
-          <br />
-          月の利益と今の現金が分かる。
-        </h1>
-        {/* 30秒で分かる3行。LINEで開いた店主が最初の画面だけで
-            「何をしてくれるか・いくらか・やめられるか」を確かめられるようにする。
-            文言は lib/keiri/offer.ts と caseNumbers.ts からだけ引く（ここに約束を直書きしない）。 */}
-        <ul className="mt-4 space-y-2">
-          {KEIRI_TOP_LINES.map((line) => (
-            <li key={line} className="flex gap-2 text-stone-700 leading-relaxed">
-              <span aria-hidden className="flex-none text-amber-600 font-bold">
-                ・
-              </span>
-              <span>{line}</span>
-            </li>
-          ))}
-          <li className="flex gap-2 leading-relaxed">
-            <span aria-hidden className="flex-none text-amber-600 font-bold">
-              ・
-            </span>
-            <span className="font-bold text-amber-800">{priceSummaryLine(cardLive)}</span>
-          </li>
-        </ul>
+        {/* ★入力欄は JavaScript で送る作りなので、それが動かない環境では使えない。
+              黙って使えないのが一番まずいので、その場合の宛先をここに出しておく。 */}
+        <noscript>
+          <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-stone-800 leading-relaxed">
+            このブラウザでは入力欄をお使いいただけません。お手数ですが{" "}
+            <a
+              href={keiriContactMailto({ to: KEIRI_COMPANY.email }).url}
+              className="underline font-bold"
+            >
+              {KEIRI_COMPANY.email}
+            </a>{" "}
+            まで、お店の名前とお電話番号をお送りください。
+          </div>
+        </noscript>
+
+        <div className="mt-5">
+          <ApplyForm
+            email={KEIRI_COMPANY.email}
+            tel={KEIRI_COMPANY.tel}
+            paymentLine={paymentApplyLine(cardLive)}
+            afterApplyLine={paymentAfterApplyLine(cardLive)}
+          />
+        </div>
+
+        <p className="mt-4 text-xs text-stone-500 leading-relaxed">
+          初期費用はかかりません。{cancelLongLabel(cardLive)}。詳しくは{" "}
+          <Link href="/keiri/legal" className="underline">
+            特定商取引法に基づく表記
+          </Link>
+          をご覧ください。税務の個別のご判断は行いません。
+        </p>
+      </section>
+    </>
+  );
+
+  const intro = (
+    <>
         <p className="mt-4 text-stone-600 leading-relaxed">
           小さな飲食店・移動販売・催事出店のための経理です。
           毎日の売上と経費を日報に入れるだけで、月の利益・今の現金・まだ払っていないお金が自動で出ます。
@@ -206,7 +276,84 @@ export default async function KeiriCasePage() {
             この画面ではお支払いは発生しません。
           </p>
         </div>
+    </>
+  );
+
+
+  return (
+    <main className="max-w-2xl mx-auto px-4 py-10 min-h-screen">
+      <KeiriBreadcrumb items={[{ name: "経理パッケージ" }]} />
+
+      {/* ---------- 見出し ---------- */}
+      <header className="mb-10">
+        <p className="text-xs font-bold text-amber-700 tracking-wide">経理パッケージ</p>
+        {/* ★紙から来た人だけ、手に持っている紙のいちばん上の1行をそのまま出す（kp209）。
+              紙と画面の1行目がそろうので、読み取った人が「同じものだ」と確かめられる。
+              文は lib/keiri/card.ts が唯一の正。新しい約束は1つも足していない。 */}
+        {applyFirst && (
+          <p className="mt-2 text-sm font-bold text-stone-700 leading-relaxed">
+            {CASE_CARD_TOP.audience}
+          </p>
+        )}
+        <h1 className="mt-2 text-3xl font-bold text-stone-900 leading-tight">
+          日報を書くだけで、
+          <br />
+          月の利益と今の現金が分かる。
+        </h1>
+        {/* 30秒で分かる3行。LINEで開いた店主が最初の画面だけで
+            「何をしてくれるか・いくらか・やめられるか」を確かめられるようにする。
+            文言は lib/keiri/offer.ts と caseNumbers.ts からだけ引く（ここに約束を直書きしない）。 */}
+        {/* ★紙から来た回は、この3行と［まず触ってみる］を申し込みの欄のうしろに回す（kp209）。
+              紙を受け取った人は、同じことを紙で読んだうえでQRを読んでいる。
+              いちばん上に残すのは「値段の1行」だけにして、欄まで指を動かさずに届かせる。
+              文も値段も、出どころはこれまでと同じ1か所のまま。 */}
+        {applyFirst ? (
+          <p className="mt-4 font-bold text-amber-800 leading-relaxed">
+            {priceSummaryLine(cardLive)}
+          </p>
+        ) : (
+          <>
+            <ul className="mt-4 space-y-2">
+              {KEIRI_TOP_LINES.map((line) => (
+                <li key={line} className="flex gap-2 text-stone-700 leading-relaxed">
+                  <span aria-hidden className="flex-none text-amber-600 font-bold">
+                    ・
+                  </span>
+                  <span>{line}</span>
+                </li>
+              ))}
+              <li className="flex gap-2 leading-relaxed">
+                <span aria-hidden className="flex-none text-amber-600 font-bold">
+                  ・
+                </span>
+                <span className="font-bold text-amber-800">{priceSummaryLine(cardLive)}</span>
+              </li>
+            </ul>
+            {intro}
+          </>
+        )}
       </header>
+
+      {/* ★紙（/keiri/card）のQRから来た回だけ、申し込みの欄をここに出す（kp209）。
+            立ち話のその場では、下まで読み進めてもらう時間が無い。
+            値段・解約の条件・特定商取引法のページは1文字も変えていない（並び順だけ）。 */}
+      {applyFirst && applySection}
+      {applyFirst && (
+        <section className="mb-10">
+          <p className="text-stone-600 leading-relaxed">{CASE_CARD_TOP.subline}</p>
+          <ul className="mt-4 space-y-2">
+            {KEIRI_TOP_LINES.map((line) => (
+              <li key={line} className="flex gap-2 text-stone-700 leading-relaxed">
+                <span aria-hidden className="flex-none text-amber-600 font-bold">
+                  ・
+                </span>
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
+          {intro}
+        </section>
+      )}
 
       {/* ---------- 事例1号 ---------- */}
       <section className="mb-10 rounded-2xl bg-white border border-stone-200 p-6 shadow-sm">
@@ -613,64 +760,7 @@ export default async function KeiriCasePage() {
         </p>
       </section>
 
-      {/* ---------- このページのまま申し込む（kp194） ---------- */}
-      {/* ★なぜ入力欄をここに置くか（2026-09-28・司令室 kp194）
-            9/27 の夜、紙の札（/keiri/card）のQRからこのページが3回読まれたが、
-            申し込みは0件だった。それまでは、読み終わったあとに
-            もう1回ボタンを押して**別の画面**（/keiri/apply）へ移る必要があり、
-            紙や立ち話でその場に見せる場面では、画面が変わるところで手が止まる。
-            そこで、同じ画面のまま送れるようにする。
-          ★/keiri/apply はそのまま残す（カード以外での支払い・検索から直接来る人のため）。
-          ★入力欄・必須の数・値段・解約の言い方は /keiri/apply と**同じ1本**から出す。
-            書き写すと、片方だけ直したときに食い違う。 */}
-      {/* ★scroll-mt-4 ＝ 上のボタンから飛んできたとき、見出しが画面の一番上の縁に
-            貼り付かないようにするための余白。JavaScript は使わない（リンクだけで動く）。 */}
-      <section
-        id="apply"
-        className="mb-10 scroll-mt-4 rounded-2xl border border-stone-200 bg-white p-5"
-      >
-        <h2 className="text-lg font-bold text-stone-900">このまま申し込む</h2>
-        <p className="mt-2 text-sm text-stone-600 leading-relaxed">
-          {keiriApplyRequiredLine()}
-          {keiriApplyOptionalLine()}
-          {/* ★どう連絡するかは lib/keiri/offer.ts が唯一の正（2026-10-01・kp207） */}
-          {keiriApplyContactLine()}
-          <strong className="font-bold">この画面ではお支払いは発生しません。</strong>
-          {paymentApplyLine(cardLive)}
-        </p>
-
-        {/* ★入力欄は JavaScript で送る作りなので、それが動かない環境では使えない。
-              黙って使えないのが一番まずいので、その場合の宛先をここに出しておく。 */}
-        <noscript>
-          <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-stone-800 leading-relaxed">
-            このブラウザでは入力欄をお使いいただけません。お手数ですが{" "}
-            <a
-              href={keiriContactMailto({ to: KEIRI_COMPANY.email }).url}
-              className="underline font-bold"
-            >
-              {KEIRI_COMPANY.email}
-            </a>{" "}
-            まで、お店の名前とお電話番号をお送りください。
-          </div>
-        </noscript>
-
-        <div className="mt-5">
-          <ApplyForm
-            email={KEIRI_COMPANY.email}
-            tel={KEIRI_COMPANY.tel}
-            paymentLine={paymentApplyLine(cardLive)}
-            afterApplyLine={paymentAfterApplyLine(cardLive)}
-          />
-        </div>
-
-        <p className="mt-4 text-xs text-stone-500 leading-relaxed">
-          初期費用はかかりません。{cancelLongLabel(cardLive)}。詳しくは{" "}
-          <Link href="/keiri/legal" className="underline">
-            特定商取引法に基づく表記
-          </Link>
-          をご覧ください。税務の個別のご判断は行いません。
-        </p>
-      </section>
+      {!applyFirst && applySection}
 
       {/* ★この並びの［お申し込み］も、同じ画面の入力欄へ向ける（2026-09-28・kp196）。
             ほかのページの「ほかのページ」は今までどおり /keiri/apply を指す。 */}
