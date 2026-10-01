@@ -69,10 +69,16 @@ export type KeiriApplyInput = {
 /** 確かめ終わった申し込み1件 */
 export type KeiriApplication = {
   shop_name: string;
+  /**
+   * 任意（2026-10-01・kp207）。入れていなければ空の文字。
+   * ★null にしない。倉庫の列が「空でもいいが、無いのは許さない」形
+   *   （contact_name text not null）なので、null を入れると控えが残らない。
+   */
   contact_name: string;
+  /** 任意（同上）。入れていなければ空の文字（理由も同上）。 */
   email: string;
-  /** 任意。入れていなければ null */
-  phone: string | null;
+  /** 必ず入れていただく（2026-10-01・kp207）。折り返しの唯一の道。 */
+  phone: string;
   /** 任意。入れていなければ null */
   note: string | null;
   /**
@@ -102,6 +108,15 @@ function text(v: unknown): string {
  * ★厳密な判定はしない（正しくても届かない住所はあるし、弾きすぎるほうが損）。
  *   明らかに住所でないもの（@が無い・空白が混じる・ドットが無い）だけを断る。
  */
+/**
+ * 電話番号らしいか（2026-10-01・kp207）。
+ * ★厳密な判定はしない。説明会の立ち話で打つ番号を弾くほうが損なので、
+ *   「数字が9個以上あるか」だけを見る（ハイフンあり・なし・+81 のどれでも通る）。
+ */
+export function looksLikePhone(v: string): boolean {
+  return (v.match(/[0-9]/g) ?? []).length >= 9;
+}
+
 function looksLikeEmail(v: string): boolean {
   if (/\s/.test(v)) return false;
   const parts = v.split("@");
@@ -177,18 +192,25 @@ export function normalizeKeiriApplication(input: KeiriApplyInput): KeiriApplyRes
   else if (shopName.length > KEIRI_APPLY_LIMITS.shopName)
     errors.push(`お店の名前は${KEIRI_APPLY_LIMITS.shopName}文字までです。`);
 
-  if (contactName === "") errors.push("お名前を入れてください。");
-  else if (contactName.length > KEIRI_APPLY_LIMITS.contactName)
+  // ★2026-10-01（kp207）：必ず入れていただくのは「お店の名前」と「電話番号」の2つだけ。
+  //   出店説明会の立ち話でスマホに4つ打つのは重すぎるため、
+  //   こちらから折り返せる最小限（店名＋つながる番号）に絞った。
+  //   お名前とメールアドレスは、空でも申し込みが通る。
+  if (phone === "") errors.push("電話番号を入れてください。");
+  else if (phone.length > KEIRI_APPLY_LIMITS.phone)
+    errors.push(`電話番号は${KEIRI_APPLY_LIMITS.phone}文字までです。`);
+  else if (!looksLikePhone(phone))
+    errors.push("電話番号の形が違うようです。もう一度ご確認ください。");
+
+  if (contactName.length > KEIRI_APPLY_LIMITS.contactName)
     errors.push(`お名前は${KEIRI_APPLY_LIMITS.contactName}文字までです。`);
 
-  if (email === "") errors.push("メールアドレスを入れてください。");
-  else if (email.length > KEIRI_APPLY_LIMITS.email)
-    errors.push(`メールアドレスは${KEIRI_APPLY_LIMITS.email}文字までです。`);
-  else if (!looksLikeEmail(email))
-    errors.push("メールアドレスの形が違うようです。もう一度ご確認ください。");
-
-  if (phone.length > KEIRI_APPLY_LIMITS.phone)
-    errors.push(`電話番号は${KEIRI_APPLY_LIMITS.phone}文字までです。`);
+  if (email !== "") {
+    if (email.length > KEIRI_APPLY_LIMITS.email)
+      errors.push(`メールアドレスは${KEIRI_APPLY_LIMITS.email}文字までです。`);
+    else if (!looksLikeEmail(email))
+      errors.push("メールアドレスの形が違うようです。もう一度ご確認ください。");
+  }
 
   if (note.length > KEIRI_APPLY_LIMITS.note)
     errors.push(`ひとことは${KEIRI_APPLY_LIMITS.note}文字までです。`);
@@ -200,9 +222,11 @@ export function normalizeKeiriApplication(input: KeiriApplyInput): KeiriApplyRes
     spam: false,
     value: {
       shop_name: shopName,
+      // ★空の文字のまま渡す（null にしない）。倉庫の列が not null なので、
+      //   null を入れると控えが1行も残らない。
       contact_name: contactName,
       email,
-      phone: phone === "" ? null : phone,
+      phone,
       // 合言葉は「ひとこと」に1行として残す（倉庫の source は 'form' のまま）
       note: applicationNote(note, campaign),
       campaign,
@@ -238,10 +262,11 @@ export function keiriApplyNotificationText(args: {
     `受付：${when}`,
     "",
     `お店：${a.shop_name}`,
-    `お名前：${a.contact_name}`,
-    `メール：${a.email}`,
+    `電話：${a.phone}`,
   ];
-  if (a.phone) lines.push(`電話：${a.phone}`);
+  // ★お名前とメールは任意（2026-10-01・kp207）。空の行を送らない。
+  if (a.contact_name) lines.push(`お名前：${a.contact_name}`);
+  if (a.email) lines.push(`メール：${a.email}`);
   if (a.campaign) lines.push(`どこから：${a.campaign}`);
   // ★ひとことには、こちらで足した「どこから」の1行が入っている。
   //   知らせでは上に1行で出しているので、ここでは店主が書いた文だけを出す。

@@ -27,7 +27,7 @@ function ok(input: Parameters<typeof normalizeKeiriApplication>[0]) {
     shop_name: string;
     contact_name: string;
     email: string;
-    phone: string | null;
+    phone: string;
     note: string | null;
   };
 }
@@ -46,17 +46,60 @@ test("ふつうの申し込みは通る。前後の空白は落とす", () => {
   assert.equal(v.note, "月末の締めが大変です");
 });
 
-test("任意の欄は空なら null（空の文字を控えに残さない）", () => {
-  const v = ok({ shopName: "A店", contactName: "山田", email: "a@b.jp" });
-  assert.equal(v.phone, null);
+test("ひとことは空なら null（空の文字を控えに残さない）", () => {
+  const v = ok({ shopName: "A店", phone: "090-1111-2222" });
   assert.equal(v.note, null);
+});
+
+// ------------------------------------------------------------
+// 必ず入れていただくのは2つだけ（2026-10-01・kp207）
+// ------------------------------------------------------------
+/**
+ * ★10/7 の出店説明会は立ち話で、相手のスマホに打ってもらう。
+ *   4つ打たせると途中でやめられるので、お店の名前と電話番号の2つに絞った。
+ *   お名前とメールアドレスは空でも申し込みが通る（折り返しは電話でする）。
+ */
+test("お店の名前と電話番号の2つだけで申し込める（お名前・メールは空でよい）", () => {
+  const v = ok({ shopName: "屋台 ほげ", phone: "0986-00-0000" });
+  assert.equal(v.shop_name, "屋台 ほげ");
+  assert.equal(v.phone, "0986-00-0000");
+  // ★空の文字のまま残す（倉庫の列が not null なので null にしてはいけない）
+  assert.equal(v.contact_name, "");
+  assert.equal(v.email, "");
+});
+
+test("電話番号が空なら断る（折り返す道が無くなるため）", () => {
+  const r = normalizeKeiriApplication({ shopName: "A店", email: "a@b.jp" });
+  assert.equal(r.ok, false);
+  assert.ok(
+    (r as { ok: false; errors: string[] }).errors.some((m) => m.includes("電話番号")),
+  );
+});
+
+test("電話番号は、数字が足りないものだけ断る（ハイフンあり・なし・+81 は通す）", () => {
+  for (const good of ["09000000000", "090-0000-0000", "+81 90 0000 0000", "0986-00-0000"]) {
+    ok({ shopName: "A店", phone: good });
+  }
+  for (const bad of ["090", "あいうえお", "12345678"]) {
+    const r = normalizeKeiriApplication({ shopName: "A店", phone: bad });
+    assert.equal(r.ok, false, `通してはいけない: ${bad}`);
+  }
+});
+
+test("メールアドレスは任意だが、入れたときは形を見る", () => {
+  ok({ shopName: "A店", phone: "090-0000-0000", email: "" });
+  const r = normalizeKeiriApplication({
+    shopName: "A店",
+    phone: "090-0000-0000",
+    email: "abc",
+  });
+  assert.equal(r.ok, false);
 });
 
 test("全角の空白だけの入力は「入っていない」と数える", () => {
   const r = normalizeKeiriApplication({
     shopName: "　　",
-    contactName: "山田",
-    email: "a@b.jp",
+    phone: "090-0000-0000",
   });
   assert.equal(r.ok, false);
   assert.ok(
@@ -64,21 +107,20 @@ test("全角の空白だけの入力は「入っていない」と数える", ()
   );
 });
 
-test("必須が3つとも空なら、足りないものを3つとも教える", () => {
+test("必須が2つとも空なら、足りないものを2つとも教える", () => {
   const r = normalizeKeiriApplication({});
   assert.equal(r.ok, false);
   const errors = (r as { ok: false; errors: string[] }).errors;
-  assert.equal(errors.length, 3);
+  assert.equal(errors.length, 2);
   assert.ok(errors.some((m) => m.includes("お店の名前")));
-  assert.ok(errors.some((m) => m.includes("お名前")));
-  assert.ok(errors.some((m) => m.includes("メールアドレス")));
+  assert.ok(errors.some((m) => m.includes("電話番号")));
 });
 
 test("メールアドレスの形がおかしいものは断る", () => {
   for (const bad of ["abc", "a@b", "a b@c.jp", "@example.com", "a@.jp", "a@b."]) {
     const r = normalizeKeiriApplication({
       shopName: "A店",
-      contactName: "山田",
+      phone: "090-0000-0000",
       email: bad,
     });
     assert.equal(r.ok, false, `通してはいけない: ${bad}`);
@@ -87,13 +129,12 @@ test("メールアドレスの形がおかしいものは断る", () => {
 
 test("長すぎる貼り付けは断る（上限ちょうどは通す）", () => {
   const justFit = "あ".repeat(KEIRI_APPLY_LIMITS.shopName);
-  ok({ shopName: justFit, contactName: "山田", email: "a@b.jp" });
+  ok({ shopName: justFit, phone: "090-0000-0000" });
 
   const tooLong = "あ".repeat(KEIRI_APPLY_LIMITS.shopName + 1);
   const r = normalizeKeiriApplication({
     shopName: tooLong,
-    contactName: "山田",
-    email: "a@b.jp",
+    phone: "090-0000-0000",
   });
   assert.equal(r.ok, false);
 });
@@ -101,8 +142,7 @@ test("長すぎる貼り付けは断る（上限ちょうどは通す）", () =>
 test("囮の欄が埋まっていたら機械。成功の顔をして、誰にも知らせない", () => {
   const r = normalizeKeiriApplication({
     shopName: "A店",
-    contactName: "山田",
-    email: "a@b.jp",
+    phone: "090-0000-0000",
     website: "http://spam.example",
   });
   assert.equal(r.ok, true);
@@ -115,7 +155,7 @@ test("文字でないもの（数値・オブジェクト）が来ても落ち�
   const r = normalizeKeiriApplication({
     shopName: 123,
     contactName: { a: 1 },
-    email: null,
+    phone: null,
   });
   assert.equal(r.ok, false);
 });
@@ -148,15 +188,18 @@ test("任意の欄が無いときは、その行を出さない（空の行を�
   const text = keiriApplyNotificationText({
     application: {
       shop_name: "A店",
-      contact_name: "山田",
-      email: "a@b.jp",
-      phone: null,
+      contact_name: "",
+      email: "",
+      phone: "090-0000-0000",
       note: null,
       campaign: null,
     },
     priceLabel: "月額15,000円（税込）／1店舗",
   });
-  assert.ok(!text.includes("電話："));
+  // ★電話は必ず入る（折り返しの唯一の道・kp207）
+  assert.ok(text.includes("電話：090-0000-0000"));
+  assert.ok(!text.includes("お名前："));
+  assert.ok(!text.includes("メール："));
   assert.ok(!text.includes("ひとこと："));
 });
 
@@ -330,8 +373,7 @@ test("SQL：申し込みの棚は、外から来る人に『入れる』以外�
 test("合言葉（?from=card）は申し込みの記録に残る（kp194）", () => {
   const r = normalizeKeiriApplication({
     shopName: "A店",
-    contactName: "山田",
-    email: "a@b.jp",
+    phone: "090-0000-0000",
     note: "月末の締めが大変です",
     campaign: "card",
   });
@@ -345,8 +387,7 @@ test("合言葉（?from=card）は申し込みの記録に残る（kp194）", ()
 test("ひとことが空でも合言葉だけは残る。合言葉が無ければ今までどおり（kp194）", () => {
   const withMark = normalizeKeiriApplication({
     shopName: "A店",
-    contactName: "山田",
-    email: "a@b.jp",
+    phone: "090-0000-0000",
     campaign: "card",
   });
   if (!withMark.ok || withMark.spam) throw new Error("受け取れていません");
@@ -354,8 +395,7 @@ test("ひとことが空でも合言葉だけは残る。合言葉が無けれ�
 
   const plain = normalizeKeiriApplication({
     shopName: "A店",
-    contactName: "山田",
-    email: "a@b.jp",
+    phone: "090-0000-0000",
   });
   if (!plain.ok || plain.spam) throw new Error("受け取れていません");
   assert.equal(plain.value.note, null);
@@ -365,8 +405,7 @@ test("ひとことが空でも合言葉だけは残る。合言葉が無けれ�
 test("合言葉に余分な記号が付いてきても、同じ合言葉として残る（kp195と対）", () => {
   const r = normalizeKeiriApplication({
     shopName: "A店",
-    contactName: "山田",
-    email: "a@b.jp",
+    phone: "090-0000-0000",
     campaign: "card`",
   });
   if (!r.ok || r.spam) throw new Error("受け取れていません");
@@ -379,7 +418,7 @@ test("知らせの本文では、どこから来たかを1行で出し、ひと�
       shop_name: "A店",
       contact_name: "山田",
       email: "a@b.jp",
-      phone: null,
+      phone: "090-0000-0000",
       note: "月末の締めが大変です\n［どこから：card］",
       campaign: "card",
     },

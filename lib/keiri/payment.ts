@@ -54,7 +54,7 @@ export function paymentTimingLine(cardLive = false): string {
 export function paymentStepBody(cardLive = false): string {
   return cardLive
     ? "そのままカードでお支払いいただけます。お支払いが済んだ時点でお使いいただけます。"
-    : "担当からいただいたメールアドレスへご連絡します（通常1営業日以内）。" +
+    : "担当からいただいたお電話番号へご連絡します（通常1営業日以内）。" +
         `お支払いは${KEIRI_BANK_TRANSFER}です。お振込先は、そのときにお伝えします。`;
 }
 

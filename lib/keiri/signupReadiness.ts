@@ -267,7 +267,7 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
             "select * from public.keiri_tenant_create_manual('お店の名前'); を1行流します" +
             "（そのお店の初回設定リンクが1本出ます。手順は " +
             "supabase/migrations/keiri_tenant_create_manual.sql の方法A）",
-          "お振込先は、担当がいただいたメールアドレスへご案内します" +
+          "お振込先は、担当がいただいたお電話番号かメールアドレスへご案内します" +
             "（公開ページには口座を書きません）",
         ]
       : [];
