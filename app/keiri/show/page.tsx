@@ -9,7 +9,10 @@ import {
 } from "@/lib/keiri/caseNumbers";
 import { getCaseStats } from "@/lib/keiri/caseStats";
 import { QR_QUIET_ZONE, qrMatrix, qrSvgPath } from "@/lib/keiri/qr";
+
+import OnsiteApplyForm from "./OnsiteApplyForm";
 import {
+  ONSITE_OWNER_HINT,
   SHOW_APPLY_HREF,
   SHOW_APPLY_LABEL,
   SHOW_AUDIENCE,
@@ -49,6 +52,9 @@ import {
  *            日報から自動で出す（lib/keiri/caseStats.ts）。万円まで丸めた形だけ
  *   3画面目＝渡すのは日報とレシートの写真だけ／帳簿と通帳の用意は不要
  *   4画面目＝「いつでもやめられる」、持ち帰りのQRと住所、押し所
+ *   4画面のうしろ＝じゅん用の「この場で代わりに登録する」欄（2026-10-01・kp211）。
+ *            相手がスマホを出されないときの最後の道。うかがった2つ（お店の名前・
+ *            電話番号）を打ち込むと、ふだんのお申し込みと同じ受け皿に入る
  *
  * ■ 出さないもの
  *   ・送り先のお店の名前・ご連絡先（誰に見せるかは手元の話）
@@ -201,7 +207,20 @@ export default async function KeiriShowPage() {
         <ApplyButton />
       </Screen>
 
-      <p className="px-5 py-6 text-xs leading-relaxed text-stone-500">{SHOW_OWNER_HINT}</p>
+      {/*
+        ★「相手がスマホを出さないとき」の最後の道（2026-10-01・kp211）。
+          4画面のうしろ（画面送りの外）に置く。相手に見せる4画面は1文字も変えない。
+          開いて、うかがった2つを じゅんが打ち込むと、ふだんのお申し込みと
+          まったく同じ受け皿に入る（合言葉だけ onsite で数え分ける）。
+      */}
+      <div className="px-5 pt-6">
+        <OnsiteApplyForm />
+      </div>
+
+      <p className="px-5 py-6 text-xs leading-relaxed text-stone-500">
+        {SHOW_OWNER_HINT}
+        {ONSITE_OWNER_HINT}
+      </p>
     </main>
   );
 }
