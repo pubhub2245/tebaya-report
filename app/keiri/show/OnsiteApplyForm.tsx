@@ -4,14 +4,18 @@ import { useState } from "react";
 
 import { KEIRI_APPLY_LIMITS } from "@/lib/keiri/apply";
 import {
+  ONSITE_AGAIN_LABEL,
   ONSITE_DONE_LABEL,
+  ONSITE_EDIT_LABEL,
   ONSITE_FAIL_LABEL,
   ONSITE_FIELD_LABELS,
   ONSITE_FROM_KEY,
+  ONSITE_KEEP_TITLE,
   ONSITE_LEAD,
   ONSITE_NOTE,
   ONSITE_OPEN_LABEL,
   ONSITE_PLACEHOLDERS,
+  ONSITE_RETRY_LABEL,
   ONSITE_SENDING_LABEL,
   ONSITE_SUBMIT_LABEL,
 } from "@/lib/keiri/show";
@@ -42,20 +46,29 @@ import {
 
 type State = "input" | "sending" | "done" | "failed";
 
+/** うかがった2つ。送れなかったときも消さずに持っておく（2026-10-02・kp215） */
+type Heard = { shopName: string; phone: string };
+const NOTHING_HEARD: Heard = { shopName: "", phone: "" };
+
 const LABEL = "block text-base font-bold text-stone-700";
 const INPUT =
   "mt-1 w-full h-14 rounded-xl border border-stone-300 px-3 text-lg text-stone-900 " +
   "focus:border-stone-900 focus:outline-none focus:ring-2 focus:ring-stone-300";
+const SUB_BUTTON =
+  "mt-4 flex min-h-14 w-full items-center justify-center rounded-2xl border border-stone-400 " +
+  "px-5 text-lg font-bold text-stone-900";
 
 export default function OnsiteApplyForm() {
   const [state, setState] = useState<State>("input");
   const [errors, setErrors] = useState<string[]>([]);
+  // ★うかがった2つは、送れても送れなくても、こちらで持っておく。
+  //   送れなかったときに空の欄へ戻すと、相手はもう次の方と話しているので聞き直せない。
+  const [heard, setHeard] = useState<Heard>(NOTHING_HEARD);
+  // ★欄を空に戻すための番号。次のお店を入れるときだけ1つ増やす
+  //   （送れなかったときは増やさない＝うかがった2つが入ったまま）。
+  const [round, setRound] = useState(0);
 
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (state === "sending") return;
-
-    const f = new FormData(e.currentTarget);
+  async function send(values: Heard) {
     setErrors([]);
     setState("sending");
 
@@ -64,8 +77,8 @@ export default function OnsiteApplyForm() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          shopName: f.get("shopName"),
-          phone: f.get("phone"),
+          shopName: values.shopName,
+          phone: values.phone,
           // ★どこから来た申し込みかを一緒に送る。紙（card）・見せる1枚（show）と
           //   混ざらないように、この道だけの合言葉を付ける
           campaign: ONSITE_FROM_KEY,
@@ -93,6 +106,27 @@ export default function OnsiteApplyForm() {
     }
   }
 
+  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (state === "sending") return;
+
+    const f = new FormData(e.currentTarget);
+    const values: Heard = {
+      shopName: String(f.get("shopName") ?? ""),
+      phone: String(f.get("phone") ?? ""),
+    };
+    setHeard(values);
+    void send(values);
+  }
+
+  /** 次のお店を入れる（説明会では続けて2軒・3軒とうかがう） */
+  function nextShop() {
+    setHeard(NOTHING_HEARD);
+    setRound((n) => n + 1);
+    setErrors([]);
+    setState("input");
+  }
+
   return (
     <details className="mt-2 rounded-2xl border border-stone-300 bg-white">
       <summary className="min-h-14 cursor-pointer list-none px-5 py-4 text-lg font-bold text-stone-900">
@@ -101,22 +135,45 @@ export default function OnsiteApplyForm() {
 
       <div className="border-t border-stone-200 px-5 py-5">
         {state === "done" ? (
-          <p className="text-xl font-bold leading-relaxed text-stone-900">{ONSITE_DONE_LABEL}</p>
+          <div>
+            <p className="text-xl font-bold leading-relaxed text-stone-900">{ONSITE_DONE_LABEL}</p>
+            {/* ★続けて次のお店をうかがう場面がふつうに起きるので、
+                 ページを開き直さずに空の欄へ戻せるようにする */}
+            <button type="button" onClick={nextShop} className={SUB_BUTTON}>
+              {ONSITE_AGAIN_LABEL}
+            </button>
+          </div>
         ) : state === "failed" ? (
           <div>
             <p className="text-lg font-bold leading-relaxed text-stone-900">
               {ONSITE_FAIL_LABEL}
             </p>
+            {/* ★うかがった2つを、消さずにそのまま出す。
+                 そのまま送り直せるし、書き留めることもできる */}
+            <dl className="mt-4 rounded-xl border border-stone-300 bg-stone-50 p-4">
+              <p className="text-base font-bold text-stone-700">{ONSITE_KEEP_TITLE}</p>
+              <dt className="mt-3 text-base text-stone-600">{ONSITE_FIELD_LABELS.shopName}</dt>
+              <dd className="text-lg font-bold text-stone-900">{heard.shopName}</dd>
+              <dt className="mt-2 text-base text-stone-600">{ONSITE_FIELD_LABELS.phone}</dt>
+              <dd className="text-lg font-bold text-stone-900">{heard.phone}</dd>
+            </dl>
+            <button
+              type="button"
+              onClick={() => void send(heard)}
+              className="mt-4 flex min-h-14 w-full items-center justify-center rounded-2xl bg-stone-900 px-5 text-lg font-bold text-white"
+            >
+              {ONSITE_RETRY_LABEL}
+            </button>
             <button
               type="button"
               onClick={() => setState("input")}
-              className="mt-4 text-base font-bold text-stone-700 underline"
+              className={SUB_BUTTON}
             >
-              もう一度入れる
+              {ONSITE_EDIT_LABEL}
             </button>
           </div>
         ) : (
-          <form onSubmit={onSubmit} className="space-y-4">
+          <form key={round} onSubmit={onSubmit} className="space-y-4">
             <p className="text-base leading-relaxed text-stone-700">{ONSITE_LEAD}</p>
 
             {errors.length > 0 && (
@@ -140,6 +197,7 @@ export default function OnsiteApplyForm() {
                 maxLength={KEIRI_APPLY_LIMITS.shopName}
                 autoComplete="off"
                 className={INPUT}
+                defaultValue={heard.shopName}
                 placeholder={ONSITE_PLACEHOLDERS.shopName}
               />
             </div>
@@ -157,6 +215,7 @@ export default function OnsiteApplyForm() {
                 autoComplete="off"
                 inputMode="tel"
                 className={INPUT}
+                defaultValue={heard.phone}
                 placeholder={ONSITE_PLACEHOLDERS.phone}
               />
             </div>

@@ -20,11 +20,15 @@ import { APP_FROM_KEY } from "../lib/keiri/appLink";
 import { README_FROM_KEY } from "../lib/keiri/readmeLink";
 import { cleanCampaign } from "../lib/siteVisits";
 import {
+  ONSITE_AGAIN_LABEL,
   ONSITE_DONE_LABEL,
+  ONSITE_EDIT_LABEL,
   ONSITE_FAIL_LABEL,
   ONSITE_FIELD_LABELS,
   ONSITE_FROM_KEY,
+  ONSITE_KEEP_TITLE,
   ONSITE_OPEN_LABEL,
+  ONSITE_RETRY_LABEL,
   ONSITE_SUBMIT_LABEL,
   SHOW_FROM_KEY,
 } from "../lib/keiri/show";
@@ -144,4 +148,86 @@ test("欄そのものは JavaScript が動かなくても開く（<details> で�
   assert.ok(form.includes("<details"), "開く所が JS 頼みになっている");
   assert.ok(!page.includes('"use client"'), "この1枚ぜんたいが JS 前提になった");
   assert.ok(!page.includes("useState"), "この1枚ぜんたいが JS 前提になった");
+});
+
+/* ===== 2026-10-02・kp215 ここから =====
+ * 説明会の会場は電波が細いことがあり、続けて2軒・3軒とうかがう場面もふつうに起きる。
+ * そこで崩れると「うかがった1件を落とす」ので、戻り止めを置く。
+ */
+
+test("送れなかったとき、うかがった2つが画面から消えない", () => {
+  // うかがった2つを持っておく入れ物がある
+  assert.match(formCode, /useState<Heard>/, "うかがった2つを持っていない");
+  // 送れなかった画面に、その2つをそのまま出している
+  assert.ok(formCode.includes("heard.shopName"), "お店の名前が出ていない");
+  assert.ok(formCode.includes("heard.phone"), "電話番号が出ていない");
+  assert.ok(ONSITE_KEEP_TITLE.length > 0, "控えの見出しが無い");
+});
+
+test("送れなかったとき、打ち直す欄にも うかがった2つが入ったまま", () => {
+  // 欄に入れ直している（空の欄に戻さない）
+  assert.ok(
+    formCode.includes("defaultValue={heard.shopName}"),
+    "お店の名前が欄に入らない",
+  );
+  assert.ok(formCode.includes("defaultValue={heard.phone}"), "電話番号が欄に入らない");
+  // 欄を空に戻すのは「次のお店」のときだけ＝送れなかったときに番号を増やさない
+  assert.ok(formCode.includes("key={round}"), "欄を空に戻す仕掛けが無い");
+  assert.equal(
+    (formCode.match(/setRound\(/g) ?? []).length,
+    1,
+    "欄を空に戻す所が増えている（送れなかったときに消える恐れ）",
+  );
+  assert.match(
+    formCode,
+    /function nextShop\(\)[\s\S]*?setRound\(/,
+    "欄を空に戻すのが「次のお店」以外から呼ばれている",
+  );
+});
+
+test("送れなかったとき、同じ2つをそのまま送り直せる", () => {
+  assert.ok(formCode.includes("send(heard)"), "同じ2つを送り直す道が無い");
+  assert.ok(ONSITE_RETRY_LABEL.length > 0, "送り直す押し所の文が無い");
+  assert.ok(ONSITE_EDIT_LABEL.length > 0, "打ち直す押し所の文が無い");
+});
+
+test("送れたあと、ページを開き直さずに次のお店を登録できる", () => {
+  // 押し所が画面に出ていること（関数があるだけでは、押せないので意味がない）
+  assert.equal(
+    (formCode.match(/onClick=\{nextShop\}/g) ?? []).length,
+    1,
+    "次のお店へ進む押し所が画面に出ていない",
+  );
+  assert.ok(ONSITE_AGAIN_LABEL.length > 0, "次のお店の押し所の文が無い");
+  // 次のお店に進むときは、前の方の2つを必ず消す（相手の目の前に前の方の情報を残さない）
+  assert.match(
+    formCode,
+    /function nextShop\(\) \{\s*setHeard\(NOTHING_HEARD\);/,
+    "次のお店に進むときに、前の方の2つが消えていない",
+  );
+  // 開き直しに頼らない＝画面の読み込み直しを呼んでいない
+  assert.ok(!/location\.reload/.test(formCode), "ページの開き直しに頼っている");
+});
+
+test("足した文も lib/keiri/show.ts からだけ出す（画面に直書きしない）", () => {
+  for (const label of [
+    ONSITE_AGAIN_LABEL,
+    ONSITE_RETRY_LABEL,
+    ONSITE_EDIT_LABEL,
+    ONSITE_KEEP_TITLE,
+  ]) {
+    assert.ok(!form.includes(`>${label}<`), `画面に文章が直書きされている：${label}`);
+  }
+  // 前の形で直書きされていた「もう一度入れる」は残っていない
+  assert.ok(!form.includes("もう一度入れる"), "古い直書きの文が残っている");
+});
+
+test("送り先・合言葉・受け皿は、この直しで1つも変わっていない", () => {
+  assert.equal((formCode.match(/\/api\/keiri\/apply/g) ?? []).length, 1, "送り先が増えている");
+  assert.equal(
+    (formCode.match(/campaign: ONSITE_FROM_KEY/g) ?? []).length,
+    1,
+    "合言葉の付け方が変わっている",
+  );
+  assert.equal((formCode.match(/fetch\(/g) ?? []).length, 1, "外に出る所が増えている");
 });
