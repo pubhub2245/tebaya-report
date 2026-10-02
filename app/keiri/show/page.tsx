@@ -12,16 +12,24 @@ import { QR_QUIET_ZONE, qrMatrix, qrSvgPath } from "@/lib/keiri/qr";
 
 import OnsiteApplyForm from "./OnsiteApplyForm";
 import {
+  ONSITE_OPEN_LABEL,
   ONSITE_OWNER_HINT,
   SHOW_APPLY_HREF,
   SHOW_APPLY_LABEL,
+  SHOW_APP_TITLE,
   SHOW_AUDIENCE,
+  SHOW_COVER_ANCHOR,
   SHOW_HANDOFF,
   SHOW_HEADLINE,
+  SHOW_HOME_HINT,
   SHOW_NUMBERS_LEAD,
   SHOW_NUMBER_LABELS,
+  SHOW_ONSITE_PAGE_HREF,
   SHOW_OWNER_HINT,
   SHOW_PRICE_NOTE,
+  SHOW_START_MISERU_HREF,
+  SHOW_START_MISERU_LABEL,
+  SHOW_START_TITLE,
   SHOW_SUBLINE,
   SHOW_TAKEAWAY_COPY,
   SHOW_TAKEAWAY_LEAD,
@@ -81,18 +89,25 @@ export const revalidate = 3600;
 export const metadata: Metadata = {
   title: "その場で見せる1枚",
   robots: { index: false, follow: false },
+  // ホーム画面に置いたときの名前（長いと途中で切れるので短くする・kp216）
+  appleWebApp: { title: SHOW_APP_TITLE },
 };
 
 /** 立って見る1画面ぶんの外枠 */
 function Screen({
   step,
+  id,
   children,
 }: {
   step: string;
+  id?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex min-h-[88svh] snap-start flex-col justify-center gap-5 border-b border-stone-200 px-5 py-10">
+    <section
+      id={id}
+      className="flex min-h-[88svh] snap-start flex-col justify-center gap-5 border-b border-stone-200 px-5 py-10"
+    >
       <p className="text-xs font-bold tracking-widest text-stone-400">{step}</p>
       {children}
     </section>
@@ -129,8 +144,35 @@ export default async function KeiriShowPage() {
 
   return (
     <main className="mx-auto max-w-md snap-y snap-mandatory">
+      {/*
+        ★じゅんが開いた瞬間に、どちらで渡すかを1タップで選ぶ帯（2026-10-02・kp216）。
+          立ち話の数十秒で「見せる」か「代わりに打つ」かを決める所です。
+          ［相手に見せる］は同じ1枚の表紙（#miseru）へ動くだけなので、
+          相手にスマホを差し出すときには、この帯は画面の外に出ています。
+          相手に見せる4画面の言葉・値段・約束は1文字も変えていません。
+      */}
+      <section className="snap-start border-b border-stone-200 px-5 py-5">
+        <p className="text-xs font-bold tracking-widest text-stone-400">じゅん用</p>
+        <h2 className="mt-1 text-xl font-bold text-stone-900">{SHOW_START_TITLE}</h2>
+        <div className="mt-3 space-y-3">
+          <a
+            href={SHOW_START_MISERU_HREF}
+            className="flex min-h-14 w-full items-center justify-center rounded-2xl bg-stone-900 px-5 text-lg font-bold text-white"
+          >
+            {SHOW_START_MISERU_LABEL}
+          </a>
+          <Link
+            href={SHOW_ONSITE_PAGE_HREF}
+            className="flex min-h-14 w-full items-center justify-center rounded-2xl border-2 border-stone-900 px-5 text-lg font-bold text-stone-900"
+          >
+            {ONSITE_OPEN_LABEL}
+          </Link>
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-stone-500">{SHOW_HOME_HINT}</p>
+      </section>
+
       {/* ① 表紙＝どんなお店向けか・何が楽になるか・いくら（口で説明しないで済む所） */}
-      <Screen step="1 / 4">
+      <Screen step="1 / 4" id={SHOW_COVER_ANCHOR}>
         <p className="text-lg font-bold text-stone-500">{SHOW_AUDIENCE}</p>
         <h1 className="text-3xl font-bold leading-snug text-stone-900">{SHOW_HEADLINE}</h1>
         <p className="text-xl leading-relaxed text-stone-700">{SHOW_SUBLINE}</p>

@@ -58,7 +58,13 @@ const SUB_BUTTON =
   "mt-4 flex min-h-14 w-full items-center justify-center rounded-2xl border border-stone-400 " +
   "px-5 text-lg font-bold text-stone-900";
 
-export default function OnsiteApplyForm() {
+/**
+ * @param defaultOpen 開いた状態で出すかどうか（2026-10-02・kp216）。
+ *   立ち話で「代わりに打つ」を選んだときは、<details> を開く操作をもう1回
+ *   させないために、欄が開いた1枚（/keiri/show/toroku）から true で呼びます。
+ *   見せる1枚のいちばん下（従来どおり）は閉じたままです。
+ */
+export default function OnsiteApplyForm({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const [state, setState] = useState<State>("input");
   const [errors, setErrors] = useState<string[]>([]);
   // ★うかがった2つは、送れても送れなくても、こちらで持っておく。
@@ -128,7 +134,7 @@ export default function OnsiteApplyForm() {
   }
 
   return (
-    <details className="mt-2 rounded-2xl border border-stone-300 bg-white">
+    <details open={defaultOpen} className="mt-2 rounded-2xl border border-stone-300 bg-white">
       <summary className="min-h-14 cursor-pointer list-none px-5 py-4 text-lg font-bold text-stone-900">
         {ONSITE_OPEN_LABEL}
       </summary>
