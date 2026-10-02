@@ -46,6 +46,7 @@ import {
   type DemoInput,
   demoInputProblem,
   demoInputToReport,
+  demoAdvances,
   demoPayments,
   demoReports,
   demoSettings,
@@ -66,19 +67,21 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
 
   const settings = useMemo(() => demoSettings(ym), [ym]);
   const payments = useMemo(() => demoPayments(), []);
+  /** 立替（誰かが自分のお金で先に払った経費）。お試し版では2件入れてあります */
+  const advances = useMemo(() => demoAdvances(ym), [ym]);
   // 申し込んだお店と同じ「汎用」の対応表を使う（手羽屋だけの言葉は使わない）
   const template = useMemo(() => templateFor(GENERIC_TEMPLATE.code), []);
 
   const summary = useMemo(
-    () => summarizeMonth({ ym, reports, template, settings }),
+    () => summarizeMonth({ ym, reports, template, settings, advances }),
     [ym, reports, template, settings],
   );
   const cash = useMemo(
-    () => calcCashPosition({ reports, payments, settings }),
+    () => calcCashPosition({ reports, payments, settings, advances }),
     [reports, payments, settings],
   );
   const unpaid = useMemo(
-    () => calcUnpaid({ reports, payments, settings, currentYm: ym }),
+    () => calcUnpaid({ reports, payments, settings, currentYm: ym, advances }),
     [reports, payments, settings, ym],
   );
   const byLocation = useMemo(() => summarizeByLocation({ ym, reports }), [ym, reports]);
@@ -95,7 +98,7 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
    * ★日報を1件足すと、この行が増えます。そこが見どころです。
    */
   const journalRows = useMemo(
-    () => buildJournalRows({ ym, reports, payments, template, settings }),
+    () => buildJournalRows({ ym, reports, payments, template, settings, advances }),
     [ym, reports, payments, template, settings],
   );
 
@@ -208,14 +211,17 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
             title="まだ払っていないお金"
             value={unpaid.total}
             color="text-amber-600"
-            note={`給与 ${yen(unpaid.payroll)}・家賃 ${yen(unpaid.rent)}`}
+            note={`給与 ${yen(unpaid.payroll)}・家賃 ${yen(unpaid.rent)}・立替 ${yen(
+              unpaid.advance,
+            )}`}
           />
         </dl>
         {/* ★ここは正直に書く（9/19 の実測で分かったこと）。
              「まだ払っていないお金」は給与・外注費・家賃の3つだけを数えており、
              仕入れの掛け（今月末に払う肉代など）は入りません。 */}
         <p className="mt-3 rounded-lg bg-stone-100 px-4 py-3 text-xs text-stone-600 leading-relaxed">
-          ※「まだ払っていないお金」に入るのは、<strong>給与・外注費・家賃の3つだけ</strong>です。
+          ※「まだ払っていないお金」に入るのは、
+          <strong>給与・外注費・家賃と、まだ返していない立替</strong>です。
           仕入れの掛け（今月末にまとめて払う材料代など）は数えていません。
         </p>
       </section>
@@ -345,6 +351,15 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
             </tbody>
           </table>
         </div>
+        <p className="mt-3 text-xs text-stone-500 leading-relaxed">
+          経費 {yen(summary.expenseTotal)} の内訳：レジのお金から出た分{" "}
+          {yen(summary.expenseFromRegister)}／誰かが立て替えた分{" "}
+          {yen(summary.expenseFromAdvance)}／日当 {yen(summary.payroll)}／家賃{" "}
+          {yen(summary.rent)}。
+          <strong>月の経費は、立替も含めた全部で1つに決めています。</strong>
+          立て替えた日にはまだ金庫からお金が出ていないので、返すまでは
+          「まだ払っていないお金」に出ます。
+        </p>
         {summary.unmatched.length > 0 && (
           <p className="mt-3 text-xs text-stone-500 leading-relaxed">
             ※ 種類が分からず「雑費」に入れた経費：{summary.unmatched.length}件

@@ -25,6 +25,7 @@ import { supabase } from "@/lib/supabase";
 import {
   applyTenantScope,
   businessCodeForScope,
+  isTebayaScope,
   readTenantScope,
 } from "@/lib/tenantScope";
 import { yen, slashDate, todayStr } from "@/lib/format";
@@ -57,6 +58,9 @@ import { toYayoiCsv, yayoiFileName } from "@/lib/keiri/yayoi";
 import {
   PAYMENT_KIND_LABEL,
   type KeiriPayment,
+  normalizeFieldAdvance,
+  normalizeOwnerAdvance,
+  type KeiriAdvance,
   type KeiriReport,
   type KeiriSettings,
   type PaymentKind,
@@ -129,6 +133,11 @@ function KeiriInner() {
   const [settings, setSettings] = useState<KeiriSettings | null>(null);
   const [reports, setReports] = useState<KeiriReport[]>([]);
   const [payments, setPayments] = useState<(KeiriPayment & { id: number })[]>([]);
+  /**
+   * 立替（誰かが自分のお金で先に払った経費）。
+   * ★月の経費は「立替も含めた全部」で1つに決めています（kp218）。
+   */
+  const [advances, setAdvances] = useState<KeiriAdvance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   /**
@@ -219,6 +228,33 @@ function KeiriInner() {
         .order("paid_on", { ascending: false });
       if (pErr) throw pErr;
       setPayments((pays as (KeiriPayment & { id: number })[]) ?? []);
+
+      // 立替。棚が2つあり（現場／経営側）、列の名前も違うので形を揃えてから使う。
+      // ★どちらの棚にも「どの店のものか」の印がまだ無いので、
+      //   よその店の数字が混ざらないよう **手羽屋として開いているときだけ** 読みます
+      //   （lib/tenantScope.ts の TABLES_WITHOUT_TENANT_COLUMN と同じ考え方）。
+      //   申し込んだお店は立替の入口そのものに門が掛かっているので、立替は0件が正しい値です。
+      if (isTebayaScope(scope)) {
+        const loaded: KeiriAdvance[] = [];
+        const { data: field } = await supabase
+          .from("keiri_advance_expenses")
+          .select("expense_date, amount, payer, source_type, memo")
+          .eq("business_type_code", BUSINESS_CODE)
+          .gte("expense_date", gte);
+        for (const row of (field as any[]) ?? []) {
+          loaded.push(normalizeFieldAdvance(row));
+        }
+        const { data: owner } = await supabase
+          .from("advance_expenses")
+          .select("date, amount, payer, description, settled, settled_date")
+          .gte("date", gte);
+        for (const row of (owner as any[]) ?? []) {
+          loaded.push(normalizeOwnerAdvance(row));
+        }
+        setAdvances(loaded);
+      } else {
+        setAdvances([]);
+      }
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
@@ -233,21 +269,28 @@ function KeiriInner() {
   const effective = settings ?? fallbackSettings;
 
   const summary = useMemo(
-    () => summarizeMonth({ ym, reports, template, settings: effective }),
-    [ym, reports, template, effective],
+    () => summarizeMonth({ ym, reports, template, settings: effective, advances }),
+    [ym, reports, template, effective, advances],
   );
 
   const cash = useMemo(
-    () => calcCashPosition({ reports, payments, settings: effective }),
-    [reports, payments, effective],
+    () => calcCashPosition({ reports, payments, settings: effective, advances }),
+    [reports, payments, effective, advances],
   );
 
   // 家賃は「今月まで」を数えるので、今日の月を渡す
   const todayYm = useMemo(() => todayStr().slice(0, 7), []);
 
   const unpaid = useMemo(
-    () => calcUnpaid({ reports, payments, settings: effective, currentYm: todayYm }),
-    [reports, payments, effective, todayYm],
+    () =>
+      calcUnpaid({
+        reports,
+        payments,
+        settings: effective,
+        currentYm: todayYm,
+        advances,
+      }),
+    [reports, payments, effective, todayYm, advances],
   );
 
   const byLocation = useMemo(
@@ -417,7 +460,7 @@ function KeiriInner() {
           color="text-amber-600"
           note={`給与 ${yen(unpaid.payroll)}・${outsourcingLabel} ${yen(
             unpaid.outsourcing,
-          )}・家賃 ${yen(unpaid.rent)}`}
+          )}・家賃 ${yen(unpaid.rent)}・立替 ${yen(unpaid.advance)}`}
         />
       </section>
 
@@ -505,6 +548,35 @@ function KeiriInner() {
             集計は日報の「営業日」で数えています（入力した日時ではありません）。
             対象の日報：{summary.reportCount}件
           </p>
+
+          {/* ★月の経費は「立替も含めた全部」で1つ（2026-10-02・kp218）。
+               金庫から出た分も見たい数字なので、内訳として残す。 */}
+          <p className="text-xs text-stone-500 leading-relaxed">
+            経費 {yen(summary.expenseTotal)} の内訳：レジのお金から出た分{" "}
+            {yen(summary.expenseFromRegister)}／立替（誰かが先に払った分）{" "}
+            {yen(summary.expenseFromAdvance)}
+            {summary.advanceCount > 0 && <>（{summary.advanceCount}件）</>}／日当{" "}
+            {yen(summary.payroll)}／{outsourcingLabel} {yen(summary.outsourcing)}／家賃{" "}
+            {yen(summary.rent)}。
+            <br />
+            立て替えた日には金庫からお金が出ていないので、返すまでは「まだ払っていないお金」に
+            出ます（返した日に現金から引きます）。
+          </p>
+
+          {summary.advanceSkipped.length > 0 && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 space-y-1">
+              <p className="font-bold">
+                経費に数えなかった立替：{summary.advanceSkipped.length}件
+              </p>
+              {summary.advanceSkipped.map((a, i) => (
+                <p key={i}>
+                  {slashDate(a.date)}　{a.description}　{yen(a.amount)}
+                  <br />
+                  <span className="text-amber-700">{a.reason}</span>
+                </p>
+              ))}
+            </div>
+          )}
 
           <UnmatchedNote unmatched={summary.unmatched} />
         </section>
