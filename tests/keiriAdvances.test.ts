@@ -14,8 +14,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { canonicalLocationName } from "../lib/locationName";
+import { demoReports } from "../lib/keiri/demo";
+import { GENERIC_TEMPLATE } from "../lib/keiri/templates/generic";
 import {
   SKIP_OUTSOURCING,
+  classifyExpense,
   accountForAdvanceKind,
   advanceNote,
   calcCashPosition,
@@ -278,4 +282,51 @@ test("会計ソフト向けの仕訳の合計が、画面の経費の合計と1�
   assert.equal(refund[0].creditAccount, "現金");
   // どの行も借方と貸方が同じ金額（崩れていたら会計ソフトが受け取らない）
   for (const r of rows) assert.equal(r.debitAmount, r.creditAmount);
+});
+
+/* ------------------------------------------------------------------ *
+ *  科目の振り分け（司令室の材料 meta/keiri-material-kamoku-kotoba の見本）
+ * ------------------------------------------------------------------ */
+
+test("よそのお店向けの対応表が、見本の言葉を期待どおりの科目に入れる", () => {
+  /**
+   * 2026-10-02（kp219）。B2 が置いた「経費の説明の言葉から科目を決める表」の
+   * 検算見本をそのまま固定する。ここが落ちたら、新しいお店の経費が
+   * 人の手なしでは正しく分かれていない。
+   */
+  const cases: [string, string, boolean][] = [
+    // [書かれた文字, 入ってほしい科目, 対応表に当たったか]
+    ["肉 仕入れ", "purchase", true],
+    ["場代", "booth_fee", true],
+    ["ガソリン", "vehicle", true],
+    ["ガスボンベ 3本", "supplies", true],
+    ["発電機レンタル", "lease", true],
+    ["コインパーキング", "vehicle", true],
+    ["持ち帰り容器", "supplies", true],
+    ["スタッフA 日当", "payroll_daily", true],
+    ["両替手数料", "misc", true],
+    // 店の名前だけの行は中身が分からないので、決めつけずに「要確認」に残す
+    ["コスモス", "misc", false],
+  ];
+  for (const [text, account, matched] of cases) {
+    const c = classifyExpense(text, GENERIC_TEMPLATE);
+    assert.equal(c.account, account, `${text} → ${c.account}（${account} のはず）`);
+    assert.equal(c.matched, matched, `${text} の「当たったか」が違う`);
+  }
+});
+
+test("お試し版の出店場所は、手羽屋の名寄せ表で別の名前に化けない", () => {
+  /**
+   * 2026-10-02 B2 が本番で見つけた。お試し版の「イオン前」が、場所別の表だけ
+   * 「イオンモール」に書き換わり、同じ場所が2つの名前で出ていた
+   * （数字は合っていたが、読む人が別の場所だと思う）。
+   */
+  for (const r of demoReports("2026-10")) {
+    const name = (r.location || "").trim();
+    assert.equal(
+      canonicalLocationName(name),
+      name,
+      `お試し版の「${name}」は名寄せで「${canonicalLocationName(name)}」に化ける`,
+    );
+  }
 });

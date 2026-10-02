@@ -75,7 +75,10 @@ export function demoReports(ym: string): KeiriReport[] {
     },
     {
       date: `${ym}-08`,
-      location: "イオン前",
+      // ★手羽屋の名寄せ表に載っている名前（「イオン前」など）を使わないこと。
+      //   場所別の表だけ「イオンモール」に書き換わり、同じ場所が2つの名前で出ます
+      //   （2026-10-02 B2 が本番で見つけた）。
+      location: "商店街",
       staff_name: "スタッフB",
       sales_amount: 64000,
       labor: 8000,
