@@ -1,11 +1,18 @@
 /**
- * 「経理まるごと」（月5万円前後）の1枚（下書き）のテスト。
+ * 「経理まるごと」（月5万円前後）の1枚（/keiri/plan）のテスト。
  *
- * ★守るのは4点。
- *   ① **まだ公開していない**（検索に出さない・公開ページの並びに入れない）
- *   ② 文章は lib/keiri/plan50k.ts からだけ読む（画面に直書きしない）
- *   ③ **やらないこと**に、税務の個別判断と申告の代行が必ず入っている
- *   ④ やることは offer.ts（すでにしている約束）と、じゅんが決めた2つだけ
+ * ★2026-10-03：下書き（/keiri/plan-draft）から**公開**に変えた。
+ *   下書きのまま「じゅんの確認待ち」で置くと、
+ *   お試し → 毎月の1枚 → 月5万円の中身 の3つが1本の道にならないため（f5-2）。
+ *
+ * ★守るのは6点。
+ *   ① **公開している**（公開ページの並びに入っている・検索に出さない指定が無い）
+ *   ② **3分で見せる順番が1本につながっている**
+ *      お試し（/keiri/demo）→ 毎月の1枚（/keiri/monthly-sample）→ この1枚（/keiri/plan）
+ *   ③ 前の住所（/keiri/plan-draft）を開いた人が、ここに着く
+ *   ④ 文章は lib/keiri/plan50k.ts からだけ読む（画面に直書きしない）
+ *   ⑤ **やらないこと**に、税務の個別判断と申告の代行が必ず入っている
+ *   ⑥ やることは offer.ts（すでにしている約束）と、じゅんが決めた2つだけ
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -14,7 +21,6 @@ import { readFileSync } from "node:fs";
 import {
   PLAN_DOES,
   PLAN_DOES_NOT,
-  PLAN_DRAFT_NOTICE,
   PLAN_NAME,
   PLAN_PRICE_LINE,
   PLAN_TAX_HANDOFF,
@@ -22,38 +28,37 @@ import {
 import { KEIRI_OFFER_ITEMS, KEIRI_OFFER_NOT_INCLUDED } from "../lib/keiri/offer";
 import { KEIRI_PUBLIC_PAGES } from "../app/keiri/components/nav";
 
-const PAGE = readFileSync(
-  new URL("../app/keiri/plan-draft/page.tsx", import.meta.url),
-  "utf8",
-);
+const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
 
-test("この1枚はまだ公開していない（検索に出さず、公開ページの並びにも入れない）", () => {
-  assert.ok(/index:\s*false/.test(PAGE), "noindex になっていない");
-  assert.ok(/follow:\s*false/.test(PAGE), "nofollow になっていない");
-  const paths = KEIRI_PUBLIC_PAGES.map((p) => p.path);
-  assert.ok(
-    !paths.includes("/keiri/plan-draft"),
-    "公開ページの並びに入っている（sitemap と関連リンクに出てしまう）",
-  );
+const PAGE = read("../app/keiri/plan/page.tsx");
+const OLD_PAGE = read("../app/keiri/plan-draft/page.tsx");
+const SAMPLE = read("../app/keiri/monthly-sample/page.tsx");
+const DEMO = read("../app/keiri/demo/board.tsx");
+
+test("この1枚は公開ページの並びに入っている（sitemap と robots に出る）", () => {
+  const found = KEIRI_PUBLIC_PAGES.find((p) => p.path === "/keiri/plan");
+  assert.ok(found, "公開ページの並びに /keiri/plan が無い");
+  assert.ok(found!.title.length > 0 && found!.lead.length > 0);
+  assert.ok(!/index:\s*false/.test(PAGE), "検索に出さない指定が残っている");
+  assert.ok(PAGE.includes("keiriMetadata("), "自分の題名のカードを持っていない");
 });
 
-test("どのページからも、この下書きへリンクしていない", () => {
-  for (const file of [
-    "../app/keiri/case/page.tsx",
-    "../app/keiri/page.tsx",
-    "../app/keiri/demo/board.tsx",
-    "../app/keiri/components/nav.tsx",
-    "../app/keiri/monthly-sample/page.tsx",
-    "../app/keiri/show/page.tsx",
-  ]) {
-    const raw = readFileSync(new URL(file, import.meta.url), "utf8");
-    assert.ok(!raw.includes("/keiri/plan-draft"), `${file} からリンクしている`);
+test("3分で見せる順番が1本につながっている（お試し → 毎月の1枚 → この1枚）", () => {
+  assert.ok(DEMO.includes("/keiri/monthly-sample"), "お試し版から毎月の1枚へ進めない");
+  assert.ok(SAMPLE.includes("/keiri/plan"), "毎月の1枚から月5万円の中身へ進めない");
+  // 行き止まりにしない：この1枚から前の2つと申し込みへ戻れる
+  for (const href of ["/keiri/demo", "/keiri/monthly-sample", "/keiri/apply"]) {
+    assert.ok(PAGE.includes(href), `この1枚から ${href} へ行けない`);
   }
+});
+
+test("前の住所（下書きのとき）を開いた人が、この1枚に着く", () => {
+  assert.ok(OLD_PAGE.includes("redirect("), "/keiri/plan-draft が送り先になっていない");
+  assert.ok(OLD_PAGE.includes('"/keiri/plan"'), "送り先が /keiri/plan になっていない");
 });
 
 test("画面に文章を直書きしていない（言葉は lib から引く）", () => {
   for (const key of [
-    "PLAN_DRAFT_NOTICE",
     "PLAN_NAME",
     "PLAN_PRICE_LINE",
     "PLAN_LEAD",
@@ -63,7 +68,7 @@ test("画面に文章を直書きしていない（言葉は lib から引く）
   ]) {
     assert.ok(PAGE.includes(key), `${key} を使っていない`);
   }
-  for (const text of [PLAN_DRAFT_NOTICE, PLAN_PRICE_LINE, PLAN_TAX_HANDOFF]) {
+  for (const text of [PLAN_PRICE_LINE, PLAN_TAX_HANDOFF]) {
     assert.ok(!PAGE.includes(text), "文章が画面に直書きされている");
   }
 });
