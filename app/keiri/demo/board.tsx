@@ -475,6 +475,19 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
           （ご自身で押す必要はありません）。
         </p>
 
+        {/* ★「毎月お渡しする1枚」への道（2026-10-03・f5-1／f5-2）。
+             お試し版は数字を触る場所で、毎月お渡しするものの形は別の1枚にある。
+             ここに道が無いと、触ったあとに「で、何が届くのか」が分からないまま
+             申し込みの判断をさせることになる。 */}
+        <p className="mt-3 text-center text-sm">
+          <Link
+            href="/keiri/monthly-sample"
+            className="font-bold text-amber-700 underline hover:text-amber-800"
+          >
+            毎月お渡しする1枚の見本を見る →
+          </Link>
+        </p>
+
         {/* ★書き出せた直後に、申し込みへの道を1本置く（kp134）。
              お試し版は「買う前に手で触れる唯一の場所」で、いちばん心が動くのは
              CSV を自分の手で書き出せた直後。ところが申し込みへの入口は
@@ -563,6 +576,14 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
         <p className="mt-2 text-sm text-stone-600 leading-relaxed">
           お試し版で触ったのと同じ画面が、そのままお店の経理になります。
           毎月の締めと会計ソフト用のCSVはこちらでお出しします。
+        </p>
+        <p className="mt-3 text-sm">
+          <Link
+            href="/keiri/monthly-sample"
+            className="font-bold text-amber-700 underline hover:text-amber-800"
+          >
+            毎月お渡しする1枚の見本を見る →
+          </Link>
         </p>
         <div className="mt-5 flex flex-col sm:flex-row gap-3 justify-center">
           <Link
