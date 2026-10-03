@@ -23,9 +23,27 @@ const buildStamp = [
   new Date().toISOString(),
 ].join("@");
 
+/**
+ * 住所が変わったページの、前の住所から新しい住所への送り先。
+ *
+ * ★ページの中で送る書き方（redirect()）は、このサイトの作り（全ページを先に
+ *   組み立てて配る形）だと **行き先の札が付かない 307 になってしまい、
+ *   ブラウザが新しい住所へ移れません**（2026-10-03 に本番で実測）。
+ *   ここに書くと配り口が 308 で正しく送るので、必ずここに書くこと。
+ */
+const permanentMoves = [
+  // 「経理まるごと（月5万円前後）」の1枚。
+  // 10/3 10:20 に じゅんへ /keiri/plan-draft の住所でお渡ししたあと、
+  // 公開して /keiri/plan に移した。お渡しした住所が開けるように送る。
+  { source: "/keiri/plan-draft", destination: "/keiri/plan", permanent: true },
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  async redirects() {
+    return permanentMoves;
+  },
   env: {
     // 公開してよい情報だけを入れる（コミットの短い番号と組み立て時刻）。
     // 名前を NEXT_PUBLIC_ にしてあるのは「ブラウザに配られても構わない」と
