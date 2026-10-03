@@ -34,6 +34,7 @@ import {
 } from "@/lib/keiri/offer";
 import {
   SAMPLE_LEAD,
+  SAMPLE_MONTH_NOTE,
   SAMPLE_NOTICE,
   buildMonthlySample,
   sampleYen,
@@ -540,6 +541,7 @@ export default async function KeiriCasePage({
       <section className="mb-10">
         <h2 className="text-lg font-bold text-stone-900">毎月お届けするもの（見本）</h2>
         <p className="mt-1 text-sm text-stone-600 leading-relaxed">{SAMPLE_LEAD}</p>
+        <p className="mt-1 text-xs text-stone-500 leading-relaxed">{SAMPLE_MONTH_NOTE}</p>
         <p className="mt-2 text-sm">
           <Link
             href="/keiri/monthly-sample"

@@ -4,6 +4,7 @@ import { KeiriBreadcrumb, KeiriFooter } from "@/app/keiri/components/nav";
 import { keiriMetadata } from "@/lib/keiri/metadata";
 import {
   SAMPLE_LEAD,
+  SAMPLE_MONTH_NOTE,
   SAMPLE_NOTICE,
   buildMonthlySample,
   sampleYen,
@@ -36,6 +37,13 @@ import {
  *   ・店のデータは一切読まない。誰でも開ける（管理者の鍵は掛けない）
  */
 
+/**
+ * 月が変わったら作り直す（1時間ごと）。
+ * ★お試し版（/keiri/demo）と同じ月を出すページなので、
+ *   作った時の月で固まると、お試し版と月がずれます（2026-10-03・kp225-b2）。
+ */
+export const revalidate = 3600;
+
 export const metadata = keiriMetadata({
   path: "/keiri/monthly-sample",
   title: "毎月お届けする1枚（見本）｜経理パッケージ",
@@ -67,6 +75,7 @@ export default function KeiriMonthlySamplePage() {
       <h1 className="text-2xl font-bold text-stone-900">毎月お届けする1枚（見本）</h1>
       <p className="mt-2 text-sm text-stone-600 leading-relaxed">{SAMPLE_LEAD}</p>
       <p className="mt-1 text-xs text-amber-700 font-bold">{SAMPLE_NOTICE}</p>
+      <p className="mt-1 text-xs text-stone-500 leading-relaxed">{SAMPLE_MONTH_NOTE}</p>
 
       {/* ---------- 1枚の要約 ---------- */}
       <section className="sheet mt-6 rounded-2xl border border-stone-200 bg-white p-5">

@@ -27,6 +27,8 @@ import {
   buildJournalRows,
   calcCashPosition,
   calcUnpaid,
+  locationProfitBridge,
+  locationProfitBridgeLine,
   mergedExpenseByAccount,
   summarizeByLocation,
   summarizeMonth,
@@ -85,6 +87,14 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
     [reports, payments, settings, ym],
   );
   const byLocation = useMemo(() => summarizeByLocation({ ym, reports }), [ym, reports]);
+  /**
+   * 場所ごとの利益を足した額と、今月の利益のつなぎ（2026-10-03・kp226-b2）。
+   * ★式も金額もここに書かない。lib（aggregate.ts）が出した文をそのまま出す。
+   */
+  const bridge = useMemo(
+    () => locationProfitBridge({ byLocation, summary }),
+    [byLocation, summary],
+  );
   const mergedExpense = useMemo(
     () => mergedExpenseByAccount(summary.expenseByAccount),
     [summary],
@@ -207,11 +217,14 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
             color="text-stone-900"
             note={`${slashDate(cash.openingDate)} の ${yen(cash.openingBalance)} から数えた今の手元`}
           />
+          {/* ★「立替」は2通りの意味で読まれる（2026-10-03・kp226-b2）。
+               ここは**まだ返していない分だけ**。下の経費の内訳は**今月ぶん全部**。
+               同じ言葉で違う金額が並ぶと、ページが間違っているように見える。 */}
           <DemoNumber
             title="まだ払っていないお金"
             value={unpaid.total}
             color="text-amber-600"
-            note={`給与 ${yen(unpaid.payroll)}・家賃 ${yen(unpaid.rent)}・立替 ${yen(
+            note={`給与 ${yen(unpaid.payroll)}・家賃 ${yen(unpaid.rent)}・まだ返していない立替 ${yen(
               unpaid.advance,
             )}`}
           />
@@ -353,7 +366,7 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
         </div>
         <p className="mt-3 text-xs text-stone-500 leading-relaxed">
           経費 {yen(summary.expenseTotal)} の内訳：レジのお金から出た分{" "}
-          {yen(summary.expenseFromRegister)}／誰かが立て替えた分{" "}
+          {yen(summary.expenseFromRegister)}／誰かが立て替えた分（今月ぶん全部）{" "}
           {yen(summary.expenseFromAdvance)}／日当 {yen(summary.payroll)}／家賃{" "}
           {yen(summary.rent)}。
           <strong>月の経費は、立替も含めた全部で1つに決めています。</strong>
@@ -545,10 +558,18 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
             </table>
           </div>
         )}
-        <p className="mt-3 text-xs text-stone-500 leading-relaxed">
-          「経費」は日報の経費と日当の合計です。家賃のような月ごとに決まるお金は、
-          どの場所のぶんか決められないので場所別には入れていません。
-        </p>
+        {byLocation.length > 0 && (
+          <div className="mt-3 rounded-lg bg-stone-100 px-4 py-3">
+            <p className="text-xs text-stone-700 leading-relaxed tabular-nums">
+              {locationProfitBridgeLine(bridge)}
+            </p>
+            <p className="mt-1 text-xs text-stone-500 leading-relaxed">
+              {bridge.matches
+                ? "「経費」は日報の経費と日当の合計です。立替・外注費・家賃は、どの場所のぶんか決められないので場所別には入れていません。上の式のとおり、引くと今月の利益にぴったり合います。"
+                : "場所ごとの利益と今月の利益が、足し引きで合っていません。数え方のどこかがずれています。"}
+            </p>
+          </div>
+        )}
       </section>
 
       {/* ---------- この月の日報 ---------- */}
