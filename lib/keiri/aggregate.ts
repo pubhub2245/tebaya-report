@@ -18,8 +18,10 @@ import {
   type ExpenseAccountKey,
 } from "./accounts";
 import { amountOf, classifyExpense, expenseItemsOf } from "./classify";
+import { advanceNote } from "./advances";
 import type {
   BusinessTemplate,
+  KeiriAdvance,
   KeiriPayment,
   KeiriReport,
   KeiriSettings,
@@ -91,6 +93,19 @@ export type UnmatchedExpense = {
   date: string;
   description: string;
   amount: number;
+  /** どこから来た行か。"register"＝レジから払った経費／"advance"＝立替 */
+  from?: "register" | "advance";
+};
+
+/**
+ * 月の経費に数えなかった立替（理由つき）。
+ * ★黙って捨てないこと。画面に理由を出して、人が直せるようにします。
+ */
+export type SkippedAdvance = {
+  date: string;
+  description: string;
+  amount: number;
+  reason: string;
 };
 
 export type MonthlySummary = {
@@ -100,8 +115,21 @@ export type MonthlySummary = {
   sales: number;
   /** 科目ごとの経費（人件費・外注費・家賃も入る） */
   expenseByAccount: Record<ExpenseAccountKey, number>;
-  /** 経費の合計（人件費・外注費・家賃を含む） */
+  /**
+   * 経費の合計（人件費・外注費・家賃・**立替も**含む）。
+   * ★月の経費はこの1つが正です（2026-10-02・kp218）。画面・CSV・要約はここだけを見ます。
+   */
   expenseTotal: number;
+  /** 経費のうち、レジのお金から出た分（日報の経費明細の合計） */
+  expenseFromRegister: number;
+  /** 経費のうち、誰かが立て替えた分（まだ金庫からは出ていない） */
+  expenseFromAdvance: number;
+  /** この月に立て替えた分のうち、まだ返していない額 */
+  advanceUnsettled: number;
+  /** この月の立替の件数（数えなかったものを除く） */
+  advanceCount: number;
+  /** 月の経費に数えなかった立替（理由つき） */
+  advanceSkipped: SkippedAdvance[];
   /** 利益 ＝ 売上高 − 経費合計 */
   profit: number;
   /** 人件費（日報の日当の合計。月に1回まとめて払う分） */
@@ -172,14 +200,22 @@ export function summarizeMonth(params: {
   reports: KeiriReport[];
   template: BusinessTemplate;
   settings: KeiriSettings;
+  /** 立替（渡さなければ無しとして数える。いままでと同じ結果になる） */
+  advances?: KeiriAdvance[];
 }): MonthlySummary {
   const { ym, reports, template, settings } = params;
+  const advances = params.advances ?? [];
   const target = reports.filter((r) => inMonth(r.date, ym));
 
   const expenseByAccount = emptyExpenseByAccount();
   const unmatched: UnmatchedExpense[] = [];
+  const advanceSkipped: SkippedAdvance[] = [];
   let sales = 0;
   let payroll = 0;
+  let expenseFromRegister = 0;
+  let expenseFromAdvance = 0;
+  let advanceUnsettled = 0;
+  let advanceCount = 0;
 
   for (const r of target) {
     sales += Number(r.sales_amount) || 0;
@@ -188,13 +224,50 @@ export function summarizeMonth(params: {
       const amount = amountOf(item);
       const { account, matched } = classifyExpense(item.description, template);
       expenseByAccount[account] += amount;
+      expenseFromRegister += amount;
       if (!matched) {
         unmatched.push({
           date: r.date,
           description: (item.description || "").trim() || "（説明なし）",
           amount,
+          from: "register",
         });
       }
+    }
+  }
+
+  // 立替（誰かが自分のお金で先に払った経費）。計上日は「立て替えた日」
+  for (const a of advances.filter((x) => inMonth(x.date, ym))) {
+    const amount = Number(a.amount) || 0;
+    const note = advanceNote(a);
+    if (a.skipReason) {
+      advanceSkipped.push({
+        date: a.date,
+        description: note,
+        amount,
+        reason: a.skipReason,
+      });
+      continue;
+    }
+    // 種類から決まっていればそれを使い、無ければ日報の経費と同じ対応表で当てる
+    let account = a.account ?? null;
+    let matched = !!account;
+    if (!account) {
+      const c = classifyExpense(a.description, template);
+      account = c.account;
+      matched = c.matched;
+    }
+    expenseByAccount[account] += amount;
+    expenseFromAdvance += amount;
+    advanceCount += 1;
+    if (a.settled !== true) advanceUnsettled += amount;
+    if (!matched) {
+      unmatched.push({
+        date: a.date,
+        description: note,
+        amount,
+        from: "advance",
+      });
     }
   }
 
@@ -211,12 +284,18 @@ export function summarizeMonth(params: {
   );
 
   unmatched.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  advanceSkipped.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
   return {
     ym,
     sales,
     expenseByAccount,
     expenseTotal,
+    expenseFromRegister,
+    expenseFromAdvance,
+    advanceUnsettled,
+    advanceCount,
+    advanceSkipped,
     profit: sales - expenseTotal,
     payroll,
     payrollDaily: expenseByAccount.payroll_daily,
@@ -250,7 +329,12 @@ export type Unpaid = {
   rentPaid: number;
   /** まだ払っていない家賃 */
   rent: number;
-  /** 合計（給与＋外注費＋家賃） */
+  /**
+   * まだ返していない立替（期首日以降に立て替えて、まだ返していない分）。
+   * ★立て替えた人へ返すお金なので、「まだ払っていないお金」に入ります（kp218）。
+   */
+  advance: number;
+  /** 合計（給与＋外注費＋家賃＋まだ返していない立替） */
   total: number;
 };
 
@@ -304,8 +388,11 @@ export function calcUnpaid(params: {
   payments: KeiriPayment[];
   settings: KeiriSettings;
   currentYm: string;
+  /** 立替（渡さなければ無しとして数える） */
+  advances?: KeiriAdvance[];
 }): Unpaid {
   const { reports, payments, settings, currentYm } = params;
+  const advances = params.advances ?? [];
   const from = settings.opening_date;
 
   const since = reports.filter((r) => typeof r.date === "string" && r.date >= from);
@@ -333,6 +420,13 @@ export function calcUnpaid(params: {
   const outsourcing = outsourcingAccrued - outsourcingPaid;
   const rent = rentAccrued - rentPaid;
 
+  // まだ返していない立替（期首日以降に立て替えたもの。数えない立替は入れない）
+  const advance = advances
+    .filter((a) => !a.skipReason)
+    .filter((a) => typeof a.date === "string" && a.date >= from)
+    .filter((a) => a.settled !== true)
+    .reduce((s, a) => s + (Number(a.amount) || 0), 0);
+
   return {
     payrollAccrued,
     payrollPaid,
@@ -343,7 +437,8 @@ export function calcUnpaid(params: {
     rentAccrued,
     rentPaid,
     rent,
-    total: payroll + outsourcing + rent,
+    advance,
+    total: payroll + outsourcing + rent + advance,
   };
 }
 
@@ -360,6 +455,11 @@ export type CashPosition = {
   expenses: number;
   /** 期首日以降に払った給与・外注費・家賃の合計 */
   paid: number;
+  /**
+   * 期首日以降に返した立替（精算して金庫から出た分）。
+   * ★立て替えた日ではなく**返した日**に金庫から出ます（kp218・lib/money.ts と同じ数え方）。
+   */
+  advancesSettled: number;
   /** 今の現金 */
   balance: number;
 };
@@ -383,8 +483,11 @@ export function calcCashPosition(params: {
   reports: KeiriReport[];
   payments: KeiriPayment[];
   settings: KeiriSettings;
+  /** 立替（渡さなければ無しとして数える） */
+  advances?: KeiriAdvance[];
 }): CashPosition {
   const { reports, payments, settings } = params;
+  const advances = params.advances ?? [];
   const from = settings.opening_date;
   const since = reports.filter((r) => typeof r.date === "string" && r.date >= from);
 
@@ -399,6 +502,16 @@ export function calcCashPosition(params: {
     sumPayments(payments, "outsourcing", from) +
     sumPayments(payments, "rent", from);
 
+  // 返した（精算した）立替は、返した日に金庫から出る
+  const advancesSettled = advances
+    .filter((a) => !a.skipReason)
+    .filter((a) => a.settled === true)
+    .filter((a) => {
+      const d = a.settledDate || a.date;
+      return typeof d === "string" && d >= from;
+    })
+    .reduce((s, a) => s + (Number(a.amount) || 0), 0);
+
   const opening = Number(settings.opening_balance) || 0;
 
   return {
@@ -407,7 +520,8 @@ export function calcCashPosition(params: {
     sales,
     expenses,
     paid,
-    balance: opening + sales - expenses - paid,
+    advancesSettled,
+    balance: opening + sales - expenses - paid - advancesSettled,
   };
 }
 

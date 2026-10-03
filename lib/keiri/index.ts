@@ -7,6 +7,7 @@
 export * from "./accounts";
 export * from "./types";
 export * from "./classify";
+export * from "./advances";
 export * from "./aggregate";
 export * from "./journal";
 export { TEBAYA_TEMPLATE } from "./templates/tebaya";

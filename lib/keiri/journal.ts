@@ -18,7 +18,8 @@
 import { accountLabel, accountLabelForCsv } from "./accounts";
 import { calcOutsourcing, inMonth, monthEnd, rentForMonth } from "./aggregate";
 import { amountOf, classifyExpense, expenseItemsOf } from "./classify";
-import { PAYMENT_KIND_LABEL, type BusinessTemplate, type KeiriPayment, type KeiriReport, type KeiriSettings } from "./types";
+import { advanceNote } from "./advances";
+import { PAYMENT_KIND_LABEL, type BusinessTemplate, type KeiriAdvance, type KeiriPayment, type KeiriReport, type KeiriSettings } from "./types";
 
 /** CSVで使う相手勘定の名前 */
 const CASH = "現金";
@@ -53,6 +54,9 @@ export const JOURNAL_HEADERS = [
  * - 外注費発生： 外注費（Alpha） ／ 未払金（その月の末日に1行だけ）
  * - 家賃発生　： 家賃（事務所） ／ 未払金（その月の末日に1行だけ）
  * - 支払い　　： 未払金 ／ 現金（支払日）
+ * - 立替の発生： （科目） ／ 未払金（立て替えた日）
+ * - 立替の返金： 未払金 ／ 現金（返した日）
+ *   ★立替はその日に金庫から出ていないので、現金ではなく未払金を相手にします（kp218）。
  */
 export function buildJournalRows(params: {
   ym: string;
@@ -60,8 +64,11 @@ export function buildJournalRows(params: {
   payments: KeiriPayment[];
   template: BusinessTemplate;
   settings: KeiriSettings;
+  /** 立替（渡さなければ無しとして数える。いままでと同じ結果になる） */
+  advances?: KeiriAdvance[];
 }): JournalRow[] {
   const { ym, reports, payments, template, settings } = params;
+  const advances = (params.advances ?? []).filter((a) => !a.skipReason);
   const rows: JournalRow[] = [];
 
   const target = reports
@@ -119,6 +126,47 @@ export function buildJournalRows(params: {
         note: parts ? `日当 ${parts}` : "日当",
       });
     }
+  }
+
+  // 立替の発生（立て替えた日）。相手は現金ではなく未払金
+  const advancesInMonth = advances
+    .filter((a) => inMonth(a.date, ym))
+    .slice()
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  for (const a of advancesInMonth) {
+    const amount = Number(a.amount) || 0;
+    if (amount === 0) continue;
+    let account = a.account ?? null;
+    if (!account) account = classifyExpense(a.description, template).account;
+    rows.push({
+      date: a.date,
+      debitAccount: accountLabelForCsv(account),
+      debitAmount: amount,
+      creditAccount: ACCRUED,
+      creditAmount: amount,
+      note: advanceNote(a),
+    });
+  }
+
+  // 立替の返金（返した日）。この日に金庫からお金が出る
+  const refunded = advances
+    .filter((a) => a.settled === true)
+    .filter((a) => inMonth(a.settledDate || a.date, ym))
+    .slice()
+    .sort((a, b) =>
+      (a.settledDate || a.date) < (b.settledDate || b.date) ? -1 : 1,
+    );
+  for (const a of refunded) {
+    const amount = Number(a.amount) || 0;
+    if (amount === 0) continue;
+    rows.push({
+      date: a.settledDate || a.date,
+      debitAccount: ACCRUED,
+      debitAmount: amount,
+      creditAccount: CASH,
+      creditAmount: amount,
+      note: `立替の返金（${(a.payer || "").trim() || "立替者"}）`,
+    });
   }
 
   // 外注費の発生（その月の末日に1行だけ）

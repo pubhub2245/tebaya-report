@@ -27,7 +27,13 @@ import {
 import { JOURNAL_HEADERS, buildJournalRows } from "../lib/keiri/journal";
 import { MF_HEADERS, toMoneyForwardRows } from "../lib/keiri/moneyforward";
 import { YAYOI_HEADERS, toYayoiRows } from "../lib/keiri/yayoi";
-import { DEMO_SHOP_NAME, demoPayments, demoReports, demoSettings } from "../lib/keiri/demo";
+import {
+  DEMO_SHOP_NAME,
+  demoAdvances,
+  demoPayments,
+  demoReports,
+  demoSettings,
+} from "../lib/keiri/demo";
 import { GENERIC_TEMPLATE } from "../lib/keiri/templates/generic";
 
 /** 見本を作る日を固定する（前の月＝2026年8月になる日） */
@@ -38,12 +44,15 @@ function realNumbers() {
   const settings = demoSettings(YM);
   const reports = demoReports(YM);
   const payments = demoPayments();
+  // ★立替も渡す（月の経費は立替も含めた全部で1つ。2026-10-02・kp218）。
+  //   見本の側だけ立替を数えていると、ここで1円ずれて落ちます。
+  const advances = demoAdvances(YM);
   const template = GENERIC_TEMPLATE;
   return {
-    summary: summarizeMonth({ ym: YM, reports, template, settings }),
-    cash: calcCashPosition({ reports, payments, settings }),
-    unpaid: calcUnpaid({ reports, payments, settings, currentYm: YM }),
-    rows: buildJournalRows({ ym: YM, reports, payments, template, settings }),
+    summary: summarizeMonth({ ym: YM, reports, template, settings, advances }),
+    cash: calcCashPosition({ reports, payments, settings, advances }),
+    unpaid: calcUnpaid({ reports, payments, settings, currentYm: YM, advances }),
+    rows: buildJournalRows({ ym: YM, reports, payments, template, settings, advances }),
   };
 }
 

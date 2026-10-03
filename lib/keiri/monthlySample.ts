@@ -31,7 +31,13 @@ import {
 } from "./aggregate";
 import { DISPLAY_EXPENSE_ACCOUNTS } from "./accounts";
 import { previousMonthRange } from "./caseStats";
-import { DEMO_SHOP_NAME, demoPayments, demoReports, demoSettings } from "./demo";
+import {
+  DEMO_SHOP_NAME,
+  demoAdvances,
+  demoPayments,
+  demoReports,
+  demoSettings,
+} from "./demo";
 import { JOURNAL_HEADERS, buildJournalRows } from "./journal";
 import { MF_HEADERS } from "./moneyforward";
 import { YAYOI_HEADERS } from "./yayoi";
@@ -95,11 +101,13 @@ export function buildMonthlySample(today: Date = new Date()): MonthlySample {
   const settings = demoSettings(ym);
   const reports = demoReports(ym);
   const payments = demoPayments();
+  // 立替も見本に入れる（月の経費は立替も含めた全部で1つ。kp218）
+  const advances = demoAdvances(ym);
   const template = GENERIC_TEMPLATE;
 
-  const summary = summarizeMonth({ ym, reports, template, settings });
-  const cash = calcCashPosition({ reports, payments, settings });
-  const unpaid = calcUnpaid({ reports, payments, settings, currentYm: ym });
+  const summary = summarizeMonth({ ym, reports, template, settings, advances });
+  const cash = calcCashPosition({ reports, payments, settings, advances });
+  const unpaid = calcUnpaid({ reports, payments, settings, currentYm: ym, advances });
 
   const merged = mergedExpenseByAccount(summary.expenseByAccount);
   const expenses: SampleLine[] = DISPLAY_EXPENSE_ACCOUNTS.map((a) => ({
@@ -107,7 +115,7 @@ export function buildMonthlySample(today: Date = new Date()): MonthlySample {
     yen: merged[a.key] ?? 0,
   })).filter((e) => e.yen > 0);
 
-  const rows = buildJournalRows({ ym, reports, payments, template, settings });
+  const rows = buildJournalRows({ ym, reports, payments, template, settings, advances });
 
   return {
     monthLabel,

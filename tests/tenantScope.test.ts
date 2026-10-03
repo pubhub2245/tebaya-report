@@ -489,8 +489,14 @@ test("印の欄がまだ無い棚を、門の外の画面が新たに読み始�
     const src = readFileSync(file, "utf8");
     for (const table of TABLES_WITHOUT_TENANT_COLUMN) {
       if (!src.includes(`.from("${table}")`)) continue;
-      // 門（ページ全体）か、枠だけ出さない道具（useIsTebaya）のどちらかが要る
-      if (src.includes("TebayaOnlyGate") || src.includes("useIsTebaya")) continue;
+      // 門（ページ全体）か、枠だけ出さない道具（useIsTebaya）か、
+      // 読む所を手羽屋のときだけに絞る判定（isTebayaScope）のどれかが要る
+      if (
+        src.includes("TebayaOnlyGate") ||
+        src.includes("useIsTebaya") ||
+        src.includes("isTebayaScope(")
+      )
+        continue;
       found.push(`${rel}（${table}）`);
     }
   }
@@ -504,6 +510,29 @@ test("印の欄がまだ無い棚を、門の外の画面が新たに読み始�
     ],
     `印の欄が無い棚を、門の掛かっていない画面が読んでいます：\n${found.join("\n")}`,
   );
+});
+
+test("経理の月次が立替を読むのは、手羽屋として開いているときだけ", () => {
+  /**
+   * 2026-10-02（kp218）。月の経費に立替を足すため、経理の画面が
+   * 立替の棚を2つ読むようになった。どちらの棚にも「どの店のものか」の印が
+   * まだ無いので、よその店が開いたときに読んではいけない。
+   *
+   * ★ここが外れると、経理パッケージを申し込んだお店の画面に
+   *   **手羽屋の立替（誰がいくら立て替えたか）が混ざる。**
+   */
+  const src = readFileSync("app/keiri/page.tsx", "utf8");
+  for (const table of ["keiri_advance_expenses", "advance_expenses"]) {
+    assert.ok(src.includes(`.from("${table}")`), `${table} を読む所が無い`);
+  }
+  // 読む所が、手羽屋かどうかの判定の中にあること
+  const gate = src.indexOf("if (isTebayaScope(scope)) {");
+  assert.ok(gate > 0, "isTebayaScope の判定が無い");
+  const close = src.indexOf("setAdvances([]);", gate);
+  assert.ok(close > gate, "よその店のときに空にする道が無い");
+  const inside = src.slice(gate, close);
+  assert.ok(inside.includes('.from("keiri_advance_expenses")'));
+  assert.ok(inside.includes('.from("advance_expenses")'));
 });
 
 test("月間の売上まとめ（トップと管理者ページ）は、よそのお店には出さない", () => {
