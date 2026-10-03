@@ -22,6 +22,11 @@ export const KEIRI_PUBLIC_PAGES: { path: string; title: string; lead: string }[]
     lead: "登録も申し込みも要らずに、本物の経理画面をそのまま触れます。日報を1件書くと3つの数字がその場で変わります。",
   },
   {
+    path: "/keiri/monthly-sample",
+    title: "毎月お届けする1枚（見本）",
+    lead: "月はじめにお渡しする「1枚の要約」の見本。架空のお店の数字を、実際のお店で動いているのと同じ計算で出しています。",
+  },
+  {
     path: "/keiri/tools",
     title: "飲食店の無料計算ツール",
     lead: "登録不要でその場で使える計算の道具。赤字ラインと原価率・FL比率。",

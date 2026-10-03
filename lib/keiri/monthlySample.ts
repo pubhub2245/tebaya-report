@@ -38,7 +38,7 @@ import {
   demoReports,
   demoSettings,
 } from "./demo";
-import { JOURNAL_HEADERS, buildJournalRows } from "./journal";
+import { JOURNAL_HEADERS, buildJournalRows, journalExpenseTotal } from "./journal";
 import { MF_HEADERS } from "./moneyforward";
 import { YAYOI_HEADERS } from "./yayoi";
 import { GENERIC_TEMPLATE } from "./templates/generic";
@@ -64,6 +64,18 @@ export type SampleJournalLine = {
   note: string;
 };
 
+/** 月の経費を、別々の数え方で3通り数えた結果（同じ数字になるのが正しい） */
+export type SampleExpenseCheck = {
+  /** 画面（月次のまとめ）が出す合計 */
+  screen: number;
+  /** 科目ごとの内訳を足し上げた合計 */
+  byAccount: number;
+  /** 会計ソフト向けCSV（仕訳）の経費側を足し上げた合計 */
+  csv: number;
+  /** 3つとも同じ数字か */
+  same: boolean;
+};
+
 export type MonthlySample = {
   /** 「2026年8月」 */
   monthLabel: string;
@@ -83,6 +95,16 @@ export type MonthlySample = {
   mfColumnCount: number;
   /** 弥生会計の仕訳インポートの列の数（25） */
   yayoiColumnCount: number;
+  /** 月の経費の合計（これが正。画面・CSV・要約はこの1つを見る） */
+  expenseTotal: number;
+  /** 経費の合計の内訳（レジのお金から出た分・誰かが立て替えた分・人件費・家賃） */
+  expenseBreakdown: SampleLine[];
+  /** 月の経費を3通りに数えて突き合わせた結果（f1-2 を外から確かめられるようにする） */
+  expenseCheck: SampleExpenseCheck;
+  /** 種類が分からず「雑費」に入れた経費（要確認。黙って隠さない） */
+  unmatched: { date: string; description: string; amount: number }[];
+  /** 集計に使った日報の件数 */
+  reportCount: number;
 };
 
 /** 見本に見せる仕訳の行数（スマホで開くので、長くしない） */
@@ -117,6 +139,15 @@ export function buildMonthlySample(today: Date = new Date()): MonthlySample {
 
   const rows = buildJournalRows({ ym, reports, payments, template, settings, advances });
 
+  // ★月の経費を、別々の道で3通り数える（f1-2）。
+  //   ここで数え直すのは「同じ数字になっているか」をページの上で見せるためで、
+  //   正しい合計は summary.expenseTotal の1つだけです（kp218）。
+  const byAccountTotal = DISPLAY_EXPENSE_ACCOUNTS.reduce(
+    (sum, a) => sum + (merged[a.key] ?? 0),
+    0,
+  );
+  const csvTotal = journalExpenseTotal(rows);
+
   return {
     monthLabel,
     shopName: DEMO_SHOP_NAME,
@@ -140,6 +171,27 @@ export function buildMonthlySample(today: Date = new Date()): MonthlySample {
     journalRowCount: rows.length,
     mfColumnCount: MF_HEADERS.length,
     yayoiColumnCount: YAYOI_HEADERS.length,
+    expenseTotal: summary.expenseTotal,
+    expenseBreakdown: [
+      { label: "レジのお金から出た分", yen: summary.expenseFromRegister },
+      { label: "誰かが立て替えた分", yen: summary.expenseFromAdvance },
+      { label: "人件費（日当）", yen: summary.payroll },
+      { label: "家賃（事務所）", yen: summary.rent },
+      { label: "外注費", yen: summary.outsourcing },
+    ].filter((e) => e.yen > 0),
+    expenseCheck: {
+      screen: summary.expenseTotal,
+      byAccount: byAccountTotal,
+      csv: csvTotal,
+      same:
+        summary.expenseTotal === byAccountTotal && summary.expenseTotal === csvTotal,
+    },
+    unmatched: summary.unmatched.map((u) => ({
+      date: u.date,
+      description: u.description,
+      amount: u.amount,
+    })),
+    reportCount: summary.reportCount,
   };
 }
 

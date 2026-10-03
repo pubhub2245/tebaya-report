@@ -540,6 +540,14 @@ export default async function KeiriCasePage({
       <section className="mb-10">
         <h2 className="text-lg font-bold text-stone-900">毎月お届けするもの（見本）</h2>
         <p className="mt-1 text-sm text-stone-600 leading-relaxed">{SAMPLE_LEAD}</p>
+        <p className="mt-2 text-sm">
+          <Link
+            href="/keiri/monthly-sample"
+            className="font-bold text-amber-700 underline hover:text-amber-800"
+          >
+            この1枚だけを開く（見本）
+          </Link>
+        </p>
 
         <div className="mt-4 rounded-2xl border border-stone-200 bg-white p-5">
           <p className="text-xs font-bold text-amber-700">1枚の要約</p>
