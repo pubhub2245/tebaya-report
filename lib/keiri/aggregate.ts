@@ -194,6 +194,16 @@ export function rentForMonth(ym: string, settings: KeiriSettings): number {
  * その月の科目ごとの集計を出す。
  *
  * ★計上日は日報の `date`（営業日）です。入力日時（created_at）ではありません。
+ *
+ * ★**経費をどの月に入れるかの決まりは、ここが唯一の正**（CLAUDE.md 5-4b・2026-10-03 決定）。
+ *   月の経費は「その記録に書いてある日」で、その月に入れる。これ1本だけ。
+ *     ・日報の経費 … 日報の営業日（`date`）
+ *     ・立替      … 立て替えた日（`date`）
+ *   払った日を別に持たせて、推測で別の月に動かすことはしない
+ *   （日報の経費の行は支払日を持っておらず、推測で動かすと月の経費が人によって変わる）。
+ *   画面・会計ソフト向けCSV・1枚の要約は、すべてこの1つの結果から作る。
+ *   **同じ支払いを日報の経費にも立替台帳にも書くと、両方の月で経費になる**ので、
+ *   入り口の決まり（CLAUDE.md 5-4）を必ず守ること。検算は tests/keiriAdvances.test.ts。
  */
 export function summarizeMonth(params: {
   ym: string;

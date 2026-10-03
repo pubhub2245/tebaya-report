@@ -330,3 +330,74 @@ test("お試し版の出店場所は、手羽屋の名寄せ表で別の名前�
     );
   }
 });
+
+// ------------------------------------------------------------------
+// 経費を「どの月」に入れるかの決まり（CLAUDE.md 5-4b・2026-10-03 決定）
+//
+//   月の経費は **その記録に書いてある日** で、その月に入れる。これ1本だけ。
+//     ・日報の経費 … 日報の営業日
+//     ・立替      … 立て替えた日
+//   払った日を別に持たせて、推測で別の月に動かすことはしない。
+//   ★9月の実データで、日報側の立替分と立替台帳が 377,000円 ちがっていた件は
+//     決まりのズレではなく、別々の支払いが入っているため（CLAUDE.md 5-4b）。
+//     この検算は「月の境目の決まりが1本であること」だけを固定する。
+// ------------------------------------------------------------------
+
+test("経費はその記録に書いてある日で、その月に入る（日報は営業日・立替は立て替えた日）", () => {
+  const reports: KeiriReport[] = [
+    // 先月の営業日の日報。9月には入らない
+    { date: "2026-08-31", location: "ながやま三股", sales_amount: 10000, labor: 0, expenses: [{ description: "手羽先 仕入", amount: 7000 }] },
+    // 9月の営業日の日報。9月に入る
+    { date: "2026-09-01", location: "ながやま三股", sales_amount: 20000, labor: 0, expenses: [{ description: "手羽先 仕入", amount: 3000 }] },
+  ];
+  const adv: KeiriAdvance[] = [
+    // 先月 立て替えた分。9月には入らない
+    { date: "2026-08-28", amount: 385000, description: "JAM Night 出店料", payer: "立替者A", settled: false, source: "owner" },
+    // 9月に立て替えた分。9月に入る
+    { date: "2026-09-05", amount: 1881, description: "検便", payer: "イデ", settled: false, source: "field" },
+  ];
+  const s = summarizeMonth({
+    ym: YM,
+    reports,
+    template: GENERIC_TEMPLATE,
+    settings: { ...SETTINGS, outsourcing_rate: 0, monthly_rent: 0 },
+    advances: adv,
+  });
+  assert.equal(s.sales, 20000, "売上も日報の営業日で数える");
+  assert.equal(s.expenseFromRegister, 3000, "先月の日報の経費が9月に入っている");
+  assert.equal(s.expenseFromAdvance, 1881, "先月 立て替えた分が9月に入っている");
+  assert.equal(s.expenseTotal, 3000 + 1881, "月の経費は1つで、2つの内訳の合計と同じ");
+  assert.equal(s.profit, 20000 - (3000 + 1881));
+});
+
+test("立替を日報の経費にも書くと、両方の月で経費になる（二重に入れないことが前提）", () => {
+  // ★この検算は「二重入力を許している」のではなく、
+  //   **二重に入れると本当に2回数える**ことを目に見える形で固定するためのもの。
+  //   入り口の決まり（CLAUDE.md 5-4「同じ支払いを2か所に登録しないこと」）が
+  //   どれだけ大事かを、数字で残しておく。
+  const same = { amount: 385000, description: "JAM Night 出店料" };
+  const sep = {
+    template: GENERIC_TEMPLATE,
+    settings: { ...SETTINGS, outsourcing_rate: 0, monthly_rent: 0 },
+  };
+  // 8月：立て替えた日で8月に入る
+  const aug = summarizeMonth({
+    ym: "2026-08",
+    reports: [],
+    advances: [{ date: "2026-08-28", ...same, payer: "立替者A", settled: false, source: "owner" }],
+    ...sep,
+  });
+  // 9月：同じ支払いを9月の日報の経費にも書いてしまった場合
+  const sep9 = summarizeMonth({
+    ym: "2026-09",
+    reports: [
+      { date: "2026-09-12", location: "ながやま三股", sales_amount: 0, labor: 0, expenses: [{ description: same.description, amount: same.amount }] },
+    ],
+    advances: [],
+    ...sep,
+  });
+  assert.equal(aug.expenseTotal, 385000);
+  assert.equal(sep9.expenseTotal, 385000);
+  // 同じ1回の支払いが、2つの月で合わせて2回 経費になっている
+  assert.equal(aug.expenseTotal + sep9.expenseTotal, 770000);
+});
