@@ -10,6 +10,7 @@ export * from "./classify";
 export * from "./advances";
 export * from "./aggregate";
 export * from "./journal";
+export * from "./duplicates";
 export { TEBAYA_TEMPLATE } from "./templates/tebaya";
 export { GENERIC_TEMPLATE } from "./templates/generic";
 // ★ tenants.ts はここから出しません。
