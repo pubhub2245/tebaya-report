@@ -31,7 +31,6 @@ import { KEIRI_PUBLIC_PAGES } from "../app/keiri/components/nav";
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
 
 const PAGE = read("../app/keiri/plan/page.tsx");
-const OLD_PAGE = read("../app/keiri/plan-draft/page.tsx");
 const SAMPLE = read("../app/keiri/monthly-sample/page.tsx");
 const DEMO = read("../app/keiri/demo/board.tsx");
 
@@ -52,9 +51,18 @@ test("3分で見せる順番が1本につながっている（お試し → 毎�
   }
 });
 
-test("前の住所（下書きのとき）を開いた人が、この1枚に着く", () => {
-  assert.ok(OLD_PAGE.includes("redirect("), "/keiri/plan-draft が送り先になっていない");
-  assert.ok(OLD_PAGE.includes('"/keiri/plan"'), "送り先が /keiri/plan になっていない");
+test("前の住所（下書きのとき）を開いた人が、この1枚に着く", async () => {
+  // ★ページの中で送る書き方（redirect()）は、このサイトの作りだと
+  //   行き先の札が付かない 307 になり、ブラウザが移れない（2026-10-03 本番で実測）。
+  //   配り口の設定（next.config.js の redirects）に書くこと。
+  const config = require("../next.config.js") as {
+    redirects?: () => Promise<{ source: string; destination: string }[]>;
+  };
+  assert.ok(typeof config.redirects === "function", "next.config.js に送り先の設定が無い");
+  const moves = await config.redirects!();
+  const found = moves.find((m) => m.source === "/keiri/plan-draft");
+  assert.ok(found, "/keiri/plan-draft の送り先が設定に無い");
+  assert.equal(found!.destination, "/keiri/plan");
 });
 
 test("画面に文章を直書きしていない（言葉は lib から引く）", () => {
