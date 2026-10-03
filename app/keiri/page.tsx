@@ -43,6 +43,7 @@ import {
   monthKey,
   outsourcingAccountLabelFor,
   outsourcingLabelFor,
+  findDuplicateExpenses,
   locationProfitBridge,
   locationProfitBridgeLine,
   summarizeByLocation,
@@ -310,6 +311,16 @@ function KeiriInner() {
     [byLocation, summary],
   );
 
+  /**
+   * 同じ支払いが「日報の経費」と「立替台帳」の2か所に書かれていないか（2026-10-03・f1-5）。
+   * ★見つけても金額は直しません。直すかどうかは人が決めることなので、ここでは出すだけです。
+   *   立替は前の月のぶんも渡します（台帳は 8/28・日報は 9/12 のような書き方を拾うため）。
+   */
+  const duplicates = useMemo(
+    () => findDuplicateExpenses({ ym, reports, advances }),
+    [ym, reports, advances],
+  );
+
   const slices = useMemo(() => expenseSlices(summary), [summary]);
   // 表に出す金額。「人件費（当日払い）」は「人件費」の行にまとめる（docs/keiri.md 3-3）
   const mergedExpense = useMemo(
@@ -574,6 +585,62 @@ function KeiriInner() {
             立て替えた日には金庫からお金が出ていないので、返すまでは「まだ払っていないお金」に
             出ます（返した日に現金から引きます）。
           </p>
+
+          {/* ★同じ支払いが2か所に書かれていないか（2026-10-03・f1-5）。
+               9月の実データでは、立替台帳の9月の行のうち 90,571円 が
+               9/12 の日報の経費行と金額までそのまま一致していた（同じ支払いが2か所）。
+               **金額は直さない。**どちらを消すかは人が決めることなので、ここでは出すだけ。 */}
+          {duplicates.suspects.length > 0 && (
+            <div className="rounded-lg border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900 space-y-2">
+              <p className="font-bold">
+                同じ支払いが2か所に書かれている疑い：{duplicates.suspects.length}組
+              </p>
+              <p className="leading-relaxed">
+                日報の「レジから払った経費」と立替台帳の両方に、
+                <strong>金額が1円まで同じで、説明に同じ言葉が入っている行</strong>があります。
+                同じ支払いなら、どちらか片方を消してください（
+                <Link href="/keiri/advances" className="underline font-bold">
+                  立替の入り口
+                </Link>
+                ）。
+                {duplicates.doubleCountedTotal > 0 && (
+                  <>
+                    <br />
+                    同じ月の中で重なっている分：
+                    <strong>{yen(duplicates.doubleCountedTotal)}</strong>
+                    。この月の経費は、この額だけ多く出ているおそれがあります。
+                  </>
+                )}
+                {duplicates.crossMonthTotal > 0 && (
+                  <>
+                    <br />
+                    月をまたいで重なっている分：
+                    <strong>{yen(duplicates.crossMonthTotal)}</strong>
+                    。どちらの月の経費にするかで、この額が動きます。
+                  </>
+                )}
+              </p>
+              <ul className="space-y-1">
+                {duplicates.suspects.slice(0, 8).map((d, i) => (
+                  <li key={i} className="tabular-nums">
+                    {yen(d.amount)}　日報 {d.report.date}／立替 {d.advance.date}
+                    {!d.sameMonth && <>（月をまたいでいます）</>}
+                    <br />
+                    <span className="text-amber-800">
+                      {d.report.description} ／ {d.advance.description}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {duplicates.suspects.length > 8 && (
+                <p>…ほか {duplicates.suspects.length - 8}組</p>
+              )}
+              <p className="text-amber-800">
+                ※ 金額が同じだけの別の支払いのこともあります。中身を確かめてから直してください。
+                こちらで金額を変えることはしません。
+              </p>
+            </div>
+          )}
 
           {summary.advanceSkipped.length > 0 && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 space-y-1">
