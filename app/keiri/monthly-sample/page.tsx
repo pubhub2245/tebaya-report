@@ -232,6 +232,17 @@ export default function KeiriMonthlySamplePage() {
           </li>
           <li>
             <Link
+              href="/keiri/plan"
+              className="block rounded-xl border border-stone-200 bg-white p-4 hover:border-amber-300"
+            >
+              <p className="font-bold text-stone-900">経理まるごと（月5万円前後）の中身</p>
+              <p className="mt-1 text-sm text-stone-600 leading-relaxed">
+                この1枚をお届けするプランで、こちらが何をやって何をやらないか。税務の判断はしません。
+              </p>
+            </Link>
+          </li>
+          <li>
+            <Link
               href="/keiri/case"
               className="block rounded-xl border border-stone-200 bg-white p-4 hover:border-amber-300"
             >
