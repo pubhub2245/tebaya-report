@@ -527,3 +527,15 @@ test("お試し版に足した入口は、新しい約束も新しい価格も�
     );
   }
 });
+
+test("お試し版から、毎月お渡しする1枚の見本へ進める（f5-1・f5-2）", () => {
+  const raw = fs.readFileSync(
+    path.join(process.cwd(), "app", "keiri", "demo", "board.tsx"),
+    "utf8",
+  );
+  const page = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(
+    page.includes('href="/keiri/monthly-sample"'),
+    "お試し版から1枚の見本への道が無い",
+  );
+});
