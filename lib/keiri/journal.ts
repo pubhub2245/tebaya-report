@@ -257,3 +257,25 @@ export function toCsv(rows: JournalRow[]): string {
   const BOM = "\uFEFF"; // Excel用の目印（これが無いと日本語が文字化けする）
   return BOM + lines.join("\r\n") + "\r\n";
 }
+
+/**
+ * 仕訳（CSV）の中の「月の経費」の合計。
+ *
+ * ■ なぜ要るのか（2026-10-03・f1-2）
+ *   月の経費は `MonthlySummary.expenseTotal` の1つが正です（kp218）。
+ *   ただし「画面・CSV・1枚の要約の3か所が同じ数字か」は、
+ *   **CSV側を数え直して突き合わせないと確かめられません**。
+ *   そこで、仕訳の行から経費側だけを合計する数え方をここに1つ置きます。
+ *
+ * ■ 数え方
+ *   借方（左側）が「現金」「未払金」以外の行＝経費が発生した行なので、その借方金額を足す。
+ *   ・経費の発生　： （科目） ／ 現金      → 数える
+ *   ・経費の発生　： （科目） ／ 未払金    → 数える（立替・人件費・家賃・外注費）
+ *   ・売上　　　　： 現金 ／ 売上高        → 数えない
+ *   ・支払い・返金： 未払金 ／ 現金        → 数えない（発生した月に既に数えている）
+ */
+export function journalExpenseTotal(rows: JournalRow[]): number {
+  return rows
+    .filter((r) => r.debitAccount !== CASH && r.debitAccount !== ACCRUED)
+    .reduce((sum, r) => sum + (Number(r.debitAmount) || 0), 0);
+}
