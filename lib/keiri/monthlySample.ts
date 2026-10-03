@@ -19,8 +19,16 @@
  *      じゅんの店の内訳を公開することになります。お試し版と同じ架空の店で揃えます。
  *   ③ **新しい約束を足さない。**見本に出してよいのは、offer.ts に既に書いてある
  *      「1枚の要約」と「会計ソフトに取り込めるCSV」の中身だけです。
- *   ④ 月の表示は**前の月**（まるまる終わった月）。caseStats.ts と同じ数え方を使います
- *      （見本だけ「2026年8月」のまま年を越す、という古びかたを防ぐため）。
+ *   ④ 月の表示は**お試し版（/keiri/demo）と同じ月**＝日本時間の今月にそろえます
+ *      （2026-10-03・kp225-b2）。
+ *      以前は「前の月」で作っていたため、お試し版が『2026年10月』なのに
+ *      この見本だけ『2026年9月』（CSVの日付も 2026-09-03）になり、
+ *      お試し版からこの1枚へ進んだ店主が「さっきと数字は同じなのに月がちがう」と
+ *      迷う形になっていました（B2 が本番で見つけた）。
+ *      どちらの月でも数字は同じ（架空の日報は月をあてはめているだけ）なので、
+ *      **迷わせない方＝お試し版と同じ月**にそろえます。
+ *      月が自動で進むことは変わらないので、「見本だけ古びる」心配もありません。
+ *      実際にお渡しするのは、まるまる終わった前の月ぶんです（下の SAMPLE_MONTH_NOTE）。
  */
 
 import {
@@ -30,13 +38,13 @@ import {
   summarizeMonth,
 } from "./aggregate";
 import { DISPLAY_EXPENSE_ACCOUNTS } from "./accounts";
-import { previousMonthRange } from "./caseStats";
 import {
   DEMO_SHOP_NAME,
   demoAdvances,
   demoPayments,
   demoReports,
   demoSettings,
+  demoTodayJst,
 } from "./demo";
 import { JOURNAL_HEADERS, buildJournalRows, journalExpenseTotal } from "./journal";
 import { MF_HEADERS } from "./moneyforward";
@@ -50,6 +58,27 @@ export const SAMPLE_NOTICE =
 /** 見出しの下に出す1行。何を・いつ渡すかだけを書く（新しい約束を足さない） */
 export const SAMPLE_LEAD =
   "月はじめに、前の月ぶんをこの形でお出しします。お店側の作業はありません。";
+
+/**
+ * 見本の月について、誤解させないための1行（2026-10-03・kp225-b2）。
+ * 見本の月は お試し版と同じ月にそろえてあるので、
+ * 「前の月ぶんをお出しする」という約束との関係をここで書いておく。
+ */
+export const SAMPLE_MONTH_NOTE =
+  "見本の月は、お試し版（触れる画面）と同じ月にそろえてあります。実際にお渡しするのは、まるまる終わった前の月ぶんです。";
+
+/**
+ * 見本に出す月。**お試し版（/keiri/demo）と同じ「日本時間の今月」**。
+ *
+ * ★お試し版が demoTodayJst（日本時間）で月を決めているので、ここも同じ関数を通します。
+ *   日本時間を使わないと、月の変わり目に2つのページが別の月を出します
+ *   （置いてあるサーバーの時計は日本時間ではありません）。
+ */
+export function sampleMonth(today: Date = new Date()): { ym: string; label: string } {
+  const ym = demoTodayJst(today).slice(0, 7);
+  const [y, m] = ym.split("-");
+  return { ym, label: `${Number(y)}年${Number(m)}月` };
+}
 
 /** 要約の1行（見出しと金額） */
 export type SampleLine = { label: string; yen: number };
@@ -117,8 +146,7 @@ export const SAMPLE_JOURNAL_PREVIEW_ROWS = 4;
  * @param today いつ時点で「前の月」を数えるか（テストから固定するために受け取る）
  */
 export function buildMonthlySample(today: Date = new Date()): MonthlySample {
-  const { label: monthLabel, start } = previousMonthRange(today);
-  const ym = start.slice(0, 7);
+  const { ym, label: monthLabel } = sampleMonth(today);
 
   const settings = demoSettings(ym);
   const reports = demoReports(ym);

@@ -43,6 +43,8 @@ import {
   monthKey,
   outsourcingAccountLabelFor,
   outsourcingLabelFor,
+  locationProfitBridge,
+  locationProfitBridgeLine,
   summarizeByLocation,
   summarizeMonth,
   templateFor,
@@ -298,6 +300,16 @@ function KeiriInner() {
     [ym, reports],
   );
 
+  /**
+   * 場所ごとの利益を足した額と、今月の利益のつなぎ（2026-10-03・kp226-b2）。
+   * 場所別の表には立替・外注費・家賃が入っていないので、足すと必ず合いません。
+   * その差を式で1行出します（式も金額も lib が出したものをそのまま使う）。
+   */
+  const locationBridge = useMemo(
+    () => locationProfitBridge({ byLocation, summary }),
+    [byLocation, summary],
+  );
+
   const slices = useMemo(() => expenseSlices(summary), [summary]);
   // 表に出す金額。「人件費（当日払い）」は「人件費」の行にまとめる（docs/keiri.md 3-3）
   const mergedExpense = useMemo(
@@ -460,7 +472,7 @@ function KeiriInner() {
           color="text-amber-600"
           note={`給与 ${yen(unpaid.payroll)}・${outsourcingLabel} ${yen(
             unpaid.outsourcing,
-          )}・家賃 ${yen(unpaid.rent)}・立替 ${yen(unpaid.advance)}`}
+          )}・家賃 ${yen(unpaid.rent)}・まだ返していない立替 ${yen(unpaid.advance)}`}
         />
       </section>
 
@@ -553,7 +565,7 @@ function KeiriInner() {
                金庫から出た分も見たい数字なので、内訳として残す。 */}
           <p className="text-xs text-stone-500 leading-relaxed">
             経費 {yen(summary.expenseTotal)} の内訳：レジのお金から出た分{" "}
-            {yen(summary.expenseFromRegister)}／立替（誰かが先に払った分）{" "}
+            {yen(summary.expenseFromRegister)}／立替（誰かが先に払った分・今月ぶん全部）{" "}
             {yen(summary.expenseFromAdvance)}
             {summary.advanceCount > 0 && <>（{summary.advanceCount}件）</>}／日当{" "}
             {yen(summary.payroll)}／{outsourcingLabel} {yen(summary.outsourcing)}／家賃{" "}
@@ -665,10 +677,23 @@ function KeiriInner() {
               </table>
             </div>
           )}
+          {byLocation.length > 0 && (
+            <div className="rounded-lg bg-stone-100 px-4 py-3">
+              <p className="text-xs text-stone-700 leading-relaxed tabular-nums">
+                {locationProfitBridgeLine(locationBridge)}
+              </p>
+              {!locationBridge.matches && (
+                <p className="mt-1 text-xs font-bold text-red-600">
+                  場所ごとの利益と今月の利益が、足し引きで合っていません。数え方のどこかがずれています。
+                </p>
+              )}
+            </div>
+          )}
           <p className="text-xs text-stone-400">
             「経費」は日報の経費と人件費（日当）の合計です。
-            外注費と家賃（事務所）は月ごとに決まるお金なので、
+            立替・外注費・家賃（事務所）は月ごとに決まるお金なので、
             場所別には入れていません（どの場所のぶんか決められないため）。
+            上の式のとおり、その分を引くと今月の利益に合います。
             出店場所が空の日報は「未設定」にまとめています。
           </p>
         </section>

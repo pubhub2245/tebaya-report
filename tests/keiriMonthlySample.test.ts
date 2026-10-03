@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import {
   SAMPLE_JOURNAL_PREVIEW_ROWS,
   SAMPLE_LEAD,
+  SAMPLE_MONTH_NOTE,
   SAMPLE_NOTICE,
   buildMonthlySample,
   sampleYen,
@@ -39,11 +40,15 @@ import {
   demoSettings,
 } from "../lib/keiri/demo";
 import { GENERIC_TEMPLATE } from "../lib/keiri/templates/generic";
-import { previousMonthRange } from "../lib/keiri/caseStats";
+import { sampleMonth } from "../lib/keiri/monthlySample";
+import { demoTodayJst } from "../lib/keiri/demo";
 
-/** 見本を作る日を固定する（前の月＝2026年8月になる日） */
+/**
+ * 見本を作る日を固定する。
+ * ★見本の月は「お試し版と同じ 日本時間の今月」（2026-10-03・kp225-b2）。
+ */
 const TODAY = new Date("2026-09-20T00:00:00Z");
-const YM = "2026-08";
+const YM = "2026-09";
 
 function realNumbers() {
   const settings = demoSettings(YM);
@@ -61,9 +66,9 @@ function realNumbers() {
   };
 }
 
-test("見本は前の月を指し、架空のお店の名前が入っている", () => {
+test("見本はお試し版と同じ月を指し、架空のお店の名前が入っている", () => {
   const s = buildMonthlySample(TODAY);
-  assert.equal(s.monthLabel, "2026年8月");
+  assert.equal(s.monthLabel, "2026年9月");
   assert.equal(s.shopName, DEMO_SHOP_NAME);
   assert.ok(s.shopName.includes("架空"), "架空のお店だと分かる名前であること");
   assert.ok(SAMPLE_NOTICE.includes("架空"), "見本の断り書きに「架空」が入っていること");
@@ -181,8 +186,7 @@ test("月の経費は、画面・科目ごとの内訳・会計ソフト向けCS
 });
 
 test("CSVの経費側の合計は、本物の月次の経費合計と1円も違わない", () => {
-  const { start } = previousMonthRange(TODAY);
-  const ym = start.slice(0, 7);
+  const ym = sampleMonth(TODAY).ym;
   const settings = demoSettings(ym);
   const reports = demoReports(ym);
   const payments = demoPayments();
@@ -262,4 +266,51 @@ test("要確認（雑費に入れた経費）は、見本でも隠さずに出�
     assert.ok(u.description.length > 0);
     assert.ok(u.amount > 0);
   }
+});
+
+// ------------------------------------------------------------------
+// 見本の月と、お試し版の月がそろっているか（2026-10-03・kp225-b2）
+// ------------------------------------------------------------------
+
+test("見本の月は、お試し版（/keiri/demo）が出す月と同じ", () => {
+  // お試し版は demoTodayJst の「日本時間の今日」から月を決めている
+  for (const iso of [
+    "2026-09-20T00:00:00Z",
+    "2026-10-03T05:00:00Z",
+    // 月の変わり目。日本時間では翌月1日になっている時刻
+    "2026-10-31T16:00:00Z",
+    "2026-12-31T15:30:00Z",
+  ]) {
+    const today = new Date(iso);
+    const demoYm = demoTodayJst(today).slice(0, 7);
+    assert.equal(sampleMonth(today).ym, demoYm, `${iso} で月がずれている`);
+  }
+});
+
+test("見本のCSVの日付は、見本が指している月の中に入っている", () => {
+  const today = new Date("2026-10-03T05:00:00Z");
+  const s = buildMonthlySample(today);
+  const ym = sampleMonth(today).ym;
+  assert.equal(s.monthLabel, "2026年10月");
+  assert.ok(s.journalRows.length > 0, "仕訳が0行では確かめにならない");
+  for (const r of s.journalRows) {
+    assert.ok(
+      r.date.startsWith(ym),
+      `CSVの日付 ${r.date} が見本の月 ${ym} の外に出ている`,
+    );
+  }
+});
+
+test("見本のページに、月のそろえ方の断り書きが出ている", () => {
+  assert.ok(SAMPLE_MONTH_NOTE.includes("お試し版"));
+  assert.ok(SAMPLE_MONTH_NOTE.includes("前の月"));
+  for (const path of ["app/keiri/monthly-sample/page.tsx", "app/keiri/case/page.tsx"]) {
+    const page = readFileSync(path, "utf8");
+    assert.ok(page.includes("SAMPLE_MONTH_NOTE"), `${path} に断り書きが無い`);
+  }
+});
+
+test("見本のページは月が変わったら作り直す（作った時の月で固まらない）", () => {
+  const page = readFileSync("app/keiri/monthly-sample/page.tsx", "utf8");
+  assert.ok(/export const revalidate = \d+/.test(page), "revalidate が無い");
 });

@@ -621,3 +621,80 @@ export function expenseSlices(summary: MonthlySummary): ExpenseSlice[] {
     value: merged[a.key],
   })).filter((s) => s.value > 0);
 }
+
+// ------------------------------------------------------------------
+// 出店場所ごとの利益と、月の利益のつなぎ（2026-10-03・kp226-b2）
+// ------------------------------------------------------------------
+
+/**
+ * 「出店場所ごとの利益を足した額」と「今月の利益」は、同じにはなりません。
+ * 場所ごとの表に入れていないお金（立替・外注費・家賃）があるためです。
+ *
+ * ■ なぜ要るか（B2 が本番で見つけた・2026-10-03）
+ *   お試し版では 駅前広場 90,300 ＋ 商店街 41,500 ＝ 131,800円 なのに、
+ *   上の「今月の利益」は 37,300円でした。表の下の説明は「家賃は場所別に
+ *   入れていません」の1行だけで、家賃 60,000 を引いても 71,800円。
+ *   残り 34,500円（誰かが立て替えた分）の説明がどこにも無く、
+ *   **見た人は数字が合わないページだと受け取ります。**
+ *
+ * ■ ここで数字を書かないこと
+ *   引く額は summarizeMonth の答えからそのまま取ります。画面に式を直書きしません。
+ *   残り（説明のつかない差）が出たら隠さず「その他」に出します。
+ */
+export type LocationProfitBridge = {
+  /** 出店場所ごとの利益を足した額 */
+  locationProfit: number;
+  /** 場所別に入れていないお金（引く側）。0円の行は入れない */
+  deductions: { label: string; yen: number }[];
+  /** 引く額の合計 */
+  deductionTotal: number;
+  /** 月の利益（summarizeMonth の答え） */
+  monthProfit: number;
+  /** 足し引きがぴったり合うか（合わなければ画面で正直に出す） */
+  matches: boolean;
+};
+
+export function locationProfitBridge(params: {
+  byLocation: LocationSummary[];
+  summary: MonthlySummary;
+}): LocationProfitBridge {
+  const { byLocation, summary } = params;
+  const locationProfit = byLocation.reduce((t, r) => t + r.profit, 0);
+
+  // 場所別の表に入っているのは「日報の経費明細」と「日当」だけ。
+  // 月の経費のうち、それ以外のぶんがそのまま差になる。
+  const others =
+    summary.expenseTotal - summary.expenseFromRegister - summary.payroll;
+  const named = [
+    { label: "誰かが立て替えた分", yen: summary.expenseFromAdvance },
+    { label: "外注費", yen: summary.outsourcing },
+    { label: "家賃（事務所）", yen: summary.rent },
+  ];
+  const rest = others - named.reduce((t, d) => t + d.yen, 0);
+  const deductions = [
+    ...named,
+    // 説明のつかない差が出たときだけ出す（黙って飲み込まない）
+    ...(rest !== 0 ? [{ label: "その他", yen: rest }] : []),
+  ].filter((d) => d.yen !== 0);
+
+  const deductionTotal = deductions.reduce((t, d) => t + d.yen, 0);
+  return {
+    locationProfit,
+    deductions,
+    deductionTotal,
+    monthProfit: summary.profit,
+    matches: locationProfit - deductionTotal === summary.profit,
+  };
+}
+
+/** 「場所の利益の合計 131,800 − 家賃 60,000 − … ＝ 今月の利益 37,300」の1行を作る */
+export function locationProfitBridgeLine(bridge: LocationProfitBridge): string {
+  const n = (yen: number) => Math.round(yen).toLocaleString("ja-JP");
+  const minus = bridge.deductions
+    // マイナスの行（説明のつかない差）は「＋」で出す。「− -500」と読ませない
+    .map((d) => (d.yen < 0 ? ` ＋ ${d.label} ${n(-d.yen)}` : ` − ${d.label} ${n(d.yen)}`))
+    .join("");
+  return `場所の利益の合計 ${n(bridge.locationProfit)}${minus} ＝ 今月の利益 ${n(
+    bridge.monthProfit,
+  )}`;
+}
