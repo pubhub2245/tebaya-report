@@ -9,6 +9,7 @@ import {
   type KeiriApplication,
 } from "@/lib/keiri/apply";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
+import { applyRouteLabel, routeFromNote } from "@/lib/keiri/applyRoutes";
 import { applicationIsReachable } from "@/lib/keiri/notifyHealth";
 import {
   describeLineFailure,
@@ -157,6 +158,21 @@ export async function POST(req: NextRequest) {
    *   ・それ以外の道（入力の確かめ方・送り方・控えの残し方）は本物とまったく同じ
    */
   const test = (body as Record<string, unknown> | null)?.test === true;
+  /**
+   * 「下見だけ」（2026-10-04・kp236・f2-3）。
+   *
+   * ■ なぜ要るか
+   *   お申し込みの道は6つ（紙・見せる1枚・お試し・アプリ・倉庫の表紙・その場で登録）
+   *   あります。「どこから来たかが残るか」を確かめるには1本ずつ通したいのですが、
+   *   試しの1通でもスタッフのLINEへ知らせが飛ぶので、6回通すと6通 届きます。
+   *   そこで **何も送らず・何も書かず、控えに入るはずの中身だけを返す道**を1つ足します。
+   *
+   * ■ 守ること
+   *   ・test が true のときだけ効く（本物の申し込みの返事は1文字も変わりません）
+   *   ・LINE へ送らない／倉庫に1行も書かない（読むことすらしません）
+   *   ・返すのは**送られてきた中身を整えた結果**だけ。倉庫の中身は1行も出しません
+   */
+  const dryRun = test && (body as Record<string, unknown> | null)?.dryRun === true;
 
   const parsed = normalizeKeiriApplication((body ?? {}) as Record<string, unknown>);
 
@@ -166,6 +182,30 @@ export async function POST(req: NextRequest) {
 
   // 機械の書き込み。画面には成功と同じ顔を見せ、誰にも知らせない
   if (parsed.spam) return NextResponse.json({ ok: true });
+
+  if (dryRun) {
+    // ★ここで終わり。知らせも控えも、読み取りもしません。
+    const route = routeFromNote(parsed.value.note);
+    return NextResponse.json({
+      ok: true,
+      test: true,
+      dryRun: true,
+      notified: false,
+      saved: null,
+      savedNote:
+        "下見だけなので、知らせも控えも出していません（控えに入るはずの中身だけを返しています）",
+      route,
+      routeLabel: applyRouteLabel(route),
+      wouldSave: {
+        shop_name: parsed.value.shop_name,
+        contact_name: parsed.value.contact_name,
+        email: parsed.value.email,
+        phone: parsed.value.phone,
+        note: parsed.value.note,
+      },
+      notice: APPLY_TEST_NOTICE,
+    });
+  }
 
   // 知らせと控えは同時に走らせる。片方が遅くても、もう片方は待たされない
   const [notifyResult, savedResult] = await Promise.all([
@@ -226,6 +266,9 @@ export async function POST(req: NextRequest) {
           "試しの1通なので、控えは残していません（棚の決まりは本物の申し込みだけを通します）",
         reachable,
         notifyNote,
+        // ★どの道から来たかも返す（f2-3・控えに残るのと同じ1行から読み戻している）
+        route: routeFromNote(parsed.value.note),
+        routeLabel: applyRouteLabel(routeFromNote(parsed.value.note)),
         notice: APPLY_TEST_NOTICE,
       })
     : NextResponse.json({ ok: true, notified, saved, reachable, notifyNote });

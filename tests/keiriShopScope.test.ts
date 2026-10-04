@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import {
   UNSET_SHOP,
   filterReportsByShop,
+  noShopDivision,
   sameShopName,
   shopCountsLabel,
   shopOf,
@@ -177,4 +178,38 @@ test("お店でしぼったときは、立替が分けられないことを必�
   assert.equal(notes.length, 1);
   assert.ok(notes[0].includes("立て替え"));
   assert.ok(notes[0].includes("印がまだありません"));
+});
+
+test("お店の区分が1つも入っていない月は、誤った断り書きを出さない", () => {
+  // ★見本（架空のお店）の日報には区分の欄がありません。
+  //   それを「区分なし の日報だから見出しとずれている」と書いてしまうと、
+  //   毎月お渡しする1枚に意味の無い警告が出ます（2026-10-04 に本番で1回出した）。
+  const none: KeiriReport[] = [
+    { date: "2026-09-01", sales_amount: 10_000, labor: 0, expenses: [] },
+    { date: "2026-09-02", sales_amount: 20_000, labor: 0, expenses: [] },
+  ];
+  const scope = summarizeShopScope(none, "2026-09");
+  assert.deepEqual(
+    scope.shops.map((s) => s.shop),
+    [UNSET_SHOP],
+  );
+  assert.ok(noShopDivision(scope.shops));
+  assert.deepEqual(
+    shopScopeNotes({ shopName: "デモ食堂（架空のお店）", shops: scope.shops }),
+    [],
+  );
+  const sentence = shopScopeSentence({
+    shops: scope.shops,
+    reportCount: scope.reportCount,
+  });
+  assert.ok(sentence.includes("ぜんぶから数えています"));
+  assert.ok(!sentence.includes("区分なし の日報"));
+
+  // ★ただし、本物のお店と混ざっているときは今までどおり断る
+  const mixed = summarizeShopScope(
+    [...none, { date: "2026-09-03", shop: "もも屋", sales_amount: 1, labor: 0, expenses: [] }],
+    "2026-09",
+  );
+  assert.ok(!noShopDivision(mixed.shops));
+  assert.ok(shopScopeNotes({ shopName: "手羽屋", shops: mixed.shops }).length > 0);
 });
