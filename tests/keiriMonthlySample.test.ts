@@ -314,3 +314,19 @@ test("見本のページは月が変わったら作り直す（作った時の�
   const page = readFileSync("app/keiri/monthly-sample/page.tsx", "utf8");
   assert.ok(/export const revalidate = \d+/.test(page), "revalidate が無い");
 });
+
+test("見本の1枚は、古い写しが長く配られない（作り直しは1分ごと）", () => {
+  /**
+   * 2026-10-04（B2 の指摘・f5-1）。
+   * この1枚は「お試し版と同じ月」を出す約束なので、作った時の月で固まると
+   * お試し版が10月なのにこの1枚だけ9月に見えます（数字は同じでも店主が迷う）。
+   * 作り直しの間を1分にして、ずれていられる時間を短くしておく。
+   */
+  const src = readFileSync("app/keiri/monthly-sample/page.tsx", "utf8");
+  const m = src.match(/export const revalidate = (\d+);/);
+  assert.ok(m, "作り直しの間（revalidate）の指定が無い");
+  assert.ok(
+    Number(m![1]) <= 60,
+    `古い写しが ${m![1]} 秒ぶん配られます。60秒以下にしてください`,
+  );
+});
