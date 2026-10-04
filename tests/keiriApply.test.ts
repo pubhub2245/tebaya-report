@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  APPLY_BLANK_MARK,
   APPLY_TEST_NOTICE,
   KEIRI_APPLY_COPY_TO,
   KEIRI_APPLY_LIMITS,
@@ -471,13 +472,8 @@ test("試しの1通には、本文のいちばん上に『これはテストで�
   assert.ok(real.startsWith("【経理パッケージ お申し込みが1件入りました】"));
 });
 
-test("試しの1通の控えは status が test で、どこから来たかは form のまま", () => {
+test("どこから来たかの欄（source）は form のまま（変えると控えが1行も残らない）", () => {
   const src = readFileSync("app/api/keiri/apply/route.ts", "utf8");
-  // 本物の件数に混ざらないよう status を test にすること
-  assert.ok(
-    src.includes('status: test ? "test" : "new"'),
-    "試しの控えの status が test になっていない（本物の件数に混ざる）",
-  );
   // 棚の受け入れの決まりは source が form のときだけ通るので、ここは変えない
   assert.ok(
     /source:\s*"form"/.test(src),
@@ -495,5 +491,57 @@ test("試しの1通でも、入力の確かめ方・送り方・控えの残し�
   assert.ok(
     src.includes("NextResponse.json({ ok: true, notified, saved, reachable, notifyNote })"),
     "本物の返事の形を変えてはいけない（画面がこれを見て動いている）",
+  );
+});
+
+// ------------------------------------------------------------------
+// 控えが黙って消えないこと（2026-10-04・f2-1）
+// ------------------------------------------------------------------
+
+test("お名前・メールが空でも控えが残る（空のまま1回、断られたら印を入れてもう1回）", () => {
+  const src = readFileSync("app/api/keiri/apply/route.ts", "utf8");
+  // まず空のまま入れること（これが本来の形。印を先に入れてはいけない）
+  const first = src.indexOf("const { error } = await db.from(TABLE).insert(row);");
+  assert.ok(first > 0, "1回目に、入力されたそのままの形で入れていない");
+  // 断られたときだけ、空の欄に印を入れてもう1回
+  const retry = src.indexOf("APPLY_BLANK_MARK", first);
+  assert.ok(retry > first, "断られたあとの2回目が無い（申し込みが黙って消える）");
+  assert.ok(
+    src.includes("rejectedByPolicy(error.message) && hasBlank"),
+    "決まりに断られた・かつ空の欄があるときだけに限っていない",
+  );
+  // 印は「入っていない」と読める言葉で、嘘の名前やメールを作らないこと
+  assert.equal(APPLY_BLANK_MARK, "（未記入）");
+});
+
+test("棚の決まりを直す SQL が倉庫にあり、変えているのは下限の2か所だけ", () => {
+  const sql = readFileSync(
+    "supabase/migrations/keiri_applications_optional_contact.sql",
+    "utf8",
+  );
+  // 空（長さ0）を通すように直していること
+  assert.ok(sql.includes("length(contact_name) between 0 and 120"));
+  assert.ok(sql.includes("length(email) between 0 and 254"));
+  // いたずら防止の守りは、もとのまま残していること
+  for (const keep of [
+    "source = 'form'",
+    "and status = 'new'",
+    "and tenant_id is null",
+    "length(shop_name) between 1 and 120",
+    "(phone is null or length(phone) <= 40)",
+    "(note is null or length(note) <= 2000)",
+  ]) {
+    assert.ok(sql.includes(keep), `もとの守り「${keep}」が落ちている`);
+  }
+  // 何度流しても同じ結果になる形であること
+  assert.ok(sql.includes("drop policy if exists"));
+});
+
+test("試しの1通は、控えを残さない（本物の棚に混ざらない）", () => {
+  const src = readFileSync("app/api/keiri/apply/route.ts", "utf8");
+  assert.ok(src.includes("if (test) return null;"), "試しの1通で控えを残している");
+  assert.ok(
+    !/status:\s*test\s*\?/.test(src),
+    "棚の決まりは status が new の行しか通さないので、ここで切り替えてはいけない",
   );
 });
