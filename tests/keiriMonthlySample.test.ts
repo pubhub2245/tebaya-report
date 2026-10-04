@@ -75,17 +75,19 @@ test("見本はお試し版と同じ月を指し、架空のお店の名前が�
   assert.ok(SAMPLE_LEAD.length > 0);
 });
 
-test("要約の5つの数字が、本物の関数の答えと1円も違わない", () => {
+test("要約の数字が、本物の関数の答えと1円も違わない", () => {
   const { summary, cash, unpaid } = realNumbers();
   const s = buildMonthlySample(TODAY);
   const by = (label: string) => s.headline.find((h) => h.label === label)?.yen;
 
+  // 大きく出すのは3つだけ（2026-10-04・kp231 ②・店主が読む言葉にそろえた）
+  assert.equal(s.headline.length, 3);
   assert.equal(by("売上"), summary.sales);
-  assert.equal(by("経費の合計"), summary.expenseTotal);
-  assert.equal(by("今月の利益"), summary.profit);
-  assert.equal(by("今の現金"), cash.balance);
-  assert.equal(by("まだ払っていないお金"), unpaid.total);
-  assert.equal(s.headline.length, 5);
+  assert.equal(by("かかったお金"), summary.expenseTotal);
+  assert.equal(by("残ったお金（利益）"), summary.profit);
+  // 現金とまだ払っていないお金は、専用の欄に移した（数字は同じ関数の答え）
+  assert.equal(s.cash.balance, cash.balance);
+  assert.equal(s.unpaid.total, unpaid.total);
 });
 
 test("経費の内訳は 0円の科目を出さず、合計は経費の合計と合う", () => {
@@ -169,7 +171,7 @@ test("紹介ページに、見本の金額を直書きしていない", () => {
 test("金額の表示は3桁区切りで、マイナスが分かる", () => {
   assert.equal(sampleYen(82000), "82,000円");
   assert.equal(sampleYen(0), "0円");
-  assert.equal(sampleYen(-1200), "−1,200円");
+  assert.equal(sampleYen(-1200), "−1,200円（赤字）");
 });
 
 // ------------------------------------------------------------------

@@ -74,7 +74,8 @@ function MonthlyInner() {
 
   const ym = monthKey(year, month);
   const monthLabel = `${year}年${month}月`;
-  const todayYm = useMemo(() => todayStr().slice(0, 7), []);
+  const today = useMemo(() => todayStr(), []);
+  const todayYm = today.slice(0, 7);
 
   const [data, setData] = useState<KeiriMonthData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,8 +110,10 @@ function MonthlyInner() {
       template,
       // 家賃の「まだ払っていない分」は今日の月まで数える（経理画面と同じ）
       currentYm: todayYm,
+      // 「◯月◯日に作りました」に出す日（出した日が紙に残るように）
+      madeOn: today,
     });
-  }, [data, ym, monthLabel, shopName, template, todayYm]);
+  }, [data, ym, monthLabel, shopName, template, todayYm, today]);
 
   const shiftMonth = (delta: number) => {
     const d = new Date(year, month - 1 + delta, 1);

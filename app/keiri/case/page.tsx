@@ -566,7 +566,7 @@ export default async function KeiriCasePage({
             ))}
           </dl>
 
-          <p className="mt-4 text-xs font-bold text-stone-500">経費の内訳</p>
+          <p className="mt-4 text-xs font-bold text-stone-500">かかったお金の中身</p>
           <ul className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">
             {sample.expenses.map((e) => (
               <li

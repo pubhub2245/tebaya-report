@@ -14,7 +14,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { buildOneSheet, sheetYen } from "../lib/keiri/oneSheet";
+import {
+  ONE_SHEET_DISCLAIMER,
+  buildOneSheet,
+  sheetYen,
+} from "../lib/keiri/oneSheet";
 import { buildMonthlySample } from "../lib/keiri/monthlySample";
 import {
   calcCashPosition,
@@ -139,10 +143,12 @@ test("1枚の要約の数字は、画面が呼ぶのと同じ関数の答えと�
 
   const byLabel = new Map(sheet.headline.map((h) => [h.label, h.yen]));
   assert.equal(byLabel.get("売上"), summary.sales);
-  assert.equal(byLabel.get("経費の合計"), summary.expenseTotal);
-  assert.equal(byLabel.get("今月の利益"), summary.profit);
-  assert.equal(byLabel.get("今の現金"), cash.balance);
-  assert.equal(byLabel.get("まだ払っていないお金"), unpaid.total);
+  assert.equal(byLabel.get("かかったお金"), summary.expenseTotal);
+  assert.equal(byLabel.get("残ったお金（利益）"), summary.profit);
+  assert.equal(sheet.cash.balance, cash.balance);
+  assert.equal(sheet.cash.countedOn, cash.openingDate);
+  assert.equal(sheet.cash.countedYen, cash.openingBalance);
+  assert.equal(sheet.unpaid.total, unpaid.total);
   assert.equal(sheet.expenseTotal, summary.expenseTotal);
   assert.equal(sheet.reportCount, summary.reportCount);
 });
@@ -282,5 +288,137 @@ test("読む手順は倉庫に書き込まない（読むだけ）", () => {
 
 test("金額の表示はマイナスも読める形で出る", () => {
   assert.equal(sheetYen(183900), "183,900円");
-  assert.equal(sheetYen(-159854), "−159,854円");
+  assert.equal(sheetYen(-159854), "−159,854円（赤字）");
+});
+
+// ------------------------------------------------------------------
+// ⑥ 言葉と並び順（2026-10-04・kp231 ②・meta/keiri-material-onepage-real）
+//    店主が読む1枚なので、会計の言葉を出さない。並び順も決めたとおりにする。
+// ------------------------------------------------------------------
+
+test("大きな数字は『売上・かかったお金・残ったお金（利益）』の3つ、この順", () => {
+  const sheet = buildOneSheet(inputs());
+  assert.deepEqual(
+    sheet.headline.map((h) => h.label),
+    ["売上", "かかったお金", "残ったお金（利益）"],
+  );
+});
+
+test("『売上 − かかったお金 ＝ 残ったお金』の1行は計算から作る（手で打たない）", () => {
+  const sheet = buildOneSheet(inputs());
+  const [sales, expense, profit] = sheet.headline.map((h) => h.yen);
+  assert.equal(sales - expense, profit);
+  for (const yen of [sales, expense, profit]) {
+    assert.ok(
+      sheet.profitLine.includes(Math.abs(yen).toLocaleString("ja-JP")),
+      `式の1行に ${yen} が入っていない`,
+    );
+  }
+});
+
+test("見出しと『いつ作ったか』が1枚に入る（日報の件数も書く）", () => {
+  const sheet = buildOneSheet({ ...inputs(), madeOn: "2026-10-04" });
+  assert.equal(sheet.title, "手羽屋　2026年9月のまとめ");
+  assert.equal(sheet.madeOnLabel, "10月4日に作りました・日報3件から");
+});
+
+test("かかったお金の中身は金額の大きい順で、合計は『かかったお金』と同じ", () => {
+  const sheet = buildOneSheet(inputs());
+  const yens = sheet.expenses.map((e) => e.yen);
+  assert.deepEqual(yens, [...yens].sort((a, b) => b - a), "大きい順になっていない");
+  assert.equal(
+    yens.reduce((s, y) => s + y, 0),
+    sheet.expenseTotal,
+  );
+});
+
+test("まだ払っていないお金は、相手ごとの内訳の合計が見出しと合う", () => {
+  const sheet = buildOneSheet(inputs());
+  assert.equal(
+    sheet.unpaid.lines.reduce((s, l) => s + l.yen, 0),
+    sheet.unpaid.total,
+  );
+  assert.equal(sheet.verify.unpaidOk, true);
+});
+
+test("いま手元にある現金は『いつ数えた いくら』から計算したと書く", () => {
+  const sheet = buildOneSheet(inputs());
+  assert.equal(sheet.cash.countedOn, SETTINGS.opening_date);
+  assert.equal(sheet.cash.countedYen, SETTINGS.opening_balance);
+});
+
+test("検算が3つとも合っていれば出す。合っていなければ1枚を出さない作りになっている", () => {
+  const sheet = buildOneSheet(inputs());
+  assert.equal(sheet.verify.ok, true);
+  assert.deepEqual(sheet.verify.problems, []);
+  // 画面の側も「合わなければ出さない」で分かれていること
+  const view = readFileSync("app/keiri/components/OneSheetView.tsx", "utf8");
+  assert.ok(
+    view.includes("sheet.verify.ok"),
+    "検算が合わない月でも1枚を出してしまう作りになっている",
+  );
+});
+
+test("いちばん下の断り書きは lib の1か所から出す（税務の判断はしない）", () => {
+  const view = readFileSync("app/keiri/components/OneSheetView.tsx", "utf8");
+  assert.ok(view.includes("ONE_SHEET_DISCLAIMER"));
+  assert.ok(ONE_SHEET_DISCLAIMER.includes("税理士"));
+  assert.ok(!view.includes(ONE_SHEET_DISCLAIMER), "断り書きが画面に直書きされている");
+});
+
+// ------------------------------------------------------------------
+// ⑦ 確かめてほしいこと（隠さない・勝手に直さない）
+// ------------------------------------------------------------------
+
+test("同じ支払いが2か所にある疑いは、件数と『片方を消すとどうなるか』まで出す", () => {
+  const reports: KeiriReport[] = [
+    {
+      date: "2026-09-12",
+      sales_amount: 100000,
+      labor: 0,
+      expenses: [{ description: "ハピネス都城 キャノーラ油", amount: 11448 }],
+    },
+  ];
+  const advances: KeiriAdvance[] = [
+    { date: "2026-09-11", amount: 11448, description: "キャノーラ油（ハピネス都城）", payer: "じゅん" },
+  ];
+  const sheet = buildOneSheet({
+    ...inputs(),
+    reports,
+    advances,
+    payments: [],
+  });
+  const dup = sheet.review.duplicate;
+  assert.ok(dup, "疑いが出ていない");
+  assert.equal(dup!.count, 1);
+  assert.equal(dup!.sameMonthYen, 11448);
+  assert.equal(dup!.expenseAfter, sheet.expenseTotal - 11448);
+  assert.equal(dup!.profitAfter, sheet.headline[2].yen + 11448);
+  assert.equal(sheet.review.any, true);
+});
+
+test("疑いが無い月は、確かめてほしいことに疑いを出さない", () => {
+  const sheet = buildOneSheet({ ...inputs(), advances: [] });
+  assert.equal(sheet.review.duplicate, null);
+});
+
+test("レシートの写真の有無が読めないデータは『0件』と書かない（null にする）", () => {
+  // 倉庫の軽い見え方（keiri_reports）は写真の欄そのものを抜いている
+  const sheet = buildOneSheet(inputs());
+  assert.equal(sheet.review.noReceiptCount, null);
+
+  // 欄がある（写真が無い）データなら、件数を出す
+  const withField: KeiriReport[] = [
+    {
+      date: "2026-09-03",
+      sales_amount: 10000,
+      labor: 0,
+      expenses: [
+        { description: "鶏もも 仕入", amount: 1000, receipt_image_url: null },
+        { description: "油", amount: 500, receipt_image_url: "https://example.test/a.jpg" },
+      ],
+    },
+  ];
+  const sheet2 = buildOneSheet({ ...inputs(), reports: withField, advances: [] });
+  assert.equal(sheet2.review.noReceiptCount, 1);
 });
