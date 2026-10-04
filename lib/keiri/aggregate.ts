@@ -19,6 +19,7 @@ import {
 } from "./accounts";
 import { amountOf, classifyExpense, expenseItemsOf } from "./classify";
 import { advanceNote } from "./advances";
+import { summarizeShopScope, type ShopCount } from "./shopScope";
 import type {
   BusinessTemplate,
   KeiriAdvance,
@@ -142,6 +143,11 @@ export type MonthlySummary = {
   rent: number;
   /** 集計に使った日報の件数 */
   reportCount: number;
+  /**
+   * 数えた日報を、お店の区分（手羽屋／もも屋）ごとに分けた件数と売上（kp234・f1-5）。
+   * ★合計の数字は1円も変わりません。「何を数えているか」を出すためだけの内訳です。
+   */
+  shops: ShopCount[];
   /** 雑費に入れた（対応表に当たらなかった）明細 */
   unmatched: UnmatchedExpense[];
 };
@@ -312,6 +318,7 @@ export function summarizeMonth(params: {
     outsourcing,
     rent,
     reportCount: target.length,
+    shops: summarizeShopScope(target, ym).shops,
     unmatched,
   };
 }

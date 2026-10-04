@@ -57,6 +57,7 @@ import {
 } from "@/lib/keiri/moneyforward";
 import { toYayoiCsv, yayoiFileName } from "@/lib/keiri/yayoi";
 import { loadKeiriMonth } from "@/lib/keiri/loadMonth";
+import { shopScopeSentence } from "@/lib/keiri/shopScope";
 import {
   PAYMENT_KIND_LABEL,
   type KeiriPayment,
@@ -504,6 +505,24 @@ function KeiriInner() {
           <p className="text-xs text-stone-400">
             集計は日報の「営業日」で数えています（入力した日時ではありません）。
             対象の日報：{summary.reportCount}件
+          </p>
+          {/* ★どのお店の日報を数えているか（kp234・f1-5）。
+               件数だけでは、手羽屋ともも屋が混ざっていても気づけません。
+               数字は1円も変えていません（内訳を出すだけ）。 */}
+          <p className="text-xs text-stone-500 leading-relaxed">
+            {shopScopeSentence({
+              shops: summary.shops,
+              reportCount: summary.reportCount,
+            })}
+            {summary.shops.length > 1 && (
+              <>
+                （
+                {summary.shops
+                  .map((s) => `${s.shop} 売上 ${yen(s.sales)}`)
+                  .join("／")}
+                ）お店ごとに分けた1枚は「毎月お渡しする1枚」で選べます。
+              </>
+            )}
           </p>
 
           {/* ★月の経費は「立替も含めた全部」で1つ（2026-10-02・kp218）。

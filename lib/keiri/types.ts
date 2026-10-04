@@ -22,6 +22,12 @@ export type KeiriReport = {
   location?: string | null;
   /** 担当者 */
   staff_name?: string | null;
+  /**
+   * お店の区分（手羽屋 / もも屋）。空のこともある。
+   * ★「どのお店の日報を数えているか」を画面に出すために使う（kp234・f1-5）。
+   *   空を「手羽屋」と決めつけないこと（lib/keiri/shopScope.ts）。
+   */
+  shop?: string | null;
   /** その日の売上（円） */
   sales_amount?: number | null;
   /** その日の給与（日当・円）。日報1件ぶんの合計 */
