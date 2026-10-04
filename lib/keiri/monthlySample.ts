@@ -32,6 +32,7 @@
  */
 
 import {
+  ONE_SHEET_DISCLAIMER,
   SAMPLE_JOURNAL_PREVIEW_ROWS,
   buildOneSheet,
   sheetYen,
@@ -56,6 +57,7 @@ import { GENERIC_TEMPLATE } from "./templates/generic";
  *   ここに残っているのは「見本のための言葉」と「架空のお店のデータを入れる所」だけです。
  */
 export {
+  ONE_SHEET_DISCLAIMER,
   SAMPLE_JOURNAL_PREVIEW_ROWS,
   buildOneSheet,
   type MonthlySample,
@@ -113,6 +115,8 @@ export function buildMonthlySample(today: Date = new Date()): MonthlySample {
     advances: demoAdvances(ym),
     settings: demoSettings(ym),
     template: GENERIC_TEMPLATE,
+    // 「◯月◯日に作りました」の日付も、お試し版と同じ日本時間の今日にそろえる
+    madeOn: demoTodayJst(today),
   });
 }
 
