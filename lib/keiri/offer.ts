@@ -99,7 +99,7 @@ export function monthlyCloseTiming(cardLive = false): string {
  *   申し込みボタンだけがある状態は、いちばん手前で止まる形になります。
  *
  * ■ 書いてよいのは、実際に確かめた事実だけ
- *   ・お申し込みで必ず入れるのは3つ（app/keiri/apply/ApplyForm.tsx の required）
+ *   ・お申し込みで必ず入れるのは2つ（app/keiri/apply/ApplyForm.tsx の required）
  *   ・初回設定で入れるのは3つ（app/keiri/welcome/page.tsx。★増やさない）
  *   ・出店場所・担当者・商品は日報からその場で足せる（support.ts の KEIRI_FIRST_DAY_STEPS）
  *   数えられない「◯分で終わります」は書かない（守れない約束になるため）。
@@ -121,10 +121,10 @@ export function monthlyCloseTiming(cardLive = false): string {
  *   書いたままだった。店主が1回のタップで、食い違う2つの約束を見る形。
  *   数を画面に直書きしていたのが原因なので、数えて作るようにした。
  */
-export const KEIRI_APPLY_REQUIRED_FIELDS = ["お店の名前", "お名前", "メールアドレス"] as const;
+export const KEIRI_APPLY_REQUIRED_FIELDS = ["お店の名前", "電話番号"] as const;
 
 /** 任意の欄（入れなくても申し込める）。こちらは「必ず入れる」数に入れない。 */
-export const KEIRI_APPLY_OPTIONAL_FIELDS = ["電話番号", "ひとこと"] as const;
+export const KEIRI_APPLY_OPTIONAL_FIELDS = ["お名前", "メールアドレス", "ひとこと"] as const;
 
 /** 「必ず入れていただくのは3つだけです（…）。」の1文。数字は数えて作る。 */
 export function keiriApplyRequiredLine(): string {
@@ -132,9 +132,26 @@ export function keiriApplyRequiredLine(): string {
   return `必ず入れていただくのは${n}つだけです（${KEIRI_APPLY_REQUIRED_FIELDS.join("・")}）。`;
 }
 
-/** 「電話番号とひとことは任意です。」の1文。 */
+/** 「お名前・メールアドレス・ひとことは任意です。」の1文。 */
 export function keiriApplyOptionalLine(): string {
-  return `${KEIRI_APPLY_OPTIONAL_FIELDS.join("と")}は任意です。`;
+  return `${KEIRI_APPLY_OPTIONAL_FIELDS.join("・")}は任意です。`;
+}
+
+/**
+ * お申し込みのあと、こちらからどうやって連絡するかの1行。
+ *
+ * ■ なぜ1本にしたか（2026-10-01・kp207）
+ *   必ず入れていただく欄を「お店の名前と電話番号」の2つにしたので、
+ *   メールアドレスをいただかない申し込みが成り立つようになりました。
+ *   ところが画面には「いただいたメールアドレスへ、担当からご連絡します。」が
+ *   **3か所に直書き**されており、そのままだと守れない約束になります。
+ *   どう連絡するかは、ここ1本から出します（画面に直書きしない）。
+ */
+export function keiriApplyContactLine(): string {
+  return (
+    "ご連絡は、いただいたお電話番号にこちらからさしあげます" +
+    "（メールアドレスをいただいた方には、メールでもお送りします）。"
+  );
 }
 
 export type KeiriStartStep = { n: string; title: string; body: string };
@@ -148,7 +165,10 @@ export function keiriStartSteps(cardLive = false): KeiriStartStep[] {
     {
       n: "1",
       title: "お申し込み",
-      body: keiriApplyRequiredLine() + "この画面でお支払いは発生しません。",
+      body:
+        keiriApplyRequiredLine() +
+        keiriApplyContactLine() +
+        "この画面でお支払いは発生しません。",
     },
     {
       n: "2",

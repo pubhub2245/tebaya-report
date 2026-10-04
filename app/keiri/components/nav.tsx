@@ -22,6 +22,16 @@ export const KEIRI_PUBLIC_PAGES: { path: string; title: string; lead: string }[]
     lead: "登録も申し込みも要らずに、本物の経理画面をそのまま触れます。日報を1件書くと3つの数字がその場で変わります。",
   },
   {
+    path: "/keiri/monthly-sample",
+    title: "毎月お届けする1枚（見本）",
+    lead: "月はじめにお渡しする「1枚の要約」の見本。架空のお店の数字を、実際のお店で動いているのと同じ計算で出しています。",
+  },
+  {
+    path: "/keiri/plan",
+    title: "経理まるごと（月5万円前後）",
+    lead: "はじめの設定も月1回の読み合わせも含むプラン。やること・やらないことを1枚にまとめました。",
+  },
+  {
     path: "/keiri/tools",
     title: "飲食店の無料計算ツール",
     lead: "登録不要でその場で使える計算の道具。赤字ラインと原価率・FL比率。",
@@ -44,7 +54,7 @@ export const KEIRI_PUBLIC_PAGES: { path: string; title: string; lead: string }[]
   {
     path: "/keiri/apply",
     title: "お申し込み",
-    lead: "お店の名前・お名前・メールアドレスをいただければ、担当からご案内します。この画面でお支払いは発生しません。",
+    lead: "お店の名前とお電話番号をいただければ、担当からご案内します。この画面でお支払いは発生しません。",
   },
   {
     path: "/keiri/excel",

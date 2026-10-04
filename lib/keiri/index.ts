@@ -7,8 +7,10 @@
 export * from "./accounts";
 export * from "./types";
 export * from "./classify";
+export * from "./advances";
 export * from "./aggregate";
 export * from "./journal";
+export * from "./duplicates";
 export { TEBAYA_TEMPLATE } from "./templates/tebaya";
 export { GENERIC_TEMPLATE } from "./templates/generic";
 // ★ tenants.ts はここから出しません。
@@ -147,3 +149,14 @@ export function outsourcingAccountLabelFor(code: string | null | undefined): str
  *   読めてしまうためです。
  */
 export const NEUTRAL_OUTSOURCING_ACCOUNT_LABEL = "外注費";
+
+/**
+ * 「1枚の要約」（/keiri/monthly）の見出しに出すお店の名前。
+ *
+ * 手羽屋は「手羽屋」。申し込んだお店の名前は、ブラウザから読めない棚（keiri_tenants）に
+ * あるので分かりません。そのときは**空**にして、見出しには月だけを出します。
+ * ★知らない名前を作らない（勝手に「このお店」などと決めない）。
+ */
+export function sheetShopName(code: string | null | undefined): string {
+  return isTenantBusinessCode(code) ? "" : "手羽屋";
+}

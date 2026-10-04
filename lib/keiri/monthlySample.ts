@@ -19,23 +19,50 @@
  *      じゅんの店の内訳を公開することになります。お試し版と同じ架空の店で揃えます。
  *   ③ **新しい約束を足さない。**見本に出してよいのは、offer.ts に既に書いてある
  *      「1枚の要約」と「会計ソフトに取り込めるCSV」の中身だけです。
- *   ④ 月の表示は**前の月**（まるまる終わった月）。caseStats.ts と同じ数え方を使います
- *      （見本だけ「2026年8月」のまま年を越す、という古びかたを防ぐため）。
+ *   ④ 月の表示は**お試し版（/keiri/demo）と同じ月**＝日本時間の今月にそろえます
+ *      （2026-10-03・kp225-b2）。
+ *      以前は「前の月」で作っていたため、お試し版が『2026年10月』なのに
+ *      この見本だけ『2026年9月』（CSVの日付も 2026-09-03）になり、
+ *      お試し版からこの1枚へ進んだ店主が「さっきと数字は同じなのに月がちがう」と
+ *      迷う形になっていました（B2 が本番で見つけた）。
+ *      どちらの月でも数字は同じ（架空の日報は月をあてはめているだけ）なので、
+ *      **迷わせない方＝お試し版と同じ月**にそろえます。
+ *      月が自動で進むことは変わらないので、「見本だけ古びる」心配もありません。
+ *      実際にお渡しするのは、まるまる終わった前の月ぶんです（下の SAMPLE_MONTH_NOTE）。
  */
 
 import {
-  calcCashPosition,
-  calcUnpaid,
-  mergedExpenseByAccount,
-  summarizeMonth,
-} from "./aggregate";
-import { DISPLAY_EXPENSE_ACCOUNTS } from "./accounts";
-import { previousMonthRange } from "./caseStats";
-import { DEMO_SHOP_NAME, demoPayments, demoReports, demoSettings } from "./demo";
-import { JOURNAL_HEADERS, buildJournalRows } from "./journal";
-import { MF_HEADERS } from "./moneyforward";
-import { YAYOI_HEADERS } from "./yayoi";
+  SAMPLE_JOURNAL_PREVIEW_ROWS,
+  buildOneSheet,
+  sheetYen,
+  type MonthlySample,
+  type SampleExpenseCheck,
+  type SampleJournalLine,
+  type SampleLine,
+} from "./oneSheet";
+import {
+  DEMO_SHOP_NAME,
+  demoAdvances,
+  demoPayments,
+  demoReports,
+  demoSettings,
+  demoTodayJst,
+} from "./demo";
 import { GENERIC_TEMPLATE } from "./templates/generic";
+
+/**
+ * ★数字の並べ方は lib/keiri/oneSheet.ts に移しました（2026-10-04・kp231）。
+ *   本物のお店にお渡しする1枚（/keiri/monthly）と**まったく同じ関数**を通すためです。
+ *   ここに残っているのは「見本のための言葉」と「架空のお店のデータを入れる所」だけです。
+ */
+export {
+  SAMPLE_JOURNAL_PREVIEW_ROWS,
+  buildOneSheet,
+  type MonthlySample,
+  type SampleExpenseCheck,
+  type SampleJournalLine,
+  type SampleLine,
+};
 
 /** 見本であることを画面に必ず出す1行（画面に文章を直書きしない） */
 export const SAMPLE_NOTICE =
@@ -45,99 +72,49 @@ export const SAMPLE_NOTICE =
 export const SAMPLE_LEAD =
   "月はじめに、前の月ぶんをこの形でお出しします。お店側の作業はありません。";
 
-/** 要約の1行（見出しと金額） */
-export type SampleLine = { label: string; yen: number };
+/**
+ * 見本の月について、誤解させないための1行（2026-10-03・kp225-b2）。
+ * 見本の月は お試し版と同じ月にそろえてあるので、
+ * 「前の月ぶんをお出しする」という約束との関係をここで書いておく。
+ */
+export const SAMPLE_MONTH_NOTE =
+  "見本の月は、お試し版（触れる画面）と同じ月にそろえてあります。実際にお渡しするのは、まるまる終わった前の月ぶんです。";
 
-/** 仕訳の1行（人が読む6列ぶん） */
-export type SampleJournalLine = {
-  date: string;
-  debitAccount: string;
-  debitAmount: number;
-  creditAccount: string;
-  creditAmount: number;
-  note: string;
-};
-
-export type MonthlySample = {
-  /** 「2026年8月」 */
-  monthLabel: string;
-  /** 架空のお店の名前 */
-  shopName: string;
-  /** 上に大きく出す4つ（売上・利益・今の現金・まだ払っていないお金） */
-  headline: SampleLine[];
-  /** 経費の内訳（0円の科目は出さない） */
-  expenses: SampleLine[];
-  /** 会計ソフト用CSVの列の見出し（人が読む6列） */
-  journalHeaders: readonly string[];
-  /** 会計ソフト用CSVの中身（先頭の数行だけ見せる） */
-  journalRows: SampleJournalLine[];
-  /** 仕訳が全部で何行あるか（先頭だけ見せていることを正直に書くため） */
-  journalRowCount: number;
-  /** マネーフォワードの仕訳帳インポートの列数（27列） */
-  mfColumnCount: number;
-  /** 弥生会計の仕訳インポートの列の数（25） */
-  yayoiColumnCount: number;
-};
-
-/** 見本に見せる仕訳の行数（スマホで開くので、長くしない） */
-export const SAMPLE_JOURNAL_PREVIEW_ROWS = 4;
+/**
+ * 見本に出す月。**お試し版（/keiri/demo）と同じ「日本時間の今月」**。
+ *
+ * ★お試し版が demoTodayJst（日本時間）で月を決めているので、ここも同じ関数を通します。
+ *   日本時間を使わないと、月の変わり目に2つのページが別の月を出します
+ *   （置いてあるサーバーの時計は日本時間ではありません）。
+ */
+export function sampleMonth(today: Date = new Date()): { ym: string; label: string } {
+  const ym = demoTodayJst(today).slice(0, 7);
+  const [y, m] = ym.split("-");
+  return { ym, label: `${Number(y)}年${Number(m)}月` };
+}
 
 /**
  * 見本を組み立てる。
  *
- * ★計算はしない。**本物と同じ関数に計算させて、並べ替えるだけ**。
- * @param today いつ時点で「前の月」を数えるか（テストから固定するために受け取る）
+ * ★計算はしない。**本物にお渡しする1枚と同じ関数**（buildOneSheet）に、
+ *   架空のお店のデータを入れるだけ。
+ * @param today いつ時点の月で作るか（テストから固定するために受け取る）
  */
 export function buildMonthlySample(today: Date = new Date()): MonthlySample {
-  const { label: monthLabel, start } = previousMonthRange(today);
-  const ym = start.slice(0, 7);
+  const { ym, label: monthLabel } = sampleMonth(today);
 
-  const settings = demoSettings(ym);
-  const reports = demoReports(ym);
-  const payments = demoPayments();
-  const template = GENERIC_TEMPLATE;
-
-  const summary = summarizeMonth({ ym, reports, template, settings });
-  const cash = calcCashPosition({ reports, payments, settings });
-  const unpaid = calcUnpaid({ reports, payments, settings, currentYm: ym });
-
-  const merged = mergedExpenseByAccount(summary.expenseByAccount);
-  const expenses: SampleLine[] = DISPLAY_EXPENSE_ACCOUNTS.map((a) => ({
-    label: a.label,
-    yen: merged[a.key] ?? 0,
-  })).filter((e) => e.yen > 0);
-
-  const rows = buildJournalRows({ ym, reports, payments, template, settings });
-
-  return {
+  return buildOneSheet({
+    ym,
     monthLabel,
     shopName: DEMO_SHOP_NAME,
-    headline: [
-      { label: "売上", yen: summary.sales },
-      { label: "経費の合計", yen: summary.expenseTotal },
-      { label: "今月の利益", yen: summary.profit },
-      { label: "今の現金", yen: cash.balance },
-      { label: "まだ払っていないお金", yen: unpaid.total },
-    ],
-    expenses,
-    journalHeaders: JOURNAL_HEADERS,
-    journalRows: rows.slice(0, SAMPLE_JOURNAL_PREVIEW_ROWS).map((r) => ({
-      date: r.date,
-      debitAccount: r.debitAccount,
-      debitAmount: r.debitAmount,
-      creditAccount: r.creditAccount,
-      creditAmount: r.creditAmount,
-      note: r.note,
-    })),
-    journalRowCount: rows.length,
-    mfColumnCount: MF_HEADERS.length,
-    yayoiColumnCount: YAYOI_HEADERS.length,
-  };
+    reports: demoReports(ym),
+    payments: demoPayments(),
+    // 立替も見本に入れる（月の経費は立替も含めた全部で1つ。kp218）
+    advances: demoAdvances(ym),
+    settings: demoSettings(ym),
+    template: GENERIC_TEMPLATE,
+  });
 }
 
 /** 金額の表示（「82,000円」）。マイナスは「−」を頭に付ける */
-export function sampleYen(yen: number): string {
-  const n = Math.round(yen);
-  const abs = Math.abs(n).toLocaleString("ja-JP");
-  return n < 0 ? `−${abs}円` : `${abs}円`;
-}
+export const sampleYen = sheetYen;

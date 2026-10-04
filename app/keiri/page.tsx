@@ -23,7 +23,6 @@ import {
 
 import { supabase } from "@/lib/supabase";
 import {
-  applyTenantScope,
   businessCodeForScope,
   readTenantScope,
 } from "@/lib/tenantScope";
@@ -42,6 +41,9 @@ import {
   monthKey,
   outsourcingAccountLabelFor,
   outsourcingLabelFor,
+  findDuplicateExpenses,
+  locationProfitBridge,
+  locationProfitBridgeLine,
   summarizeByLocation,
   summarizeMonth,
   templateFor,
@@ -54,9 +56,11 @@ import {
   type CsvEncoding,
 } from "@/lib/keiri/moneyforward";
 import { toYayoiCsv, yayoiFileName } from "@/lib/keiri/yayoi";
+import { loadKeiriMonth } from "@/lib/keiri/loadMonth";
 import {
   PAYMENT_KIND_LABEL,
   type KeiriPayment,
+  type KeiriAdvance,
   type KeiriReport,
   type KeiriSettings,
   type PaymentKind,
@@ -129,6 +133,11 @@ function KeiriInner() {
   const [settings, setSettings] = useState<KeiriSettings | null>(null);
   const [reports, setReports] = useState<KeiriReport[]>([]);
   const [payments, setPayments] = useState<(KeiriPayment & { id: number })[]>([]);
+  /**
+   * 立替（誰かが自分のお金で先に払った経費）。
+   * ★月の経費は「立替も含めた全部」で1つに決めています（kp218）。
+   */
+  const [advances, setAdvances] = useState<KeiriAdvance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   /**
@@ -169,56 +178,20 @@ function KeiriInner() {
     setLoading(true);
     setError(null);
     try {
-      // 設定（数え始めの日・期首残高・Alphaの率）
-      const { data: s, error: sErr } = await supabase
-        .from("keiri_settings")
-        .select(
-          "opening_date, opening_balance, outsourcing_rate, monthly_rent, rent_start_month",
-        )
-        .eq("business_type_code", BUSINESS_CODE)
-        .maybeSingle();
-      if (sErr) throw sErr;
-      setSettingsMissing(!s);
-      setSettings(
-        s
-          ? {
-              opening_date: (s as any).opening_date,
-              opening_balance: Number((s as any).opening_balance) || 0,
-              outsourcing_rate: Number((s as any).outsourcing_rate) || 0,
-              monthly_rent: Number((s as any).monthly_rent) || 0,
-              rent_start_month: (s as any).rent_start_month ?? "",
-            }
-          : fallbackSettings,
-      );
-
-      // 日報。経費の種類を決めるのに「説明の文字」が要るので明細も取る。
-      // ★ただし daily_reports から直接は取らない。keiri_reports というビュー
-      //   （レシート写真の住所を抜いた軽い日報）から取る。
-      //   写真ごと取ると1か月ぶんで数百KBになり画面が重くなるため（CLAUDE.md 4-2）。
-      const from = (s as any)?.opening_date ?? fallbackSettings.opening_date;
-      // 表示中の月が期首日より前でも見られるように、月初とどちらか早いほうから取る
-      const gte = `${ym}-01` < from ? `${ym}-01` : from;
-      // ★そのお店のぶんだけ読む（手羽屋は印が空なので、読む範囲はいままでと同じ）
-      const repQuery = supabase
-        .from("keiri_reports")
-        .select("date, location, staff_name, sales_amount, labor, expenses");
-      const { data: reps, error: rErr } = await applyTenantScope<any>(
-        repQuery as any,
+      // ★読む手順は lib/keiri/loadMonth.ts の1か所にまとめてあります（2026-10-04・kp231）。
+      //   実際のお店にお渡しする1枚（/keiri/monthly）も同じ関数を通るので、
+      //   どちらかだけ数字が変わることがありません。読み方は1行も変えていません。
+      const data = await loadKeiriMonth({
+        ym,
         scope,
-      )
-        .gte("date", gte)
-        .order("date");
-      if (rErr) throw rErr;
-      setReports((reps as KeiriReport[]) ?? []);
-
-      // 支払い記録
-      const { data: pays, error: pErr } = await supabase
-        .from("keiri_payments")
-        .select("id, paid_on, amount, kind, memo")
-        .eq("business_type_code", BUSINESS_CODE)
-        .order("paid_on", { ascending: false });
-      if (pErr) throw pErr;
-      setPayments((pays as (KeiriPayment & { id: number })[]) ?? []);
+        businessCode: BUSINESS_CODE,
+        fallbackSettings,
+      });
+      setSettingsMissing(data.settingsMissing);
+      setSettings(data.settings);
+      setReports(data.reports);
+      setPayments(data.payments);
+      setAdvances(data.advances);
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
@@ -233,26 +206,53 @@ function KeiriInner() {
   const effective = settings ?? fallbackSettings;
 
   const summary = useMemo(
-    () => summarizeMonth({ ym, reports, template, settings: effective }),
-    [ym, reports, template, effective],
+    () => summarizeMonth({ ym, reports, template, settings: effective, advances }),
+    [ym, reports, template, effective, advances],
   );
 
   const cash = useMemo(
-    () => calcCashPosition({ reports, payments, settings: effective }),
-    [reports, payments, effective],
+    () => calcCashPosition({ reports, payments, settings: effective, advances }),
+    [reports, payments, effective, advances],
   );
 
   // 家賃は「今月まで」を数えるので、今日の月を渡す
   const todayYm = useMemo(() => todayStr().slice(0, 7), []);
 
   const unpaid = useMemo(
-    () => calcUnpaid({ reports, payments, settings: effective, currentYm: todayYm }),
-    [reports, payments, effective, todayYm],
+    () =>
+      calcUnpaid({
+        reports,
+        payments,
+        settings: effective,
+        currentYm: todayYm,
+        advances,
+      }),
+    [reports, payments, effective, todayYm, advances],
   );
 
   const byLocation = useMemo(
     () => summarizeByLocation({ ym, reports }),
     [ym, reports],
+  );
+
+  /**
+   * 場所ごとの利益を足した額と、今月の利益のつなぎ（2026-10-03・kp226-b2）。
+   * 場所別の表には立替・外注費・家賃が入っていないので、足すと必ず合いません。
+   * その差を式で1行出します（式も金額も lib が出したものをそのまま使う）。
+   */
+  const locationBridge = useMemo(
+    () => locationProfitBridge({ byLocation, summary }),
+    [byLocation, summary],
+  );
+
+  /**
+   * 同じ支払いが「日報の経費」と「立替台帳」の2か所に書かれていないか（2026-10-03・f1-5）。
+   * ★見つけても金額は直しません。直すかどうかは人が決めることなので、ここでは出すだけです。
+   *   立替は前の月のぶんも渡します（台帳は 8/28・日報は 9/12 のような書き方を拾うため）。
+   */
+  const duplicates = useMemo(
+    () => findDuplicateExpenses({ ym, reports, advances }),
+    [ym, reports, advances],
   );
 
   const slices = useMemo(() => expenseSlices(summary), [summary]);
@@ -417,7 +417,7 @@ function KeiriInner() {
           color="text-amber-600"
           note={`給与 ${yen(unpaid.payroll)}・${outsourcingLabel} ${yen(
             unpaid.outsourcing,
-          )}・家賃 ${yen(unpaid.rent)}`}
+          )}・家賃 ${yen(unpaid.rent)}・まだ返していない立替 ${yen(unpaid.advance)}`}
         />
       </section>
 
@@ -506,6 +506,91 @@ function KeiriInner() {
             対象の日報：{summary.reportCount}件
           </p>
 
+          {/* ★月の経費は「立替も含めた全部」で1つ（2026-10-02・kp218）。
+               金庫から出た分も見たい数字なので、内訳として残す。 */}
+          <p className="text-xs text-stone-500 leading-relaxed">
+            経費 {yen(summary.expenseTotal)} の内訳：レジのお金から出た分{" "}
+            {yen(summary.expenseFromRegister)}／立替（誰かが先に払った分・今月ぶん全部）{" "}
+            {yen(summary.expenseFromAdvance)}
+            {summary.advanceCount > 0 && <>（{summary.advanceCount}件）</>}／日当{" "}
+            {yen(summary.payroll)}／{outsourcingLabel} {yen(summary.outsourcing)}／家賃{" "}
+            {yen(summary.rent)}。
+            <br />
+            立て替えた日には金庫からお金が出ていないので、返すまでは「まだ払っていないお金」に
+            出ます（返した日に現金から引きます）。
+          </p>
+
+          {/* ★同じ支払いが2か所に書かれていないか（2026-10-03・f1-5）。
+               9月の実データでは、立替台帳の9月の行のうち 90,571円 が
+               9/12 の日報の経費行と金額までそのまま一致していた（同じ支払いが2か所）。
+               **金額は直さない。**どちらを消すかは人が決めることなので、ここでは出すだけ。 */}
+          {duplicates.suspects.length > 0 && (
+            <div className="rounded-lg border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900 space-y-2">
+              <p className="font-bold">
+                同じ支払いが2か所に書かれている疑い：{duplicates.suspects.length}組
+              </p>
+              <p className="leading-relaxed">
+                日報の「レジから払った経費」と立替台帳の両方に、
+                <strong>金額が1円まで同じで、説明に同じ言葉が入っている行</strong>があります。
+                同じ支払いなら、どちらか片方を消してください（
+                <Link href="/keiri/advances" className="underline font-bold">
+                  立替の入り口
+                </Link>
+                ）。
+                {duplicates.doubleCountedTotal > 0 && (
+                  <>
+                    <br />
+                    同じ月の中で重なっている分：
+                    <strong>{yen(duplicates.doubleCountedTotal)}</strong>
+                    。この月の経費は、この額だけ多く出ているおそれがあります。
+                  </>
+                )}
+                {duplicates.crossMonthTotal > 0 && (
+                  <>
+                    <br />
+                    月をまたいで重なっている分：
+                    <strong>{yen(duplicates.crossMonthTotal)}</strong>
+                    。どちらの月の経費にするかで、この額が動きます。
+                  </>
+                )}
+              </p>
+              <ul className="space-y-1">
+                {duplicates.suspects.slice(0, 8).map((d, i) => (
+                  <li key={i} className="tabular-nums">
+                    {yen(d.amount)}　日報 {d.report.date}／立替 {d.advance.date}
+                    {!d.sameMonth && <>（月をまたいでいます）</>}
+                    <br />
+                    <span className="text-amber-800">
+                      {d.report.description} ／ {d.advance.description}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {duplicates.suspects.length > 8 && (
+                <p>…ほか {duplicates.suspects.length - 8}組</p>
+              )}
+              <p className="text-amber-800">
+                ※ 金額が同じだけの別の支払いのこともあります。中身を確かめてから直してください。
+                こちらで金額を変えることはしません。
+              </p>
+            </div>
+          )}
+
+          {summary.advanceSkipped.length > 0 && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 space-y-1">
+              <p className="font-bold">
+                経費に数えなかった立替：{summary.advanceSkipped.length}件
+              </p>
+              {summary.advanceSkipped.map((a, i) => (
+                <p key={i}>
+                  {slashDate(a.date)}　{a.description}　{yen(a.amount)}
+                  <br />
+                  <span className="text-amber-700">{a.reason}</span>
+                </p>
+              ))}
+            </div>
+          )}
+
           <UnmatchedNote unmatched={summary.unmatched} />
         </section>
       )}
@@ -593,14 +678,40 @@ function KeiriInner() {
               </table>
             </div>
           )}
+          {byLocation.length > 0 && (
+            <div className="rounded-lg bg-stone-100 px-4 py-3">
+              <p className="text-xs text-stone-700 leading-relaxed tabular-nums">
+                {locationProfitBridgeLine(locationBridge)}
+              </p>
+              {!locationBridge.matches && (
+                <p className="mt-1 text-xs font-bold text-red-600">
+                  場所ごとの利益と今月の利益が、足し引きで合っていません。数え方のどこかがずれています。
+                </p>
+              )}
+            </div>
+          )}
           <p className="text-xs text-stone-400">
             「経費」は日報の経費と人件費（日当）の合計です。
-            外注費と家賃（事務所）は月ごとに決まるお金なので、
+            立替・外注費・家賃（事務所）は月ごとに決まるお金なので、
             場所別には入れていません（どの場所のぶんか決められないため）。
+            上の式のとおり、その分を引くと今月の利益に合います。
             出店場所が空の日報は「未設定」にまとめています。
           </p>
         </section>
       )}
+
+      {/* 毎月お渡しする1枚（2026-10-04・kp231）。
+          数字は書き写しません。この画面と同じ計算（lib/keiri/oneSheet.ts）を通ります。 */}
+      <section className="card space-y-2">
+        <h2 className="text-lg font-bold text-brand-dark">📄 毎月お渡しする1枚</h2>
+        <p className="text-sm text-stone-600 leading-relaxed">
+          この画面の数字を、お店にお渡しする1枚（印刷して紙1枚）にまとめた形で開きます。
+          数字はこの画面とまったく同じ計算から出ています。
+        </p>
+        <Link href="/keiri/monthly" className="btn-primary w-full block text-center">
+          1枚の要約を開く
+        </Link>
+      </section>
 
       {/* CSV書き出し */}
       <section className="card space-y-2">
