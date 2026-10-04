@@ -32,12 +32,14 @@
  */
 
 import {
-  calcCashPosition,
-  calcUnpaid,
-  mergedExpenseByAccount,
-  summarizeMonth,
-} from "./aggregate";
-import { DISPLAY_EXPENSE_ACCOUNTS } from "./accounts";
+  SAMPLE_JOURNAL_PREVIEW_ROWS,
+  buildOneSheet,
+  sheetYen,
+  type MonthlySample,
+  type SampleExpenseCheck,
+  type SampleJournalLine,
+  type SampleLine,
+} from "./oneSheet";
 import {
   DEMO_SHOP_NAME,
   demoAdvances,
@@ -46,10 +48,21 @@ import {
   demoSettings,
   demoTodayJst,
 } from "./demo";
-import { JOURNAL_HEADERS, buildJournalRows, journalExpenseTotal } from "./journal";
-import { MF_HEADERS } from "./moneyforward";
-import { YAYOI_HEADERS } from "./yayoi";
 import { GENERIC_TEMPLATE } from "./templates/generic";
+
+/**
+ * ★数字の並べ方は lib/keiri/oneSheet.ts に移しました（2026-10-04・kp231）。
+ *   本物のお店にお渡しする1枚（/keiri/monthly）と**まったく同じ関数**を通すためです。
+ *   ここに残っているのは「見本のための言葉」と「架空のお店のデータを入れる所」だけです。
+ */
+export {
+  SAMPLE_JOURNAL_PREVIEW_ROWS,
+  buildOneSheet,
+  type MonthlySample,
+  type SampleExpenseCheck,
+  type SampleJournalLine,
+  type SampleLine,
+};
 
 /** 見本であることを画面に必ず出す1行（画面に文章を直書きしない） */
 export const SAMPLE_NOTICE =
@@ -80,152 +93,28 @@ export function sampleMonth(today: Date = new Date()): { ym: string; label: stri
   return { ym, label: `${Number(y)}年${Number(m)}月` };
 }
 
-/** 要約の1行（見出しと金額） */
-export type SampleLine = { label: string; yen: number };
-
-/** 仕訳の1行（人が読む6列ぶん） */
-export type SampleJournalLine = {
-  date: string;
-  debitAccount: string;
-  debitAmount: number;
-  creditAccount: string;
-  creditAmount: number;
-  note: string;
-};
-
-/** 月の経費を、別々の数え方で3通り数えた結果（同じ数字になるのが正しい） */
-export type SampleExpenseCheck = {
-  /** 画面（月次のまとめ）が出す合計 */
-  screen: number;
-  /** 科目ごとの内訳を足し上げた合計 */
-  byAccount: number;
-  /** 会計ソフト向けCSV（仕訳）の経費側を足し上げた合計 */
-  csv: number;
-  /** 3つとも同じ数字か */
-  same: boolean;
-};
-
-export type MonthlySample = {
-  /** 「2026年8月」 */
-  monthLabel: string;
-  /** 架空のお店の名前 */
-  shopName: string;
-  /** 上に大きく出す4つ（売上・利益・今の現金・まだ払っていないお金） */
-  headline: SampleLine[];
-  /** 経費の内訳（0円の科目は出さない） */
-  expenses: SampleLine[];
-  /** 会計ソフト用CSVの列の見出し（人が読む6列） */
-  journalHeaders: readonly string[];
-  /** 会計ソフト用CSVの中身（先頭の数行だけ見せる） */
-  journalRows: SampleJournalLine[];
-  /** 仕訳が全部で何行あるか（先頭だけ見せていることを正直に書くため） */
-  journalRowCount: number;
-  /** マネーフォワードの仕訳帳インポートの列数（27列） */
-  mfColumnCount: number;
-  /** 弥生会計の仕訳インポートの列の数（25） */
-  yayoiColumnCount: number;
-  /** 月の経費の合計（これが正。画面・CSV・要約はこの1つを見る） */
-  expenseTotal: number;
-  /** 経費の合計の内訳（レジのお金から出た分・誰かが立て替えた分・人件費・家賃） */
-  expenseBreakdown: SampleLine[];
-  /** 月の経費を3通りに数えて突き合わせた結果（f1-2 を外から確かめられるようにする） */
-  expenseCheck: SampleExpenseCheck;
-  /** 種類が分からず「雑費」に入れた経費（要確認。黙って隠さない） */
-  unmatched: { date: string; description: string; amount: number }[];
-  /** 集計に使った日報の件数 */
-  reportCount: number;
-};
-
-/** 見本に見せる仕訳の行数（スマホで開くので、長くしない） */
-export const SAMPLE_JOURNAL_PREVIEW_ROWS = 4;
-
 /**
  * 見本を組み立てる。
  *
- * ★計算はしない。**本物と同じ関数に計算させて、並べ替えるだけ**。
- * @param today いつ時点で「前の月」を数えるか（テストから固定するために受け取る）
+ * ★計算はしない。**本物にお渡しする1枚と同じ関数**（buildOneSheet）に、
+ *   架空のお店のデータを入れるだけ。
+ * @param today いつ時点の月で作るか（テストから固定するために受け取る）
  */
 export function buildMonthlySample(today: Date = new Date()): MonthlySample {
   const { ym, label: monthLabel } = sampleMonth(today);
 
-  const settings = demoSettings(ym);
-  const reports = demoReports(ym);
-  const payments = demoPayments();
-  // 立替も見本に入れる（月の経費は立替も含めた全部で1つ。kp218）
-  const advances = demoAdvances(ym);
-  const template = GENERIC_TEMPLATE;
-
-  const summary = summarizeMonth({ ym, reports, template, settings, advances });
-  const cash = calcCashPosition({ reports, payments, settings, advances });
-  const unpaid = calcUnpaid({ reports, payments, settings, currentYm: ym, advances });
-
-  const merged = mergedExpenseByAccount(summary.expenseByAccount);
-  const expenses: SampleLine[] = DISPLAY_EXPENSE_ACCOUNTS.map((a) => ({
-    label: a.label,
-    yen: merged[a.key] ?? 0,
-  })).filter((e) => e.yen > 0);
-
-  const rows = buildJournalRows({ ym, reports, payments, template, settings, advances });
-
-  // ★月の経費を、別々の道で3通り数える（f1-2）。
-  //   ここで数え直すのは「同じ数字になっているか」をページの上で見せるためで、
-  //   正しい合計は summary.expenseTotal の1つだけです（kp218）。
-  const byAccountTotal = DISPLAY_EXPENSE_ACCOUNTS.reduce(
-    (sum, a) => sum + (merged[a.key] ?? 0),
-    0,
-  );
-  const csvTotal = journalExpenseTotal(rows);
-
-  return {
+  return buildOneSheet({
+    ym,
     monthLabel,
     shopName: DEMO_SHOP_NAME,
-    headline: [
-      { label: "売上", yen: summary.sales },
-      { label: "経費の合計", yen: summary.expenseTotal },
-      { label: "今月の利益", yen: summary.profit },
-      { label: "今の現金", yen: cash.balance },
-      { label: "まだ払っていないお金", yen: unpaid.total },
-    ],
-    expenses,
-    journalHeaders: JOURNAL_HEADERS,
-    journalRows: rows.slice(0, SAMPLE_JOURNAL_PREVIEW_ROWS).map((r) => ({
-      date: r.date,
-      debitAccount: r.debitAccount,
-      debitAmount: r.debitAmount,
-      creditAccount: r.creditAccount,
-      creditAmount: r.creditAmount,
-      note: r.note,
-    })),
-    journalRowCount: rows.length,
-    mfColumnCount: MF_HEADERS.length,
-    yayoiColumnCount: YAYOI_HEADERS.length,
-    expenseTotal: summary.expenseTotal,
-    expenseBreakdown: [
-      { label: "レジのお金から出た分", yen: summary.expenseFromRegister },
-      { label: "誰かが立て替えた分", yen: summary.expenseFromAdvance },
-      { label: "人件費（日当）", yen: summary.payroll },
-      { label: "家賃（事務所）", yen: summary.rent },
-      { label: "外注費", yen: summary.outsourcing },
-    ].filter((e) => e.yen > 0),
-    expenseCheck: {
-      screen: summary.expenseTotal,
-      byAccount: byAccountTotal,
-      csv: csvTotal,
-      same:
-        summary.expenseTotal === byAccountTotal && summary.expenseTotal === csvTotal,
-    },
-    unmatched: summary.unmatched.map((u) => ({
-      date: u.date,
-      description: u.description,
-      amount: u.amount,
-    })),
-    reportCount: summary.reportCount,
-  };
+    reports: demoReports(ym),
+    payments: demoPayments(),
+    // 立替も見本に入れる（月の経費は立替も含めた全部で1つ。kp218）
+    advances: demoAdvances(ym),
+    settings: demoSettings(ym),
+    template: GENERIC_TEMPLATE,
+  });
 }
 
 /** 金額の表示（「82,000円」）。マイナスは「−」を頭に付ける */
-export function sampleYen(yen: number): string {
-  const n = Math.round(yen);
-  const abs = Math.abs(n).toLocaleString("ja-JP");
-  return n < 0 ? `−${abs}円` : `${abs}円`;
-}
+export const sampleYen = sheetYen;

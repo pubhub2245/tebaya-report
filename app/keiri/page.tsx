@@ -23,9 +23,7 @@ import {
 
 import { supabase } from "@/lib/supabase";
 import {
-  applyTenantScope,
   businessCodeForScope,
-  isTebayaScope,
   readTenantScope,
 } from "@/lib/tenantScope";
 import { yen, slashDate, todayStr } from "@/lib/format";
@@ -58,11 +56,10 @@ import {
   type CsvEncoding,
 } from "@/lib/keiri/moneyforward";
 import { toYayoiCsv, yayoiFileName } from "@/lib/keiri/yayoi";
+import { loadKeiriMonth } from "@/lib/keiri/loadMonth";
 import {
   PAYMENT_KIND_LABEL,
   type KeiriPayment,
-  normalizeFieldAdvance,
-  normalizeOwnerAdvance,
   type KeiriAdvance,
   type KeiriReport,
   type KeiriSettings,
@@ -181,83 +178,20 @@ function KeiriInner() {
     setLoading(true);
     setError(null);
     try {
-      // 設定（数え始めの日・期首残高・Alphaの率）
-      const { data: s, error: sErr } = await supabase
-        .from("keiri_settings")
-        .select(
-          "opening_date, opening_balance, outsourcing_rate, monthly_rent, rent_start_month",
-        )
-        .eq("business_type_code", BUSINESS_CODE)
-        .maybeSingle();
-      if (sErr) throw sErr;
-      setSettingsMissing(!s);
-      setSettings(
-        s
-          ? {
-              opening_date: (s as any).opening_date,
-              opening_balance: Number((s as any).opening_balance) || 0,
-              outsourcing_rate: Number((s as any).outsourcing_rate) || 0,
-              monthly_rent: Number((s as any).monthly_rent) || 0,
-              rent_start_month: (s as any).rent_start_month ?? "",
-            }
-          : fallbackSettings,
-      );
-
-      // 日報。経費の種類を決めるのに「説明の文字」が要るので明細も取る。
-      // ★ただし daily_reports から直接は取らない。keiri_reports というビュー
-      //   （レシート写真の住所を抜いた軽い日報）から取る。
-      //   写真ごと取ると1か月ぶんで数百KBになり画面が重くなるため（CLAUDE.md 4-2）。
-      const from = (s as any)?.opening_date ?? fallbackSettings.opening_date;
-      // 表示中の月が期首日より前でも見られるように、月初とどちらか早いほうから取る
-      const gte = `${ym}-01` < from ? `${ym}-01` : from;
-      // ★そのお店のぶんだけ読む（手羽屋は印が空なので、読む範囲はいままでと同じ）
-      const repQuery = supabase
-        .from("keiri_reports")
-        .select("date, location, staff_name, sales_amount, labor, expenses");
-      const { data: reps, error: rErr } = await applyTenantScope<any>(
-        repQuery as any,
+      // ★読む手順は lib/keiri/loadMonth.ts の1か所にまとめてあります（2026-10-04・kp231）。
+      //   実際のお店にお渡しする1枚（/keiri/monthly）も同じ関数を通るので、
+      //   どちらかだけ数字が変わることがありません。読み方は1行も変えていません。
+      const data = await loadKeiriMonth({
+        ym,
         scope,
-      )
-        .gte("date", gte)
-        .order("date");
-      if (rErr) throw rErr;
-      setReports((reps as KeiriReport[]) ?? []);
-
-      // 支払い記録
-      const { data: pays, error: pErr } = await supabase
-        .from("keiri_payments")
-        .select("id, paid_on, amount, kind, memo")
-        .eq("business_type_code", BUSINESS_CODE)
-        .order("paid_on", { ascending: false });
-      if (pErr) throw pErr;
-      setPayments((pays as (KeiriPayment & { id: number })[]) ?? []);
-
-      // 立替。棚が2つあり（現場／経営側）、列の名前も違うので形を揃えてから使う。
-      // ★どちらの棚にも「どの店のものか」の印がまだ無いので、
-      //   よその店の数字が混ざらないよう **手羽屋として開いているときだけ** 読みます
-      //   （lib/tenantScope.ts の TABLES_WITHOUT_TENANT_COLUMN と同じ考え方）。
-      //   申し込んだお店は立替の入口そのものに門が掛かっているので、立替は0件が正しい値です。
-      if (isTebayaScope(scope)) {
-        const loaded: KeiriAdvance[] = [];
-        const { data: field } = await supabase
-          .from("keiri_advance_expenses")
-          .select("expense_date, amount, payer, source_type, memo")
-          .eq("business_type_code", BUSINESS_CODE)
-          .gte("expense_date", gte);
-        for (const row of (field as any[]) ?? []) {
-          loaded.push(normalizeFieldAdvance(row));
-        }
-        const { data: owner } = await supabase
-          .from("advance_expenses")
-          .select("date, amount, payer, description, settled, settled_date")
-          .gte("date", gte);
-        for (const row of (owner as any[]) ?? []) {
-          loaded.push(normalizeOwnerAdvance(row));
-        }
-        setAdvances(loaded);
-      } else {
-        setAdvances([]);
-      }
+        businessCode: BUSINESS_CODE,
+        fallbackSettings,
+      });
+      setSettingsMissing(data.settingsMissing);
+      setSettings(data.settings);
+      setReports(data.reports);
+      setPayments(data.payments);
+      setAdvances(data.advances);
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
@@ -765,6 +699,19 @@ function KeiriInner() {
           </p>
         </section>
       )}
+
+      {/* 毎月お渡しする1枚（2026-10-04・kp231）。
+          数字は書き写しません。この画面と同じ計算（lib/keiri/oneSheet.ts）を通ります。 */}
+      <section className="card space-y-2">
+        <h2 className="text-lg font-bold text-brand-dark">📄 毎月お渡しする1枚</h2>
+        <p className="text-sm text-stone-600 leading-relaxed">
+          この画面の数字を、お店にお渡しする1枚（印刷して紙1枚）にまとめた形で開きます。
+          数字はこの画面とまったく同じ計算から出ています。
+        </p>
+        <Link href="/keiri/monthly" className="btn-primary w-full block text-center">
+          1枚の要約を開く
+        </Link>
+      </section>
 
       {/* CSV書き出し */}
       <section className="card space-y-2">
