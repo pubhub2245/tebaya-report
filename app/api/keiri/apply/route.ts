@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { priceLabel } from "@/lib/keiri/caseNumbers";
 import {
+  APPLY_TEST_NOTICE,
   keiriApplyNotificationText,
   normalizeKeiriApplication,
   type KeiriApplication,
@@ -40,8 +41,14 @@ export const dynamic = "force-dynamic";
 
 const TABLE = "keiri_applications";
 
-/** 倉庫に1行控える。表が無い・鍵が無いなど、どんな理由で失敗しても false を返すだけ */
-async function saveApplication(a: KeiriApplication): Promise<boolean> {
+/**
+ * 倉庫に1行控える。表が無い・鍵が無いなど、どんな理由で失敗しても false を返すだけ。
+ *
+ * ★test が true のときは `status` を "test" にする（2026-10-04・kp228）。
+ *   司令室の指標（契約したお店の数・申し込みの件数）は **status が test の行を数えない**ので、
+ *   試しの1通が本物の件数に混ざることがありません（CLAUDE.md の「本物のデータを壊さない」）。
+ */
+async function saveApplication(a: KeiriApplication, test = false): Promise<boolean> {
   try {
     // 申し込みには連絡先が入るので、ブラウザから読めない合鍵があるときはそちらを使う。
     // 無ければ通常の鍵で入れる（鍵が壊れていても全体が止まらない作り／CLAUDE.md 4-10）。
@@ -52,8 +59,10 @@ async function saveApplication(a: KeiriApplication): Promise<boolean> {
       email: a.email,
       phone: a.phone,
       note: a.note,
+      // ★source は必ず "form"。棚の受け入れの決まりが form（と paid_pending）だけを
+      //   通すので、ここを変えると控えが1行も残らなくなります（2026-10-04 実測で確認）。
       source: "form",
-      status: "new",
+      status: test ? "test" : "new",
     });
     if (error) {
       console.error(`[経理お申し込み] 控えを残せませんでした: ${error.message}`);
@@ -77,10 +86,13 @@ async function saveApplication(a: KeiriApplication): Promise<boolean> {
  *   理由が分からないと直せないので、返事に短い印として載せます。
  *   **合言葉も送り先のIDも載せません。**
  */
-async function notifyApplication(a: KeiriApplication): Promise<LineSendResult> {
+async function notifyApplication(
+  a: KeiriApplication,
+  test = false,
+): Promise<LineSendResult> {
   try {
     return await sendLineGroupMessageDetailed(
-      keiriApplyNotificationText({ application: a, priceLabel: priceLabel() }),
+      keiriApplyNotificationText({ application: a, priceLabel: priceLabel(), test }),
     );
   } catch (e) {
     console.error("[経理お申し込み] 知らせを送れませんでした", e);
@@ -99,6 +111,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  /**
+   * 試しの1通か（2026-10-04・kp228）。
+   *
+   * ■ なぜ要るか
+   *   本物のお申し込みが0件のあいだ、知らせの道は**一度も通っていません**。
+   *   いちばん高くつくのは、最初の1件が来た日に知らせが飛ばず、
+   *   誰も気づかないまま置かれることです。本物を待たずに1回通せるようにします。
+   *
+   * ■ 守ること
+   *   ・知らせの本文には必ず「これはテストです」が入る（文を作る1か所で付けている）
+   *   ・控えは `status` を "test" にする（`source` は "form" のまま。棚の決まりがそれだけを通す）。
+   *     司令室の指標は status が test の行を数えないので、本物の件数には混ざりません
+   *   ・それ以外の道（入力の確かめ方・送り方・控えの残し方）は本物とまったく同じ
+   */
+  const test = (body as Record<string, unknown> | null)?.test === true;
+
   const parsed = normalizeKeiriApplication((body ?? {}) as Record<string, unknown>);
 
   if (!parsed.ok) {
@@ -110,8 +138,8 @@ export async function POST(req: NextRequest) {
 
   // 知らせと控えは同時に走らせる。片方が遅くても、もう片方は待たされない
   const [notifyResult, saved] = await Promise.all([
-    notifyApplication(parsed.value),
-    saveApplication(parsed.value),
+    notifyApplication(parsed.value, test),
+    saveApplication(parsed.value, test),
   ]);
   const notified = notifyResult.ok;
   // 失敗の理由（人の言葉・1行）。届いたときは null
@@ -154,5 +182,16 @@ export async function POST(req: NextRequest) {
 
   // ★notifyNote は「なぜ知らせが届かなかったか」の1行（2026-09-28・kp198）。
   //   届いたときは null。合言葉・送り先のIDは入りません。
-  return NextResponse.json({ ok: true, notified, saved, reachable, notifyNote });
+  // ★test のときだけ、外から確かめられるように印を返す（本物の返事は1文字も変わらない）
+  return test
+    ? NextResponse.json({
+        ok: true,
+        test: true,
+        notified,
+        saved,
+        reachable,
+        notifyNote,
+        notice: APPLY_TEST_NOTICE,
+      })
+    : NextResponse.json({ ok: true, notified, saved, reachable, notifyNote });
 }

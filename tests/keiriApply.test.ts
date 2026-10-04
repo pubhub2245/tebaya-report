@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  APPLY_TEST_NOTICE,
   KEIRI_APPLY_COPY_TO,
   KEIRI_APPLY_LIMITS,
   keiriApplyMailto,
@@ -436,5 +437,63 @@ test("倉庫に入れるときの「どこから来たか」の欄は form の�
   assert.ok(
     route.includes('source: "form"'),
     "source は 'form' のままにしてください（棚の決まりが form だけを通します）",
+  );
+});
+
+// ------------------------------------------------------------------
+// 試しの1通（2026-10-04・kp228・f2-2）
+// ------------------------------------------------------------------
+
+test("試しの1通には、本文のいちばん上に『これはテストです』が入る", () => {
+  const application = {
+    shop_name: "テスト食堂",
+    contact_name: "",
+    email: "",
+    phone: "0000-00-0000",
+    note: "",
+    campaign: null,
+  };
+  const text = keiriApplyNotificationText({
+    application,
+    priceLabel: "月額15,000円（税込）／1店舗",
+    test: true,
+  });
+  assert.ok(
+    text.startsWith(APPLY_TEST_NOTICE),
+    "見た人が本物のお申し込みと取り違えないよう、1行目に入れること",
+  );
+  // 本物のときは入らない
+  const real = keiriApplyNotificationText({
+    application,
+    priceLabel: "月額15,000円（税込）／1店舗",
+  });
+  assert.ok(!real.includes(APPLY_TEST_NOTICE), "本物の知らせにテストの印が入っている");
+  assert.ok(real.startsWith("【経理パッケージ お申し込みが1件入りました】"));
+});
+
+test("試しの1通の控えは status が test で、どこから来たかは form のまま", () => {
+  const src = readFileSync("app/api/keiri/apply/route.ts", "utf8");
+  // 本物の件数に混ざらないよう status を test にすること
+  assert.ok(
+    src.includes('status: test ? "test" : "new"'),
+    "試しの控えの status が test になっていない（本物の件数に混ざる）",
+  );
+  // 棚の受け入れの決まりは source が form のときだけ通るので、ここは変えない
+  assert.ok(
+    /source:\s*"form"/.test(src),
+    "source を form 以外にすると、控えが1行も残らない",
+  );
+  assert.ok(!/source:\s*test\s*\?/.test(src), "source を切り替えてはいけない");
+});
+
+test("試しの1通でも、入力の確かめ方・送り方・控えの残し方は本物と同じ道を通る", () => {
+  const src = readFileSync("app/api/keiri/apply/route.ts", "utf8");
+  // 分かれ道を作らず、同じ関数に印を渡すだけであること
+  assert.ok(src.includes("notifyApplication(parsed.value, test)"));
+  assert.ok(src.includes("saveApplication(parsed.value, test)"));
+  // 本物の返事の形は変わらないこと
+  assert.ok(
+    src.includes("NextResponse.json({ ok: true, notified, saved, reachable, notifyNote })"),
+    "本物の返事の形を変えてはいけない（画面がこれを見て動いている）",
   );
 });
