@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { priceLabel } from "@/lib/keiri/caseNumbers";
 import {
+  APPLY_BLANK_MARK,
   APPLY_TEST_NOTICE,
   keiriApplyNotificationText,
   normalizeKeiriApplication,
@@ -41,19 +42,30 @@ export const dynamic = "force-dynamic";
 
 const TABLE = "keiri_applications";
 
+
+/** 決まりに断られたか（権利が無い・表が無いのとは直し方が違う） */
+function rejectedByPolicy(message: string | null | undefined): boolean {
+  return /row-level security/i.test(String(message ?? ""));
+}
+
 /**
  * 倉庫に1行控える。表が無い・鍵が無いなど、どんな理由で失敗しても false を返すだけ。
  *
- * ★test が true のときは `status` を "test" にする（2026-10-04・kp228）。
- *   司令室の指標（契約したお店の数・申し込みの件数）は **status が test の行を数えない**ので、
- *   試しの1通が本物の件数に混ざることがありません（CLAUDE.md の「本物のデータを壊さない」）。
+ * ★test が true のときは控えを残さず null を返す（2026-10-04・kp228）。
  */
-async function saveApplication(a: KeiriApplication, test = false): Promise<boolean> {
+async function saveApplication(a: KeiriApplication, test = false): Promise<boolean | null> {
+  // ★試しの1通は控えを残さない（2026-10-04・kp228 を本番で1回通して分かったこと）。
+  //   棚の受け入れの決まり（keiri_applications_insert_only.sql）は
+  //   **status が 'new' の行しか通しません**。試しの行を残すには決まりを緩める必要があり、
+  //   そうすると誰でも好きな status の行を入れられるようになります。
+  //   試しの1通で確かめたいのは「知らせが人に届くか」なので、控えは残さずに
+  //   「残していない」と正直に返します（本物のデータに混ぜないため）。
+  if (test) return null;
   try {
     // 申し込みには連絡先が入るので、ブラウザから読めない合鍵があるときはそちらを使う。
     // 無ければ通常の鍵で入れる（鍵が壊れていても全体が止まらない作り／CLAUDE.md 4-10）。
     const db = serviceClientOrNull() ?? serverClient();
-    const { error } = await db.from(TABLE).insert({
+    const row = {
       shop_name: a.shop_name,
       contact_name: a.contact_name,
       email: a.email,
@@ -62,13 +74,32 @@ async function saveApplication(a: KeiriApplication, test = false): Promise<boole
       // ★source は必ず "form"。棚の受け入れの決まりが form（と paid_pending）だけを
       //   通すので、ここを変えると控えが1行も残らなくなります（2026-10-04 実測で確認）。
       source: "form",
-      status: test ? "test" : "new",
-    });
-    if (error) {
-      console.error(`[経理お申し込み] 控えを残せませんでした: ${error.message}`);
+      status: "new",
+    };
+    const { error } = await db.from(TABLE).insert(row);
+    if (!error) return true;
+
+    // ★決まりに断られ、かつ空の欄があるときだけ、印を入れてもう1回だけ入れる（f2-1）。
+    //   申し込みが黙って消えるのを防ぐための、最後の1回です。
+    const hasBlank = a.contact_name === "" || a.email === "";
+    if (rejectedByPolicy(error.message) && hasBlank) {
+      const { error: retryError } = await db.from(TABLE).insert({
+        ...row,
+        contact_name: a.contact_name === "" ? APPLY_BLANK_MARK : a.contact_name,
+        email: a.email === "" ? APPLY_BLANK_MARK : a.email,
+      });
+      if (!retryError) {
+        console.warn(
+          "[経理お申し込み] 空の欄に「（未記入）」を入れて控えを残しました" +
+            "（supabase/migrations/keiri_applications_optional_contact.sql を流すと、この回り道は不要になります）",
+        );
+        return true;
+      }
+      console.error(`[経理お申し込み] 控えを残せませんでした: ${retryError.message}`);
       return false;
     }
-    return true;
+    console.error(`[経理お申し込み] 控えを残せませんでした: ${error.message}`);
+    return false;
   } catch (e) {
     console.error("[経理お申し込み] 控えを残せませんでした", e);
     return false;
@@ -121,8 +152,8 @@ export async function POST(req: NextRequest) {
    *
    * ■ 守ること
    *   ・知らせの本文には必ず「これはテストです」が入る（文を作る1か所で付けている）
-   *   ・控えは `status` を "test" にする（`source` は "form" のまま。棚の決まりがそれだけを通す）。
-   *     司令室の指標は status が test の行を数えないので、本物の件数には混ざりません
+   *   ・控えは残さない（棚の決まりは status が 'new' の行しか通さないので、
+   *     試しの行を残そうとすると決まりを緩めることになる）。本物の件数には1件も混ざりません
    *   ・それ以外の道（入力の確かめ方・送り方・控えの残し方）は本物とまったく同じ
    */
   const test = (body as Record<string, unknown> | null)?.test === true;
@@ -137,10 +168,12 @@ export async function POST(req: NextRequest) {
   if (parsed.spam) return NextResponse.json({ ok: true });
 
   // 知らせと控えは同時に走らせる。片方が遅くても、もう片方は待たされない
-  const [notifyResult, saved] = await Promise.all([
+  const [notifyResult, savedResult] = await Promise.all([
     notifyApplication(parsed.value, test),
     saveApplication(parsed.value, test),
   ]);
+  // null＝試しの1通なので控えを残していない（「失敗した」ではない）
+  const saved = savedResult === true;
   const notified = notifyResult.ok;
   // 失敗の理由（人の言葉・1行）。届いたときは null
   const notifyNote = notifyResult.ok
@@ -188,7 +221,9 @@ export async function POST(req: NextRequest) {
         ok: true,
         test: true,
         notified,
-        saved,
+        saved: savedResult,
+        savedNote:
+          "試しの1通なので、控えは残していません（棚の決まりは本物の申し込みだけを通します）",
         reachable,
         notifyNote,
         notice: APPLY_TEST_NOTICE,

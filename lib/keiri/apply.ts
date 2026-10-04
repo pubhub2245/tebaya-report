@@ -235,6 +235,28 @@ export function normalizeKeiriApplication(input: KeiriApplyInput): KeiriApplyRes
 }
 
 /**
+ * お名前・メールが空のときに、控えの欄に入れる印（2026-10-04・f2-1）。
+ *
+ * ■ なぜ要るか（やさしい説明）
+ *   2026-10-01（kp207）に、必ず入れていただくのを「お店の名前」と「電話番号」の
+ *   2つだけに減らしました。ところが**棚の受け入れの決まりだけが古いまま**で、
+ *   お名前やメールが空（長さ0）だと**控えが1行も残りません**
+ *   （supabase/migrations/keiri_applications_insert_only.sql の
+ *    `length(contact_name) between 1 and 120` / `length(email) between 1 and 254`）。
+ *   いまサーバー側の鍵が壊れていて、控えはブラウザと同じ権利で入れているので、
+ *   ここに当たると**そこで終わり**です。知らせは飛ぶので気づけますが、
+ *   あとから一覧で見返せる控えが残りません。
+ *
+ * ■ どう使うか
+ *   まず**空のまま**入れてみて（これが本来の形）、決まりに断られたときだけ
+ *   空の欄にこの印を入れて**もう1回だけ**入れます（app/api/keiri/apply/route.ts）。
+ *   嘘の名前やメールアドレスを作らず、「入っていない」と読める言葉にしてあります。
+ *   棚の決まりを直す SQL（supabase/migrations/keiri_applications_optional_contact.sql）を
+ *   流したあとは1回目がそのまま通るので、この印はもう付きません。
+ */
+export const APPLY_BLANK_MARK = "（未記入）";
+
+/**
  * 試しの1通だと分かる1行（2026-10-04・kp228）。
  * ★スタッフのLINEグループに出るので、本物と取り違えられない言葉にする。
  */
