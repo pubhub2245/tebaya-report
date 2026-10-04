@@ -10,6 +10,9 @@
  * ■ 守ること
  *   ・日報は keiri_reports（レシート写真の住所を抜いた軽い見え方）から読む。
  *     daily_reports から直接読むと1か月で数百KBになる（CLAUDE.md 4-2）。
+ *   ・日報の「お店の区分」（shop＝手羽屋／もも屋）も一緒に読む。どのお店の日報を
+ *     数えているかを画面に出すため（kp234・f1-5）。**しぼり込みはここではしない**
+ *     （既定は今までどおり全部。しぼるのは画面側で lib/keiri/shopScope.ts を使う）。
  *   ・立替の2つの棚には「どの店のものか」の印がまだ無いので、
  *     **手羽屋として開いているときだけ**読む（よその店に混ざらないように）。
  *   ・書き込みは一切しない。
@@ -73,7 +76,7 @@ export async function loadKeiriMonth(params: {
   // 日報。経費の種類を決めるのに「説明の文字」が要るので明細も取る。
   const repQuery = supabase
     .from("keiri_reports")
-    .select("date, location, staff_name, sales_amount, labor, expenses");
+    .select("date, location, staff_name, shop, sales_amount, labor, expenses");
   const { data: reps, error: rErr } = await applyTenantScope<any>(repQuery as any, scope)
     .gte("date", gte)
     .order("date");

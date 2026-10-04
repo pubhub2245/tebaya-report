@@ -15,6 +15,8 @@
  *
  * ■ 守ること
  *   ・金額をここに直書きしない（渡されたものを並べるだけ）。
+ *   ・**どのお店の日報を数えたか（scopeLabel）を必ず出す**（kp234・f1-5）。
+ *     件数だけでは、手羽屋ともも屋が混ざっていても気づけません。
  *   ・**検算が合わないときは1枚を出さない**（合わない所だけを出す）。
  *   ・JavaScript が動かなくても全部読める（折りたたみ・画面送りを使わない）。
  *   ・印刷すると紙1枚（刷らないものは no-print を付ける）。
@@ -51,6 +53,15 @@ export default function OneSheetView({ sheet }: { sheet: MonthlySample }) {
       {/* ---------- ① 見出し ---------- */}
       <h2 className="text-lg font-bold text-stone-900">{sheet.title}</h2>
       <p className="mt-1 text-xs text-stone-500">{sheet.madeOnLabel}</p>
+      {/* ★どのお店の日報を数えたか（kp234・f1-5）。件数だけでは分からないので必ず出す */}
+      <p className="mt-1 text-xs text-stone-600">{sheet.scopeLabel}</p>
+      {sheet.scopeNotes.length > 0 && (
+        <ul className="mt-2 list-disc space-y-1 rounded-lg bg-amber-50 px-5 py-3 text-xs text-amber-900 leading-relaxed">
+          {sheet.scopeNotes.map((n, i) => (
+            <li key={i}>{n}</li>
+          ))}
+        </ul>
+      )}
 
       {/* ---------- ② 大きな数字3つ ---------- */}
       <dl className="mt-4 divide-y divide-stone-100">

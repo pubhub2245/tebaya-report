@@ -14,7 +14,9 @@
  *      並べるのは lib/keiri/oneSheet.ts（見本と同じ）。このページは呼ぶだけです。
  *   ② **合言葉の内側に置く。** 実際のお店の数字なので、外から開けません（AdminGate）。
  *   ③ **読むだけ。** 倉庫に1行も書きません。
- *   ④ 印刷すると紙1枚（リンクと月の送りは刷りません）。
+ *   ④ 印刷すると紙1枚（リンクと月の送り・お店の選びは刷りません）。
+ *   ⑤ **お店の区分（手羽屋／もも屋）の既定は「全部」。** 黙って数字を変えないこと
+ *      （kp234・f1-5。どのお店を数えているかは1枚の上に必ず出ます）。
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -25,6 +27,10 @@ import OneSheetView from "@/app/keiri/components/OneSheetView";
 import { keiriLoginNoScriptHtml } from "@/lib/keiri/noscriptFallback";
 import { loadKeiriMonth, type KeiriMonthData } from "@/lib/keiri/loadMonth";
 import { buildOneSheet } from "@/lib/keiri/oneSheet";
+import {
+  filterReportsByShop,
+  summarizeShopScope,
+} from "@/lib/keiri/shopScope";
 import {
   defaultSettingsFor,
   monthKey,
@@ -77,6 +83,9 @@ function MonthlyInner() {
   const today = useMemo(() => todayStr(), []);
   const todayYm = today.slice(0, 7);
 
+  // お店の区分（手羽屋／もも屋）。**既定は空＝今までどおり全部**（kp234・f1-5）
+  const [shopFilter, setShopFilter] = useState("");
+
   const [data, setData] = useState<KeiriMonthData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -97,13 +106,21 @@ function MonthlyInner() {
     load();
   }, [load]);
 
+  // その月に出てくるお店の区分（選べる顔ぶれ）。しぼる前の全部から作る
+  const shopChoices = useMemo(
+    () =>
+      data ? summarizeShopScope(data.reports, ym).shops.map((s) => s.shop) : [],
+    [data, ym],
+  );
+
   const sheet = useMemo(() => {
     if (!data) return null;
     return buildOneSheet({
       ym,
       monthLabel,
-      shopName,
-      reports: data.reports,
+      shopName: shopFilter || shopName,
+      shopFilter,
+      reports: filterReportsByShop(data.reports, shopFilter),
       payments: data.payments,
       advances: data.advances,
       settings: data.settings,
@@ -113,7 +130,7 @@ function MonthlyInner() {
       // 「◯月◯日に作りました」に出す日（出した日が紙に残るように）
       madeOn: today,
     });
-  }, [data, ym, monthLabel, shopName, template, todayYm, today]);
+  }, [data, ym, monthLabel, shopName, shopFilter, template, todayYm, today]);
 
   const shiftMonth = (delta: number) => {
     const d = new Date(year, month - 1 + delta, 1);
@@ -155,6 +172,44 @@ function MonthlyInner() {
           次の月 →
         </button>
       </div>
+
+      {/* ---------- お店の区分（刷らない）。既定は「全部」で今までどおり ---------- */}
+      {shopChoices.length > 1 && (
+        <div className="no-print mt-4 rounded-xl border border-stone-200 bg-white p-4">
+          <p className="text-xs font-bold text-stone-500">お店</p>
+          <p className="mt-1 text-xs text-stone-600 leading-relaxed">
+            この月の日報には{shopChoices.length}つのお店（{shopChoices.join("・")}
+            ）が入っています。既定は<strong>全部を足した今までどおり</strong>です。
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setShopFilter("")}
+              className={`rounded-lg border px-3 py-2 text-sm ${
+                shopFilter === ""
+                  ? "border-amber-600 bg-amber-50 font-bold text-amber-800"
+                  : "border-stone-300 text-stone-700"
+              }`}
+            >
+              全部（今までどおり）
+            </button>
+            {shopChoices.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setShopFilter(s)}
+                className={`rounded-lg border px-3 py-2 text-sm ${
+                  shopFilter === s
+                    ? "border-amber-600 bg-amber-50 font-bold text-amber-800"
+                    : "border-stone-300 text-stone-700"
+                }`}
+              >
+                {s}だけ
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading && <p className="mt-6 text-sm text-stone-600">読み込んでいます…</p>}
       {error && (

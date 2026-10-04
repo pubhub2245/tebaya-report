@@ -34,6 +34,12 @@ import {
   summarizeMonth,
 } from "./aggregate";
 import { findDuplicateExpenses } from "./duplicates";
+import {
+  shopScopeNotes,
+  shopScopeSentence,
+  summarizeShopScope,
+  type ShopCount,
+} from "./shopScope";
 import { expenseItemsOf } from "./classify";
 import { DISPLAY_EXPENSE_ACCOUNTS } from "./accounts";
 import { JOURNAL_HEADERS, buildJournalRows, journalExpenseTotal } from "./journal";
@@ -177,6 +183,18 @@ export type MonthlySample = {
   unmatched: { date: string; description: string; amount: number }[];
   /** 集計に使った日報の件数 */
   reportCount: number;
+  /**
+   * 「この数字は 手羽屋 12件・もも屋 3件 の日報 15件から数えています」の1行（kp234・f1-5）。
+   * ★件数だけでは、どのお店の日報を数えているか分かりません。**必ず出します。**
+   */
+  scopeLabel: string;
+  /** お店の区分ごとの件数と売上（内訳。合計の数字は変わりません） */
+  scopeShops: ShopCount[];
+  /**
+   * 断り書き（2つのお店が混ざっている／見出しと範囲がずれている／立替は分けられない）。
+   * ★無ければ空の配列。黙って混ぜない・黙って分けないために出します。
+   */
+  scopeNotes: string[];
 };
 
 /** 見本に見せる仕訳の行数（スマホで開くので、長くしない） */
@@ -209,6 +227,12 @@ export type OneSheetInput = {
   madeOn?: string;
   /** 仕訳を何行だけ見せるか */
   previewRows?: number;
+  /**
+   * お店の区分でしぼって渡しているか（kp234）。
+   * ★しぼり込みそのものは呼ぶ側で行います（lib/keiri/shopScope.ts の filterReportsByShop）。
+   *   ここに渡すのは「しぼった」ことを断り書きに出すためだけです。
+   */
+  shopFilter?: string | null;
 };
 
 /** 日本時間の今日（YYYY-MM-DD）。置いてあるサーバーの時計は日本時間ではないため */
@@ -245,6 +269,7 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     currentYm = ym,
     madeOn = jstToday(),
     previewRows = SAMPLE_JOURNAL_PREVIEW_ROWS,
+    shopFilter = null,
   } = input;
 
   const summary = summarizeMonth({ ym, reports, template, settings, advances });
@@ -337,6 +362,19 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
       )}）が合っていません。`,
     );
   }
+  // ---- どのお店の日報を数えたか（kp234・f1-5）----
+  //   ★合計の数字は1円も変えません。「何を数えているか」を出すだけです。
+  const scope = summarizeShopScope(reports, ym);
+  const scopeLabel = shopScopeSentence({
+    shops: scope.shops,
+    reportCount: scope.reportCount,
+  });
+  const scopeNotes = shopScopeNotes({
+    shopName,
+    shops: scope.shops,
+    filtered: !!String(shopFilter ?? "").trim(),
+  });
+
   const verify: SampleVerify = {
     expenseOk: expenseCheck.same,
     profitOk: summary.sales - summary.expenseTotal === summary.profit,
@@ -390,6 +428,9 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     verify,
     unmatched,
     reportCount: summary.reportCount,
+    scopeLabel,
+    scopeShops: scope.shops,
+    scopeNotes,
   };
 }
 
