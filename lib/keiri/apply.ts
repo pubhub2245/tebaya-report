@@ -235,6 +235,13 @@ export function normalizeKeiriApplication(input: KeiriApplyInput): KeiriApplyRes
 }
 
 /**
+ * 試しの1通だと分かる1行（2026-10-04・kp228）。
+ * ★スタッフのLINEグループに出るので、本物と取り違えられない言葉にする。
+ */
+export const APPLY_TEST_NOTICE =
+  "⚠ これはテストです（本物のお申し込みではありません。何もしなくて大丈夫です）";
+
+/**
  * 申し込みが入ったことを知らせる文（スタッフの LINE グループへ送る本文）。
  *
  * ★じゅんがその場で折り返せるように、宛先（メール・電話）を本文に入れる。
@@ -246,8 +253,15 @@ export function keiriApplyNotificationText(args: {
   priceLabel: string;
   /** 受け取った時刻。省略すると「いま」 */
   at?: Date;
+  /**
+   * 試しの1通か（2026-10-04・kp228）。
+   * true のときは、本文のいちばん上に「これはテストです」を必ず入れる。
+   * ★見た人が本物のお申し込みと取り違えないようにするため。文を省けないように、
+   *   ここ（文を作る1か所）で付けます。
+   */
+  test?: boolean;
 }): string {
-  const { application: a, priceLabel, at = new Date() } = args;
+  const { application: a, priceLabel, at = new Date(), test = false } = args;
   const when = new Intl.DateTimeFormat("ja-JP", {
     timeZone: "Asia/Tokyo",
     year: "numeric",
@@ -258,6 +272,7 @@ export function keiriApplyNotificationText(args: {
   }).format(at);
 
   const lines = [
+    ...(test ? [APPLY_TEST_NOTICE, ""] : []),
     "【経理パッケージ お申し込みが1件入りました】",
     `受付：${when}`,
     "",
