@@ -111,10 +111,25 @@ export function shopScopeSentence(params: {
 }): string {
   const { shops, reportCount } = params;
   if (reportCount === 0) return "この月の日報はまだありません。";
+  // 区分が1つも入っていない月（＝分かれていない）。
+  // ★「区分なし の日報」とは書かない。読む人には何のことか分からないため。
+  if (noShopDivision(shops)) {
+    return `この数字は この月の日報 ${reportCount}件ぜんぶから数えています（日報にお店の区分は入っていません）。`;
+  }
   if (shops.length === 1) {
     return `この数字は ${shops[0].shop} の日報 ${reportCount}件から数えています。`;
   }
   return `この数字は ${shopCountsLabel(shops)} の日報 ${reportCount}件を足して数えています。`;
+}
+
+/**
+ * その月の日報に「お店の区分」が1つも入っていないか（＝分かれていない）。
+ *
+ * ★このときは**何とも比べられません。** 見出しのお店と「ずれている」とは言えないので、
+ *   断り書きを出しません（2026-10-04：見本のお店で誤った断りが出たのを直した）。
+ */
+export function noShopDivision(shops: ShopCount[]): boolean {
+  return shops.length === 1 && shops[0].shop === UNSET_SHOP;
 }
 
 /**
@@ -132,6 +147,9 @@ export function shopScopeNotes(params: {
   const { shops } = params;
   const shopName = String(params.shopName ?? "").trim();
   const notes: string[] = [];
+
+  // 区分が1つも入っていない月は、比べる相手がいない＝断ることが無い
+  if (noShopDivision(shops)) return notes;
 
   if (shops.length > 1) {
     notes.push(
