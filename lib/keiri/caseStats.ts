@@ -33,18 +33,19 @@
  *   - 読むだけ。書き込みはしない
  */
 
-import { serverClient } from "@/lib/supabaseServer";
 import { CASE_TEBAYA } from "@/lib/keiri/caseNumbers";
 import { summarizeMonth } from "@/lib/keiri/aggregate";
 import { findDuplicateExpenses } from "@/lib/keiri/duplicates";
-import { normalizeFieldAdvance, normalizeOwnerAdvance } from "@/lib/keiri/advances";
-import { defaultSettingsFor, templateFor } from "@/lib/keiri/index";
+import { loadKeiriMonthServer, shiftDate } from "@/lib/keiri/loadMonthServer";
+import { templateFor } from "@/lib/keiri/index";
 import type {
   BusinessTemplate,
   KeiriAdvance,
   KeiriReport,
   KeiriSettings,
 } from "@/lib/keiri/types";
+
+export { shiftDate };
 
 /** 紹介ページに出す1か月の実績 */
 export type CaseStats = {
@@ -116,13 +117,6 @@ export function previousMonthRange(today: Date): { start: string; end: string; l
     end: `${py}-${mm}-${String(lastDay).padStart(2, "0")}`,
     label: `${py}年${pm}月`,
   };
-}
-
-/** YYYY-MM-DD を日数ぶんずらす（立替を前後に広めに取るため） */
-export function shiftDate(ymd: string, days: number): string {
-  const d = new Date(`${ymd}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
 }
 
 /** 事例ページに出す1か月ぶんの数字（純粋な計算。テストはここに掛ける） */
@@ -205,69 +199,25 @@ export function fallbackStats(): CaseStats {
 
 /** 前の月の実績を日報から集める。失敗したら控えの数字に戻す（画面は落とさない） */
 export async function getCaseStats(today: Date = new Date()): Promise<CaseStats> {
-  const { start, end, label } = previousMonthRange(today);
+  const { start, label } = previousMonthRange(today);
   const ym = start.slice(0, 7);
   try {
-    const db = serverClient();
-
-    // 日報。経費の種類を決めるのに「説明の文字」が要るので明細も取るが、
-    // レシート写真の住所を抜いた軽い見え方（keiri_reports）から読む（CLAUDE.md 4-2）。
-    const { data, error } = await db
-      .from("keiri_reports")
-      .select("date, sales_amount, labor, expenses, shop")
-      // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
-      .is("tenant_id", null)
-      .gte("date", start)
-      .lte("date", end);
-
-    if (error || !data || data.length === 0) return fallbackStats();
-
-    // 経理の設定（期首・外注費の率・家賃）。読めなければ利益は出さない。
-    const { data: s } = await db
-      .from("keiri_settings")
-      .select("opening_date, opening_balance, outsourcing_rate, monthly_rent, rent_start_month")
-      .eq("business_type_code", CASE_BUSINESS_CODE)
-      .maybeSingle();
-    const settings: KeiriSettings = s
-      ? {
-          opening_date: (s as any).opening_date,
-          opening_balance: Number((s as any).opening_balance) || 0,
-          outsourcing_rate: Number((s as any).outsourcing_rate) || 0,
-          monthly_rent: Number((s as any).monthly_rent) || 0,
-          rent_start_month: (s as any).rent_start_month ?? "",
-        }
-      : defaultSettingsFor(CASE_BUSINESS_CODE);
-
-    // 立替（誰かが自分のお金で先に払った経費）。棚が2つあるので形をそろえる。
-    // 「月をまたいで同じ支払いが入っていないか」も見るので、前後に40日の余白を取る。
-    const from = shiftDate(start, -40);
-    const to = shiftDate(end, 40);
-    const advances: KeiriAdvance[] = [];
-    let advancesUnreadable = false;
-    const { data: field, error: fErr } = await db
-      .from("keiri_advance_expenses")
-      .select("expense_date, amount, payer, source_type, memo")
-      .eq("business_type_code", CASE_BUSINESS_CODE)
-      .gte("expense_date", from)
-      .lte("expense_date", to);
-    if (fErr) advancesUnreadable = true;
-    for (const row of (field as any[]) ?? []) advances.push(normalizeFieldAdvance(row));
-    const { data: owner, error: oErr } = await db
-      .from("advance_expenses")
-      .select("date, amount, payer, description, settled, settled_date")
-      .gte("date", from)
-      .lte("date", to);
-    if (oErr) advancesUnreadable = true;
-    for (const row of (owner as any[]) ?? []) advances.push(normalizeOwnerAdvance(row));
+    // ★読む手順は lib/keiri/loadMonthServer.ts の1つだけ。ここで書かない。
+    const data = await loadKeiriMonthServer({
+      ym,
+      businessCode: CASE_BUSINESS_CODE,
+      monthOnly: true,
+    });
+    if (data.reportsUnreadable || data.reports.length === 0) return fallbackStats();
 
     const figures = summarizeCaseMonth({
       ym,
-      rows: data as ReportRow[],
-      advances,
-      settings,
+      rows: data.reports as unknown as ReportRow[],
+      advances: data.advances,
+      settings: data.settings,
       template: templateFor(CASE_BUSINESS_CODE),
-      settingsMissing: !s,
-      advancesUnreadable,
+      settingsMissing: data.settingsMissing,
+      advancesUnreadable: data.advancesUnreadable,
     });
 
     if (figures.days === 0 || figures.salesYen <= 0) return fallbackStats();
