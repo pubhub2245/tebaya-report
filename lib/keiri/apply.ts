@@ -69,10 +69,16 @@ export type KeiriApplyInput = {
 /** 確かめ終わった申し込み1件 */
 export type KeiriApplication = {
   shop_name: string;
+  /**
+   * 任意（2026-10-01・kp207）。入れていなければ空の文字。
+   * ★null にしない。倉庫の列が「空でもいいが、無いのは許さない」形
+   *   （contact_name text not null）なので、null を入れると控えが残らない。
+   */
   contact_name: string;
+  /** 任意（同上）。入れていなければ空の文字（理由も同上）。 */
   email: string;
-  /** 任意。入れていなければ null */
-  phone: string | null;
+  /** 必ず入れていただく（2026-10-01・kp207）。折り返しの唯一の道。 */
+  phone: string;
   /** 任意。入れていなければ null */
   note: string | null;
   /**
@@ -102,6 +108,15 @@ function text(v: unknown): string {
  * ★厳密な判定はしない（正しくても届かない住所はあるし、弾きすぎるほうが損）。
  *   明らかに住所でないもの（@が無い・空白が混じる・ドットが無い）だけを断る。
  */
+/**
+ * 電話番号らしいか（2026-10-01・kp207）。
+ * ★厳密な判定はしない。説明会の立ち話で打つ番号を弾くほうが損なので、
+ *   「数字が9個以上あるか」だけを見る（ハイフンあり・なし・+81 のどれでも通る）。
+ */
+export function looksLikePhone(v: string): boolean {
+  return (v.match(/[0-9]/g) ?? []).length >= 9;
+}
+
 function looksLikeEmail(v: string): boolean {
   if (/\s/.test(v)) return false;
   const parts = v.split("@");
@@ -177,18 +192,25 @@ export function normalizeKeiriApplication(input: KeiriApplyInput): KeiriApplyRes
   else if (shopName.length > KEIRI_APPLY_LIMITS.shopName)
     errors.push(`お店の名前は${KEIRI_APPLY_LIMITS.shopName}文字までです。`);
 
-  if (contactName === "") errors.push("お名前を入れてください。");
-  else if (contactName.length > KEIRI_APPLY_LIMITS.contactName)
+  // ★2026-10-01（kp207）：必ず入れていただくのは「お店の名前」と「電話番号」の2つだけ。
+  //   出店説明会の立ち話でスマホに4つ打つのは重すぎるため、
+  //   こちらから折り返せる最小限（店名＋つながる番号）に絞った。
+  //   お名前とメールアドレスは、空でも申し込みが通る。
+  if (phone === "") errors.push("電話番号を入れてください。");
+  else if (phone.length > KEIRI_APPLY_LIMITS.phone)
+    errors.push(`電話番号は${KEIRI_APPLY_LIMITS.phone}文字までです。`);
+  else if (!looksLikePhone(phone))
+    errors.push("電話番号の形が違うようです。もう一度ご確認ください。");
+
+  if (contactName.length > KEIRI_APPLY_LIMITS.contactName)
     errors.push(`お名前は${KEIRI_APPLY_LIMITS.contactName}文字までです。`);
 
-  if (email === "") errors.push("メールアドレスを入れてください。");
-  else if (email.length > KEIRI_APPLY_LIMITS.email)
-    errors.push(`メールアドレスは${KEIRI_APPLY_LIMITS.email}文字までです。`);
-  else if (!looksLikeEmail(email))
-    errors.push("メールアドレスの形が違うようです。もう一度ご確認ください。");
-
-  if (phone.length > KEIRI_APPLY_LIMITS.phone)
-    errors.push(`電話番号は${KEIRI_APPLY_LIMITS.phone}文字までです。`);
+  if (email !== "") {
+    if (email.length > KEIRI_APPLY_LIMITS.email)
+      errors.push(`メールアドレスは${KEIRI_APPLY_LIMITS.email}文字までです。`);
+    else if (!looksLikeEmail(email))
+      errors.push("メールアドレスの形が違うようです。もう一度ご確認ください。");
+  }
 
   if (note.length > KEIRI_APPLY_LIMITS.note)
     errors.push(`ひとことは${KEIRI_APPLY_LIMITS.note}文字までです。`);
@@ -200,15 +222,46 @@ export function normalizeKeiriApplication(input: KeiriApplyInput): KeiriApplyRes
     spam: false,
     value: {
       shop_name: shopName,
+      // ★空の文字のまま渡す（null にしない）。倉庫の列が not null なので、
+      //   null を入れると控えが1行も残らない。
       contact_name: contactName,
       email,
-      phone: phone === "" ? null : phone,
+      phone,
       // 合言葉は「ひとこと」に1行として残す（倉庫の source は 'form' のまま）
       note: applicationNote(note, campaign),
       campaign,
     },
   };
 }
+
+/**
+ * お名前・メールが空のときに、控えの欄に入れる印（2026-10-04・f2-1）。
+ *
+ * ■ なぜ要るか（やさしい説明）
+ *   2026-10-01（kp207）に、必ず入れていただくのを「お店の名前」と「電話番号」の
+ *   2つだけに減らしました。ところが**棚の受け入れの決まりだけが古いまま**で、
+ *   お名前やメールが空（長さ0）だと**控えが1行も残りません**
+ *   （supabase/migrations/keiri_applications_insert_only.sql の
+ *    `length(contact_name) between 1 and 120` / `length(email) between 1 and 254`）。
+ *   いまサーバー側の鍵が壊れていて、控えはブラウザと同じ権利で入れているので、
+ *   ここに当たると**そこで終わり**です。知らせは飛ぶので気づけますが、
+ *   あとから一覧で見返せる控えが残りません。
+ *
+ * ■ どう使うか
+ *   まず**空のまま**入れてみて（これが本来の形）、決まりに断られたときだけ
+ *   空の欄にこの印を入れて**もう1回だけ**入れます（app/api/keiri/apply/route.ts）。
+ *   嘘の名前やメールアドレスを作らず、「入っていない」と読める言葉にしてあります。
+ *   棚の決まりを直す SQL（supabase/migrations/keiri_applications_optional_contact.sql）を
+ *   流したあとは1回目がそのまま通るので、この印はもう付きません。
+ */
+export const APPLY_BLANK_MARK = "（未記入）";
+
+/**
+ * 試しの1通だと分かる1行（2026-10-04・kp228）。
+ * ★スタッフのLINEグループに出るので、本物と取り違えられない言葉にする。
+ */
+export const APPLY_TEST_NOTICE =
+  "⚠ これはテストです（本物のお申し込みではありません。何もしなくて大丈夫です）";
 
 /**
  * 申し込みが入ったことを知らせる文（スタッフの LINE グループへ送る本文）。
@@ -222,8 +275,15 @@ export function keiriApplyNotificationText(args: {
   priceLabel: string;
   /** 受け取った時刻。省略すると「いま」 */
   at?: Date;
+  /**
+   * 試しの1通か（2026-10-04・kp228）。
+   * true のときは、本文のいちばん上に「これはテストです」を必ず入れる。
+   * ★見た人が本物のお申し込みと取り違えないようにするため。文を省けないように、
+   *   ここ（文を作る1か所）で付けます。
+   */
+  test?: boolean;
 }): string {
-  const { application: a, priceLabel, at = new Date() } = args;
+  const { application: a, priceLabel, at = new Date(), test = false } = args;
   const when = new Intl.DateTimeFormat("ja-JP", {
     timeZone: "Asia/Tokyo",
     year: "numeric",
@@ -234,14 +294,16 @@ export function keiriApplyNotificationText(args: {
   }).format(at);
 
   const lines = [
+    ...(test ? [APPLY_TEST_NOTICE, ""] : []),
     "【経理パッケージ お申し込みが1件入りました】",
     `受付：${when}`,
     "",
     `お店：${a.shop_name}`,
-    `お名前：${a.contact_name}`,
-    `メール：${a.email}`,
+    `電話：${a.phone}`,
   ];
-  if (a.phone) lines.push(`電話：${a.phone}`);
+  // ★お名前とメールは任意（2026-10-01・kp207）。空の行を送らない。
+  if (a.contact_name) lines.push(`お名前：${a.contact_name}`);
+  if (a.email) lines.push(`メール：${a.email}`);
   if (a.campaign) lines.push(`どこから：${a.campaign}`);
   // ★ひとことには、こちらで足した「どこから」の1行が入っている。
   //   知らせでは上に1行で出しているので、ここでは店主が書いた文だけを出す。

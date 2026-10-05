@@ -5,22 +5,47 @@
  *   紹介ページの数字を手で書いていると、月が変わるたびに古くなる。
  *   「2026年8月の実績」と書いたまま年を越すと、それだけで信用を失う。
  *
+ * ■ 2026-10-05 の直し（f1-5・f1-2／A が見つけた 51万円 のズレ）
+ *   それまで、このファイルは**自分だけの計算**で「月の利益」を出していました。
+ *   日報1件ずつに calcActualProfit（売上 − 日当 − レジから払った経費）を当てる形で、
+ *   **立て替えて払った経費・外注費・家賃がまるごと落ちていました。**
+ *   9月の手羽屋で実測すると、ページには 35.1万円 の黒字と出ていたのに、
+ *   経理画面・会計ソフト向けCSV・毎月お渡しする1枚が使っている数え方では
+ *   **−159,854円（赤字）** で、**51万円ちがって**いました。
+ *   店主にお見せするページで、月の利益が他の画面と違うのは致命的なので、
+ *   ここも **summarizeMonth（lib/keiri/aggregate.ts）だけ**を通すようにしました。
+ *   ＝「月の経費と利益はこの1つが正」（CLAUDE.md 4-1・5-4b）に合流させた、ということです。
+ *
  * ■ 決めごと
  *   - 数えるのは **前の月（まるまる終わった月）** だけ。途中の月は「実績」と呼べない
  *   - 数えるのは **手羽屋の日報だけ**（`shop` が「手羽屋」か空の行）。
  *     同じアプリには **もも屋** の日報も入っており、混ぜると
  *     紹介ページが「屋台『手羽屋』の実績」と名乗ったまま別の屋号の売上まで足してしまう。
  *     送り先は同じ催事に出ている同業なので、出店回数を水増しすると すぐ分かる
- *   - 集計に使うのは合計だけ。経費の明細は取りに行かない（CLAUDE.md 4-2）
- *   - 利益は **実績ベース**（calcActualProfit）。推定（食材25%・場代10%）は使わない
+ *   - 日報は **keiri_reports**（レシート写真の住所を抜いた軽い見え方）から読む。
+ *     daily_reports の明細を直接読むと重い（CLAUDE.md 4-2）
+ *   - 利益は **経理画面と同じ summarizeMonth の結果**。自前の計算をここに書かない
+ *   - **同じ支払いが2か所にある疑いが1件でもある月は、利益を出さない**（null）。
+ *     疑いが残ったままの利益は、黒字でも赤字でも「正しい数字」とは言えないため。
+ *     毎月お渡しする1枚で「検算が合わない月は出さない」としたのと同じ考え方です
  *   - 倉庫が読めない・日報が1件も無いときは **手で確認した控えの数字に戻す**。
  *     数字を作らない・空欄にしない（CLAUDE.md 4-10 と同じ考え方）
  *   - 読むだけ。書き込みはしない
  */
 
-import { calcActualProfit, expensesTotalOf } from "@/lib/money";
-import { serverClient } from "@/lib/supabaseServer";
 import { CASE_TEBAYA } from "@/lib/keiri/caseNumbers";
+import { summarizeMonth } from "@/lib/keiri/aggregate";
+import { findDuplicateExpenses } from "@/lib/keiri/duplicates";
+import { loadKeiriMonthServer, shiftDate } from "@/lib/keiri/loadMonthServer";
+import { templateFor } from "@/lib/keiri/index";
+import type {
+  BusinessTemplate,
+  KeiriAdvance,
+  KeiriReport,
+  KeiriSettings,
+} from "@/lib/keiri/types";
+
+export { shiftDate };
 
 /** 紹介ページに出す1か月の実績 */
 export type CaseStats = {
@@ -30,12 +55,17 @@ export type CaseStats = {
   days: number;
   /** 売上高（万円・小数1桁） */
   salesMan: number;
-  /** 実績ベースの利益（万円・小数1桁）。控えに確かめた値が無いときは null（画面は出さない） */
+  /** 実績ベースの利益（万円・小数1桁）。確かめられないときは null（画面は出さない） */
   profitMan: number | null;
   /** 数字を確認した日（自動なら集計した日） */
   checkedOn: string;
   /** 日報から自動で出した数字か（false＝手で確認した控え） */
   auto: boolean;
+  /**
+   * 利益を出さなかった理由（出したときは null）。
+   * 画面には出しません。**なぜ枠が消えているのか**を、あとから人が追えるようにするためです。
+   */
+  profitHiddenReason: string | null;
 };
 
 type ReportRow = {
@@ -44,7 +74,6 @@ type ReportRow = {
   shop?: string | null;
   sales_amount: number | null;
   labor: number | null;
-  expenses_total?: number | null;
   expenses?: unknown;
 };
 
@@ -53,6 +82,9 @@ type ReportRow = {
  * このアプリには手羽屋ともも屋の日報が同じ棚に入っているので、名乗ったほうだけを数える。
  */
 export const CASE_SHOP = "手羽屋";
+
+/** 事例1号の業態コード（手羽屋） */
+export const CASE_BUSINESS_CODE = "tebaya";
 
 /**
  * その日報を事例1号（手羽屋）として数えてよいか。
@@ -87,19 +119,68 @@ export function previousMonthRange(today: Date): { start: string; end: string; l
   };
 }
 
-/** 日報の行から、出店回数・売上・実績利益を出す（純粋な計算。テストはここに掛ける） */
-export function summarize(rows: ReportRow[]): { days: number; salesYen: number; profitYen: number } {
-  let salesYen = 0;
-  let profitYen = 0;
-  // ★もも屋の日報は数えない。倉庫から取るときにも絞っているが、
-  //   片方だけ直しても数字が狂わないように、ここでも必ず落とす。
-  for (const r of rows.filter(isCaseShopRow)) {
-    const sales = Number(r.sales_amount) || 0;
-    const labor = Number(r.labor) || 0;
-    salesYen += sales;
-    profitYen += calcActualProfit(sales, labor, expensesTotalOf(r)).profit;
+/** 事例ページに出す1か月ぶんの数字（純粋な計算。テストはここに掛ける） */
+export type CaseMonthFigures = {
+  days: number;
+  salesYen: number;
+  /** 月の経費の合計（立替・人件費・外注費・家賃も入る。summarizeMonth と同じ1つ） */
+  expenseYen: number;
+  /** 利益 ＝ 売上 − 経費合計 */
+  profitYen: number;
+  /** この利益を画面に出してよいか */
+  profitTrusted: boolean;
+  /** 出せない理由（出せるときは null） */
+  untrustedReason: string | null;
+};
+
+/**
+ * 手羽屋の日報と立替から、その月の数字を出す。
+ *
+ * ★利益は **summarizeMonth** の結果をそのまま使う。ここで計算し直さない。
+ * ★同じ支払いが2か所にある疑いがある月は、利益を「出せない」として返す。
+ */
+export function summarizeCaseMonth(params: {
+  ym: string;
+  rows: ReportRow[];
+  advances: KeiriAdvance[];
+  settings: KeiriSettings;
+  template: BusinessTemplate;
+  /** そのお店の設定の行が倉庫に見つからなかったか（家賃・外注率が当てずっぽうになる） */
+  settingsMissing?: boolean;
+  /** 立替の棚が読めなかったか（読めないまま数えると、経費がまるごと落ちる） */
+  advancesUnreadable?: boolean;
+}): CaseMonthFigures {
+  const { ym, advances, settings, template } = params;
+  // もも屋の日報は数えない（倉庫から取るときにも絞るが、片方だけ直しても狂わないように）
+  const reports = params.rows.filter(isCaseShopRow) as unknown as KeiriReport[];
+
+  const summary = summarizeMonth({ ym, reports, template, settings, advances });
+  const dup = findDuplicateExpenses({ ym, reports, advances });
+
+  const reasons: string[] = [];
+  if (dup.suspects.length > 0) {
+    reasons.push(
+      `同じ支払いが2か所にある疑いが${dup.suspects.length}件` +
+        `（同じ月 ${dup.doubleCountedTotal}円・月をまたぐ ${dup.crossMonthTotal}円）`,
+    );
   }
-  return { days: rows.filter(isCaseShopRow).length, salesYen, profitYen };
+  if (params.settingsMissing) {
+    reasons.push("経理の設定（家賃・外注費の率）が倉庫から読めなかった");
+  }
+  if (params.advancesUnreadable) {
+    // ★ここが肝。立替が読めないまま数えると経費がまるごと落ちて、
+    //   2026-10-05 に見つかった「51万円 多い利益」と同じことが起きる。
+    reasons.push("立て替えて払った経費の棚が読めなかった");
+  }
+
+  return {
+    days: summary.reportCount,
+    salesYen: summary.sales,
+    expenseYen: summary.expenseTotal,
+    profitYen: summary.profit,
+    profitTrusted: reasons.length === 0,
+    untrustedReason: reasons.length === 0 ? null : reasons.join("／"),
+  };
 }
 
 /** 手で確認した控え（倉庫が読めないとき・日報が無いときはこれを出す） */
@@ -111,36 +192,44 @@ export function fallbackStats(): CaseStats {
     profitMan: CASE_TEBAYA.profitMan,
     checkedOn: CASE_TEBAYA.checkedOn,
     auto: false,
+    profitHiddenReason:
+      CASE_TEBAYA.profitMan === null ? "手で確認した控えに、確かめた利益の値が無い" : null,
   };
 }
 
 /** 前の月の実績を日報から集める。失敗したら控えの数字に戻す（画面は落とさない） */
 export async function getCaseStats(today: Date = new Date()): Promise<CaseStats> {
-  const { start, end, label } = previousMonthRange(today);
+  const { start, label } = previousMonthRange(today);
+  const ym = start.slice(0, 7);
   try {
-    const db = serverClient();
-    const { data, error } = await db
-      .from("daily_reports")
-      // 合計だけ。経費の明細（expenses）は取りに行かない（CLAUDE.md 4-2）
-      // shop は「手羽屋の日報だけを数える」ために要る（もも屋を混ぜない）
-      .select("date, sales_amount, labor, expenses_total, shop")
-      // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
-      .is("tenant_id", null)
-      .gte("date", start)
-      .lte("date", end);
+    // ★読む手順は lib/keiri/loadMonthServer.ts の1つだけ。ここで書かない。
+    const data = await loadKeiriMonthServer({
+      ym,
+      businessCode: CASE_BUSINESS_CODE,
+      monthOnly: true,
+    });
+    if (data.reportsUnreadable || data.reports.length === 0) return fallbackStats();
 
-    if (error || !data || data.length === 0) return fallbackStats();
+    const figures = summarizeCaseMonth({
+      ym,
+      rows: data.reports as unknown as ReportRow[],
+      advances: data.advances,
+      settings: data.settings,
+      template: templateFor(CASE_BUSINESS_CODE),
+      settingsMissing: data.settingsMissing,
+      advancesUnreadable: data.advancesUnreadable,
+    });
 
-    const { days, salesYen, profitYen } = summarize(data as ReportRow[]);
-    if (days === 0 || salesYen <= 0) return fallbackStats();
+    if (figures.days === 0 || figures.salesYen <= 0) return fallbackStats();
 
     return {
       month: label,
-      days,
-      salesMan: toMan(salesYen),
-      profitMan: toMan(profitYen),
+      days: figures.days,
+      salesMan: toMan(figures.salesYen),
+      profitMan: figures.profitTrusted ? toMan(figures.profitYen) : null,
       checkedOn: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`,
       auto: true,
+      profitHiddenReason: figures.untrustedReason,
     };
   } catch {
     return fallbackStats();

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import ReceiptTry from "./ReceiptTry";
+
 import { priceLabel } from "@/lib/keiri/caseNumbers";
 import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
 import { keiriMetadata } from "@/lib/keiri/metadata";
@@ -98,6 +100,10 @@ export default function KeiriReceiptPage() {
             </li>
           ))}
         </ol>
+      </section>
+
+      <section className="mb-10">
+        <ReceiptTry />
       </section>
 
       <section className="mb-10">

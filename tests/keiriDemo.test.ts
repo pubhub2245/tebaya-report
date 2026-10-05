@@ -22,6 +22,7 @@ import {
   demoNumber,
   demoOpeningDate,
   demoPayments,
+  demoAdvances,
   demoReports,
   demoSettings,
   demoTodayJst,
@@ -121,36 +122,85 @@ test("お試し版の3つの数字が、本物の関数で計算できる", () =
   const settings = demoSettings(ym);
   const reports = demoReports(ym);
   const payments = demoPayments();
+  const advances = demoAdvances(ym);
   const template = templateFor(GENERIC_TEMPLATE.code);
 
-  const summary = summarizeMonth({ ym, reports, template, settings });
-  const cash = calcCashPosition({ reports, payments, settings });
-  const unpaid = calcUnpaid({ reports, payments, settings, currentYm: ym });
+  const summary = summarizeMonth({ ym, reports, template, settings, advances });
+  const cash = calcCashPosition({ reports, payments, settings, advances });
+  const unpaid = calcUnpaid({ reports, payments, settings, currentYm: ym, advances });
 
   // 売上 82,000 + 64,000 + 95,000
   assert.equal(summary.sales, 241000);
-  // 現金 = 50,000 + 241,000 − 日報の経費明細の合計（75,400）
-  assert.equal(cash.expenses, 75400);
-  assert.equal(cash.balance, 50000 + 241000 - 75400);
-  // 未払い = 給与 32,000 + 家賃 60,000（外注費は 0）
+  // 現金 = 50,000 + 241,000 − 日報の経費明細の合計（77,200）− 返した立替（4,500）
+  assert.equal(cash.expenses, 77200);
+  assert.equal(cash.advancesSettled, 4500);
+  assert.equal(cash.balance, 50000 + 241000 - 77200 - 4500);
+  // 未払い = 給与 32,000 + 家賃 60,000 + まだ返していない立替 30,000（外注費は 0）
   assert.equal(unpaid.payroll, 32000);
   assert.equal(unpaid.outsourcing, 0);
   assert.equal(unpaid.rent, 60000);
-  assert.equal(unpaid.total, 92000);
+  assert.equal(unpaid.advance, 30000);
+  assert.equal(unpaid.total, 122000);
 });
 
-test("お試し版の経費は、汎用の対応表できちんと振り分けられる（雑費に落ちない）", () => {
+test("お試し版の月の経費は「立替も含めた全部」1つで、内訳の足し算が合う", () => {
+  /**
+   * 2026-10-02（kp218）。月の経費が「金庫から出た分」と「立替も含めた全部」の
+   * 2つに分かれていたのを1つに決めた。ここが崩れると、画面・CSV・要約の
+   * どれかだけ違う数字になる。
+   */
+  const ym = "2026-09";
+  const advances = demoAdvances(ym);
+  const summary = summarizeMonth({
+    ym,
+    reports: demoReports(ym),
+    template: templateFor(GENERIC_TEMPLATE.code),
+    settings: demoSettings(ym),
+    advances,
+  });
+  // レジから出た分（77,200）＋立替（34,500）＋日当（32,000）＋家賃（60,000）
+  assert.equal(summary.expenseFromRegister, 77200);
+  assert.equal(summary.expenseFromAdvance, 34500);
+  assert.equal(summary.advanceCount, 2);
+  assert.equal(summary.advanceUnsettled, 30000);
+  assert.equal(
+    summary.expenseTotal,
+    summary.expenseFromRegister +
+      summary.expenseFromAdvance +
+      summary.payroll +
+      summary.outsourcing +
+      summary.rent,
+  );
+  // 科目ごとの合計も、必ず経費の合計と同じ
+  const byAccount = Object.values(summary.expenseByAccount).reduce((t, v) => t + v, 0);
+  assert.equal(byAccount, summary.expenseTotal);
+  assert.equal(summary.profit, summary.sales - summary.expenseTotal);
+});
+
+test("お試し版の経費は科目に自動で振り分けられ、分からない1件だけが「要確認」に残る", () => {
+  /**
+   * 2026-10-02（kp219）。「人の手を借りずに科目が付く」ことと、
+   * 「当てられない行を勝手に決めずに残す」ことの両方を、外から触って
+   * 確かめられるようにするため、わざと1件だけ対応表に無い言葉を入れている。
+   */
   const ym = "2026-09";
   const summary = summarizeMonth({
     ym,
     reports: demoReports(ym),
     template: templateFor(GENERIC_TEMPLATE.code),
     settings: demoSettings(ym),
+    advances: demoAdvances(ym),
   });
-  assert.deepEqual(summary.unmatched, []);
+  assert.equal(summary.unmatched.length, 1);
+  assert.equal(summary.unmatched[0].description, "保健所 検便");
+  assert.equal(summary.unmatched[0].amount, 1800);
+  assert.equal(summary.unmatched[0].from, "register");
+  assert.equal(summary.expenseByAccount.misc, 1800);
+  // 立替2件は、文字から科目が決まっている（要確認に落ちていない）
   assert.equal(summary.expenseByAccount.purchase, 49500); // 肉18,000＋野菜9,500＋肉22,000
-  assert.equal(summary.expenseByAccount.booth_fee, 17700); // 場代8,200＋9,500
-  assert.equal(summary.expenseByAccount.vehicle, 5000); // ガソリン
+  assert.equal(summary.expenseByAccount.booth_fee, 17700 + 30000); // 場代＋立替の出店料
+  assert.equal(summary.expenseByAccount.vehicle, 5000 + 4500); // ガソリン＋立替のガソリン
+  assert.equal(summary.advanceSkipped.length, 0);
 });
 
 // ------------------------------------------------------------------
@@ -476,4 +526,16 @@ test("お試し版に足した入口は、新しい約束も新しい価格も�
       `${name} の入口に「この画面でお支払いは発生しません」が無い`,
     );
   }
+});
+
+test("お試し版から、毎月お渡しする1枚の見本へ進める（f5-1・f5-2）", () => {
+  const raw = fs.readFileSync(
+    path.join(process.cwd(), "app", "keiri", "demo", "board.tsx"),
+    "utf8",
+  );
+  const page = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(
+    page.includes('href="/keiri/monthly-sample"'),
+    "お試し版から1枚の見本への道が無い",
+  );
 });

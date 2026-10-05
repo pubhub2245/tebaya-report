@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { priceLabel } from "@/lib/keiri/caseNumbers";
 import {
+  APPLY_BLANK_MARK,
+  APPLY_TEST_NOTICE,
   keiriApplyNotificationText,
   normalizeKeiriApplication,
   type KeiriApplication,
 } from "@/lib/keiri/apply";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
+import { applyRouteLabel, routeFromNote } from "@/lib/keiri/applyRoutes";
 import { applicationIsReachable } from "@/lib/keiri/notifyHealth";
 import {
   describeLineFailure,
@@ -40,26 +43,64 @@ export const dynamic = "force-dynamic";
 
 const TABLE = "keiri_applications";
 
-/** 倉庫に1行控える。表が無い・鍵が無いなど、どんな理由で失敗しても false を返すだけ */
-async function saveApplication(a: KeiriApplication): Promise<boolean> {
+
+/** 決まりに断られたか（権利が無い・表が無いのとは直し方が違う） */
+function rejectedByPolicy(message: string | null | undefined): boolean {
+  return /row-level security/i.test(String(message ?? ""));
+}
+
+/**
+ * 倉庫に1行控える。表が無い・鍵が無いなど、どんな理由で失敗しても false を返すだけ。
+ *
+ * ★test が true のときは控えを残さず null を返す（2026-10-04・kp228）。
+ */
+async function saveApplication(a: KeiriApplication, test = false): Promise<boolean | null> {
+  // ★試しの1通は控えを残さない（2026-10-04・kp228 を本番で1回通して分かったこと）。
+  //   棚の受け入れの決まり（keiri_applications_insert_only.sql）は
+  //   **status が 'new' の行しか通しません**。試しの行を残すには決まりを緩める必要があり、
+  //   そうすると誰でも好きな status の行を入れられるようになります。
+  //   試しの1通で確かめたいのは「知らせが人に届くか」なので、控えは残さずに
+  //   「残していない」と正直に返します（本物のデータに混ぜないため）。
+  if (test) return null;
   try {
     // 申し込みには連絡先が入るので、ブラウザから読めない合鍵があるときはそちらを使う。
     // 無ければ通常の鍵で入れる（鍵が壊れていても全体が止まらない作り／CLAUDE.md 4-10）。
     const db = serviceClientOrNull() ?? serverClient();
-    const { error } = await db.from(TABLE).insert({
+    const row = {
       shop_name: a.shop_name,
       contact_name: a.contact_name,
       email: a.email,
       phone: a.phone,
       note: a.note,
+      // ★source は必ず "form"。棚の受け入れの決まりが form（と paid_pending）だけを
+      //   通すので、ここを変えると控えが1行も残らなくなります（2026-10-04 実測で確認）。
       source: "form",
       status: "new",
-    });
-    if (error) {
-      console.error(`[経理お申し込み] 控えを残せませんでした: ${error.message}`);
+    };
+    const { error } = await db.from(TABLE).insert(row);
+    if (!error) return true;
+
+    // ★決まりに断られ、かつ空の欄があるときだけ、印を入れてもう1回だけ入れる（f2-1）。
+    //   申し込みが黙って消えるのを防ぐための、最後の1回です。
+    const hasBlank = a.contact_name === "" || a.email === "";
+    if (rejectedByPolicy(error.message) && hasBlank) {
+      const { error: retryError } = await db.from(TABLE).insert({
+        ...row,
+        contact_name: a.contact_name === "" ? APPLY_BLANK_MARK : a.contact_name,
+        email: a.email === "" ? APPLY_BLANK_MARK : a.email,
+      });
+      if (!retryError) {
+        console.warn(
+          "[経理お申し込み] 空の欄に「（未記入）」を入れて控えを残しました" +
+            "（supabase/migrations/keiri_applications_optional_contact.sql を流すと、この回り道は不要になります）",
+        );
+        return true;
+      }
+      console.error(`[経理お申し込み] 控えを残せませんでした: ${retryError.message}`);
       return false;
     }
-    return true;
+    console.error(`[経理お申し込み] 控えを残せませんでした: ${error.message}`);
+    return false;
   } catch (e) {
     console.error("[経理お申し込み] 控えを残せませんでした", e);
     return false;
@@ -77,10 +118,13 @@ async function saveApplication(a: KeiriApplication): Promise<boolean> {
  *   理由が分からないと直せないので、返事に短い印として載せます。
  *   **合言葉も送り先のIDも載せません。**
  */
-async function notifyApplication(a: KeiriApplication): Promise<LineSendResult> {
+async function notifyApplication(
+  a: KeiriApplication,
+  test = false,
+): Promise<LineSendResult> {
   try {
     return await sendLineGroupMessageDetailed(
-      keiriApplyNotificationText({ application: a, priceLabel: priceLabel() }),
+      keiriApplyNotificationText({ application: a, priceLabel: priceLabel(), test }),
     );
   } catch (e) {
     console.error("[経理お申し込み] 知らせを送れませんでした", e);
@@ -99,6 +143,37 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  /**
+   * 試しの1通か（2026-10-04・kp228）。
+   *
+   * ■ なぜ要るか
+   *   本物のお申し込みが0件のあいだ、知らせの道は**一度も通っていません**。
+   *   いちばん高くつくのは、最初の1件が来た日に知らせが飛ばず、
+   *   誰も気づかないまま置かれることです。本物を待たずに1回通せるようにします。
+   *
+   * ■ 守ること
+   *   ・知らせの本文には必ず「これはテストです」が入る（文を作る1か所で付けている）
+   *   ・控えは残さない（棚の決まりは status が 'new' の行しか通さないので、
+   *     試しの行を残そうとすると決まりを緩めることになる）。本物の件数には1件も混ざりません
+   *   ・それ以外の道（入力の確かめ方・送り方・控えの残し方）は本物とまったく同じ
+   */
+  const test = (body as Record<string, unknown> | null)?.test === true;
+  /**
+   * 「下見だけ」（2026-10-04・kp236・f2-3）。
+   *
+   * ■ なぜ要るか
+   *   お申し込みの道は6つ（紙・見せる1枚・お試し・アプリ・倉庫の表紙・その場で登録）
+   *   あります。「どこから来たかが残るか」を確かめるには1本ずつ通したいのですが、
+   *   試しの1通でもスタッフのLINEへ知らせが飛ぶので、6回通すと6通 届きます。
+   *   そこで **何も送らず・何も書かず、控えに入るはずの中身だけを返す道**を1つ足します。
+   *
+   * ■ 守ること
+   *   ・test が true のときだけ効く（本物の申し込みの返事は1文字も変わりません）
+   *   ・LINE へ送らない／倉庫に1行も書かない（読むことすらしません）
+   *   ・返すのは**送られてきた中身を整えた結果**だけ。倉庫の中身は1行も出しません
+   */
+  const dryRun = test && (body as Record<string, unknown> | null)?.dryRun === true;
+
   const parsed = normalizeKeiriApplication((body ?? {}) as Record<string, unknown>);
 
   if (!parsed.ok) {
@@ -108,11 +183,37 @@ export async function POST(req: NextRequest) {
   // 機械の書き込み。画面には成功と同じ顔を見せ、誰にも知らせない
   if (parsed.spam) return NextResponse.json({ ok: true });
 
+  if (dryRun) {
+    // ★ここで終わり。知らせも控えも、読み取りもしません。
+    const route = routeFromNote(parsed.value.note);
+    return NextResponse.json({
+      ok: true,
+      test: true,
+      dryRun: true,
+      notified: false,
+      saved: null,
+      savedNote:
+        "下見だけなので、知らせも控えも出していません（控えに入るはずの中身だけを返しています）",
+      route,
+      routeLabel: applyRouteLabel(route),
+      wouldSave: {
+        shop_name: parsed.value.shop_name,
+        contact_name: parsed.value.contact_name,
+        email: parsed.value.email,
+        phone: parsed.value.phone,
+        note: parsed.value.note,
+      },
+      notice: APPLY_TEST_NOTICE,
+    });
+  }
+
   // 知らせと控えは同時に走らせる。片方が遅くても、もう片方は待たされない
-  const [notifyResult, saved] = await Promise.all([
-    notifyApplication(parsed.value),
-    saveApplication(parsed.value),
+  const [notifyResult, savedResult] = await Promise.all([
+    notifyApplication(parsed.value, test),
+    saveApplication(parsed.value, test),
   ]);
+  // null＝試しの1通なので控えを残していない（「失敗した」ではない）
+  const saved = savedResult === true;
   const notified = notifyResult.ok;
   // 失敗の理由（人の言葉・1行）。届いたときは null
   const notifyNote = notifyResult.ok
@@ -154,5 +255,21 @@ export async function POST(req: NextRequest) {
 
   // ★notifyNote は「なぜ知らせが届かなかったか」の1行（2026-09-28・kp198）。
   //   届いたときは null。合言葉・送り先のIDは入りません。
-  return NextResponse.json({ ok: true, notified, saved, reachable, notifyNote });
+  // ★test のときだけ、外から確かめられるように印を返す（本物の返事は1文字も変わらない）
+  return test
+    ? NextResponse.json({
+        ok: true,
+        test: true,
+        notified,
+        saved: savedResult,
+        savedNote:
+          "試しの1通なので、控えは残していません（棚の決まりは本物の申し込みだけを通します）",
+        reachable,
+        notifyNote,
+        // ★どの道から来たかも返す（f2-3・控えに残るのと同じ1行から読み戻している）
+        route: routeFromNote(parsed.value.note),
+        routeLabel: applyRouteLabel(routeFromNote(parsed.value.note)),
+        notice: APPLY_TEST_NOTICE,
+      })
+    : NextResponse.json({ ok: true, notified, saved, reachable, notifyNote });
 }

@@ -55,7 +55,19 @@ test("外向きページは1つ残らず、自分の題名のカードを持っ�
   //   send … じゅんだけが開く「送る1枚」（noindex・sitemap にも載せない・kp162）
   //   show … じゅんだけが開く「その場で見せる1枚」（noindex・sitemap にも載せない・kp191）
   //   card … じゅんだけが開く「印刷用の紙1枚」（noindex・sitemap にも載せない・kp193）
-  const skip = new Set(["welcome", "advances", "components", "send", "show", "card"]);
+  //   （plan-draft は 2026-10-03 に /keiri/plan へ移し、送り先は next.config.js に書いた）
+  //   monthly … 合言葉の内側。**実際のお店の数字**を出す1枚（kp231・外に出さない）
+  //   sql … じゅんだけが開く「倉庫に1回だけ流す貼り紙」（noindex・kp237）
+  const skip = new Set([
+    "welcome",
+    "advances",
+    "components",
+    "send",
+    "show",
+    "card",
+    "monthly",
+    "sql",
+  ]);
   const missing: string[] = [];
   const walk = (d: string, rel: string) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
