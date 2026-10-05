@@ -391,6 +391,16 @@ export default async function KeiriCasePage({
             </div>
           )}
         </dl>
+        {/*
+          利益の枠が消えているときは、黙って消さずに理由を1行だけ書く。
+          数字が出ていないことより、「なぜ出していないか」が分からないほうが不安なため。
+        */}
+        {c.profitMan === null && (
+          <p className="mt-3 text-xs text-stone-500 leading-relaxed">
+            ※ {c.month}の利益は、まだ出していません。同じ支払いが二重に入っていないかの確かめが残っているためです。
+            <strong className="font-bold">確かめがつくまで数字を出さない</strong>のが、この仕組みの決まりです。
+          </p>
+        )}
         <p className="mt-4 text-sm text-stone-600 leading-relaxed">
           手羽屋では、スタッフが営業後にスマホで日報を書くだけ。オーナーは経理画面を開けば、その月のもうけと手元のお金がその場で分かります。
           給与・外注費・家賃のような「あとでまとめて払うお金」も、払い忘れが出ないように別に数えています。
