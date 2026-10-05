@@ -21,6 +21,7 @@
 import { supabase } from "../supabase";
 import { applyTenantScope, isTebayaScope, type TenantScope } from "../tenantScope";
 import { normalizeFieldAdvance, normalizeOwnerAdvance } from "./advances";
+import { normalizeCashEvents, type CashEvent } from "./cashCheck";
 import type {
   KeiriAdvance,
   KeiriPayment,
@@ -35,6 +36,14 @@ export type KeiriMonthData = {
   reports: KeiriReport[];
   payments: (KeiriPayment & { id: number })[];
   advances: KeiriAdvance[];
+  /**
+   * 金庫を数えた記録と、銀行に入れた記録（kp233・f1-4）。
+   * ★棚（keiri_cash_events）がまだ無い倉庫でも落ちないように、
+   *   読めなければ**空のまま**にする（＝画面は今までどおり何も出さない）。
+   */
+  cashEvents: CashEvent[];
+  /** 棚がまだ無い（＝貼り紙を流していない）か */
+  cashShelfMissing: boolean;
 };
 
 export async function loadKeiriMonth(params: {
@@ -110,11 +119,32 @@ export async function loadKeiriMonth(params: {
     }
   }
 
+  // 金庫を数えた記録・銀行に入れた記録。
+  // ★棚がまだ無い倉庫では、ここで落とさずに「棚が無い」とだけ覚えて先へ進む。
+  //   流す前の本番が今までどおり動くための肝（kp237 ⑤）。
+  let cashEvents: CashEvent[] = [];
+  let cashShelfMissing = false;
+  {
+    const cashQuery = supabase
+      .from("keiri_cash_events")
+      .select("kind, happened_on, amount, actor, note");
+    const { data: cash, error: cErr } = await applyTenantScope<any>(cashQuery as any, scope)
+      .gte("happened_on", gte)
+      .order("happened_on", { ascending: false });
+    if (cErr) {
+      cashShelfMissing = true;
+    } else {
+      cashEvents = normalizeCashEvents((cash as unknown[]) ?? []);
+    }
+  }
+
   return {
     settings,
     settingsMissing: !s,
     reports: (reps as KeiriReport[]) ?? [],
     payments: (pays as (KeiriPayment & { id: number })[]) ?? [],
     advances,
+    cashEvents,
+    cashShelfMissing,
   };
 }

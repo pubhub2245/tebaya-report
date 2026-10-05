@@ -477,6 +477,11 @@ export type CashPosition = {
    * ★立て替えた日ではなく**返した日**に金庫から出ます（kp218・lib/money.ts と同じ数え方）。
    */
   advancesSettled: number;
+  /**
+   * 期首日以降に銀行へ入れた（預け入れた）合計。
+   * ★経費ではありません。利益には1円も入れず、**現金だけ**が減ります（kp233・f1-4）。
+   */
+  deposits: number;
   /** 今の現金 */
   balance: number;
 };
@@ -502,11 +507,29 @@ export function calcCashPosition(params: {
   settings: KeiriSettings;
   /** 立替（渡さなければ無しとして数える） */
   advances?: KeiriAdvance[];
+  /**
+   * 売上の現金を銀行に入れた記録（渡さなければ無しとして数える・kp233）。
+   * ★現金が減る道のうち、ここだけが「経費ではない」もの。
+   *   科目別の経費・利益には**絶対に混ぜないこと**（混ぜると利益を間違えます）。
+   */
+  deposits?: { date: string; amount: number }[];
+  /**
+   * 「この日の時点での残高」を出したいときに渡す（YYYY-MM-DD）。
+   * 渡さなければ今までどおり**今日まで全部**を数える。
+   * 金庫を数えた日と突き合わせるために足した（kp233・f1-4）。
+   */
+  asOf?: string;
 }): CashPosition {
   const { reports, payments, settings } = params;
   const advances = params.advances ?? [];
   const from = settings.opening_date;
-  const since = reports.filter((r) => typeof r.date === "string" && r.date >= from);
+  const asOf = params.asOf;
+  /** その日までか（asOf を渡していなければ、いつでも数える） */
+  const upTo = (d: unknown): boolean =>
+    !asOf || (typeof d === "string" && d <= asOf);
+  const since = reports.filter(
+    (r) => typeof r.date === "string" && r.date >= from && upTo(r.date),
+  );
 
   const sales = since.reduce((s, r) => s + (Number(r.sales_amount) || 0), 0);
   const expenses = since.reduce(
@@ -514,10 +537,12 @@ export function calcCashPosition(params: {
       s + expenseItemsOf(r.expenses).reduce((t, item) => t + amountOf(item), 0),
     0,
   );
+  // 支払いは「払った日（paid_on）」で数える（sumPayments と同じ欄）
+  const paidTargets = payments.filter((p) => upTo(p.paid_on));
   const paid =
-    sumPayments(payments, "payroll", from) +
-    sumPayments(payments, "outsourcing", from) +
-    sumPayments(payments, "rent", from);
+    sumPayments(paidTargets, "payroll", from) +
+    sumPayments(paidTargets, "outsourcing", from) +
+    sumPayments(paidTargets, "rent", from);
 
   // 返した（精算した）立替は、返した日に金庫から出る
   const advancesSettled = advances
@@ -525,9 +550,14 @@ export function calcCashPosition(params: {
     .filter((a) => a.settled === true)
     .filter((a) => {
       const d = a.settledDate || a.date;
-      return typeof d === "string" && d >= from;
+      return typeof d === "string" && d >= from && upTo(d);
     })
     .reduce((s, a) => s + (Number(a.amount) || 0), 0);
+
+  // 銀行に入れた分。経費ではないので、ここでしか引かない
+  const deposits = (params.deposits ?? [])
+    .filter((d) => typeof d.date === "string" && d.date >= from && upTo(d.date))
+    .reduce((s, d) => s + (Number(d.amount) || 0), 0);
 
   const opening = Number(settings.opening_balance) || 0;
 
@@ -538,7 +568,8 @@ export function calcCashPosition(params: {
     expenses,
     paid,
     advancesSettled,
-    balance: opening + sales - expenses - paid - advancesSettled,
+    deposits,
+    balance: opening + sales - expenses - paid - advancesSettled - deposits,
   };
 }
 
