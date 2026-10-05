@@ -19,6 +19,13 @@
  */
 
 import { serverClient } from "@/lib/supabaseServer";
+import {
+  applyTenantScope,
+  businessCodeForScope,
+  isTebayaScope,
+  TEBAYA_SCOPE,
+  type TenantScope,
+} from "@/lib/tenantScope";
 import { normalizeFieldAdvance, normalizeOwnerAdvance } from "@/lib/keiri/advances";
 import { normalizeCashEvents, type CashEvent } from "@/lib/keiri/cashCheck";
 import { defaultSettingsFor } from "@/lib/keiri/index";
@@ -43,6 +50,14 @@ export type KeiriMonthServerData = {
   cashEvents: CashEvent[];
   /** 金庫の記録の棚がまだ無いか（貼り紙を流していない） */
   cashShelfMissing: boolean;
+  /**
+   * 立替の棚を**読まずに飛ばした**か（手羽屋以外のお店のとき）。
+   * ★立替の2つの棚には「どの店のものか」の欄がまだ無いので、
+   *   よそのお店として読むと**手羽屋の立替が混ざります**。
+   *   そこで画面側（lib/keiri/loadMonth.ts）と同じ決まりにして、手羽屋のときだけ読みます。
+   *   「0件だった」と取り違えないように、飛ばしたことを必ず返します。
+   */
+  advancesSkipped: boolean;
 };
 
 /** YYYY-MM-DD を日数ぶんずらす */
@@ -62,12 +77,24 @@ export async function loadKeiriMonthServer(params: {
    * 事例ページはその月だけでよく、1枚の要約は現金の積み上げに過去も要る。
    */
   monthOnly?: boolean;
+  /**
+   * どのお店として読むか。既定は手羽屋（印が空）。
+   * ★ここを渡さなかったときの結果は、これまでと1行も変わりません。
+   */
+  scope?: TenantScope;
+  /**
+   * 倉庫につなぐ物を差し替える口（テスト専用）。
+   * 渡さなければ、いつもどおりサーバー側の読み取り用でつなぐ。
+   */
+  db?: unknown;
 }): Promise<KeiriMonthServerData> {
   const { ym, businessCode } = params;
+  const scope: TenantScope = params.scope ?? TEBAYA_SCOPE;
+  const tebaya = isTebayaScope(scope);
   const monthStart = `${ym}-01`;
   const monthEndDate = shiftDate(shiftDate(monthStart, 32).slice(0, 7) + "-01", -1);
 
-  const db = serverClient();
+  const db = (params.db as ReturnType<typeof serverClient>) ?? serverClient();
 
   // 設定（数え始めの日・期首残高・外注費の率・家賃）
   const { data: s } = await db
@@ -92,11 +119,12 @@ export async function loadKeiriMonthServer(params: {
   let reports: KeiriReport[] = [];
   let reportsUnreadable = false;
   {
-    let q = db
-      .from("keiri_reports")
-      .select("date, location, staff_name, shop, sales_amount, labor, expenses")
-      .is("tenant_id", null)
-      .gte("date", from);
+    let q = applyTenantScope<any>(
+      db
+        .from("keiri_reports")
+        .select("date, location, staff_name, shop, sales_amount, labor, expenses") as any,
+      scope,
+    ).gte("date", from);
     if (params.monthOnly) q = q.lte("date", monthEndDate);
     const { data, error } = await q.order("date");
     if (error) reportsUnreadable = true;
@@ -120,34 +148,42 @@ export async function loadKeiriMonthServer(params: {
   const advTo = shiftDate(monthEndDate, 40);
   const advances: KeiriAdvance[] = [];
   let advancesUnreadable = false;
-  {
-    const { data, error } = await db
-      .from("keiri_advance_expenses")
-      .select("expense_date, amount, payer, source_type, memo")
-      .eq("business_type_code", businessCode)
-      .gte("expense_date", advFrom)
-      .lte("expense_date", advTo);
-    if (error) advancesUnreadable = true;
-    for (const row of (data as any[]) ?? []) advances.push(normalizeFieldAdvance(row));
-  }
-  {
-    const { data, error } = await db
-      .from("advance_expenses")
-      .select("date, amount, payer, description, settled, settled_date")
-      .gte("date", advFrom)
-      .lte("date", advTo);
-    if (error) advancesUnreadable = true;
-    for (const row of (data as any[]) ?? []) advances.push(normalizeOwnerAdvance(row));
+  // ★立替の2つの棚には「どの店のものか」の欄がまだ無い。
+  //   よその店として読むと手羽屋の立替が混ざるので、手羽屋のときだけ読む
+  //   （画面側 lib/keiri/loadMonth.ts と同じ決まり。CLAUDE.md 5-3）。
+  const advancesSkipped = !tebaya;
+  if (tebaya) {
+    {
+      const { data, error } = await db
+        .from("keiri_advance_expenses")
+        .select("expense_date, amount, payer, source_type, memo")
+        .eq("business_type_code", businessCode)
+        .gte("expense_date", advFrom)
+        .lte("expense_date", advTo);
+      if (error) advancesUnreadable = true;
+      for (const row of (data as any[]) ?? []) advances.push(normalizeFieldAdvance(row));
+    }
+    {
+      const { data, error } = await db
+        .from("advance_expenses")
+        .select("date, amount, payer, description, settled, settled_date")
+        .gte("date", advFrom)
+        .lte("date", advTo);
+      if (error) advancesUnreadable = true;
+      for (const row of (data as any[]) ?? []) advances.push(normalizeOwnerAdvance(row));
+    }
   }
 
   // 金庫を数えた記録。棚がまだ無い倉庫でも落とさずに先へ進む。
   let cashEvents: CashEvent[] = [];
   let cashShelfMissing = false;
   {
-    const { data, error } = await db
-      .from("keiri_cash_events")
-      .select("kind, happened_on, amount, actor, note")
-      .is("tenant_id", null)
+    const { data, error } = await applyTenantScope<any>(
+      db
+        .from("keiri_cash_events")
+        .select("kind, happened_on, amount, actor, note") as any,
+      scope,
+    )
       .gte("happened_on", from)
       .order("happened_on", { ascending: false });
     if (error) cashShelfMissing = true;
@@ -164,5 +200,14 @@ export async function loadKeiriMonthServer(params: {
     advancesUnreadable,
     cashEvents,
     cashShelfMissing,
+    advancesSkipped,
   };
+}
+
+/**
+ * 渡された業態コードと「どのお店か」の印が食い違っていないか。
+ * （手羽屋のコードでよそのお店として読む、のような取り違えを早く見つけるため）
+ */
+export function businessCodeMatchesScope(businessCode: string, scope: TenantScope): boolean {
+  return businessCodeForScope(scope) === businessCode;
 }
