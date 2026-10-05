@@ -25,6 +25,8 @@ import { supabase } from "@/lib/supabase";
 import {
   businessCodeForScope,
   readTenantScope,
+  tenantStamp,
+  type TenantScope,
 } from "@/lib/tenantScope";
 import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
@@ -57,6 +59,14 @@ import {
 } from "@/lib/keiri/moneyforward";
 import { toYayoiCsv, yayoiFileName } from "@/lib/keiri/yayoi";
 import { loadKeiriMonth } from "@/lib/keiri/loadMonth";
+import {
+  depositsOf,
+  latestCount,
+  monthDay,
+  reconcileCash,
+  reconcileLines,
+  type CashEvent,
+} from "@/lib/keiri/cashCheck";
 import { shopScopeSentence } from "@/lib/keiri/shopScope";
 import {
   PAYMENT_KIND_LABEL,
@@ -139,6 +149,10 @@ function KeiriInner() {
    * ★月の経費は「立替も含めた全部」で1つに決めています（kp218）。
    */
   const [advances, setAdvances] = useState<KeiriAdvance[]>([]);
+  // 金庫を数えた記録・銀行に入れた記録（kp233・f1-4）。
+  // ★棚（keiri_cash_events）がまだ無い倉庫では空のまま＝この画面は今までどおり。
+  const [cashEvents, setCashEvents] = useState<CashEvent[]>([]);
+  const [cashShelfMissing, setCashShelfMissing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   /**
@@ -193,6 +207,8 @@ function KeiriInner() {
       setReports(data.reports);
       setPayments(data.payments);
       setAdvances(data.advances);
+      setCashEvents(data.cashEvents);
+      setCashShelfMissing(data.cashShelfMissing);
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
@@ -211,9 +227,38 @@ function KeiriInner() {
     [ym, reports, template, effective, advances],
   );
 
+  // 銀行に入れた分は**現金だけ**を減らす（経費・利益には入れない・kp233）
+  const deposits = useMemo(() => depositsOf(cashEvents), [cashEvents]);
+
   const cash = useMemo(
-    () => calcCashPosition({ reports, payments, settings: effective, advances }),
-    [reports, payments, effective, advances],
+    () =>
+      calcCashPosition({ reports, payments, settings: effective, advances, deposits }),
+    [reports, payments, effective, advances, deposits],
+  );
+
+  /**
+   * 金庫を数えた記録との突き合わせ（kp233・f1-4）。
+   *
+   * ★今日の計算上の残高を、2週間前に数えた金額と比べても意味がないので、
+   *   **数えた日の時点の計算上の残高**（asOf）と比べる。
+   */
+  const lastCount = useMemo(() => latestCount(cashEvents), [cashEvents]);
+
+  const computedAtCount = useMemo(() => {
+    if (!lastCount) return null;
+    return calcCashPosition({
+      reports,
+      payments,
+      settings: effective,
+      advances,
+      deposits,
+      asOf: lastCount.happened_on,
+    }).balance;
+  }, [lastCount, reports, payments, effective, advances, deposits]);
+
+  const reconcile = useMemo(
+    () => reconcileCash({ events: cashEvents, computedAtCount, today: todayStr() }),
+    [cashEvents, computedAtCount],
   );
 
   // 家賃は「今月まで」を数えるので、今日の月を渡す
@@ -719,6 +764,19 @@ function KeiriInner() {
         </section>
       )}
 
+      {/* 金庫の突き合わせ（2026-10-05・kp233・f1-4）。
+          ★棚（keiri_cash_events）がまだ無いあいだは**何も出さない**。
+            流す前の本番が今までどおり動くため（kp237 ⑤）。 */}
+      {!cashShelfMissing && (
+        <CashCountCard
+          reconcile={reconcile}
+          balanceNow={cash.balance}
+          depositsTotal={cash.deposits}
+          scope={scope}
+          onSaved={load}
+        />
+      )}
+
       {/* 毎月お渡しする1枚（2026-10-04・kp231）。
           数字は書き写しません。この画面と同じ計算（lib/keiri/oneSheet.ts）を通ります。 */}
       <section className="card space-y-2">
@@ -1181,6 +1239,203 @@ function SettingsSection({
           </button>
           {msg && <p className="text-sm font-semibold">{msg}</p>}
         </div>
+      )}
+    </section>
+  );
+}
+
+/* ================================================================
+ *  金庫を数えた記録と、銀行に入れた記録（kp233・f1-4）
+ *
+ *  ■ なぜ要るのか
+ *    「今の現金」はこれまで計算上の値だけで、**実際に数えた相手が無い**ため
+ *    合っているかを確かめられませんでした。さらに売上の現金を銀行に入れた記録も
+ *    無かったので、計算上の現金は増え続ける一方でした。
+ *
+ *  ■ 差が出ても黙って合わせない
+ *    金額をこちらで直すことはしません。何が足りていないかを言葉で出して、
+ *    人に確かめてもらいます（レシートの税込と同じ考え方・CLAUDE.md 4-12）。
+ *
+ *  ■ 画面の言葉
+ *    司令室の材料（meta/keiri-material-kinko-kotoba・B2）をそのまま使っています。
+ * ================================================================ */
+function CashCountCard({
+  reconcile,
+  balanceNow,
+  depositsTotal,
+  scope,
+  onSaved,
+}: {
+  reconcile: ReturnType<typeof reconcileCash>;
+  balanceNow: number;
+  depositsTotal: number;
+  scope: TenantScope;
+  onSaved: () => void;
+}) {
+  const [countOn, setCountOn] = useState(todayStr());
+  const [countYen, setCountYen] = useState("");
+  const [countNote, setCountNote] = useState("");
+  const [depositOn, setDepositOn] = useState(todayStr());
+  const [depositYen, setDepositYen] = useState("");
+  const [saving, setSaving] = useState<null | "count" | "deposit">(null);
+  const [msg, setMsg] = useState("");
+
+  const save = async (kind: "count" | "deposit") => {
+    const on = kind === "count" ? countOn : depositOn;
+    const raw = kind === "count" ? countYen : depositYen;
+    const amount = Number(raw);
+    if (!on || !Number.isFinite(amount) || amount < 0 || raw === "") {
+      setMsg("日付と金額を入れてください（金額は0以上）");
+      return;
+    }
+    setSaving(kind);
+    setMsg("");
+    const { error } = await supabase.from("keiri_cash_events").insert({
+      kind,
+      happened_on: on,
+      amount: Math.round(amount),
+      note: kind === "count" ? countNote || null : null,
+      ...tenantStamp(scope),
+    });
+    setSaving(null);
+    if (error) {
+      setMsg(`保存できませんでした：${error.message}`);
+      return;
+    }
+    if (kind === "count") {
+      setCountYen("");
+      setCountNote("");
+    } else {
+      setDepositYen("");
+    }
+    setMsg("✅ 記録しました");
+    onSaved();
+  };
+
+  const lines = reconcileLines(reconcile);
+
+  return (
+    <section className="card space-y-3">
+      <h2 className="text-lg font-bold text-brand-dark">🔐 金庫を数えて、合っているか見る</h2>
+
+      {reconcile.neverCounted ? (
+        <p className="text-sm text-stone-700 leading-relaxed">{reconcile.verdict}</p>
+      ) : (
+        <div className="rounded-lg bg-stone-100 px-4 py-3 space-y-1">
+          {lines.map((l) => (
+            <p key={l} className="text-sm text-stone-800 tabular-nums">
+              {l}
+            </p>
+          ))}
+          <p
+            className={
+              "text-sm font-bold " +
+              (reconcile.diff === 0 ? "text-emerald-700" : "text-stone-900")
+            }
+          >
+            {reconcile.verdict}
+          </p>
+          {reconcile.stale && (
+            <p className="text-xs text-amber-700">{reconcile.stale}</p>
+          )}
+        </div>
+      )}
+
+      <p className="text-xs text-stone-500 leading-relaxed">
+        いまの計算上の現金は {yen(balanceNow)} です
+        {depositsTotal > 0 ? `（うち銀行に入れた ${yen(depositsTotal)} は引いてあります）` : ""}。
+        数えた日の時点までで比べているので、数えたあとの売上や支払いは上の差には入りません。
+      </p>
+
+      {/* ① 金庫を数えた */}
+      <div className="pt-3 border-t border-stone-200 space-y-2">
+        <h3 className="text-sm font-bold text-brand-dark">金庫を数えた日</h3>
+        <p className="text-xs text-stone-600 leading-relaxed">
+          お札と小銭を数えた金額を、そのまま入れてください。月に1回で大丈夫です。
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="label">数えた日</label>
+            <input
+              type="date"
+              className="field"
+              value={countOn}
+              onChange={(e) => setCountOn(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label">金庫にあった金額（円）</label>
+            <input
+              type="number"
+              inputMode="numeric"
+              className="field"
+              value={countYen}
+              onChange={(e) => setCountYen(e.target.value)}
+              placeholder="例：145000"
+            />
+          </div>
+          <div>
+            <label className="label">ひとこと（書かなくてもよい）</label>
+            <input
+              type="text"
+              className="field"
+              value={countNote}
+              onChange={(e) => setCountNote(e.target.value)}
+              placeholder="例：差の理由に心当たりなし"
+            />
+          </div>
+        </div>
+        <button
+          className="btn-primary w-full"
+          onClick={() => void save("count")}
+          disabled={saving !== null}
+        >
+          {saving === "count" ? "保存中…" : "この金額で記録する"}
+        </button>
+      </div>
+
+      {/* ② 銀行に入れた */}
+      <div className="pt-3 border-t border-stone-200 space-y-2">
+        <h3 className="text-sm font-bold text-brand-dark">売上を銀行に入れた</h3>
+        <p className="text-xs text-stone-600 leading-relaxed">
+          金庫から銀行に移した金額を入れてください。利益は変わらず、金庫の現金だけ減ります。
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="label">入れた日</label>
+            <input
+              type="date"
+              className="field"
+              value={depositOn}
+              onChange={(e) => setDepositOn(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label">金額（円）</label>
+            <input
+              type="number"
+              inputMode="numeric"
+              className="field"
+              value={depositYen}
+              onChange={(e) => setDepositYen(e.target.value)}
+              placeholder="例：300000"
+            />
+          </div>
+        </div>
+        <button
+          className="btn-secondary w-full"
+          onClick={() => void save("deposit")}
+          disabled={saving !== null}
+        >
+          {saving === "deposit" ? "保存中…" : "預け入れを記録する"}
+        </button>
+      </div>
+
+      {msg && <p className="text-sm font-semibold">{msg}</p>}
+      {reconcile.countedOn && (
+        <p className="text-xs text-stone-400">
+          最後に数えた日：{monthDay(reconcile.countedOn)}
+        </p>
       )}
     </section>
   );

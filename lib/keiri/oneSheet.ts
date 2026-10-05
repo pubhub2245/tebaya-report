@@ -33,6 +33,7 @@ import {
   mergedExpenseByAccount,
   summarizeMonth,
 } from "./aggregate";
+import { depositsOf, latestCount, type CashEvent } from "./cashCheck";
 import { findDuplicateExpenses } from "./duplicates";
 import {
   shopScopeNotes,
@@ -233,6 +234,12 @@ export type OneSheetInput = {
    *   ここに渡すのは「しぼった」ことを断り書きに出すためだけです。
    */
   shopFilter?: string | null;
+  /**
+   * 金庫を数えた記録と、銀行に入れた記録（kp233・f1-4）。
+   * ★渡さなければ今までどおり（期首の金額を「最後に数えた額」として出す）。
+   *   棚がまだ無い倉庫でも1枚は今までと同じ数字で出ます。
+   */
+  cashEvents?: CashEvent[];
 };
 
 /** 日本時間の今日（YYYY-MM-DD）。置いてあるサーバーの時計は日本時間ではないため */
@@ -270,10 +277,21 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     madeOn = jstToday(),
     previewRows = SAMPLE_JOURNAL_PREVIEW_ROWS,
     shopFilter = null,
+    cashEvents = [],
   } = input;
 
   const summary = summarizeMonth({ ym, reports, template, settings, advances });
-  const cash = calcCashPosition({ reports, payments, settings, advances });
+  // 銀行に入れた分は**現金だけ**を減らす（経費・利益には1円も入れない・kp233）
+  const cash = calcCashPosition({
+    reports,
+    payments,
+    settings,
+    advances,
+    deposits: depositsOf(cashEvents),
+  });
+  // 「最後に実際に数えた日」は、金庫を数えた記録があればそちらが正。
+  // 無ければ今までどおり期首（数え始めの日）を出す。
+  const counted = latestCount(cashEvents);
   const unpaid = calcUnpaid({ reports, payments, settings, currentYm, advances });
 
   const merged = mergedExpenseByAccount(summary.expenseByAccount);
@@ -420,8 +438,8 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     expenseCheck,
     cash: {
       balance: cash.balance,
-      countedOn: cash.openingDate,
-      countedYen: cash.openingBalance,
+      countedOn: counted ? counted.happened_on : cash.openingDate,
+      countedYen: counted ? counted.amount : cash.openingBalance,
     },
     unpaid: { total: unpaid.total, lines: unpaidLines },
     review,

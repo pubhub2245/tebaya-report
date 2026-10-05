@@ -129,6 +129,9 @@ function MonthlyInner() {
       currentYm: todayYm,
       // 「◯月◯日に作りました」に出す日（出した日が紙に残るように）
       madeOn: today,
+      // 金庫を数えた記録・銀行に入れた記録（kp233）。
+      // 棚がまだ無い倉庫では空なので、1枚の数字は今までどおり。
+      cashEvents: data.cashEvents,
     });
   }, [data, ym, monthLabel, shopName, shopFilter, template, todayYm, today]);
 
