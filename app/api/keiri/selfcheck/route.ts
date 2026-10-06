@@ -5,6 +5,7 @@ import { buildOneSheet } from "@/lib/keiri/oneSheet";
 import { buildSelfCheck, unreadableSelfCheck } from "@/lib/keiri/selfCheck";
 import { previousMonthRange, CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import { templateFor } from "@/lib/keiri/index";
+import { CHECK_WINDOW_HEADERS } from "@/lib/keiri/checkWindow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,12 +26,12 @@ export async function GET() {
   try {
     const data = await loadKeiriMonthServer({ ym, businessCode: CASE_BUSINESS_CODE });
     if (data.reportsUnreadable) {
-      return NextResponse.json(
+      return jsonWindow(
         unreadableSelfCheck({ month: label, ym, reason: "日報の棚が読めませんでした" }),
       );
     }
     if (data.advancesUnreadable) {
-      return NextResponse.json(
+      return jsonWindow(
         unreadableSelfCheck({
           month: label,
           ym,
@@ -39,7 +40,7 @@ export async function GET() {
       );
     }
     if (data.reports.length === 0) {
-      return NextResponse.json(
+      return jsonWindow(
         unreadableSelfCheck({ month: label, ym, reason: "その月の日報が1件もありません" }),
       );
     }
@@ -56,10 +57,15 @@ export async function GET() {
       cashEvents: data.cashEvents,
     });
 
-    return NextResponse.json(buildSelfCheck({ month: label, ym, sheet }));
+    return jsonWindow(buildSelfCheck({ month: label, ym, sheet }));
   } catch {
-    return NextResponse.json(
+    return jsonWindow(
       unreadableSelfCheck({ month: label, ym, reason: "倉庫との通信に失敗しました" }),
     );
   }
+}
+
+/** 窓口の返事（保存させない・検索結果には載せない。lib/keiri/checkWindow.ts） */
+function jsonWindow(body: unknown): NextResponse {
+  return NextResponse.json(body, { status: 200, headers: CHECK_WINDOW_HEADERS });
 }
