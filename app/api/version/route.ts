@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { BUILD_STAMP, parseBuildStamp } from "@/lib/buildStamp";
+import { CHECK_WINDOW_HEADERS } from "@/lib/keiri/checkWindow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,10 +38,8 @@ export async function GET() {
     },
     {
       status: 200,
-      headers: {
-        // この窓口だけは、どこにも保存させない（保存されたら意味が無い）
-        "Cache-Control": "no-store, max-age=0, must-revalidate",
-      },
+      // どこにも保存させない（保存されたら意味が無い）／検索結果には載せない
+      headers: CHECK_WINDOW_HEADERS,
     },
   );
 }

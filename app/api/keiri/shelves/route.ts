@@ -8,6 +8,7 @@ import {
   type ShelfProbe,
   type ShelfReport,
 } from "@/lib/keiri/shelves";
+import { CHECK_WINDOW_HEADERS } from "@/lib/keiri/checkWindow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,7 +65,7 @@ export async function GET() {
 
   const summary = summarizeShelves(reports);
 
-  return NextResponse.json({
+  return jsonWindow({
     ...summary,
     sheet: "/keiri/sql",
     file: "supabase/migrations/keiri_shelves_20261005.sql",
@@ -75,4 +76,9 @@ export async function GET() {
       note: "申し込みの控えが残るかは records.applications に出ます（この窓口では見ません）",
     },
   });
+}
+
+/** 窓口の返事（保存させない・検索結果には載せない。lib/keiri/checkWindow.ts） */
+function jsonWindow(body: unknown): NextResponse {
+  return NextResponse.json(body, { status: 200, headers: CHECK_WINDOW_HEADERS });
 }

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { MetadataRoute } from "next";
 
 import { KEIRI_PUBLIC_PAGES } from "@/app/keiri/components/nav";
+import { CHECK_WINDOW_PATHS } from "@/lib/keiri/checkWindow";
 import { PUBLIC_SITE_URL } from "@/lib/keiri/siteUrl";
 
 /**
@@ -77,6 +78,17 @@ function googleVerificationPaths(): string[] {
  */
 const ALWAYS_ALLOWED = ["/sitemap.xml", "/robots.txt"];
 
+/**
+ * 「外から確かめる窓口」も読んでよいことにする（2026-10-06）。
+ *
+ * ★なぜ：ここをことわっていたので、**検査役が窓口を開けませんでした**。
+ *   自動で読む道具は、ことわられた住所を読まないためです。
+ *   ＝ こちらが「外から確かめられます」と言っている所を、確かめられない状態でした。
+ * ★検索結果には載りません。窓口の返事に「載せないでください」の札
+ *   （X-Robots-Tag: noindex）を付けてあります（lib/keiri/checkWindow.ts）。
+ * ★窓口は読むだけで、本物の金額・お店の名前・鍵の値を返しません。
+ */
+
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
@@ -85,6 +97,7 @@ export default function robots(): MetadataRoute.Robots {
         allow: [
           ...ALWAYS_ALLOWED,
           ...KEIRI_PUBLIC_PAGES.map((p) => p.path),
+          ...CHECK_WINDOW_PATHS,
           ...indexNowKeyPaths(),
           ...googleVerificationPaths(),
         ],
