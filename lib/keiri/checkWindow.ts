@@ -52,6 +52,12 @@ export const CHECK_WINDOWS: CheckWindow[] = [
     check: "f1-4・f1-5・f1-6",
   },
   {
+    path: "/api/keiri/readcheck",
+    what:
+      "お店の数字を読む窓口が、名乗っただけの相手（でっちあげた合言葉・形になっていない値）を入れないか",
+    check: "f3-4",
+  },
+  {
     path: "/api/keiri/firstmonth",
     what: "まっさらなお店に日報1枚で、今月の利益と今の現金が出るか（架空のお店の数字）",
     check: "f3-3",
