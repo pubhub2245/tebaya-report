@@ -17,6 +17,11 @@ import {
   markOwnerDevice,
   shouldMarkOwnerDeviceOnRestore,
 } from "@/lib/keiri/outreach";
+import {
+  forgetKeiriSecret,
+  hashSecretInBrowser,
+  rememberKeiriSecret,
+} from "@/lib/keiri/browserSecret";
 
 const SS_KEY = "admin-auth";
 
@@ -131,6 +136,8 @@ export default function AdminGate({
                   sessionStorage.removeItem(SS_KEY);
                   sessionStorage.removeItem(SS_SHOP_KEY);
                 } catch {}
+                // サーバー側の窓口に出す札も一緒に捨てる（kp239）
+                forgetKeiriSecret();
                 setShopScope(TEBAYA_SCOPE);
                 setShopName(null);
                 setAuthed(false);
@@ -155,6 +162,9 @@ export default function AdminGate({
         sessionStorage.setItem(SS_KEY, "1");
         sessionStorage.removeItem(SS_SHOP_KEY);
       } catch {}
+      // ★手羽屋は今までどおり（サーバー側の窓口は使わない）。
+      //   前にこの端末でお店として入っていたときの札が残っていたら捨てる。
+      forgetKeiriSecret();
       // この端末に「よそのお店」の印が残っていたら消す（手羽屋の端末に戻す）
       writeTenantScope(TEBAYA_SCOPE);
       // この端末を「じゅんの端末」として覚える（ホームの帯の出し分けだけに使う）。
@@ -182,6 +192,15 @@ export default function AdminGate({
             if (scope) sessionStorage.setItem(SS_SHOP_KEY, scope);
             else sessionStorage.setItem(SS_KEY, "1");
           } catch {}
+          // ★申し込んだお店のときだけ、合言葉の「戻せない形」をこのタブに覚えておく（kp239）。
+          //   経理の数字をサーバー側の窓口（/api/keiri/month）から読むのに使う。
+          //   打った合言葉そのものは、どこにも残さない。
+          if (scope) {
+            const hashed = await hashSecretInBrowser(pw);
+            rememberKeiriSecret(hashed);
+          } else {
+            forgetKeiriSecret();
+          }
           // この端末を「そのお店」として覚える（日報の印と経理画面の絞り込みに使う）
           writeTenantScope(scope);
           setShopScope(scope);

@@ -136,7 +136,9 @@ export async function loadKeiriMonthServer(params: {
   {
     const { data } = await db
       .from("keiri_payments")
-      .select("paid_on, amount, kind, memo")
+      // ★id も取る。経理画面（サーバー側の窓口ごしに読むとき）が、
+      //   払った記録を消すのにこの番号を使う。事例ページは使わないので影響しない。
+      .select("id, paid_on, amount, kind, memo")
       .eq("business_type_code", businessCode)
       .order("paid_on", { ascending: false });
     payments = (data as KeiriPayment[]) ?? [];

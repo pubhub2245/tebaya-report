@@ -30,6 +30,7 @@ import {
   keiriApplyContactLine,
   keiriApplyOptionalLine,
   keiriApplyRequiredLine,
+  keiriSetupHandoffLine,
   keiriStartSteps,
 } from "@/lib/keiri/offer";
 import {
@@ -690,6 +691,11 @@ export default async function KeiriCasePage({
             </li>
           ))}
         </ol>
+        {/* ★「誰が初期設定をやるのか」は3ページで同じ1文にする（2026-10-06・B2 の検査）。
+              文は lib/keiri/offer.ts の keiriSetupHandoffLine() だけが持つ。 */}
+        <p className="mt-4 text-sm text-stone-600 leading-relaxed">
+          {keiriSetupHandoffLine()}
+        </p>
       </section>
 
       {/* ---------- 申し込む前に、よく聞かれること ---------- */}

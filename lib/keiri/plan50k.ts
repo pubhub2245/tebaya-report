@@ -22,7 +22,11 @@
  *      直すところが出たら、ここ1か所を直せば画面も全部変わる。
  */
 
-import { KEIRI_OFFER_ITEMS, KEIRI_OFFER_NOT_INCLUDED } from "./offer";
+import {
+  KEIRI_OFFER_ITEMS,
+  KEIRI_OFFER_NOT_INCLUDED,
+  KEIRI_SETUP_FIELDS,
+} from "./offer";
 
 /** 商品の名前と、値段の言い方（じゅん決定 2026-10-02） */
 export const PLAN_NAME = "経理まるごと";
@@ -41,8 +45,15 @@ export type PlanItem = { title: string; body: string };
 export const PLAN_DOES: PlanItem[] = [
   ...KEIRI_OFFER_ITEMS.map((o) => ({ title: o.title, body: o.body })),
   {
+    // ★言葉は lib/keiri/offer.ts の keiriSetupHandoffLine() と必ず同じ中身にする。
+    //   以前ここだけ「ぜんぶこちら側で入れ終えた状態でお渡しします」と書いてあり、
+    //   /keiri/case の「3つ入れていただきます」と逆になっていた（2026-10-06・B2 の検査）。
     title: "はじめの設定はこちらで",
-    body: "お店の名前・出店場所・金庫の起点・スタッフと日当の登録は、こちら側で入れ終えた状態でお渡しします。お店側の作業は、営業後に日報を1枚書くことだけです。",
+    body:
+      "入口（お店専用のリンク）はこちらでご用意します。お店に入れていただくのは3つだけ" +
+      `（${KEIRI_SETUP_FIELDS.join("／")}・約3分）。` +
+      "出店場所・スタッフ・日当の登録は、ご希望ならこちらで代わりに入れます。" +
+      "そのあとのお店側の作業は、営業後に日報を1枚書くことだけです。",
   },
   {
     title: "月に1回、数字を一緒に見る",

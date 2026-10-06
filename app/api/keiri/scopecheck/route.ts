@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { loadKeiriMonthServer } from "@/lib/keiri/loadMonthServer";
 import { previousMonthRange, CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import { businessCodeForScope } from "@/lib/tenantScope";
+import { CHECK_WINDOW_HEADERS } from "@/lib/keiri/checkWindow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,7 +51,7 @@ export async function GET() {
       other.advances.length === 0 &&
       other.advancesSkipped === true;
 
-    return NextResponse.json({
+    return jsonWindow({
       month: label,
       ym,
       tebaya: {
@@ -75,7 +76,7 @@ export async function GET() {
       note: "読むだけの窓口です。金額・お店の名前・連絡先・鍵の値は1文字も返しません",
     });
   } catch {
-    return NextResponse.json({
+    return jsonWindow({
       month: label,
       ym,
       separated: false,
@@ -83,4 +84,9 @@ export async function GET() {
       note: "読むだけの窓口です。金額・お店の名前・連絡先・鍵の値は1文字も返しません",
     });
   }
+}
+
+/** 窓口の返事（保存させない・検索結果には載せない。lib/keiri/checkWindow.ts） */
+function jsonWindow(body: unknown): NextResponse {
+  return NextResponse.json(body, { status: 200, headers: CHECK_WINDOW_HEADERS });
 }
