@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 import {
   KEIRI_APPLY_OPTIONAL_FIELDS,
   KEIRI_APPLY_REQUIRED_FIELDS,
+  keiriApplyContactLine,
   KEIRI_FIRST_MONTH,
   KEIRI_MONTHLY_CLOSE_TIMING,
   KEIRI_OFFER_ITEMS,
@@ -162,9 +163,17 @@ test("初回設定は3つだけ、と書いてある（welcome の入力欄が�
   assert.ok(setup.body.includes("書類はありません"), "用意する書類が無いことが書かれていない");
 });
 
-test("お申し込みで必ず入れるのは3つ、と書いてある（apply の required と合わせる）", () => {
+test("お申し込みで必ず入れるのは2つ、と書いてある（apply の required と合わせる）", () => {
   const apply = keiriStartSteps(false)[0];
-  assert.ok(apply.body.includes("3つだけ"), "必ず入れるのが3つだと書かれていない");
+  // ★数は数えて作る（2026-10-01・kp207 で3つ→2つになった）
+  assert.ok(
+    apply.body.includes(`${KEIRI_APPLY_REQUIRED_FIELDS.length}つだけ`),
+    "必ず入れる数が、本物の入力欄と合っていない",
+  );
+  assert.ok(
+    apply.body.includes("お電話番号にこちらから"),
+    "このあと電話で折り返すことが書かれていない（メールは任意なので、ここが唯一の約束）",
+  );
   assert.ok(
     apply.body.includes("お支払いは発生しません"),
     "この画面でお金が動かないことが書かれていない",
@@ -192,9 +201,10 @@ test("必ず入れる欄の数と名前が、お申し込みフォームの requ
   const names = [...APPLY_FORM_SRC.matchAll(/name="([a-zA-Z]+)"[\s\S]{0,400}?required/g)].map(
     (m) => m[1],
   );
+  // ★2026-10-01（kp207）：3つ→2つ。店名と電話番号だけで申し込める
   assert.deepEqual(
     names,
-    ["shopName", "contactName", "email"],
+    ["shopName", "phone"],
     "必ず入れる欄が増えた／減った。lib/keiri/offer.ts の KEIRI_APPLY_REQUIRED_FIELDS も直すこと",
   );
   assert.equal(
@@ -205,8 +215,8 @@ test("必ず入れる欄の数と名前が、お申し込みフォームの requ
   assert.ok(keiriApplyRequiredLine().includes(`${names.length}つだけ`), "数の書き方が合っていない");
 });
 
-test("任意の欄（電話番号・ひとこと）は「必ず入れる」に数えていない", () => {
-  assert.deepEqual([...KEIRI_APPLY_OPTIONAL_FIELDS], ["電話番号", "ひとこと"]);
+test("任意の欄（お名前・メールアドレス・ひとこと）は「必ず入れる」に数えていない", () => {
+  assert.deepEqual([...KEIRI_APPLY_OPTIONAL_FIELDS], ["お名前", "メールアドレス", "ひとこと"]);
   for (const f of KEIRI_APPLY_OPTIONAL_FIELDS) {
     assert.ok(
       !keiriApplyRequiredLine().includes(f),
@@ -214,6 +224,57 @@ test("任意の欄（電話番号・ひとこと）は「必ず入れる」に�
     );
   }
   assert.ok(keiriApplyOptionalLine().includes("任意"), "任意だと書かれていない");
+});
+
+// ------------------------------------------------------------
+// メールアドレスは任意になった（2026-10-01・kp207）
+// ------------------------------------------------------------
+/**
+ * ★守るのは「守れない約束を画面に出さない」こと。
+ *   必ず入れていただく欄を お店の名前＋電話番号 の2つにしたので、
+ *   メールアドレスをいただかない申し込みが成り立つ。
+ *   それなのに「いただいたメールアドレスへ、担当からご連絡します」と
+ *   画面に直書きされていると、嘘になる。
+ *   どう連絡するかは keiriApplyContactLine() の1本から出す。
+ */
+test("お申し込みの入口3か所が「メールへご連絡します」を直書きしていない", () => {
+  const sources: Array<[string, string]> = [
+    ["お申し込みページ", APPLY_PAGE_SRC],
+    ["ご案内ページ", readFileSync("app/keiri/case/page.tsx", "utf8")],
+    ["入力欄", APPLY_FORM_SRC],
+  ];
+  for (const [name, src] of sources) {
+    // 覚え書き（コメント）は画面に出ないので外して見る
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    assert.ok(
+      !code.includes("いただいたメールアドレスへ"),
+      name + ' が「いただいたメールアドレスへ」を直書きしている（メールは任意なので守れない）',
+    );
+  }
+});
+
+test("申し込みの入口2ページは、連絡の仕方も共通の1文から出している", () => {
+  for (const [name, src] of [
+    ["お申し込みページ", APPLY_PAGE_SRC],
+    ["ご案内ページ", readFileSync("app/keiri/case/page.tsx", "utf8")],
+  ] as Array<[string, string]>) {
+    assert.ok(
+      src.includes("keiriApplyContactLine()"),
+      name + " が連絡の仕方を共通の1文から出していない",
+    );
+  }
+  assert.ok(keiriApplyContactLine().includes("お電話番号"), "電話で折り返すと書かれていない");
+});
+
+test("必ず入れる欄に電話番号が入っていて、メールアドレスは入っていない（kp207）", () => {
+  assert.ok(
+    KEIRI_APPLY_REQUIRED_FIELDS.includes("電話番号"),
+    "折り返しの唯一の道（電話番号）が必須になっていない",
+  );
+  assert.ok(
+    !(KEIRI_APPLY_REQUIRED_FIELDS as readonly string[]).includes("メールアドレス"),
+    "メールアドレスを必須に戻している（立ち話のスマホで打つ数を増やさない）",
+  );
 });
 
 test("お申し込みページは、数を直書きせず共通の1文から出している", () => {

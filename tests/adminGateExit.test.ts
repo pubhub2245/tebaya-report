@@ -45,9 +45,20 @@ function pages(dir: string, out: string[] = []): string[] {
 
 test("お店も入れる画面（allowShops）は /keiri だけ", () => {
   const found = pages("app").filter((p) => read(p).includes("allowShops"));
+  /**
+   * ★2026-10-04（kp231）：毎月お渡しする1枚（/keiri/monthly）を足した。
+   *   これも経理パッケージの画面で、申し込んだお店が**自分の数字**を見るページなので
+   *   allowShops を付ける。読むデータは経理画面とまったく同じ道
+   *   （lib/keiri/loadMonth.ts）を通り、そのお店のぶんだけに絞られる。
+   *   ここに増やしてよいのは **app/keiri/ の下のページだけ**（下の判定で固定）。
+   */
+  assert.ok(
+    found.every((p) => p.startsWith("app/keiri/")),
+    `手羽屋の画面に allowShops が付いています：\n${found.join("\n")}`,
+  );
   assert.deepEqual(
     found,
-    ["app/keiri/page.tsx"],
+    ["app/keiri/monthly/page.tsx", "app/keiri/page.tsx"],
     "手羽屋の画面に allowShops が付くと、よその店の合言葉で手羽屋の数字が見えてしまう",
   );
 });

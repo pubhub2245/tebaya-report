@@ -5,6 +5,7 @@ import ApplyForm from "./ApplyForm";
 import { KeiriFooter } from "@/app/keiri/components/nav";
 import {
   KEIRI_OFFER_ITEMS,
+  keiriApplyContactLine,
   keiriApplyOptionalLine,
   keiriApplyRequiredLine,
 } from "@/lib/keiri/offer";
@@ -28,7 +29,7 @@ export const metadata: Metadata = keiriMetadata({
   path: "/keiri/apply",
   title: "お申し込み｜経理パッケージ",
   description:
-    "経理パッケージ（月額15,000円・税込／1店舗）のお申し込み。お店の名前・お名前・メールアドレスをいただければ、担当からお支払いの方法と使い始めの準備をご案内します。この画面でお支払いは発生しません。",
+    "経理パッケージ（月額15,000円・税込／1店舗）のお申し込み。お店の名前とお電話番号をいただければ、担当からお支払いの方法と使い始めの準備をご案内します。この画面でお支払いは発生しません。",
   type: "website",
 });
 
@@ -44,11 +45,14 @@ export default function KeiriApplyPage() {
         <p className="mt-3 text-stone-700 leading-relaxed">{priceSummaryLine(cardLive)}</p>
         {/* ★「いくつ入れるのか」は紹介ページと同じ1本から出す（数を直書きしない）。
             2026-09-20 まで、ここだけ「下の4つ」と書かれており、
-            紹介ページの「必ず入れるのは3つだけ」と食い違っていた。 */}
+            紹介ページの「必ず入れるのは3つだけ」と食い違っていた。
+            2026-10-01（kp207）に、必ず入れる欄そのものが2つ（お店の名前・電話番号）になった。 */}
         <p className="mt-2 text-sm text-stone-600 leading-relaxed">
           {keiriApplyRequiredLine()}
           {keiriApplyOptionalLine()}
-          いただいたメールアドレスへ、担当からご連絡します。
+          {/* ★どう連絡するかは lib/keiri/offer.ts が唯一の正（2026-10-01・kp207）。
+              メールアドレスが任意になったので、ここに直書きすると守れない約束になる。 */}
+          {keiriApplyContactLine()}
           <strong className="font-bold">この画面ではお支払いは発生しません。</strong>
           {/* ★お支払いの方法は lib/keiri/payment.ts が唯一の正（2026-09-25・kp184）。
               ここだけ「方法はご連絡のときに」と書いてあり、紹介ページ（銀行振込と明記）と
@@ -87,7 +91,7 @@ export default function KeiriApplyPage() {
             >
               {KEIRI_COMPANY.email}
             </a>{" "}
-            まで、お店の名前・お名前・ご連絡先をお送りください。
+            まで、お店の名前とお電話番号をお送りください。
           </div>
         </noscript>
         <ApplyForm

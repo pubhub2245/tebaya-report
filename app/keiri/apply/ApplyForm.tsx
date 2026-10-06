@@ -3,14 +3,17 @@
 import { useState } from "react";
 
 import { KEIRI_APPLY_LIMITS, keiriApplyMailto } from "@/lib/keiri/apply";
+import { keiriApplyContactLine } from "@/lib/keiri/offer";
 
 /**
  * 経理パッケージの申し込みの入力欄。
  *
- * ★必ず入れてもらうのは3つだけ（お店の名前・お名前・メールアドレス）。
- *   電話番号とひとことは任意（欄は全部で5つ・required が付くのは3つ）。
+ * ★必ず入れてもらうのは2つだけ（お店の名前・電話番号）。
+ *   お名前・メールアドレス・ひとことは任意（欄は全部で5つ・required が付くのは2つ）。
  *   数え方は lib/keiri/offer.ts が正で、画面の文章もそこから作る（kp111）。
  *   多く聞くほど途中でやめられるので、こちらから折り返すのに要るものだけにしている。
+ *   2026-10-01（kp207）に3つ→2つへ減らした。出店説明会の立ち話で、
+ *   相手のスマホに4つ打ってもらうのは重すぎるため。折り返しは電話でする。
  * ★送り先は /api/keiri/apply の1か所だけ。
  * ★お金のやり取りはここではしない（カード番号は入れてもらわない）。
  */
@@ -225,7 +228,11 @@ export default function ApplyForm({
       <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6">
         <p className="text-lg font-bold text-stone-900">お申し込みを受け付けました。</p>
         <p className="mt-3 text-stone-700 leading-relaxed">
-          担当から、いただいたメールアドレスへご連絡します（通常1営業日以内）。
+          {/* ★メールアドレスは任意になった（2026-10-01・kp207）。
+                いただいていない方に「メールへご連絡します」と出すと、守れない約束になる。 */}
+          {entered.email.trim() === ""
+            ? "担当から、いただいたお電話番号へご連絡します（通常1営業日以内）。"
+            : "担当から、いただいたお電話番号かメールアドレスへご連絡します（通常1営業日以内）。"}
           {afterApplyLine}
           こちらから何かを差し引くことはありませんので、そのままお待ちください。
         </p>
@@ -299,15 +306,36 @@ export default function ApplyForm({
         />
       </div>
 
+      {/* ★必ず入れていただくのは、この「電話番号」までの2つだけ（2026-10-01・kp207）。
+            この下の3つ（お名前・メールアドレス・ひとこと）は空でも送れる。
+            数の言い方は lib/keiri/offer.ts が唯一の正。 */}
+      <div>
+        <label className={LABEL} htmlFor="phone">
+          電話番号 <span className="text-red-600">必須</span>
+        </label>
+        <input
+          id="phone"
+          name="phone"
+          defaultValue={entered.phone}
+          type="tel"
+          required
+          maxLength={KEIRI_APPLY_LIMITS.phone}
+          autoComplete="tel"
+          inputMode="tel"
+          className={INPUT}
+          placeholder="例：090-0000-0000"
+        />
+        <p className="mt-1 text-xs text-stone-500">こちらからお電話します。</p>
+      </div>
+
       <div>
         <label className={LABEL} htmlFor="contactName">
-          お名前 <span className="text-red-600">必須</span>
+          お名前（任意）
         </label>
         <input
           id="contactName"
           name="contactName"
           defaultValue={entered.contactName}
-          required
           maxLength={KEIRI_APPLY_LIMITS.contactName}
           autoComplete="name"
           className={INPUT}
@@ -317,38 +345,22 @@ export default function ApplyForm({
 
       <div>
         <label className={LABEL} htmlFor="email">
-          メールアドレス <span className="text-red-600">必須</span>
+          メールアドレス（任意）
         </label>
         <input
           id="email"
           name="email"
           defaultValue={entered.email}
           type="email"
-          required
           maxLength={KEIRI_APPLY_LIMITS.email}
           autoComplete="email"
           inputMode="email"
           className={INPUT}
           placeholder="例：you@example.com"
         />
-        <p className="mt-1 text-xs text-stone-500">ご連絡はこの宛先にお送りします。</p>
-      </div>
-
-      <div>
-        <label className={LABEL} htmlFor="phone">
-          電話番号（任意）
-        </label>
-        <input
-          id="phone"
-          name="phone"
-          defaultValue={entered.phone}
-          type="tel"
-          maxLength={KEIRI_APPLY_LIMITS.phone}
-          autoComplete="tel"
-          inputMode="tel"
-          className={INPUT}
-          placeholder="例：090-0000-0000"
-        />
+        <p className="mt-1 text-xs text-stone-500">
+          いただければ、お電話のほかにメールでもお送りします。
+        </p>
       </div>
 
       <div>
@@ -371,6 +383,12 @@ export default function ApplyForm({
         <label htmlFor="website">Website</label>
         <input id="website" name="website" tabIndex={-1} autoComplete="off" />
       </div>
+
+      {/* ★押す直前に、このあと何が起きるかを1行だけ出す（2026-10-01・kp207）。
+            文は lib/keiri/offer.ts が唯一の正（画面に直書きしない）。 */}
+      <p className="text-sm font-bold text-stone-700 leading-relaxed">
+        {keiriApplyContactLine()}
+      </p>
 
       <button
         type="submit"

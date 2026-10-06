@@ -23,7 +23,12 @@
  *   （lib/keiri/templates/generic.ts）。
  */
 
-import type { KeiriPayment, KeiriReport, KeiriSettings } from "./types";
+import type {
+  KeiriAdvance,
+  KeiriPayment,
+  KeiriReport,
+  KeiriSettings,
+} from "./types";
 
 /** お試し版に出す架空のお店の名前。実在の店名を入れないこと。 */
 export const DEMO_SHOP_NAME = "デモ食堂（架空のお店）";
@@ -70,7 +75,10 @@ export function demoReports(ym: string): KeiriReport[] {
     },
     {
       date: `${ym}-08`,
-      location: "イオン前",
+      // ★手羽屋の名寄せ表に載っている名前（「イオン前」など）を使わないこと。
+      //   場所別の表だけ「イオンモール」に書き換わり、同じ場所が2つの名前で出ます
+      //   （2026-10-02 B2 が本番で見つけた）。
+      location: "商店街",
       staff_name: "スタッフB",
       sales_amount: 64000,
       labor: 8000,
@@ -89,6 +97,10 @@ export function demoReports(ym: string): KeiriReport[] {
         { description: "肉 仕入れ", amount: 22000 },
         { description: "場代", amount: 9500 },
         { description: "紙皿 消耗品", amount: 3200 },
+        // ★対応表にない言葉。わざと1件入れてあります。
+        //   分からないものを勝手に決めず「要確認」に出すことを、触って確かめられるように
+        //   するためです（2026-10-02・kp219）。消さないでください。
+        { description: "保健所 検便", amount: 1800 },
       ],
     },
   ];
@@ -101,6 +113,41 @@ export function demoReports(ym: string): KeiriReport[] {
  */
 export function demoPayments(): KeiriPayment[] {
   return [];
+}
+
+/**
+ * 立替（誰かが自分のお金で先に払った経費）。
+ *
+ * ■ なぜ見本に入れてあるか（2026-10-02・kp218）
+ *   移動販売の出店料は、現金ではなく振込で、しかも誰かが先に払うことがよくあります。
+ *   その分を月の経費に入れないと、**利益が実際より大きく出ます**。
+ *   お試し版でも「立替が経費に入り、現金はまだ減らず、まだ払っていないお金に出る」
+ *   という3つの動きを触って確かめられるようにしてあります。
+ *
+ * ・1件目 … まだ返していない（まだ払っていないお金に入り、現金は減らない）
+ * ・2件目 … 月のうちに返した（返した日に現金から出る）
+ */
+export function demoAdvances(ym: string): KeiriAdvance[] {
+  return [
+    {
+      date: `${ym}-05`,
+      amount: 30000,
+      description: "お祭りの出店料（振込）",
+      payer: "オーナー",
+      settled: false,
+      settledDate: null,
+      source: "owner",
+    },
+    {
+      date: `${ym}-09`,
+      amount: 4500,
+      description: "ガソリン",
+      payer: "スタッフB",
+      settled: true,
+      settledDate: `${ym}-12`,
+      source: "field",
+    },
+  ];
 }
 
 /** お試し版の入力フォーム1件ぶん（画面から受け取る、まだ数字になっていない文字） */

@@ -23,9 +23,10 @@ import {
 
 import { supabase } from "@/lib/supabase";
 import {
-  applyTenantScope,
   businessCodeForScope,
   readTenantScope,
+  tenantStamp,
+  type TenantScope,
 } from "@/lib/tenantScope";
 import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
@@ -42,6 +43,9 @@ import {
   monthKey,
   outsourcingAccountLabelFor,
   outsourcingLabelFor,
+  findDuplicateExpenses,
+  locationProfitBridge,
+  locationProfitBridgeLine,
   summarizeByLocation,
   summarizeMonth,
   templateFor,
@@ -54,9 +58,20 @@ import {
   type CsvEncoding,
 } from "@/lib/keiri/moneyforward";
 import { toYayoiCsv, yayoiFileName } from "@/lib/keiri/yayoi";
+import { loadKeiriMonth } from "@/lib/keiri/loadMonth";
+import {
+  depositsOf,
+  latestCount,
+  monthDay,
+  reconcileCash,
+  reconcileLines,
+  type CashEvent,
+} from "@/lib/keiri/cashCheck";
+import { shopScopeSentence } from "@/lib/keiri/shopScope";
 import {
   PAYMENT_KIND_LABEL,
   type KeiriPayment,
+  type KeiriAdvance,
   type KeiriReport,
   type KeiriSettings,
   type PaymentKind,
@@ -129,6 +144,15 @@ function KeiriInner() {
   const [settings, setSettings] = useState<KeiriSettings | null>(null);
   const [reports, setReports] = useState<KeiriReport[]>([]);
   const [payments, setPayments] = useState<(KeiriPayment & { id: number })[]>([]);
+  /**
+   * 立替（誰かが自分のお金で先に払った経費）。
+   * ★月の経費は「立替も含めた全部」で1つに決めています（kp218）。
+   */
+  const [advances, setAdvances] = useState<KeiriAdvance[]>([]);
+  // 金庫を数えた記録・銀行に入れた記録（kp233・f1-4）。
+  // ★棚（keiri_cash_events）がまだ無い倉庫では空のまま＝この画面は今までどおり。
+  const [cashEvents, setCashEvents] = useState<CashEvent[]>([]);
+  const [cashShelfMissing, setCashShelfMissing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   /**
@@ -169,56 +193,22 @@ function KeiriInner() {
     setLoading(true);
     setError(null);
     try {
-      // 設定（数え始めの日・期首残高・Alphaの率）
-      const { data: s, error: sErr } = await supabase
-        .from("keiri_settings")
-        .select(
-          "opening_date, opening_balance, outsourcing_rate, monthly_rent, rent_start_month",
-        )
-        .eq("business_type_code", BUSINESS_CODE)
-        .maybeSingle();
-      if (sErr) throw sErr;
-      setSettingsMissing(!s);
-      setSettings(
-        s
-          ? {
-              opening_date: (s as any).opening_date,
-              opening_balance: Number((s as any).opening_balance) || 0,
-              outsourcing_rate: Number((s as any).outsourcing_rate) || 0,
-              monthly_rent: Number((s as any).monthly_rent) || 0,
-              rent_start_month: (s as any).rent_start_month ?? "",
-            }
-          : fallbackSettings,
-      );
-
-      // 日報。経費の種類を決めるのに「説明の文字」が要るので明細も取る。
-      // ★ただし daily_reports から直接は取らない。keiri_reports というビュー
-      //   （レシート写真の住所を抜いた軽い日報）から取る。
-      //   写真ごと取ると1か月ぶんで数百KBになり画面が重くなるため（CLAUDE.md 4-2）。
-      const from = (s as any)?.opening_date ?? fallbackSettings.opening_date;
-      // 表示中の月が期首日より前でも見られるように、月初とどちらか早いほうから取る
-      const gte = `${ym}-01` < from ? `${ym}-01` : from;
-      // ★そのお店のぶんだけ読む（手羽屋は印が空なので、読む範囲はいままでと同じ）
-      const repQuery = supabase
-        .from("keiri_reports")
-        .select("date, location, staff_name, sales_amount, labor, expenses");
-      const { data: reps, error: rErr } = await applyTenantScope<any>(
-        repQuery as any,
+      // ★読む手順は lib/keiri/loadMonth.ts の1か所にまとめてあります（2026-10-04・kp231）。
+      //   実際のお店にお渡しする1枚（/keiri/monthly）も同じ関数を通るので、
+      //   どちらかだけ数字が変わることがありません。読み方は1行も変えていません。
+      const data = await loadKeiriMonth({
+        ym,
         scope,
-      )
-        .gte("date", gte)
-        .order("date");
-      if (rErr) throw rErr;
-      setReports((reps as KeiriReport[]) ?? []);
-
-      // 支払い記録
-      const { data: pays, error: pErr } = await supabase
-        .from("keiri_payments")
-        .select("id, paid_on, amount, kind, memo")
-        .eq("business_type_code", BUSINESS_CODE)
-        .order("paid_on", { ascending: false });
-      if (pErr) throw pErr;
-      setPayments((pays as (KeiriPayment & { id: number })[]) ?? []);
+        businessCode: BUSINESS_CODE,
+        fallbackSettings,
+      });
+      setSettingsMissing(data.settingsMissing);
+      setSettings(data.settings);
+      setReports(data.reports);
+      setPayments(data.payments);
+      setAdvances(data.advances);
+      setCashEvents(data.cashEvents);
+      setCashShelfMissing(data.cashShelfMissing);
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
@@ -233,26 +223,82 @@ function KeiriInner() {
   const effective = settings ?? fallbackSettings;
 
   const summary = useMemo(
-    () => summarizeMonth({ ym, reports, template, settings: effective }),
-    [ym, reports, template, effective],
+    () => summarizeMonth({ ym, reports, template, settings: effective, advances }),
+    [ym, reports, template, effective, advances],
   );
 
+  // 銀行に入れた分は**現金だけ**を減らす（経費・利益には入れない・kp233）
+  const deposits = useMemo(() => depositsOf(cashEvents), [cashEvents]);
+
   const cash = useMemo(
-    () => calcCashPosition({ reports, payments, settings: effective }),
-    [reports, payments, effective],
+    () =>
+      calcCashPosition({ reports, payments, settings: effective, advances, deposits }),
+    [reports, payments, effective, advances, deposits],
+  );
+
+  /**
+   * 金庫を数えた記録との突き合わせ（kp233・f1-4）。
+   *
+   * ★今日の計算上の残高を、2週間前に数えた金額と比べても意味がないので、
+   *   **数えた日の時点の計算上の残高**（asOf）と比べる。
+   */
+  const lastCount = useMemo(() => latestCount(cashEvents), [cashEvents]);
+
+  const computedAtCount = useMemo(() => {
+    if (!lastCount) return null;
+    return calcCashPosition({
+      reports,
+      payments,
+      settings: effective,
+      advances,
+      deposits,
+      asOf: lastCount.happened_on,
+    }).balance;
+  }, [lastCount, reports, payments, effective, advances, deposits]);
+
+  const reconcile = useMemo(
+    () => reconcileCash({ events: cashEvents, computedAtCount, today: todayStr() }),
+    [cashEvents, computedAtCount],
   );
 
   // 家賃は「今月まで」を数えるので、今日の月を渡す
   const todayYm = useMemo(() => todayStr().slice(0, 7), []);
 
   const unpaid = useMemo(
-    () => calcUnpaid({ reports, payments, settings: effective, currentYm: todayYm }),
-    [reports, payments, effective, todayYm],
+    () =>
+      calcUnpaid({
+        reports,
+        payments,
+        settings: effective,
+        currentYm: todayYm,
+        advances,
+      }),
+    [reports, payments, effective, todayYm, advances],
   );
 
   const byLocation = useMemo(
     () => summarizeByLocation({ ym, reports }),
     [ym, reports],
+  );
+
+  /**
+   * 場所ごとの利益を足した額と、今月の利益のつなぎ（2026-10-03・kp226-b2）。
+   * 場所別の表には立替・外注費・家賃が入っていないので、足すと必ず合いません。
+   * その差を式で1行出します（式も金額も lib が出したものをそのまま使う）。
+   */
+  const locationBridge = useMemo(
+    () => locationProfitBridge({ byLocation, summary }),
+    [byLocation, summary],
+  );
+
+  /**
+   * 同じ支払いが「日報の経費」と「立替台帳」の2か所に書かれていないか（2026-10-03・f1-5）。
+   * ★見つけても金額は直しません。直すかどうかは人が決めることなので、ここでは出すだけです。
+   *   立替は前の月のぶんも渡します（台帳は 8/28・日報は 9/12 のような書き方を拾うため）。
+   */
+  const duplicates = useMemo(
+    () => findDuplicateExpenses({ ym, reports, advances }),
+    [ym, reports, advances],
   );
 
   const slices = useMemo(() => expenseSlices(summary), [summary]);
@@ -417,7 +463,7 @@ function KeiriInner() {
           color="text-amber-600"
           note={`給与 ${yen(unpaid.payroll)}・${outsourcingLabel} ${yen(
             unpaid.outsourcing,
-          )}・家賃 ${yen(unpaid.rent)}`}
+          )}・家賃 ${yen(unpaid.rent)}・まだ返していない立替 ${yen(unpaid.advance)}`}
         />
       </section>
 
@@ -505,6 +551,109 @@ function KeiriInner() {
             集計は日報の「営業日」で数えています（入力した日時ではありません）。
             対象の日報：{summary.reportCount}件
           </p>
+          {/* ★どのお店の日報を数えているか（kp234・f1-5）。
+               件数だけでは、手羽屋ともも屋が混ざっていても気づけません。
+               数字は1円も変えていません（内訳を出すだけ）。 */}
+          <p className="text-xs text-stone-500 leading-relaxed">
+            {shopScopeSentence({
+              shops: summary.shops,
+              reportCount: summary.reportCount,
+            })}
+            {summary.shops.length > 1 && (
+              <>
+                （
+                {summary.shops
+                  .map((s) => `${s.shop} 売上 ${yen(s.sales)}`)
+                  .join("／")}
+                ）お店ごとに分けた1枚は「毎月お渡しする1枚」で選べます。
+              </>
+            )}
+          </p>
+
+          {/* ★月の経費は「立替も含めた全部」で1つ（2026-10-02・kp218）。
+               金庫から出た分も見たい数字なので、内訳として残す。 */}
+          <p className="text-xs text-stone-500 leading-relaxed">
+            経費 {yen(summary.expenseTotal)} の内訳：レジのお金から出た分{" "}
+            {yen(summary.expenseFromRegister)}／立替（誰かが先に払った分・今月ぶん全部）{" "}
+            {yen(summary.expenseFromAdvance)}
+            {summary.advanceCount > 0 && <>（{summary.advanceCount}件）</>}／日当{" "}
+            {yen(summary.payroll)}／{outsourcingLabel} {yen(summary.outsourcing)}／家賃{" "}
+            {yen(summary.rent)}。
+            <br />
+            立て替えた日には金庫からお金が出ていないので、返すまでは「まだ払っていないお金」に
+            出ます（返した日に現金から引きます）。
+          </p>
+
+          {/* ★同じ支払いが2か所に書かれていないか（2026-10-03・f1-5）。
+               9月の実データでは、立替台帳の9月の行のうち 90,571円 が
+               9/12 の日報の経費行と金額までそのまま一致していた（同じ支払いが2か所）。
+               **金額は直さない。**どちらを消すかは人が決めることなので、ここでは出すだけ。 */}
+          {duplicates.suspects.length > 0 && (
+            <div className="rounded-lg border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900 space-y-2">
+              <p className="font-bold">
+                同じ支払いが2か所に書かれている疑い：{duplicates.suspects.length}組
+              </p>
+              <p className="leading-relaxed">
+                日報の「レジから払った経費」と立替台帳の両方に、
+                <strong>金額が1円まで同じで、説明に同じ言葉が入っている行</strong>があります。
+                同じ支払いなら、どちらか片方を消してください（
+                <Link href="/keiri/advances" className="underline font-bold">
+                  立替の入り口
+                </Link>
+                ）。
+                {duplicates.doubleCountedTotal > 0 && (
+                  <>
+                    <br />
+                    同じ月の中で重なっている分：
+                    <strong>{yen(duplicates.doubleCountedTotal)}</strong>
+                    。この月の経費は、この額だけ多く出ているおそれがあります。
+                  </>
+                )}
+                {duplicates.crossMonthTotal > 0 && (
+                  <>
+                    <br />
+                    月をまたいで重なっている分：
+                    <strong>{yen(duplicates.crossMonthTotal)}</strong>
+                    。どちらの月の経費にするかで、この額が動きます。
+                  </>
+                )}
+              </p>
+              <ul className="space-y-1">
+                {duplicates.suspects.slice(0, 8).map((d, i) => (
+                  <li key={i} className="tabular-nums">
+                    {yen(d.amount)}　日報 {d.report.date}／立替 {d.advance.date}
+                    {!d.sameMonth && <>（月をまたいでいます）</>}
+                    <br />
+                    <span className="text-amber-800">
+                      {d.report.description} ／ {d.advance.description}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {duplicates.suspects.length > 8 && (
+                <p>…ほか {duplicates.suspects.length - 8}組</p>
+              )}
+              <p className="text-amber-800">
+                ※ 金額が同じだけの別の支払いのこともあります。中身を確かめてから直してください。
+                こちらで金額を変えることはしません。
+              </p>
+            </div>
+          )}
+
+          {summary.advanceSkipped.length > 0 && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 space-y-1">
+              <p className="font-bold">
+                経費に数えなかった立替：{summary.advanceSkipped.length}件
+              </p>
+              {summary.advanceSkipped.map((a, i) => (
+                <p key={i}>
+                  {slashDate(a.date)}　{a.description}　{yen(a.amount)}
+                  <br />
+                  <span className="text-amber-700">{a.reason}</span>
+                </p>
+              ))}
+            </div>
+          )}
 
           <UnmatchedNote unmatched={summary.unmatched} />
         </section>
@@ -593,14 +742,53 @@ function KeiriInner() {
               </table>
             </div>
           )}
+          {byLocation.length > 0 && (
+            <div className="rounded-lg bg-stone-100 px-4 py-3">
+              <p className="text-xs text-stone-700 leading-relaxed tabular-nums">
+                {locationProfitBridgeLine(locationBridge)}
+              </p>
+              {!locationBridge.matches && (
+                <p className="mt-1 text-xs font-bold text-red-600">
+                  場所ごとの利益と今月の利益が、足し引きで合っていません。数え方のどこかがずれています。
+                </p>
+              )}
+            </div>
+          )}
           <p className="text-xs text-stone-400">
             「経費」は日報の経費と人件費（日当）の合計です。
-            外注費と家賃（事務所）は月ごとに決まるお金なので、
+            立替・外注費・家賃（事務所）は月ごとに決まるお金なので、
             場所別には入れていません（どの場所のぶんか決められないため）。
+            上の式のとおり、その分を引くと今月の利益に合います。
             出店場所が空の日報は「未設定」にまとめています。
           </p>
         </section>
       )}
+
+      {/* 金庫の突き合わせ（2026-10-05・kp233・f1-4）。
+          ★棚（keiri_cash_events）がまだ無いあいだは**何も出さない**。
+            流す前の本番が今までどおり動くため（kp237 ⑤）。 */}
+      {!cashShelfMissing && (
+        <CashCountCard
+          reconcile={reconcile}
+          balanceNow={cash.balance}
+          depositsTotal={cash.deposits}
+          scope={scope}
+          onSaved={load}
+        />
+      )}
+
+      {/* 毎月お渡しする1枚（2026-10-04・kp231）。
+          数字は書き写しません。この画面と同じ計算（lib/keiri/oneSheet.ts）を通ります。 */}
+      <section className="card space-y-2">
+        <h2 className="text-lg font-bold text-brand-dark">📄 毎月お渡しする1枚</h2>
+        <p className="text-sm text-stone-600 leading-relaxed">
+          この画面の数字を、お店にお渡しする1枚（印刷して紙1枚）にまとめた形で開きます。
+          数字はこの画面とまったく同じ計算から出ています。
+        </p>
+        <Link href="/keiri/monthly" className="btn-primary w-full block text-center">
+          1枚の要約を開く
+        </Link>
+      </section>
 
       {/* CSV書き出し */}
       <section className="card space-y-2">
@@ -1051,6 +1239,203 @@ function SettingsSection({
           </button>
           {msg && <p className="text-sm font-semibold">{msg}</p>}
         </div>
+      )}
+    </section>
+  );
+}
+
+/* ================================================================
+ *  金庫を数えた記録と、銀行に入れた記録（kp233・f1-4）
+ *
+ *  ■ なぜ要るのか
+ *    「今の現金」はこれまで計算上の値だけで、**実際に数えた相手が無い**ため
+ *    合っているかを確かめられませんでした。さらに売上の現金を銀行に入れた記録も
+ *    無かったので、計算上の現金は増え続ける一方でした。
+ *
+ *  ■ 差が出ても黙って合わせない
+ *    金額をこちらで直すことはしません。何が足りていないかを言葉で出して、
+ *    人に確かめてもらいます（レシートの税込と同じ考え方・CLAUDE.md 4-12）。
+ *
+ *  ■ 画面の言葉
+ *    司令室の材料（meta/keiri-material-kinko-kotoba・B2）をそのまま使っています。
+ * ================================================================ */
+function CashCountCard({
+  reconcile,
+  balanceNow,
+  depositsTotal,
+  scope,
+  onSaved,
+}: {
+  reconcile: ReturnType<typeof reconcileCash>;
+  balanceNow: number;
+  depositsTotal: number;
+  scope: TenantScope;
+  onSaved: () => void;
+}) {
+  const [countOn, setCountOn] = useState(todayStr());
+  const [countYen, setCountYen] = useState("");
+  const [countNote, setCountNote] = useState("");
+  const [depositOn, setDepositOn] = useState(todayStr());
+  const [depositYen, setDepositYen] = useState("");
+  const [saving, setSaving] = useState<null | "count" | "deposit">(null);
+  const [msg, setMsg] = useState("");
+
+  const save = async (kind: "count" | "deposit") => {
+    const on = kind === "count" ? countOn : depositOn;
+    const raw = kind === "count" ? countYen : depositYen;
+    const amount = Number(raw);
+    if (!on || !Number.isFinite(amount) || amount < 0 || raw === "") {
+      setMsg("日付と金額を入れてください（金額は0以上）");
+      return;
+    }
+    setSaving(kind);
+    setMsg("");
+    const { error } = await supabase.from("keiri_cash_events").insert({
+      kind,
+      happened_on: on,
+      amount: Math.round(amount),
+      note: kind === "count" ? countNote || null : null,
+      ...tenantStamp(scope),
+    });
+    setSaving(null);
+    if (error) {
+      setMsg(`保存できませんでした：${error.message}`);
+      return;
+    }
+    if (kind === "count") {
+      setCountYen("");
+      setCountNote("");
+    } else {
+      setDepositYen("");
+    }
+    setMsg("✅ 記録しました");
+    onSaved();
+  };
+
+  const lines = reconcileLines(reconcile);
+
+  return (
+    <section className="card space-y-3">
+      <h2 className="text-lg font-bold text-brand-dark">🔐 金庫を数えて、合っているか見る</h2>
+
+      {reconcile.neverCounted ? (
+        <p className="text-sm text-stone-700 leading-relaxed">{reconcile.verdict}</p>
+      ) : (
+        <div className="rounded-lg bg-stone-100 px-4 py-3 space-y-1">
+          {lines.map((l) => (
+            <p key={l} className="text-sm text-stone-800 tabular-nums">
+              {l}
+            </p>
+          ))}
+          <p
+            className={
+              "text-sm font-bold " +
+              (reconcile.diff === 0 ? "text-emerald-700" : "text-stone-900")
+            }
+          >
+            {reconcile.verdict}
+          </p>
+          {reconcile.stale && (
+            <p className="text-xs text-amber-700">{reconcile.stale}</p>
+          )}
+        </div>
+      )}
+
+      <p className="text-xs text-stone-500 leading-relaxed">
+        いまの計算上の現金は {yen(balanceNow)} です
+        {depositsTotal > 0 ? `（うち銀行に入れた ${yen(depositsTotal)} は引いてあります）` : ""}。
+        数えた日の時点までで比べているので、数えたあとの売上や支払いは上の差には入りません。
+      </p>
+
+      {/* ① 金庫を数えた */}
+      <div className="pt-3 border-t border-stone-200 space-y-2">
+        <h3 className="text-sm font-bold text-brand-dark">金庫を数えた日</h3>
+        <p className="text-xs text-stone-600 leading-relaxed">
+          お札と小銭を数えた金額を、そのまま入れてください。月に1回で大丈夫です。
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="label">数えた日</label>
+            <input
+              type="date"
+              className="field"
+              value={countOn}
+              onChange={(e) => setCountOn(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label">金庫にあった金額（円）</label>
+            <input
+              type="number"
+              inputMode="numeric"
+              className="field"
+              value={countYen}
+              onChange={(e) => setCountYen(e.target.value)}
+              placeholder="例：145000"
+            />
+          </div>
+          <div>
+            <label className="label">ひとこと（書かなくてもよい）</label>
+            <input
+              type="text"
+              className="field"
+              value={countNote}
+              onChange={(e) => setCountNote(e.target.value)}
+              placeholder="例：差の理由に心当たりなし"
+            />
+          </div>
+        </div>
+        <button
+          className="btn-primary w-full"
+          onClick={() => void save("count")}
+          disabled={saving !== null}
+        >
+          {saving === "count" ? "保存中…" : "この金額で記録する"}
+        </button>
+      </div>
+
+      {/* ② 銀行に入れた */}
+      <div className="pt-3 border-t border-stone-200 space-y-2">
+        <h3 className="text-sm font-bold text-brand-dark">売上を銀行に入れた</h3>
+        <p className="text-xs text-stone-600 leading-relaxed">
+          金庫から銀行に移した金額を入れてください。利益は変わらず、金庫の現金だけ減ります。
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="label">入れた日</label>
+            <input
+              type="date"
+              className="field"
+              value={depositOn}
+              onChange={(e) => setDepositOn(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label">金額（円）</label>
+            <input
+              type="number"
+              inputMode="numeric"
+              className="field"
+              value={depositYen}
+              onChange={(e) => setDepositYen(e.target.value)}
+              placeholder="例：300000"
+            />
+          </div>
+        </div>
+        <button
+          className="btn-secondary w-full"
+          onClick={() => void save("deposit")}
+          disabled={saving !== null}
+        >
+          {saving === "deposit" ? "保存中…" : "預け入れを記録する"}
+        </button>
+      </div>
+
+      {msg && <p className="text-sm font-semibold">{msg}</p>}
+      {reconcile.countedOn && (
+        <p className="text-xs text-stone-400">
+          最後に数えた日：{monthDay(reconcile.countedOn)}
+        </p>
       )}
     </section>
   );

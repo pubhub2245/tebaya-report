@@ -27,6 +27,8 @@ import {
   buildJournalRows,
   calcCashPosition,
   calcUnpaid,
+  locationProfitBridge,
+  locationProfitBridgeLine,
   mergedExpenseByAccount,
   summarizeByLocation,
   summarizeMonth,
@@ -46,6 +48,7 @@ import {
   type DemoInput,
   demoInputProblem,
   demoInputToReport,
+  demoAdvances,
   demoPayments,
   demoReports,
   demoSettings,
@@ -66,22 +69,32 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
 
   const settings = useMemo(() => demoSettings(ym), [ym]);
   const payments = useMemo(() => demoPayments(), []);
+  /** 立替（誰かが自分のお金で先に払った経費）。お試し版では2件入れてあります */
+  const advances = useMemo(() => demoAdvances(ym), [ym]);
   // 申し込んだお店と同じ「汎用」の対応表を使う（手羽屋だけの言葉は使わない）
   const template = useMemo(() => templateFor(GENERIC_TEMPLATE.code), []);
 
   const summary = useMemo(
-    () => summarizeMonth({ ym, reports, template, settings }),
+    () => summarizeMonth({ ym, reports, template, settings, advances }),
     [ym, reports, template, settings],
   );
   const cash = useMemo(
-    () => calcCashPosition({ reports, payments, settings }),
+    () => calcCashPosition({ reports, payments, settings, advances }),
     [reports, payments, settings],
   );
   const unpaid = useMemo(
-    () => calcUnpaid({ reports, payments, settings, currentYm: ym }),
+    () => calcUnpaid({ reports, payments, settings, currentYm: ym, advances }),
     [reports, payments, settings, ym],
   );
   const byLocation = useMemo(() => summarizeByLocation({ ym, reports }), [ym, reports]);
+  /**
+   * 場所ごとの利益を足した額と、今月の利益のつなぎ（2026-10-03・kp226-b2）。
+   * ★式も金額もここに書かない。lib（aggregate.ts）が出した文をそのまま出す。
+   */
+  const bridge = useMemo(
+    () => locationProfitBridge({ byLocation, summary }),
+    [byLocation, summary],
+  );
   const mergedExpense = useMemo(
     () => mergedExpenseByAccount(summary.expenseByAccount),
     [summary],
@@ -95,7 +108,7 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
    * ★日報を1件足すと、この行が増えます。そこが見どころです。
    */
   const journalRows = useMemo(
-    () => buildJournalRows({ ym, reports, payments, template, settings }),
+    () => buildJournalRows({ ym, reports, payments, template, settings, advances }),
     [ym, reports, payments, template, settings],
   );
 
@@ -204,18 +217,24 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
             color="text-stone-900"
             note={`${slashDate(cash.openingDate)} の ${yen(cash.openingBalance)} から数えた今の手元`}
           />
+          {/* ★「立替」は2通りの意味で読まれる（2026-10-03・kp226-b2）。
+               ここは**まだ返していない分だけ**。下の経費の内訳は**今月ぶん全部**。
+               同じ言葉で違う金額が並ぶと、ページが間違っているように見える。 */}
           <DemoNumber
             title="まだ払っていないお金"
             value={unpaid.total}
             color="text-amber-600"
-            note={`給与 ${yen(unpaid.payroll)}・家賃 ${yen(unpaid.rent)}`}
+            note={`給与 ${yen(unpaid.payroll)}・家賃 ${yen(unpaid.rent)}・まだ返していない立替 ${yen(
+              unpaid.advance,
+            )}`}
           />
         </dl>
         {/* ★ここは正直に書く（9/19 の実測で分かったこと）。
              「まだ払っていないお金」は給与・外注費・家賃の3つだけを数えており、
              仕入れの掛け（今月末に払う肉代など）は入りません。 */}
         <p className="mt-3 rounded-lg bg-stone-100 px-4 py-3 text-xs text-stone-600 leading-relaxed">
-          ※「まだ払っていないお金」に入るのは、<strong>給与・外注費・家賃の3つだけ</strong>です。
+          ※「まだ払っていないお金」に入るのは、
+          <strong>給与・外注費・家賃と、まだ返していない立替</strong>です。
           仕入れの掛け（今月末にまとめて払う材料代など）は数えていません。
         </p>
       </section>
@@ -345,6 +364,15 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
             </tbody>
           </table>
         </div>
+        <p className="mt-3 text-xs text-stone-500 leading-relaxed">
+          経費 {yen(summary.expenseTotal)} の内訳：レジのお金から出た分{" "}
+          {yen(summary.expenseFromRegister)}／誰かが立て替えた分（今月ぶん全部）{" "}
+          {yen(summary.expenseFromAdvance)}／日当 {yen(summary.payroll)}／家賃{" "}
+          {yen(summary.rent)}。
+          <strong>月の経費は、立替も含めた全部で1つに決めています。</strong>
+          立て替えた日にはまだ金庫からお金が出ていないので、返すまでは
+          「まだ払っていないお金」に出ます。
+        </p>
         {summary.unmatched.length > 0 && (
           <p className="mt-3 text-xs text-stone-500 leading-relaxed">
             ※ 種類が分からず「雑費」に入れた経費：{summary.unmatched.length}件
@@ -460,6 +488,19 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
           （ご自身で押す必要はありません）。
         </p>
 
+        {/* ★「毎月お渡しする1枚」への道（2026-10-03・f5-1／f5-2）。
+             お試し版は数字を触る場所で、毎月お渡しするものの形は別の1枚にある。
+             ここに道が無いと、触ったあとに「で、何が届くのか」が分からないまま
+             申し込みの判断をさせることになる。 */}
+        <p className="mt-3 text-center text-sm">
+          <Link
+            href="/keiri/monthly-sample"
+            className="font-bold text-amber-700 underline hover:text-amber-800"
+          >
+            毎月お渡しする1枚の見本を見る →
+          </Link>
+        </p>
+
         {/* ★書き出せた直後に、申し込みへの道を1本置く（kp134）。
              お試し版は「買う前に手で触れる唯一の場所」で、いちばん心が動くのは
              CSV を自分の手で書き出せた直後。ところが申し込みへの入口は
@@ -517,10 +558,18 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
             </table>
           </div>
         )}
-        <p className="mt-3 text-xs text-stone-500 leading-relaxed">
-          「経費」は日報の経費と日当の合計です。家賃のような月ごとに決まるお金は、
-          どの場所のぶんか決められないので場所別には入れていません。
-        </p>
+        {byLocation.length > 0 && (
+          <div className="mt-3 rounded-lg bg-stone-100 px-4 py-3">
+            <p className="text-xs text-stone-700 leading-relaxed tabular-nums">
+              {locationProfitBridgeLine(bridge)}
+            </p>
+            <p className="mt-1 text-xs text-stone-500 leading-relaxed">
+              {bridge.matches
+                ? "「経費」は日報の経費と日当の合計です。立替・外注費・家賃は、どの場所のぶんか決められないので場所別には入れていません。上の式のとおり、引くと今月の利益にぴったり合います。"
+                : "場所ごとの利益と今月の利益が、足し引きで合っていません。数え方のどこかがずれています。"}
+            </p>
+          </div>
+        )}
       </section>
 
       {/* ---------- この月の日報 ---------- */}
@@ -548,6 +597,14 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
         <p className="mt-2 text-sm text-stone-600 leading-relaxed">
           お試し版で触ったのと同じ画面が、そのままお店の経理になります。
           毎月の締めと会計ソフト用のCSVはこちらでお出しします。
+        </p>
+        <p className="mt-3 text-sm">
+          <Link
+            href="/keiri/monthly-sample"
+            className="font-bold text-amber-700 underline hover:text-amber-800"
+          >
+            毎月お渡しする1枚の見本を見る →
+          </Link>
         </p>
         <div className="mt-5 flex flex-col sm:flex-row gap-3 justify-center">
           <Link

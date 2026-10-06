@@ -9,6 +9,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  APPLY_BLANK_MARK,
+  APPLY_TEST_NOTICE,
   KEIRI_APPLY_COPY_TO,
   KEIRI_APPLY_LIMITS,
   keiriApplyMailto,
@@ -27,7 +29,7 @@ function ok(input: Parameters<typeof normalizeKeiriApplication>[0]) {
     shop_name: string;
     contact_name: string;
     email: string;
-    phone: string | null;
+    phone: string;
     note: string | null;
   };
 }
@@ -46,17 +48,60 @@ test("ふつうの申し込みは通る。前後の空白は落とす", () => {
   assert.equal(v.note, "月末の締めが大変です");
 });
 
-test("任意の欄は空なら null（空の文字を控えに残さない）", () => {
-  const v = ok({ shopName: "A店", contactName: "山田", email: "a@b.jp" });
-  assert.equal(v.phone, null);
+test("ひとことは空なら null（空の文字を控えに残さない）", () => {
+  const v = ok({ shopName: "A店", phone: "090-1111-2222" });
   assert.equal(v.note, null);
+});
+
+// ------------------------------------------------------------
+// 必ず入れていただくのは2つだけ（2026-10-01・kp207）
+// ------------------------------------------------------------
+/**
+ * ★10/7 の出店説明会は立ち話で、相手のスマホに打ってもらう。
+ *   4つ打たせると途中でやめられるので、お店の名前と電話番号の2つに絞った。
+ *   お名前とメールアドレスは空でも申し込みが通る（折り返しは電話でする）。
+ */
+test("お店の名前と電話番号の2つだけで申し込める（お名前・メールは空でよい）", () => {
+  const v = ok({ shopName: "屋台 ほげ", phone: "0986-00-0000" });
+  assert.equal(v.shop_name, "屋台 ほげ");
+  assert.equal(v.phone, "0986-00-0000");
+  // ★空の文字のまま残す（倉庫の列が not null なので null にしてはいけない）
+  assert.equal(v.contact_name, "");
+  assert.equal(v.email, "");
+});
+
+test("電話番号が空なら断る（折り返す道が無くなるため）", () => {
+  const r = normalizeKeiriApplication({ shopName: "A店", email: "a@b.jp" });
+  assert.equal(r.ok, false);
+  assert.ok(
+    (r as { ok: false; errors: string[] }).errors.some((m) => m.includes("電話番号")),
+  );
+});
+
+test("電話番号は、数字が足りないものだけ断る（ハイフンあり・なし・+81 は通す）", () => {
+  for (const good of ["09000000000", "090-0000-0000", "+81 90 0000 0000", "0986-00-0000"]) {
+    ok({ shopName: "A店", phone: good });
+  }
+  for (const bad of ["090", "あいうえお", "12345678"]) {
+    const r = normalizeKeiriApplication({ shopName: "A店", phone: bad });
+    assert.equal(r.ok, false, `通してはいけない: ${bad}`);
+  }
+});
+
+test("メールアドレスは任意だが、入れたときは形を見る", () => {
+  ok({ shopName: "A店", phone: "090-0000-0000", email: "" });
+  const r = normalizeKeiriApplication({
+    shopName: "A店",
+    phone: "090-0000-0000",
+    email: "abc",
+  });
+  assert.equal(r.ok, false);
 });
 
 test("全角の空白だけの入力は「入っていない」と数える", () => {
   const r = normalizeKeiriApplication({
     shopName: "　　",
-    contactName: "山田",
-    email: "a@b.jp",
+    phone: "090-0000-0000",
   });
   assert.equal(r.ok, false);
   assert.ok(
@@ -64,21 +109,20 @@ test("全角の空白だけの入力は「入っていない」と数える", ()
   );
 });
 
-test("必須が3つとも空なら、足りないものを3つとも教える", () => {
+test("必須が2つとも空なら、足りないものを2つとも教える", () => {
   const r = normalizeKeiriApplication({});
   assert.equal(r.ok, false);
   const errors = (r as { ok: false; errors: string[] }).errors;
-  assert.equal(errors.length, 3);
+  assert.equal(errors.length, 2);
   assert.ok(errors.some((m) => m.includes("お店の名前")));
-  assert.ok(errors.some((m) => m.includes("お名前")));
-  assert.ok(errors.some((m) => m.includes("メールアドレス")));
+  assert.ok(errors.some((m) => m.includes("電話番号")));
 });
 
 test("メールアドレスの形がおかしいものは断る", () => {
   for (const bad of ["abc", "a@b", "a b@c.jp", "@example.com", "a@.jp", "a@b."]) {
     const r = normalizeKeiriApplication({
       shopName: "A店",
-      contactName: "山田",
+      phone: "090-0000-0000",
       email: bad,
     });
     assert.equal(r.ok, false, `通してはいけない: ${bad}`);
@@ -87,13 +131,12 @@ test("メールアドレスの形がおかしいものは断る", () => {
 
 test("長すぎる貼り付けは断る（上限ちょうどは通す）", () => {
   const justFit = "あ".repeat(KEIRI_APPLY_LIMITS.shopName);
-  ok({ shopName: justFit, contactName: "山田", email: "a@b.jp" });
+  ok({ shopName: justFit, phone: "090-0000-0000" });
 
   const tooLong = "あ".repeat(KEIRI_APPLY_LIMITS.shopName + 1);
   const r = normalizeKeiriApplication({
     shopName: tooLong,
-    contactName: "山田",
-    email: "a@b.jp",
+    phone: "090-0000-0000",
   });
   assert.equal(r.ok, false);
 });
@@ -101,8 +144,7 @@ test("長すぎる貼り付けは断る（上限ちょうどは通す）", () =>
 test("囮の欄が埋まっていたら機械。成功の顔をして、誰にも知らせない", () => {
   const r = normalizeKeiriApplication({
     shopName: "A店",
-    contactName: "山田",
-    email: "a@b.jp",
+    phone: "090-0000-0000",
     website: "http://spam.example",
   });
   assert.equal(r.ok, true);
@@ -115,7 +157,7 @@ test("文字でないもの（数値・オブジェクト）が来ても落ち�
   const r = normalizeKeiriApplication({
     shopName: 123,
     contactName: { a: 1 },
-    email: null,
+    phone: null,
   });
   assert.equal(r.ok, false);
 });
@@ -148,15 +190,18 @@ test("任意の欄が無いときは、その行を出さない（空の行を�
   const text = keiriApplyNotificationText({
     application: {
       shop_name: "A店",
-      contact_name: "山田",
-      email: "a@b.jp",
-      phone: null,
+      contact_name: "",
+      email: "",
+      phone: "090-0000-0000",
       note: null,
       campaign: null,
     },
     priceLabel: "月額15,000円（税込）／1店舗",
   });
-  assert.ok(!text.includes("電話："));
+  // ★電話は必ず入る（折り返しの唯一の道・kp207）
+  assert.ok(text.includes("電話：090-0000-0000"));
+  assert.ok(!text.includes("お名前："));
+  assert.ok(!text.includes("メール："));
   assert.ok(!text.includes("ひとこと："));
 });
 
@@ -330,8 +375,7 @@ test("SQL：申し込みの棚は、外から来る人に『入れる』以外�
 test("合言葉（?from=card）は申し込みの記録に残る（kp194）", () => {
   const r = normalizeKeiriApplication({
     shopName: "A店",
-    contactName: "山田",
-    email: "a@b.jp",
+    phone: "090-0000-0000",
     note: "月末の締めが大変です",
     campaign: "card",
   });
@@ -345,8 +389,7 @@ test("合言葉（?from=card）は申し込みの記録に残る（kp194）", ()
 test("ひとことが空でも合言葉だけは残る。合言葉が無ければ今までどおり（kp194）", () => {
   const withMark = normalizeKeiriApplication({
     shopName: "A店",
-    contactName: "山田",
-    email: "a@b.jp",
+    phone: "090-0000-0000",
     campaign: "card",
   });
   if (!withMark.ok || withMark.spam) throw new Error("受け取れていません");
@@ -354,8 +397,7 @@ test("ひとことが空でも合言葉だけは残る。合言葉が無けれ�
 
   const plain = normalizeKeiriApplication({
     shopName: "A店",
-    contactName: "山田",
-    email: "a@b.jp",
+    phone: "090-0000-0000",
   });
   if (!plain.ok || plain.spam) throw new Error("受け取れていません");
   assert.equal(plain.value.note, null);
@@ -365,8 +407,7 @@ test("ひとことが空でも合言葉だけは残る。合言葉が無けれ�
 test("合言葉に余分な記号が付いてきても、同じ合言葉として残る（kp195と対）", () => {
   const r = normalizeKeiriApplication({
     shopName: "A店",
-    contactName: "山田",
-    email: "a@b.jp",
+    phone: "090-0000-0000",
     campaign: "card`",
   });
   if (!r.ok || r.spam) throw new Error("受け取れていません");
@@ -379,7 +420,7 @@ test("知らせの本文では、どこから来たかを1行で出し、ひと�
       shop_name: "A店",
       contact_name: "山田",
       email: "a@b.jp",
-      phone: null,
+      phone: "090-0000-0000",
       note: "月末の締めが大変です\n［どこから：card］",
       campaign: "card",
     },
@@ -397,5 +438,110 @@ test("倉庫に入れるときの「どこから来たか」の欄は form の�
   assert.ok(
     route.includes('source: "form"'),
     "source は 'form' のままにしてください（棚の決まりが form だけを通します）",
+  );
+});
+
+// ------------------------------------------------------------------
+// 試しの1通（2026-10-04・kp228・f2-2）
+// ------------------------------------------------------------------
+
+test("試しの1通には、本文のいちばん上に『これはテストです』が入る", () => {
+  const application = {
+    shop_name: "テスト食堂",
+    contact_name: "",
+    email: "",
+    phone: "0000-00-0000",
+    note: "",
+    campaign: null,
+  };
+  const text = keiriApplyNotificationText({
+    application,
+    priceLabel: "月額15,000円（税込）／1店舗",
+    test: true,
+  });
+  assert.ok(
+    text.startsWith(APPLY_TEST_NOTICE),
+    "見た人が本物のお申し込みと取り違えないよう、1行目に入れること",
+  );
+  // 本物のときは入らない
+  const real = keiriApplyNotificationText({
+    application,
+    priceLabel: "月額15,000円（税込）／1店舗",
+  });
+  assert.ok(!real.includes(APPLY_TEST_NOTICE), "本物の知らせにテストの印が入っている");
+  assert.ok(real.startsWith("【経理パッケージ お申し込みが1件入りました】"));
+});
+
+test("どこから来たかの欄（source）は form のまま（変えると控えが1行も残らない）", () => {
+  const src = readFileSync("app/api/keiri/apply/route.ts", "utf8");
+  // 棚の受け入れの決まりは source が form のときだけ通るので、ここは変えない
+  assert.ok(
+    /source:\s*"form"/.test(src),
+    "source を form 以外にすると、控えが1行も残らない",
+  );
+  assert.ok(!/source:\s*test\s*\?/.test(src), "source を切り替えてはいけない");
+});
+
+test("試しの1通でも、入力の確かめ方・送り方・控えの残し方は本物と同じ道を通る", () => {
+  const src = readFileSync("app/api/keiri/apply/route.ts", "utf8");
+  // 分かれ道を作らず、同じ関数に印を渡すだけであること
+  assert.ok(src.includes("notifyApplication(parsed.value, test)"));
+  assert.ok(src.includes("saveApplication(parsed.value, test)"));
+  // 本物の返事の形は変わらないこと
+  assert.ok(
+    src.includes("NextResponse.json({ ok: true, notified, saved, reachable, notifyNote })"),
+    "本物の返事の形を変えてはいけない（画面がこれを見て動いている）",
+  );
+});
+
+// ------------------------------------------------------------------
+// 控えが黙って消えないこと（2026-10-04・f2-1）
+// ------------------------------------------------------------------
+
+test("お名前・メールが空でも控えが残る（空のまま1回、断られたら印を入れてもう1回）", () => {
+  const src = readFileSync("app/api/keiri/apply/route.ts", "utf8");
+  // まず空のまま入れること（これが本来の形。印を先に入れてはいけない）
+  const first = src.indexOf("const { error } = await db.from(TABLE).insert(row);");
+  assert.ok(first > 0, "1回目に、入力されたそのままの形で入れていない");
+  // 断られたときだけ、空の欄に印を入れてもう1回
+  const retry = src.indexOf("APPLY_BLANK_MARK", first);
+  assert.ok(retry > first, "断られたあとの2回目が無い（申し込みが黙って消える）");
+  assert.ok(
+    src.includes("rejectedByPolicy(error.message) && hasBlank"),
+    "決まりに断られた・かつ空の欄があるときだけに限っていない",
+  );
+  // 印は「入っていない」と読める言葉で、嘘の名前やメールを作らないこと
+  assert.equal(APPLY_BLANK_MARK, "（未記入）");
+});
+
+test("棚の決まりを直す SQL が倉庫にあり、変えているのは下限の2か所だけ", () => {
+  const sql = readFileSync(
+    "supabase/migrations/keiri_applications_optional_contact.sql",
+    "utf8",
+  );
+  // 空（長さ0）を通すように直していること
+  assert.ok(sql.includes("length(contact_name) between 0 and 120"));
+  assert.ok(sql.includes("length(email) between 0 and 254"));
+  // いたずら防止の守りは、もとのまま残していること
+  for (const keep of [
+    "source = 'form'",
+    "and status = 'new'",
+    "and tenant_id is null",
+    "length(shop_name) between 1 and 120",
+    "(phone is null or length(phone) <= 40)",
+    "(note is null or length(note) <= 2000)",
+  ]) {
+    assert.ok(sql.includes(keep), `もとの守り「${keep}」が落ちている`);
+  }
+  // 何度流しても同じ結果になる形であること
+  assert.ok(sql.includes("drop policy if exists"));
+});
+
+test("試しの1通は、控えを残さない（本物の棚に混ざらない）", () => {
+  const src = readFileSync("app/api/keiri/apply/route.ts", "utf8");
+  assert.ok(src.includes("if (test) return null;"), "試しの1通で控えを残している");
+  assert.ok(
+    !/status:\s*test\s*\?/.test(src),
+    "棚の決まりは status が new の行しか通さないので、ここで切り替えてはいけない",
   );
 });

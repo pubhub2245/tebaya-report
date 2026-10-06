@@ -18,8 +18,11 @@ import {
   type ExpenseAccountKey,
 } from "./accounts";
 import { amountOf, classifyExpense, expenseItemsOf } from "./classify";
+import { advanceNote } from "./advances";
+import { summarizeShopScope, type ShopCount } from "./shopScope";
 import type {
   BusinessTemplate,
+  KeiriAdvance,
   KeiriPayment,
   KeiriReport,
   KeiriSettings,
@@ -91,6 +94,19 @@ export type UnmatchedExpense = {
   date: string;
   description: string;
   amount: number;
+  /** どこから来た行か。"register"＝レジから払った経費／"advance"＝立替 */
+  from?: "register" | "advance";
+};
+
+/**
+ * 月の経費に数えなかった立替（理由つき）。
+ * ★黙って捨てないこと。画面に理由を出して、人が直せるようにします。
+ */
+export type SkippedAdvance = {
+  date: string;
+  description: string;
+  amount: number;
+  reason: string;
 };
 
 export type MonthlySummary = {
@@ -100,8 +116,21 @@ export type MonthlySummary = {
   sales: number;
   /** 科目ごとの経費（人件費・外注費・家賃も入る） */
   expenseByAccount: Record<ExpenseAccountKey, number>;
-  /** 経費の合計（人件費・外注費・家賃を含む） */
+  /**
+   * 経費の合計（人件費・外注費・家賃・**立替も**含む）。
+   * ★月の経費はこの1つが正です（2026-10-02・kp218）。画面・CSV・要約はここだけを見ます。
+   */
   expenseTotal: number;
+  /** 経費のうち、レジのお金から出た分（日報の経費明細の合計） */
+  expenseFromRegister: number;
+  /** 経費のうち、誰かが立て替えた分（まだ金庫からは出ていない） */
+  expenseFromAdvance: number;
+  /** この月に立て替えた分のうち、まだ返していない額 */
+  advanceUnsettled: number;
+  /** この月の立替の件数（数えなかったものを除く） */
+  advanceCount: number;
+  /** 月の経費に数えなかった立替（理由つき） */
+  advanceSkipped: SkippedAdvance[];
   /** 利益 ＝ 売上高 − 経費合計 */
   profit: number;
   /** 人件費（日報の日当の合計。月に1回まとめて払う分） */
@@ -114,6 +143,11 @@ export type MonthlySummary = {
   rent: number;
   /** 集計に使った日報の件数 */
   reportCount: number;
+  /**
+   * 数えた日報を、お店の区分（手羽屋／もも屋）ごとに分けた件数と売上（kp234・f1-5）。
+   * ★合計の数字は1円も変わりません。「何を数えているか」を出すためだけの内訳です。
+   */
+  shops: ShopCount[];
   /** 雑費に入れた（対応表に当たらなかった）明細 */
   unmatched: UnmatchedExpense[];
 };
@@ -166,20 +200,38 @@ export function rentForMonth(ym: string, settings: KeiriSettings): number {
  * その月の科目ごとの集計を出す。
  *
  * ★計上日は日報の `date`（営業日）です。入力日時（created_at）ではありません。
+ *
+ * ★**経費をどの月に入れるかの決まりは、ここが唯一の正**（CLAUDE.md 5-4b・2026-10-03 決定）。
+ *   月の経費は「その記録に書いてある日」で、その月に入れる。これ1本だけ。
+ *     ・日報の経費 … 日報の営業日（`date`）
+ *     ・立替      … 立て替えた日（`date`）
+ *   払った日を別に持たせて、推測で別の月に動かすことはしない
+ *   （日報の経費の行は支払日を持っておらず、推測で動かすと月の経費が人によって変わる）。
+ *   画面・会計ソフト向けCSV・1枚の要約は、すべてこの1つの結果から作る。
+ *   **同じ支払いを日報の経費にも立替台帳にも書くと、両方の月で経費になる**ので、
+ *   入り口の決まり（CLAUDE.md 5-4）を必ず守ること。検算は tests/keiriAdvances.test.ts。
  */
 export function summarizeMonth(params: {
   ym: string;
   reports: KeiriReport[];
   template: BusinessTemplate;
   settings: KeiriSettings;
+  /** 立替（渡さなければ無しとして数える。いままでと同じ結果になる） */
+  advances?: KeiriAdvance[];
 }): MonthlySummary {
   const { ym, reports, template, settings } = params;
+  const advances = params.advances ?? [];
   const target = reports.filter((r) => inMonth(r.date, ym));
 
   const expenseByAccount = emptyExpenseByAccount();
   const unmatched: UnmatchedExpense[] = [];
+  const advanceSkipped: SkippedAdvance[] = [];
   let sales = 0;
   let payroll = 0;
+  let expenseFromRegister = 0;
+  let expenseFromAdvance = 0;
+  let advanceUnsettled = 0;
+  let advanceCount = 0;
 
   for (const r of target) {
     sales += Number(r.sales_amount) || 0;
@@ -188,13 +240,50 @@ export function summarizeMonth(params: {
       const amount = amountOf(item);
       const { account, matched } = classifyExpense(item.description, template);
       expenseByAccount[account] += amount;
+      expenseFromRegister += amount;
       if (!matched) {
         unmatched.push({
           date: r.date,
           description: (item.description || "").trim() || "（説明なし）",
           amount,
+          from: "register",
         });
       }
+    }
+  }
+
+  // 立替（誰かが自分のお金で先に払った経費）。計上日は「立て替えた日」
+  for (const a of advances.filter((x) => inMonth(x.date, ym))) {
+    const amount = Number(a.amount) || 0;
+    const note = advanceNote(a);
+    if (a.skipReason) {
+      advanceSkipped.push({
+        date: a.date,
+        description: note,
+        amount,
+        reason: a.skipReason,
+      });
+      continue;
+    }
+    // 種類から決まっていればそれを使い、無ければ日報の経費と同じ対応表で当てる
+    let account = a.account ?? null;
+    let matched = !!account;
+    if (!account) {
+      const c = classifyExpense(a.description, template);
+      account = c.account;
+      matched = c.matched;
+    }
+    expenseByAccount[account] += amount;
+    expenseFromAdvance += amount;
+    advanceCount += 1;
+    if (a.settled !== true) advanceUnsettled += amount;
+    if (!matched) {
+      unmatched.push({
+        date: a.date,
+        description: note,
+        amount,
+        from: "advance",
+      });
     }
   }
 
@@ -211,18 +300,25 @@ export function summarizeMonth(params: {
   );
 
   unmatched.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  advanceSkipped.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
   return {
     ym,
     sales,
     expenseByAccount,
     expenseTotal,
+    expenseFromRegister,
+    expenseFromAdvance,
+    advanceUnsettled,
+    advanceCount,
+    advanceSkipped,
     profit: sales - expenseTotal,
     payroll,
     payrollDaily: expenseByAccount.payroll_daily,
     outsourcing,
     rent,
     reportCount: target.length,
+    shops: summarizeShopScope(target, ym).shops,
     unmatched,
   };
 }
@@ -250,7 +346,12 @@ export type Unpaid = {
   rentPaid: number;
   /** まだ払っていない家賃 */
   rent: number;
-  /** 合計（給与＋外注費＋家賃） */
+  /**
+   * まだ返していない立替（期首日以降に立て替えて、まだ返していない分）。
+   * ★立て替えた人へ返すお金なので、「まだ払っていないお金」に入ります（kp218）。
+   */
+  advance: number;
+  /** 合計（給与＋外注費＋家賃＋まだ返していない立替） */
   total: number;
 };
 
@@ -304,8 +405,11 @@ export function calcUnpaid(params: {
   payments: KeiriPayment[];
   settings: KeiriSettings;
   currentYm: string;
+  /** 立替（渡さなければ無しとして数える） */
+  advances?: KeiriAdvance[];
 }): Unpaid {
   const { reports, payments, settings, currentYm } = params;
+  const advances = params.advances ?? [];
   const from = settings.opening_date;
 
   const since = reports.filter((r) => typeof r.date === "string" && r.date >= from);
@@ -333,6 +437,13 @@ export function calcUnpaid(params: {
   const outsourcing = outsourcingAccrued - outsourcingPaid;
   const rent = rentAccrued - rentPaid;
 
+  // まだ返していない立替（期首日以降に立て替えたもの。数えない立替は入れない）
+  const advance = advances
+    .filter((a) => !a.skipReason)
+    .filter((a) => typeof a.date === "string" && a.date >= from)
+    .filter((a) => a.settled !== true)
+    .reduce((s, a) => s + (Number(a.amount) || 0), 0);
+
   return {
     payrollAccrued,
     payrollPaid,
@@ -343,7 +454,8 @@ export function calcUnpaid(params: {
     rentAccrued,
     rentPaid,
     rent,
-    total: payroll + outsourcing + rent,
+    advance,
+    total: payroll + outsourcing + rent + advance,
   };
 }
 
@@ -360,6 +472,16 @@ export type CashPosition = {
   expenses: number;
   /** 期首日以降に払った給与・外注費・家賃の合計 */
   paid: number;
+  /**
+   * 期首日以降に返した立替（精算して金庫から出た分）。
+   * ★立て替えた日ではなく**返した日**に金庫から出ます（kp218・lib/money.ts と同じ数え方）。
+   */
+  advancesSettled: number;
+  /**
+   * 期首日以降に銀行へ入れた（預け入れた）合計。
+   * ★経費ではありません。利益には1円も入れず、**現金だけ**が減ります（kp233・f1-4）。
+   */
+  deposits: number;
   /** 今の現金 */
   balance: number;
 };
@@ -383,10 +505,31 @@ export function calcCashPosition(params: {
   reports: KeiriReport[];
   payments: KeiriPayment[];
   settings: KeiriSettings;
+  /** 立替（渡さなければ無しとして数える） */
+  advances?: KeiriAdvance[];
+  /**
+   * 売上の現金を銀行に入れた記録（渡さなければ無しとして数える・kp233）。
+   * ★現金が減る道のうち、ここだけが「経費ではない」もの。
+   *   科目別の経費・利益には**絶対に混ぜないこと**（混ぜると利益を間違えます）。
+   */
+  deposits?: { date: string; amount: number }[];
+  /**
+   * 「この日の時点での残高」を出したいときに渡す（YYYY-MM-DD）。
+   * 渡さなければ今までどおり**今日まで全部**を数える。
+   * 金庫を数えた日と突き合わせるために足した（kp233・f1-4）。
+   */
+  asOf?: string;
 }): CashPosition {
   const { reports, payments, settings } = params;
+  const advances = params.advances ?? [];
   const from = settings.opening_date;
-  const since = reports.filter((r) => typeof r.date === "string" && r.date >= from);
+  const asOf = params.asOf;
+  /** その日までか（asOf を渡していなければ、いつでも数える） */
+  const upTo = (d: unknown): boolean =>
+    !asOf || (typeof d === "string" && d <= asOf);
+  const since = reports.filter(
+    (r) => typeof r.date === "string" && r.date >= from && upTo(r.date),
+  );
 
   const sales = since.reduce((s, r) => s + (Number(r.sales_amount) || 0), 0);
   const expenses = since.reduce(
@@ -394,10 +537,27 @@ export function calcCashPosition(params: {
       s + expenseItemsOf(r.expenses).reduce((t, item) => t + amountOf(item), 0),
     0,
   );
+  // 支払いは「払った日（paid_on）」で数える（sumPayments と同じ欄）
+  const paidTargets = payments.filter((p) => upTo(p.paid_on));
   const paid =
-    sumPayments(payments, "payroll", from) +
-    sumPayments(payments, "outsourcing", from) +
-    sumPayments(payments, "rent", from);
+    sumPayments(paidTargets, "payroll", from) +
+    sumPayments(paidTargets, "outsourcing", from) +
+    sumPayments(paidTargets, "rent", from);
+
+  // 返した（精算した）立替は、返した日に金庫から出る
+  const advancesSettled = advances
+    .filter((a) => !a.skipReason)
+    .filter((a) => a.settled === true)
+    .filter((a) => {
+      const d = a.settledDate || a.date;
+      return typeof d === "string" && d >= from && upTo(d);
+    })
+    .reduce((s, a) => s + (Number(a.amount) || 0), 0);
+
+  // 銀行に入れた分。経費ではないので、ここでしか引かない
+  const deposits = (params.deposits ?? [])
+    .filter((d) => typeof d.date === "string" && d.date >= from && upTo(d.date))
+    .reduce((s, d) => s + (Number(d.amount) || 0), 0);
 
   const opening = Number(settings.opening_balance) || 0;
 
@@ -407,7 +567,9 @@ export function calcCashPosition(params: {
     sales,
     expenses,
     paid,
-    balance: opening + sales - expenses - paid,
+    advancesSettled,
+    deposits,
+    balance: opening + sales - expenses - paid - advancesSettled - deposits,
   };
 }
 
@@ -496,4 +658,81 @@ export function expenseSlices(summary: MonthlySummary): ExpenseSlice[] {
     label: a.label,
     value: merged[a.key],
   })).filter((s) => s.value > 0);
+}
+
+// ------------------------------------------------------------------
+// 出店場所ごとの利益と、月の利益のつなぎ（2026-10-03・kp226-b2）
+// ------------------------------------------------------------------
+
+/**
+ * 「出店場所ごとの利益を足した額」と「今月の利益」は、同じにはなりません。
+ * 場所ごとの表に入れていないお金（立替・外注費・家賃）があるためです。
+ *
+ * ■ なぜ要るか（B2 が本番で見つけた・2026-10-03）
+ *   お試し版では 駅前広場 90,300 ＋ 商店街 41,500 ＝ 131,800円 なのに、
+ *   上の「今月の利益」は 37,300円でした。表の下の説明は「家賃は場所別に
+ *   入れていません」の1行だけで、家賃 60,000 を引いても 71,800円。
+ *   残り 34,500円（誰かが立て替えた分）の説明がどこにも無く、
+ *   **見た人は数字が合わないページだと受け取ります。**
+ *
+ * ■ ここで数字を書かないこと
+ *   引く額は summarizeMonth の答えからそのまま取ります。画面に式を直書きしません。
+ *   残り（説明のつかない差）が出たら隠さず「その他」に出します。
+ */
+export type LocationProfitBridge = {
+  /** 出店場所ごとの利益を足した額 */
+  locationProfit: number;
+  /** 場所別に入れていないお金（引く側）。0円の行は入れない */
+  deductions: { label: string; yen: number }[];
+  /** 引く額の合計 */
+  deductionTotal: number;
+  /** 月の利益（summarizeMonth の答え） */
+  monthProfit: number;
+  /** 足し引きがぴったり合うか（合わなければ画面で正直に出す） */
+  matches: boolean;
+};
+
+export function locationProfitBridge(params: {
+  byLocation: LocationSummary[];
+  summary: MonthlySummary;
+}): LocationProfitBridge {
+  const { byLocation, summary } = params;
+  const locationProfit = byLocation.reduce((t, r) => t + r.profit, 0);
+
+  // 場所別の表に入っているのは「日報の経費明細」と「日当」だけ。
+  // 月の経費のうち、それ以外のぶんがそのまま差になる。
+  const others =
+    summary.expenseTotal - summary.expenseFromRegister - summary.payroll;
+  const named = [
+    { label: "誰かが立て替えた分", yen: summary.expenseFromAdvance },
+    { label: "外注費", yen: summary.outsourcing },
+    { label: "家賃（事務所）", yen: summary.rent },
+  ];
+  const rest = others - named.reduce((t, d) => t + d.yen, 0);
+  const deductions = [
+    ...named,
+    // 説明のつかない差が出たときだけ出す（黙って飲み込まない）
+    ...(rest !== 0 ? [{ label: "その他", yen: rest }] : []),
+  ].filter((d) => d.yen !== 0);
+
+  const deductionTotal = deductions.reduce((t, d) => t + d.yen, 0);
+  return {
+    locationProfit,
+    deductions,
+    deductionTotal,
+    monthProfit: summary.profit,
+    matches: locationProfit - deductionTotal === summary.profit,
+  };
+}
+
+/** 「場所の利益の合計 131,800 − 家賃 60,000 − … ＝ 今月の利益 37,300」の1行を作る */
+export function locationProfitBridgeLine(bridge: LocationProfitBridge): string {
+  const n = (yen: number) => Math.round(yen).toLocaleString("ja-JP");
+  const minus = bridge.deductions
+    // マイナスの行（説明のつかない差）は「＋」で出す。「− -500」と読ませない
+    .map((d) => (d.yen < 0 ? ` ＋ ${d.label} ${n(-d.yen)}` : ` − ${d.label} ${n(d.yen)}`))
+    .join("");
+  return `場所の利益の合計 ${n(bridge.locationProfit)}${minus} ＝ 今月の利益 ${n(
+    bridge.monthProfit,
+  )}`;
 }
