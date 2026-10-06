@@ -33,3 +33,27 @@ test("f3-3 と f3-4 を確かめる窓口が一覧に入っている", () => {
   assert.ok(CHECK_WINDOW_PATHS.includes("/api/keiri/scopecheck"));
   assert.ok(CHECK_WINDOW_PATHS.includes("/api/version"));
 });
+
+test("読む窓口が名乗りだけで入れないかを確かめる窓口も、一覧に入っている（kp239・f3-4）", () => {
+  assert.ok(CHECK_WINDOW_PATHS.includes("/api/keiri/readcheck"));
+  const w = CHECK_WINDOWS.find((x) => x.path === "/api/keiri/readcheck");
+  assert.ok(w);
+  assert.ok(w!.check.includes("f3-4"));
+});
+
+test("確かめる窓口は、どれも読むだけ（棚に書き込む道をコードに持たない）", () => {
+  const { readFileSync } = require("node:fs") as typeof import("node:fs");
+  const { join } = require("node:path") as typeof import("node:path");
+  for (const w of CHECK_WINDOWS) {
+    const file = join(__dirname, "..", "app", ...w.path.split("/").filter(Boolean), "route.ts");
+    let src = "";
+    try {
+      src = readFileSync(file, "utf8");
+    } catch {
+      continue; // 住所と置き場所が違う窓口はここでは見ない
+    }
+    for (const bad of [".insert(", ".upsert(", ".delete("]) {
+      assert.ok(!src.includes(bad), `読むだけの窓口に書き込みが入っている：${w.path} ${bad}`);
+    }
+  }
+});
