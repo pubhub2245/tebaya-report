@@ -20,6 +20,7 @@
 
 import { supabase } from "../supabase";
 import { applyTenantScope, isTebayaScope, type TenantScope } from "../tenantScope";
+import { readKeiriSecret } from "./browserSecret";
 import { normalizeFieldAdvance, normalizeOwnerAdvance } from "./advances";
 import { normalizeCashEvents, type CashEvent } from "./cashCheck";
 import type {
@@ -46,6 +47,61 @@ export type KeiriMonthData = {
   cashShelfMissing: boolean;
 };
 
+/**
+ * 申し込んだお店ぶんを、**サーバー側の窓口**（/api/keiri/month）から読む（kp239・f3-4）。
+ *
+ * ■ なぜこちらを先に使うか（やさしい説明）
+ *   ブラウザから倉庫を直接のぞく読み方は、「どのお店として読むか」を
+ *   **ブラウザが覚えている番号**で決めています。番号を書き換えれば、
+ *   よそのお店の帳簿が開けてしまう形です。
+ *   窓口は番号を受け取らず、**合言葉からサーバーが決める**ので、そこが閉まります。
+ *
+ * ■ 使えないときは、今までどおりの読み方に戻します
+ *   札が無い・窓口が無い・通信できない——どの場合も null を返し、
+ *   呼んだ側が今までの道へ落とします。**払ったお店が締め出されないため**です。
+ *
+ * ■ 手羽屋はここを通りません（今までどおり）
+ */
+async function loadViaServerWindow(params: {
+  ym: string;
+  fallbackSettings: KeiriSettings;
+}): Promise<KeiriMonthData | null> {
+  const passwordHash = readKeiriSecret();
+  if (!passwordHash) return null;
+
+  let json: any = null;
+  try {
+    const res = await fetch("/api/keiri/month", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ym: params.ym, passwordHash }),
+    });
+    json = await res.json().catch(() => null);
+    if (!res.ok || !json?.ok) return null;
+  } catch {
+    return null;
+  }
+
+  const d = json.data ?? {};
+  // ★読めなかった棚を「0件」と取り違えない（経費が落ちて利益が多く出るのを防ぐ）
+  if (d.reportsUnreadable) {
+    throw new Error("日報を読めませんでした。少し待ってから開き直してください。");
+  }
+  if (d.advancesUnreadable) {
+    throw new Error("立替の記録を読めませんでした。少し待ってから開き直してください。");
+  }
+
+  return {
+    settings: d.settingsMissing ? params.fallbackSettings : (d.settings as KeiriSettings),
+    settingsMissing: !!d.settingsMissing,
+    reports: (d.reports as KeiriReport[]) ?? [],
+    payments: (d.payments as (KeiriPayment & { id: number })[]) ?? [],
+    advances: (d.advances as KeiriAdvance[]) ?? [],
+    cashEvents: (d.cashEvents as CashEvent[]) ?? [],
+    cashShelfMissing: !!d.cashShelfMissing,
+  };
+}
+
 export async function loadKeiriMonth(params: {
   /** 見ている月（YYYY-MM） */
   ym: string;
@@ -57,6 +113,14 @@ export async function loadKeiriMonth(params: {
   fallbackSettings: KeiriSettings;
 }): Promise<KeiriMonthData> {
   const { ym, scope, businessCode, fallbackSettings } = params;
+
+  // ★申し込んだお店は、まずサーバー側の窓口から読む（kp239・f3-4）。
+  //   窓口が使えないときだけ、今までどおりブラウザから読む道に落ちる。
+  //   手羽屋（印が空）はここを通らず、今までと1行も変わらない。
+  if (!isTebayaScope(scope)) {
+    const viaServer = await loadViaServerWindow({ ym, fallbackSettings });
+    if (viaServer) return viaServer;
+  }
 
   // 設定（数え始めの日・期首残高・Alphaの率・家賃）
   const { data: s, error: sErr } = await supabase
