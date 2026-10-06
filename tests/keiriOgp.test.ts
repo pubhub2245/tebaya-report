@@ -58,6 +58,7 @@ test("外向きページは1つ残らず、自分の題名のカードを持っ�
   //   （plan-draft は 2026-10-03 に /keiri/plan へ移し、送り先は next.config.js に書いた）
   //   monthly … 合言葉の内側。**実際のお店の数字**を出す1枚（kp231・外に出さない）
   //   sql … じゅんだけが開く「倉庫に1回だけ流す貼り紙」（noindex・kp237）
+  //   tenant-new … 運営だけが読む「2軒目のお店を入れる手順の1枚」（noindex・kp235）
   const skip = new Set([
     "welcome",
     "advances",
@@ -67,6 +68,7 @@ test("外向きページは1つ残らず、自分の題名のカードを持っ�
     "card",
     "monthly",
     "sql",
+    "tenant-new",
   ]);
   const missing: string[] = [];
   const walk = (d: string, rel: string) => {
