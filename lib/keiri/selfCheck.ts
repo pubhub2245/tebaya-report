@@ -35,6 +35,20 @@ export type KeiriSelfCheck = {
   profitOk: boolean;
   /** まだ払っていないお金の内訳の合計が、その見出しと合っているか */
   unpaidOk: boolean;
+  /**
+   * 試算表（科目ごとの借方・貸方の合計）が出て、左右の合計が合っているか（f1-7）。
+   * ★金額は返しません。合っているかと、何科目あるかだけです。
+   */
+  trial: {
+    /** 試算表が作れたか（科目が1つ以上あるか） */
+    ready: boolean;
+    /** 左の合計 ＝ 右の合計 */
+    balanced: boolean;
+    /** 科目の数 */
+    accountCount: number;
+    /** 試算表の売上・かかったお金・利益が、画面の数字と1円まで同じか */
+    matchesScreen: boolean;
+  };
   /** 3つとも合ったか（＝1枚をお店に出せる状態か） */
   sheetReady: boolean;
   /** 合っていない所（金額は伏せてある） */
@@ -67,6 +81,7 @@ export function unreadableSelfCheck(params: { month: string; ym: string; reason:
     expenseSame: false,
     profitOk: false,
     unpaidOk: false,
+    trial: { ready: false, balanced: false, accountCount: 0, matchesScreen: false },
     sheetReady: false,
     problems: [maskYen(params.reason)],
     needsHuman: { unmatched: 0, duplicate: 0, noReceipt: null },
@@ -106,6 +121,13 @@ export function buildSelfCheck(params: {
     expenseSame: sheet.expenseCheck.same,
     profitOk: v.profitOk,
     unpaidOk: v.unpaidOk,
+    // ★読むだけの窓口なので、万一 試算表が入っていなくても落とさない（分からないと返す）
+    trial: {
+      ready: (sheet.trial?.lines?.length ?? 0) > 0,
+      balanced: sheet.trial?.balanced ?? false,
+      accountCount: sheet.trial?.lines?.length ?? 0,
+      matchesScreen: sheet.trialCheck?.ok ?? false,
+    },
     sheetReady: v.ok,
     problems: v.problems.map(maskYen),
     needsHuman,
