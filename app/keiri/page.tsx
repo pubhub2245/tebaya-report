@@ -24,7 +24,6 @@ import {
 import { supabase } from "@/lib/supabase";
 import {
   businessCodeForScope,
-  readTenantScope,
   tenantStamp,
   type TenantScope,
 } from "@/lib/tenantScope";
@@ -59,6 +58,7 @@ import {
 } from "@/lib/keiri/moneyforward";
 import { toYayoiCsv, yayoiFileName } from "@/lib/keiri/yayoi";
 import { loadKeiriMonth } from "@/lib/keiri/loadMonth";
+import { readAuthedKeiriScope } from "@/lib/keiri/readSource";
 import {
   depositsOf,
   latestCount,
@@ -129,13 +129,17 @@ export default function KeiriPage() {
  * 手羽屋（印が空）のときは "tebaya" ＝ いままでどおり。
  */
 function currentBusinessCode(): string {
-  return businessCodeForScope(readTenantScope());
+  return businessCodeForScope(readAuthedKeiriScope());
 }
 
 function KeiriInner() {
   const now = new Date();
   // いまどのお店として開いているか（null＝手羽屋。手羽屋は今までどおり）
-  const scope = useMemo(() => readTenantScope(), []);
+  // ★どのお店の帳簿を読む／書くかは「入室の印」だけで決める（kp239・f3-4）。
+  //   端末の控え（localStorage）は日報の印のための物で、入室の印と食い違うことがあり、
+  //   空のときに手羽屋と見なされて、お店の画面に手羽屋の数字が出ていた。
+  //   手羽屋は印を持たないので、ここは今までどおり null（＝1行も変わらない）。
+  const scope = useMemo(() => readAuthedKeiriScope(), []);
   const BUSINESS_CODE = useMemo(() => businessCodeForScope(scope), [scope]);
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
