@@ -43,6 +43,7 @@ import {
   type TenantScope,
 } from "@/lib/tenantScope";
 import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
+import { effectiveKeiriScope } from "@/lib/keiri/readSource";
 import {
   FALLBACK_ADVANCE_TYPES,
   isMissingTenantColumn,
@@ -116,7 +117,11 @@ type AdvanceRow = {
  */
 function AdvancesForm() {
   /** いまどのお店として開いているか。null ＝ 手羽屋 */
-  const [scope] = useState<TenantScope>(() => readTenantScope());
+  // ★「お店として入っているのに手羽屋と見なされる」をふさぐ（2026-10-07・kp239・f3-4）。
+  //   端末の控えが空でも、このタブに入室の印があればそのお店として扱う。
+  //   そうしないと、お店が入れた立替が**手羽屋の本物の帳簿に混ざる**。
+  //   手羽屋は入室の印を持たないので、ここは今までと1文字も変わらない。
+  const [scope] = useState<TenantScope>(() => effectiveKeiriScope(readTenantScope()));
   /** 経理の対応表・保存に使う業態コード（手羽屋は今までどおり "tebaya"） */
   const businessCode = useMemo(() => businessCodeForScope(scope), [scope]);
   /**

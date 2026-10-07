@@ -104,3 +104,35 @@ export function readWindowOutcome(status: number, body: unknown): WindowOutcome 
   if (status === 401 || status === 403) return { kind: "denied" };
   return { kind: "unavailable" };
 }
+
+/* ------------------------------------------------------------------ *
+ *  「お店として入っているのに、手羽屋と見なされる」をふさぐ（2026-10-07・kp239）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 経理の画面で「いまどのお店か」を決めるときの、安全側の決め方。
+ *
+ * ■ なぜ2つを合わせて見るのか（やさしい説明）
+ *   入室の印（このタブ）と端末の控え（localStorage）は別の置き場なので、
+ *   食い違うことがあります。食い違ったときに **手羽屋のほうへ倒れる**のが危ない形です。
+ *   ・読むとき … 手羽屋の売上・経費・利益が、お店の画面に出てしまう
+ *   ・書くとき … お店が入れた立替が、**手羽屋の本物の帳簿に混ざってしまう**
+ *
+ *   そこで「どちらかがお店だと言っているなら、お店として扱う」ことにします。
+ *   締める側にしか倒れないので、ゆるくなることはありません。
+ *
+ * ■ 手羽屋は1つも変わりません（ここが大事）
+ *   手羽屋には入室の印が付きません（手羽屋の合言葉で入ると必ず捨てられます）。
+ *   印が無いときの答えは、**端末の控えをそのまま返すだけ**なので、
+ *   これまでと1文字も変わりません（tests/keiriReadSource.test.ts で固定）。
+ *
+ * @param deviceScope 端末の控え（lib/tenantScope.ts の readTenantScope() の答え）
+ * @param store       入室の印の置き場（既定はこのタブの sessionStorage）
+ */
+export function effectiveKeiriScope(
+  deviceScope: TenantScope,
+  store?: Reader,
+): TenantScope {
+  const authed = readAuthedKeiriScope(store);
+  return authed ?? normalizeTenantScope(deviceScope);
+}

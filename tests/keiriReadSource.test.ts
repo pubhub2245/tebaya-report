@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import {
   KEIRI_SHOP_AUTH_KEY,
   decideReadSource,
+  effectiveKeiriScope,
   readAuthedKeiriScope,
   readWindowOutcome,
 } from "../lib/keiri/readSource";
@@ -78,4 +79,35 @@ test("窓口の返事：窓口が無い・通信できないときだけ、今�
 test("窓口の返事：200 でも ok が付いていなければ、読めたことにしない", () => {
   assert.deepEqual(readWindowOutcome(200, { ok: false }), { kind: "unavailable" });
   assert.deepEqual(readWindowOutcome(200, { ok: true }), { kind: "ok" });
+});
+
+/* ------------------------------------------------------------------ *
+ *  「お店として入っているのに、手羽屋と見なされる」をふさいだか
+ * ------------------------------------------------------------------ */
+
+test("入室の印が無ければ、端末の控えをそのまま返す＝手羽屋は1文字も変わらない", () => {
+  const none = store({});
+  // 手羽屋（控えも空）
+  assert.equal(effectiveKeiriScope(null, none), null);
+  // 控えにお店が入っている端末（これまでどおりそのお店）
+  assert.equal(effectiveKeiriScope(SHOP, none), SHOP);
+  // 控えが変な値（これまでどおり手羽屋に倒す）
+  assert.equal(effectiveKeiriScope("tebaya" as never, none), null);
+});
+
+test("端末の控えが空でも、入室の印があればそのお店として扱う（手羽屋に倒さない）", () => {
+  const authed = store({ [KEIRI_SHOP_AUTH_KEY]: SHOP });
+  assert.equal(effectiveKeiriScope(null, authed), SHOP);
+});
+
+test("食い違ったときは、入室の印（合言葉で入ったほう）を採る", () => {
+  const authed = store({ [KEIRI_SHOP_AUTH_KEY]: SHOP });
+  assert.equal(effectiveKeiriScope(OTHER, authed), SHOP);
+});
+
+test("締める側にしか倒れない（手羽屋として入っている端末が、お店にされることはない）", () => {
+  // 入室の印が無い＝手羽屋。どんな控えでも答えは控えのまま
+  for (const dev of [null, SHOP, OTHER]) {
+    assert.equal(effectiveKeiriScope(dev, store({})), dev);
+  }
 });
