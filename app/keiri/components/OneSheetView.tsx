@@ -10,7 +10,8 @@
  * ■ 言葉と並び順は B2 の見本どおり（2026-10-04・kp231 ②）
  *   ①見出し ②大きな数字3つ（売上・かかったお金・残ったお金）＋式
  *   ③かかったお金の中身 ④いま手元にある現金 ⑤まだ払っていないお金
- *   ⑥確かめてほしいこと（無い月は枠ごと出さない）⑦会計ソフトに渡す表 ⑧断り書き
+ *   ⑥確かめてほしいこと（無い月は枠ごと出さない）⑦会計ソフトに渡す表
+ *   ⑦b 試算表（たたんである。税理士さんと会計ソフトが最初に見る表・f1-7）⑧断り書き
  *   店主が読む紙なので「経費」「利益」「未払金」「仕訳」は出しません。
  *
  * ■ 守ること
@@ -280,6 +281,71 @@ export default function OneSheetView({ sheet }: { sheet: MonthlySample }) {
           はじめの{sheet.journalRows.length}行だけを出しています（全{sheet.journalRowCount}行）。
         </p>
       </div>
+
+      {/* ---------- ⑦b 試算表（税理士さん・会計ソフト用） ---------- */}
+      <details className="mt-5 border-t border-stone-200 pt-4">
+        <summary className="cursor-pointer text-xs font-bold text-amber-700">
+          試算表（税理士さんと会計ソフトが最初に見る表）
+          <span className="ml-2 font-normal text-stone-500">
+            左の合計 {sheetYen(sheet.trial.debitTotal)}／右の合計{" "}
+            {sheetYen(sheet.trial.creditTotal)}
+            {sheet.trial.balanced ? "・ぴったり合っています" : "・合っていません"}
+          </span>
+        </summary>
+        <p className="mt-2 text-sm text-stone-700 leading-relaxed">
+          科目ごとに「左（借方）にいくら・右（貸方）にいくら」を足し上げた表です。
+          左と右の合計がぴったり同じなら、帳簿の形が崩れていないしるしです。
+          お店側の作業はありません（全{sheet.trial.rowCount}行の仕訳から自動で作っています）。
+        </p>
+        <div className="mt-3 -mx-1 overflow-x-auto">
+          <table className="w-full min-w-[26rem] text-xs">
+            <thead>
+              <tr className="text-stone-500">
+                <th className="px-1 py-1 text-left font-bold whitespace-nowrap">科目</th>
+                <th className="px-1 py-1 text-right font-bold whitespace-nowrap">借方合計</th>
+                <th className="px-1 py-1 text-right font-bold whitespace-nowrap">貸方合計</th>
+                <th className="px-1 py-1 text-right font-bold whitespace-nowrap">残高</th>
+              </tr>
+            </thead>
+            <tbody className="text-stone-700">
+              {sheet.trial.lines.map((l) => (
+                <tr key={l.account} className="border-t border-stone-100">
+                  <td className="px-1 py-1 whitespace-nowrap">{l.account}</td>
+                  <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">
+                    {l.debit.toLocaleString("ja-JP")}
+                  </td>
+                  <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">
+                    {l.credit.toLocaleString("ja-JP")}
+                  </td>
+                  <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">
+                    {l.balanceAbs.toLocaleString("ja-JP")}
+                    {l.side !== "なし" && (
+                      <span className="ml-1 text-stone-400">{l.side}</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              <tr className="border-t-2 border-stone-300 font-bold">
+                <td className="px-1 py-1 whitespace-nowrap">合計</td>
+                <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">
+                  {sheet.trial.debitTotal.toLocaleString("ja-JP")}
+                </td>
+                <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">
+                  {sheet.trial.creditTotal.toLocaleString("ja-JP")}
+                </td>
+                <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">0</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-xs font-bold text-stone-700">
+          → 試算表の売上 {sheetYen(sheet.trial.revenueTotal)} − かかったお金{" "}
+          {sheetYen(sheet.trial.expenseTotal)} ＝ {sheetYen(sheet.trial.profit)}
+          {sheet.trialCheck.ok
+            ? "（この1枚の上の数字と1円まで同じです）"
+            : "（この1枚の上の数字と合っていません）"}
+        </p>
+      </details>
 
       {/* ---------- ⑧ 断り書き ---------- */}
       <p className="mt-5 border-t border-stone-200 pt-3 text-xs text-stone-500 leading-relaxed">

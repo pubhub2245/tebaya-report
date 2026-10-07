@@ -57,6 +57,11 @@ import {
   type CsvEncoding,
 } from "@/lib/keiri/moneyforward";
 import { toYayoiCsv, yayoiFileName } from "@/lib/keiri/yayoi";
+import {
+  buildTrialBalance,
+  checkTrialBalance,
+  trialBalanceToCsv,
+} from "@/lib/keiri/trialBalance";
 import { loadKeiriMonth } from "@/lib/keiri/loadMonth";
 import { readAuthedKeiriScope } from "@/lib/keiri/readSource";
 import {
@@ -318,14 +323,43 @@ function KeiriInner() {
     setMonth(d.getMonth() + 1);
   };
 
+  /**
+   * この月の仕訳（会計ソフトに渡す行）。**書き出しはぜんぶここ1つを使う。**
+   *
+   * ★ここに advances（立替）を渡し忘れると、
+   *   画面の「かかったお金」には立替が入っているのに、
+   *   **書き出したCSVからは立替がまるごと落ちます**（2026-10-07・f1-7 で見つけた）。
+   *   そうならないように、書き出し3つ（ふつう・MF・弥生）と試算表が
+   *   同じこの1つを見るようにしてあります。
+   */
+  const journalRows = useMemo(
+    () =>
+      buildJournalRows({
+        ym,
+        reports,
+        payments,
+        template,
+        settings: effective,
+        advances,
+      }),
+    [ym, reports, payments, template, effective, advances],
+  );
+
+  /** 試算表（科目ごとの借方・貸方の合計）。CSVと同じ仕訳から作る */
+  const trial = useMemo(() => buildTrialBalance(journalRows), [journalRows]);
+  const trialCheck = useMemo(
+    () =>
+      checkTrialBalance({
+        trial,
+        sales: summary.sales,
+        expenseTotal: summary.expenseTotal,
+        profit: summary.profit,
+      }),
+    [trial, summary],
+  );
+
   const downloadCsv = () => {
-    const rows = buildJournalRows({
-      ym,
-      reports,
-      payments,
-      template,
-      settings: effective,
-    });
+    const rows = journalRows;
     const blob = new Blob([toCsv(rows)], {
       type: "text/csv;charset=utf-8;",
     });
@@ -344,13 +378,7 @@ function KeiriInner() {
    * 文字コードは2つあるので、取り込めたほうを使ってもらう。
    */
   const downloadMoneyForwardCsv = async (encoding: CsvEncoding) => {
-    const rows = buildJournalRows({
-      ym,
-      reports,
-      payments,
-      template,
-      settings: effective,
-    });
+    const rows = journalRows;
     const bytes = await encodeCsv(toMoneyForwardCsv(rows), encoding);
     const blob = new Blob([bytes], {
       type: encoding === "utf8" ? "text/csv;charset=utf-8;" : "text/csv;charset=shift_jis;",
@@ -372,19 +400,28 @@ function KeiriInner() {
    * 見出し行は付けず、文字コードは Shift-JIS で出す（lib/keiri/yayoi.ts）。
    */
   const downloadYayoiCsv = async () => {
-    const rows = buildJournalRows({
-      ym,
-      reports,
-      payments,
-      template,
-      settings: effective,
-    });
+    const rows = journalRows;
     const bytes = await encodeCsv(toYayoiCsv(rows), "shift_jis");
     const blob = new Blob([bytes], { type: "text/csv;charset=shift_jis;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = yayoiFileName(ym);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  /** 試算表を4列のCSVで書き出す（税理士さんに渡す用） */
+  const downloadTrialCsv = () => {
+    const blob = new Blob([trialBalanceToCsv(trial)], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `keiri_shisanhyo_${ym}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -848,6 +885,87 @@ function KeiriInner() {
             弥生用CSV（25列・Shift-JIS）
           </button>
         </div>
+      </section>
+
+      {/* 試算表（税理士さん・会計ソフト用） */}
+      <section className="card space-y-2">
+        <h2 className="text-lg font-bold text-brand-dark">🧮 試算表</h2>
+        <p className="text-sm text-stone-600 leading-relaxed">
+          科目（かもく＝お金を仕分ける箱の名前）ごとに「左（借方）にいくら・右（貸方）に
+          いくら」を足し上げた表です。税理士さんと会計ソフトが最初に見る表で、
+          <span className="font-bold">左と右の合計がぴったり同じ</span>
+          なら、帳簿の形が崩れていないしるしです。上のCSVと<span className="font-bold">同じ仕訳</span>
+          から作っているので、ここが合っていればCSVも合っています。
+        </p>
+        {!trialCheck.ok && (
+          <div className="rounded-xl border border-red-300 bg-red-50 p-3">
+            <p className="text-sm font-bold text-red-700">
+              合っていない所があります（金額はこちらで直しません）
+            </p>
+            <ul className="mt-1 space-y-1 text-sm text-red-700">
+              {trialCheck.problems.map((t) => (
+                <li key={t}>・{t}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <div className="-mx-1 overflow-x-auto">
+          <table className="w-full min-w-[22rem] text-sm">
+            <thead>
+              <tr className="text-stone-500 text-xs">
+                <th className="px-1 py-1 text-left font-bold whitespace-nowrap">科目</th>
+                <th className="px-1 py-1 text-right font-bold whitespace-nowrap">借方合計</th>
+                <th className="px-1 py-1 text-right font-bold whitespace-nowrap">貸方合計</th>
+                <th className="px-1 py-1 text-right font-bold whitespace-nowrap">残高</th>
+              </tr>
+            </thead>
+            <tbody className="text-stone-700">
+              {trial.lines.map((l) => (
+                <tr key={l.account} className="border-t border-stone-100">
+                  <td className="px-1 py-1 whitespace-nowrap">{l.account}</td>
+                  <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">
+                    {yen(l.debit)}
+                  </td>
+                  <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">
+                    {yen(l.credit)}
+                  </td>
+                  <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">
+                    {yen(l.balanceAbs)}
+                    {l.side !== "なし" && (
+                      <span className="ml-1 text-xs text-stone-400">{l.side}</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              <tr className="border-t-2 border-stone-300 font-bold">
+                <td className="px-1 py-1 whitespace-nowrap">合計</td>
+                <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">
+                  {yen(trial.debitTotal)}
+                </td>
+                <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">
+                  {yen(trial.creditTotal)}
+                </td>
+                <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">
+                  {yen(0)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="text-sm text-stone-700 leading-relaxed">
+          試算表の売上 {yen(trial.revenueTotal)} − かかったお金 {yen(trial.expenseTotal)} ＝{" "}
+          {yen(trial.profit)}
+          {trialCheck.ok
+            ? "（上の月次まとめの数字と1円まで同じです）"
+            : "（上の月次まとめの数字と合っていません）"}
+        </p>
+        <button className="btn-secondary text-sm w-full" onClick={downloadTrialCsv}>
+          試算表のCSVをダウンロード（4列）
+        </button>
+        <p className="text-xs text-stone-500 leading-relaxed">
+          税区分や税金の計算はしていません（税務のことはこのアプリでは決めません）。
+          申告は税理士さんにお願いしてください。
+        </p>
       </section>
 
       {/* 支払いの記録 */}

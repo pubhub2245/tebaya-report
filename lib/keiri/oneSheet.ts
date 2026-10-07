@@ -44,6 +44,12 @@ import {
 import { expenseItemsOf } from "./classify";
 import { DISPLAY_EXPENSE_ACCOUNTS } from "./accounts";
 import { JOURNAL_HEADERS, buildJournalRows, journalExpenseTotal } from "./journal";
+import {
+  buildTrialBalance,
+  checkTrialBalance,
+  type TrialBalance,
+  type TrialBalanceCheck,
+} from "./trialBalance";
 import { MF_HEADERS } from "./moneyforward";
 import { YAYOI_HEADERS } from "./yayoi";
 import type {
@@ -135,7 +141,9 @@ export type SampleVerify = {
   profitOk: boolean;
   /** まだ払っていないお金の内訳の合計 ＝ その見出し */
   unpaidOk: boolean;
-  /** 3つとも合っているか */
+  /** 試算表の左右が合い、売上・かかったお金・利益が画面と同じか（f1-7） */
+  trialOk: boolean;
+  /** ぜんぶ合っているか */
   ok: boolean;
   /** 合っていない所の言葉（人が読んで直せるように） */
   problems: string[];
@@ -162,6 +170,13 @@ export type MonthlySample = {
   journalRows: SampleJournalLine[];
   /** 仕訳が全部で何行あるか（先頭だけ見せていることを正直に書くため） */
   journalRowCount: number;
+  /**
+   * 試算表（科目ごとの借方・貸方の合計）。会計ソフトと税理士さんが最初に見る表（f1-7）。
+   * ★仕訳（journalRows のもと）だけから作ります。日報からは数え直しません。
+   */
+  trial: TrialBalance;
+  /** 試算表と画面の数字を突き合わせた結果（売上・かかったお金・利益の3つと、左右の合計） */
+  trialCheck: TrialBalanceCheck;
   /** マネーフォワードの仕訳帳インポートの列数（27列） */
   mfColumnCount: number;
   /** 弥生会計の仕訳インポートの列の数（25） */
@@ -320,6 +335,17 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     same: summary.expenseTotal === byAccountTotal && summary.expenseTotal === csvTotal,
   };
 
+  // ---- 試算表（会計ソフト・税理士さん用。f1-7）----
+  //   ★仕訳の行だけから作ります。日報を数え直すと、CSVと試算表が別々に育つため。
+  const trial = buildTrialBalance(rows);
+  const trialCheck = checkTrialBalance({
+    trial,
+    sales: summary.sales,
+    expenseTotal: summary.expenseTotal,
+    profit: summary.profit,
+    yen: sheetYen,
+  });
+
   // ---- まだ払っていないお金（相手ごと）----
   const unpaidLines: SampleLine[] = [
     { label: "日当（まだ払っていない分）", yen: unpaid.payroll },
@@ -380,6 +406,9 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
       )}）が合っていません。`,
     );
   }
+  // 試算表が合っていないときは、その中身をそのまま出す（黙って合わせない）
+  for (const p of trialCheck.problems) problems.push(p);
+
   // ---- どのお店の日報を数えたか（kp234・f1-5）----
   //   ★合計の数字は1円も変えません。「何を数えているか」を出すだけです。
   const scope = summarizeShopScope(reports, ym);
@@ -397,6 +426,7 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     expenseOk: expenseCheck.same,
     profitOk: summary.sales - summary.expenseTotal === summary.profit,
     unpaidOk: unpaidSum === unpaid.total,
+    trialOk: trialCheck.ok,
     ok: problems.length === 0,
     problems,
   };
@@ -425,6 +455,8 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
       note: r.note,
     })),
     journalRowCount: rows.length,
+    trial,
+    trialCheck,
     mfColumnCount: MF_HEADERS.length,
     yayoiColumnCount: YAYOI_HEADERS.length,
     expenseTotal: summary.expenseTotal,

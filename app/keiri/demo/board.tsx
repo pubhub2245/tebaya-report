@@ -21,6 +21,11 @@ import Link from "next/link";
 
 import { yen, slashDate } from "@/lib/format";
 import {
+  buildTrialBalance,
+  checkTrialBalance,
+  trialBalanceToCsv,
+} from "@/lib/keiri/trialBalance";
+import {
   DISPLAY_EXPENSE_ACCOUNTS,
   JOURNAL_HEADERS,
   NEUTRAL_OUTSOURCING_ACCOUNT_LABEL,
@@ -129,6 +134,27 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  /**
+   * 試算表（科目ごとの借方・貸方の合計）。**本物の経理画面と同じ関数**に
+   * 同じ仕訳を渡して作る（お試し版だけ別の数え方にならないように）。
+   */
+  const trial = useMemo(() => buildTrialBalance(journalRows), [journalRows]);
+  const trialCheck = useMemo(
+    () =>
+      checkTrialBalance({
+        trial,
+        sales: summary.sales,
+        expenseTotal: summary.expenseTotal,
+        profit: summary.profit,
+      }),
+    [trial, summary],
+  );
+
+  /** 試算表のCSV（4列）。これも端末にファイルが1つできるだけ */
+  const downloadTrialCsv = () => {
+    saveFile(trialBalanceToCsv(trial), `keiri_demo_shisanhyo_${ym}.csv`, "text/csv;charset=utf-8;");
   };
 
   /** そのまま読める形の仕訳CSV（本物と同じ toCsv） */
@@ -487,6 +513,78 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
           ・本物では、この書き出しを<strong>毎月こちらで行って、要約1枚と一緒にお渡しします</strong>
           （ご自身で押す必要はありません）。
         </p>
+
+        {/* ---------- 試算表（税理士さんと会計ソフトが最初に見る表・f1-7） ----------
+             ★本物の経理画面と同じ関数・同じ仕訳から作っています。
+             ここが「左＝右」で、しかも上の利益と1円まで同じなら、
+             CSV の中身も合っていることが目で見て分かります。 */}
+        <details className="mt-5 rounded-xl border border-stone-200 bg-stone-50 p-4">
+          <summary className="cursor-pointer text-sm font-bold text-stone-800">
+            試算表を見る（科目ごとの合計・左と右が合っているか）
+            <span className="ml-2 text-xs font-normal text-stone-500">
+              左 {yen(trial.debitTotal)}／右 {yen(trial.creditTotal)}
+              {trial.balanced ? "・ぴったり" : "・合っていません"}
+            </span>
+          </summary>
+          <p className="mt-2 text-xs text-stone-600 leading-relaxed">
+            科目（お金を仕分ける箱の名前）ごとに「左（借方）にいくら・右（貸方）にいくら」を
+            足し上げた表です。左と右の合計が同じなら、帳簿の形が崩れていないしるしです。
+          </p>
+          <div className="mt-3 -mx-1 overflow-x-auto">
+            <table className="w-full min-w-[22rem] text-xs">
+              <thead>
+                <tr className="text-stone-500">
+                  <th className="px-1 py-1 text-left font-bold whitespace-nowrap">科目</th>
+                  <th className="px-1 py-1 text-right font-bold whitespace-nowrap">借方合計</th>
+                  <th className="px-1 py-1 text-right font-bold whitespace-nowrap">貸方合計</th>
+                  <th className="px-1 py-1 text-right font-bold whitespace-nowrap">残高</th>
+                </tr>
+              </thead>
+              <tbody className="text-stone-700">
+                {trial.lines.map((l) => (
+                  <tr key={l.account} className="border-t border-stone-200">
+                    <td className="px-1 py-1 whitespace-nowrap">{l.account}</td>
+                    <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">
+                      {yen(l.debit)}
+                    </td>
+                    <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">
+                      {yen(l.credit)}
+                    </td>
+                    <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">
+                      {yen(l.balanceAbs)}
+                      {l.side !== "なし" && (
+                        <span className="ml-1 text-stone-400">{l.side}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-t-2 border-stone-300 font-bold">
+                  <td className="px-1 py-1 whitespace-nowrap">合計</td>
+                  <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">
+                    {yen(trial.debitTotal)}
+                  </td>
+                  <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">
+                    {yen(trial.creditTotal)}
+                  </td>
+                  <td className="px-1 py-1 text-right whitespace-nowrap tabular-nums">{yen(0)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-xs font-bold text-stone-700">
+            → 試算表の売上 {yen(trial.revenueTotal)} − かかったお金 {yen(trial.expenseTotal)} ＝{" "}
+            {yen(trial.profit)}
+            {trialCheck.ok ? "（上の数字と1円まで同じです）" : "（上の数字と合っていません）"}
+          </p>
+          <button
+            type="button"
+            onClick={downloadTrialCsv}
+            disabled={trial.lines.length === 0}
+            className="mt-3 rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm font-bold text-stone-700 hover:border-stone-400 disabled:opacity-40"
+          >
+            試算表のCSVを書き出す（4列）
+          </button>
+        </details>
 
         {/* ★「毎月お渡しする1枚」への道（2026-10-03・f5-1／f5-2）。
              お試し版は数字を触る場所で、毎月お渡しするものの形は別の1枚にある。
