@@ -21,6 +21,7 @@
 import { supabase } from "../supabase";
 import { applyTenantScope, isTebayaScope, type TenantScope } from "../tenantScope";
 import { readKeiriSecret } from "./browserSecret";
+import { decideReadSource, readWindowOutcome } from "./readSource";
 import { normalizeFieldAdvance, normalizeOwnerAdvance } from "./advances";
 import { normalizeCashEvents, type CashEvent } from "./cashCheck";
 import type {
@@ -59,6 +60,8 @@ export type KeiriMonthData = {
  * ■ 使えないときは、今までどおりの読み方に戻します
  *   札が無い・窓口が無い・通信できない——どの場合も null を返し、
  *   呼んだ側が今までの道へ落とします。**払ったお店が締め出されないため**です。
+ *   ただし **「合言葉が合わない」だけは戻しません**（2026-10-07・kp239）。
+ *   戻すと、合っていない人に、その番号のお店の帳簿を出してしまうためです。
  *
  * ■ 手羽屋はここを通りません（今までどおり）
  */
@@ -67,8 +70,11 @@ async function loadViaServerWindow(params: {
   fallbackSettings: KeiriSettings;
 }): Promise<KeiriMonthData | null> {
   const passwordHash = readKeiriSecret();
+  // 札がこのタブに無い＝窓口には聞けない。今までどおりの読み方に戻す
   if (!passwordHash) return null;
 
+  // 窓口に聞く。**通信そのものの失敗と、断られたのとを分けて扱う**のが肝。
+  let status = 0;
   let json: any = null;
   try {
     const res = await fetch("/api/keiri/month", {
@@ -76,11 +82,22 @@ async function loadViaServerWindow(params: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ym: params.ym, passwordHash }),
     });
+    status = res.status;
     json = await res.json().catch(() => null);
-    if (!res.ok || !json?.ok) return null;
   } catch {
+    // 電波が無い・窓口まで届かない。今までどおりの読み方に戻す
     return null;
   }
+
+  const outcome = readWindowOutcome(status, json);
+  // ★「合言葉が合わない」ときは、ブラウザ直読みに落としません。
+  //   落とすと、合っていない人に、その番号のお店の帳簿を出してしまいます。
+  if (outcome.kind === "denied") {
+    throw new Error(
+      "この画面を開く合言葉が合いませんでした。いったん「ログアウト」して、入り直してください。",
+    );
+  }
+  if (outcome.kind !== "ok") return null;
 
   const d = json.data ?? {};
   // ★読めなかった棚を「0件」と取り違えない（経費が落ちて利益が多く出るのを防ぐ）
@@ -114,10 +131,12 @@ export async function loadKeiriMonth(params: {
 }): Promise<KeiriMonthData> {
   const { ym, scope, businessCode, fallbackSettings } = params;
 
-  // ★申し込んだお店は、まずサーバー側の窓口から読む（kp239・f3-4）。
-  //   窓口が使えないときだけ、今までどおりブラウザから読む道に落ちる。
+  // ★どこから読むかは lib/keiri/readSource.ts の1か所で決める（kp239・f3-4）。
+  //   申し込んだお店は、まずサーバー側の窓口から読む。
+  //   窓口が使えないときだけ、今までどおりブラウザから読む道に落ちる
+  //   （そのときも読む相手は「入室の印」のお店のままで、手羽屋には絶対に倒れない）。
   //   手羽屋（印が空）はここを通らず、今までと1行も変わらない。
-  if (!isTebayaScope(scope)) {
+  if (decideReadSource(scope) === "server") {
     const viaServer = await loadViaServerWindow({ ym, fallbackSettings });
     if (viaServer) return viaServer;
   }

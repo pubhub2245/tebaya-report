@@ -22,6 +22,7 @@ import {
   hashSecretInBrowser,
   rememberKeiriSecret,
 } from "@/lib/keiri/browserSecret";
+import { KEIRI_SHOP_AUTH_KEY } from "@/lib/keiri/readSource";
 
 const SS_KEY = "admin-auth";
 
@@ -33,7 +34,7 @@ const SS_KEY = "admin-auth";
  *   こちらは「合言葉を入れて入った」という印で、タブを閉じれば消えます。
  *   分けておかないと、合言葉を入れていない人が経理の画面を開けてしまいます。
  */
-const SS_SHOP_KEY = "keiri-shop-auth";
+const SS_SHOP_KEY = KEIRI_SHOP_AUTH_KEY;
 
 /**
  * 管理者だけが入れる入口。

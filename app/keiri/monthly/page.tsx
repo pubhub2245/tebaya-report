@@ -37,7 +37,8 @@ import {
   sheetShopName,
   templateFor,
 } from "@/lib/keiri";
-import { businessCodeForScope, readTenantScope } from "@/lib/tenantScope";
+import { businessCodeForScope } from "@/lib/tenantScope";
+import { readAuthedKeiriScope } from "@/lib/keiri/readSource";
 import { todayStr } from "@/lib/format";
 
 /** 紙1枚に収めるための指定だけ（色は付けない） */
@@ -69,7 +70,8 @@ function MonthlyInner() {
   const [year, setYear] = useState(first.getFullYear());
   const [month, setMonth] = useState(first.getMonth() + 1);
 
-  const scope = useMemo(() => readTenantScope(), []);
+  // ★読む相手は「入室の印」だけで決める（kp239・f3-4／lib/keiri/readSource.ts）
+  const scope = useMemo(() => readAuthedKeiriScope(), []);
   const businessCode = useMemo(() => businessCodeForScope(scope), [scope]);
   const fallbackSettings = useMemo(
     () => defaultSettingsFor(businessCode),
