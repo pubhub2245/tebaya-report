@@ -59,7 +59,9 @@ test("外向きページは1つ残らず、自分の題名のカードを持っ�
   //   monthly … 合言葉の内側。**実際のお店の数字**を出す1枚（kp231・外に出さない）
   //   sql … じゅんだけが開く「倉庫に1回だけ流す貼り紙」（noindex・kp237）
   //   tenant-new … 運営だけが読む「2軒目のお店を入れる手順の1枚」（noindex・kp235）
+  //   key … じゅんだけが開く「サーバー側の鍵を貼り直す1枚」（noindex・鍵の値は出さない）
   const skip = new Set([
+    "key",
     "welcome",
     "advances",
     "components",

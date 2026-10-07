@@ -71,6 +71,11 @@ export const CHECK_WINDOWS: CheckWindow[] = [
     check: "f5-4・f3-4",
   },
   {
+    path: "/api/keiri/keycheck",
+    what: "サーバー側の鍵が使える状態か（値は1文字も返さず、使えるか・なぜ使えないかだけ）",
+    check: "共通・f5-4",
+  },
+  {
     path: "/api/keiri/firstmonth",
     what: "まっさらなお店に日報1枚で、今月の利益と今の現金が出るか（架空のお店の数字）",
     check: "f3-3",
