@@ -132,11 +132,39 @@ test("軽い日報の見え方は、レシート写真の住所を抜いたま�
   assert.ok(sql.includes("as receipt_count"));
 });
 
-test("貼り紙に入っている棚は4つで、それぞれ仕上げ表の項目につながっている", () => {
-  assert.equal(SHELF_STEPS.length, 4);
+test("貼り紙に入っている棚は5つで、それぞれ仕上げ表の項目につながっている", () => {
+  assert.equal(SHELF_STEPS.length, 5);
   const checks = SHELF_STEPS.map((s) => s.check);
-  assert.deepEqual(checks, ["f1-4", "f1-5", "f1-6", "f3-4"]);
+  assert.deepEqual(checks, ["f1-4", "f1-5", "f1-6", "f3-4", "f3-4"]);
   for (const s of SHELF_STEPS) {
     assert.ok(s.benefit.length > 10, `${s.key} に「流すと何ができるか」が書かれていません`);
   }
+});
+
+test("⑤ シフトの棚に欄を足すところが貼り紙に入っている（2026-10-08・f3-4 の最後の穴）", () => {
+  const sql = readFileSync(SQL_PATH, "utf8");
+  // 棚が無い倉庫でも途中で止まらないように、あるときだけ足す形
+  assert.match(sql, /table_name = 'shifts'/);
+  assert.match(sql, /alter table public\.shifts\s*\n\s*add column if not exists tenant_id/);
+  assert.ok(sql.includes("create index if not exists shifts_tenant_idx"));
+  // 既存の行を書き換えない＝初期値を入れない
+  assert.ok(!/add column if not exists tenant_id[^;]*default/i.test(sql));
+});
+
+test("貼り紙は「誰が何をできるか」を1つも変えない（鍵の決まりは足す棚のぶんだけ）", () => {
+  const body = readFileSync(SQL_PATH, "utf8")
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n")
+    .toLowerCase();
+  // 権限を渡す・取り上げる命令は1つも入れない
+  for (const forbidden of ["grant ", "revoke ", "security definer", "alter policy"]) {
+    assert.ok(!body.includes(forbidden), `貼り紙に ${forbidden.trim()} が入っています`);
+  }
+  // 決まりを作るのは、この貼り紙で新しく足した2つの棚だけ
+  const created = body.match(/create policy (\w+)/g) ?? [];
+  assert.deepEqual(created, [
+    "create policy keiri_cash_events_all",
+    "create policy keiri_expense_ignores_all",
+  ]);
 });

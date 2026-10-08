@@ -110,6 +110,13 @@ export const SHELF_STEPS = [
     benefit: "お店が増えても、立替がよその店に混ざらなくなります",
     check: "f3-4",
   },
+  {
+    key: "shifts_tenant",
+    step: "⑤",
+    name: "シフトの棚に「どの店のものか」の欄",
+    benefit: "お店が増えても、シフトがよその店に混ざらなくなります（最後の穴）",
+    check: "f3-4",
+  },
 ] as const;
 
 export type ShelfKey = (typeof SHELF_STEPS)[number]["key"];
