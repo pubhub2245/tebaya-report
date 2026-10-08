@@ -32,10 +32,17 @@ export default function CombinedClient({
 
   return (
     /**
-     * ★ 出店予定（shifts）の棚には、まだ「どの店のものか」の印の欄がありません。
-     *   絞りようが無いので、欄ができるまでは よそのお店には開きません
+     * ★ この画面は、よそのお店には開きません
      *   （手羽屋は印が空なので、これまでどおりそのまま出ます）。
      *   → lib/tenantScope.ts の TABLES_WITHOUT_TENANT_COLUMN
+     *
+     *   2026-10-08（kp242）：出店予定（shifts）の側は、印の欄ができた瞬間から
+     *   お店ごとに分けて読み書きするようにしました（lib/shiftScope.ts）。
+     *   それでも門を外さないのは、この画面に同居している
+     *   「出店先 問い合わせ」（venue_inquiries）の棚にまだ印の欄が無く、
+     *   サーバー側の出店予定の窓口（/api/shifts/publish・copy-from-last-month・
+     *   shift-generator/commit）も、まだ呼び出した人のお店を見ていないためです。
+     *   **門を外すのは、その2つが済んでからにしてください。**
      */
     <TebayaOnlyGate title="📅 シフト・出店先">
     <main className="max-w-md mx-auto px-4 py-5 pb-24">

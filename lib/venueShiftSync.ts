@@ -30,6 +30,13 @@ import {
   stripFreeVenueFromNote,
 } from "@/app/components/ShiftFormModal";
 import type { VenueInquiry, InquiryStatus } from "@/lib/venueInquiries";
+import { TENANT_COLUMN, readTenantScope } from "@/lib/tenantScope";
+import {
+  scopeShiftsQuery,
+  shiftsTenantState,
+  withShiftTenant,
+  type ShiftsTenantState,
+} from "@/lib/shiftScope";
 
 /** 同期に必要な問い合わせの最小項目 */
 export type SyncableInquiry = Pick<
@@ -88,6 +95,21 @@ function resolveRankTarget(
   return { rank: "C", target: 40000 };
 }
 
+/**
+ * 出店予定の棚に「どの店のものか」の印の欄ができているか（1回だけ確かめて覚える）。
+ * まだ無いあいだは絞らず・印も付けない＝今までとまったく同じ動きになる。
+ * （→ lib/shiftScope.ts）
+ */
+async function shiftTenantReady(): Promise<ShiftsTenantState> {
+  return shiftsTenantState(async () => {
+    const { error } = await supabase
+      .from("shifts")
+      .select(TENANT_COLUMN)
+      .limit(1);
+    return { error };
+  });
+}
+
 /** 店名 → 機能Bの集計結果（名寄せして引く）。無ければ null */
 async function statsForStore(storeName: string): Promise<OutletStats | null> {
   const all = await getOutletAnalytics();
@@ -97,13 +119,17 @@ async function statsForStore(storeName: string): Promise<OutletStats | null> {
 
 /** inquiry_id で既存シフトを1件取得（無ければ null） */
 async function findShiftByInquiry(inquiryId: number): Promise<ShiftRow | null> {
-  const { data, error } = await supabase
-    .from("shifts")
-    .select(
-      "id, location_id, status, note, staff_name, planned_open_time, planned_close_time, inquiry_id",
-    )
-    .eq("inquiry_id", inquiryId)
-    .limit(1);
+  const { data, error } = await scopeShiftsQuery<any>(
+    supabase
+      .from("shifts")
+      .select(
+        "id, location_id, status, note, staff_name, planned_open_time, planned_close_time, inquiry_id",
+      )
+      .eq("inquiry_id", inquiryId)
+      .limit(1) as any,
+    readTenantScope(),
+    await shiftTenantReady(),
+  );
   if (error) throw error;
   return ((data as ShiftRow[]) || [])[0] ?? null;
 }
@@ -116,15 +142,21 @@ export async function syncShiftForInquiry(
 ): Promise<void> {
   const nowIso = new Date().toISOString();
   const targetStatus = STATUS_TO_SHIFT[inq.status];
+  const scope = readTenantScope();
+  const tenantState = await shiftTenantReady();
   const existing = await findShiftByInquiry(inq.id);
 
   // 未連絡：シフトは作らない。既存があれば中止（安全側）。
   if (targetStatus === null) {
     if (existing && existing.status !== "cancelled") {
-      const { error } = await supabase
-        .from("shifts")
-        .update({ status: "cancelled", updated_at: nowIso })
-        .eq("id", existing.id);
+      const { error } = await scopeShiftsQuery<any>(
+        supabase
+          .from("shifts")
+          .update({ status: "cancelled", updated_at: nowIso })
+          .eq("id", existing.id) as any,
+        scope,
+        tenantState,
+      );
       if (error) throw error;
     }
     return;
@@ -133,10 +165,14 @@ export async function syncShiftForInquiry(
   // 日付が無いとシフト(date NOT NULL)を作れない。既存があれば状態だけ反映、無ければ何もしない。
   if (!inq.date) {
     if (existing) {
-      const { error } = await supabase
-        .from("shifts")
-        .update({ status: targetStatus, updated_at: nowIso })
-        .eq("id", existing.id);
+      const { error } = await scopeShiftsQuery<any>(
+        supabase
+          .from("shifts")
+          .update({ status: targetStatus, updated_at: nowIso })
+          .eq("id", existing.id) as any,
+        scope,
+        tenantState,
+      );
       if (error) throw error;
     }
     return;
@@ -174,13 +210,16 @@ export async function syncShiftForInquiry(
   };
 
   if (existing) {
-    const { error } = await supabase
-      .from("shifts")
-      .update(payload)
-      .eq("id", existing.id);
+    const { error } = await scopeShiftsQuery<any>(
+      supabase.from("shifts").update(payload).eq("id", existing.id) as any,
+      scope,
+      tenantState,
+    );
     if (error) throw error;
   } else {
-    const { error } = await supabase.from("shifts").insert(payload);
+    const { error } = await supabase
+      .from("shifts")
+      .insert(withShiftTenant(payload, scope, tenantState));
     if (error) throw error;
   }
 }
@@ -190,9 +229,13 @@ export async function syncShiftForInquiry(
  * 月間目標や履歴を壊さないため、中止扱いで残す。
  */
 export async function cancelShiftForInquiry(inquiryId: number): Promise<void> {
-  const { error } = await supabase
-    .from("shifts")
-    .update({ status: "cancelled", updated_at: new Date().toISOString() })
-    .eq("inquiry_id", inquiryId);
+  const { error } = await scopeShiftsQuery<any>(
+    supabase
+      .from("shifts")
+      .update({ status: "cancelled", updated_at: new Date().toISOString() })
+      .eq("inquiry_id", inquiryId) as any,
+    readTenantScope(),
+    await shiftTenantReady(),
+  );
   if (error) throw error;
 }

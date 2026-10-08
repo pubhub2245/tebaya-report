@@ -10,7 +10,17 @@ import ShiftFormModal, {
   type ShiftPrefill,
   resolveShiftVenueName,
 } from "@/app/components/ShiftFormModal";
-import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
+import {
+  TENANT_COLUMN,
+  applyTenantScope,
+  readTenantScope,
+} from "@/lib/tenantScope";
+import {
+  scopeShiftsQuery,
+  shiftsTenantState,
+  withShiftTenant,
+  type ShiftsTenantState,
+} from "@/lib/shiftScope";
 
 const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -44,6 +54,12 @@ export default function ShiftsView({
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
   const [prefill, setPrefill] = useState<ShiftPrefill | undefined>(undefined);
   const [saving, setSaving] = useState(false);
+  /**
+   * 出店予定の棚に「どの店のものか」の印の欄ができているか。
+   * まだ無いあいだは絞らず・印も付けない＝今までとまったく同じ動きになる。
+   * （→ lib/shiftScope.ts）
+   */
+  const [tenantState, setTenantState] = useState<ShiftsTenantState>("unknown");
   const [actionResult, setActionResult] = useState<string | null>(null);
 
   const monthStr = `${year}-${String(month).padStart(2, "0")}`;
@@ -51,17 +67,31 @@ export default function ShiftsView({
 
   const load = async () => {
     setLoading(true);
-    const [shiftsRes, locsRes] = await Promise.all([
-      supabase
+    const scope = readTenantScope();
+    // 印の欄ができているかを先に1回だけ確かめる（できていなければ今までどおり）
+    const state = await shiftsTenantState(async () => {
+      const { error } = await supabase
         .from("shifts")
-        .select("*, locations(name)")
-        .eq("status", "published")
-        .gte("date", `${monthStr}-01`)
-        .lte("date", `${monthStr}-${lastDay}`)
-        .order("date"),
+        .select(TENANT_COLUMN)
+        .limit(1);
+      return { error };
+    });
+    setTenantState(state);
+    const [shiftsRes, locsRes] = await Promise.all([
+      scopeShiftsQuery<any>(
+        supabase
+          .from("shifts")
+          .select("*, locations(name)")
+          .eq("status", "published")
+          .gte("date", `${monthStr}-01`)
+          .lte("date", `${monthStr}-${lastDay}`)
+          .order("date") as any,
+        scope,
+        state,
+      ),
       applyTenantScope<any>(
         supabase.from("locations").select("id, name, rank, target") as any,
-        readTenantScope(),
+        scope,
       )
         .eq("is_active", true)
         .order("name"),
@@ -207,17 +237,25 @@ export default function ShiftsView({
     setActionResult(null);
     try {
       if (editingShift) {
-        const { error } = await supabase
-          .from("shifts")
-          .update({
-            ...data,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", editingShift.id);
+        // 自分のお店の行だけを直せるようにする（印の欄が無いあいだは今までどおり）
+        const { error } = await scopeShiftsQuery<any>(
+          supabase
+            .from("shifts")
+            .update({
+              ...data,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", editingShift.id) as any,
+          readTenantScope(),
+          tenantState,
+        );
         if (error) throw error;
         setActionResult("✅ 出店予定を更新しました");
       } else {
-        const { error } = await supabase.from("shifts").insert(data);
+        // 印の欄ができていれば、どのお店の予定かを1つ足す（手羽屋は空＝今までと同じ）
+        const { error } = await supabase
+          .from("shifts")
+          .insert(withShiftTenant(data, readTenantScope(), tenantState));
         if (error) throw error;
         setActionResult("✅ 出店予定を登録しました");
       }
@@ -239,10 +277,12 @@ export default function ShiftsView({
     setSaving(true);
     setActionResult(null);
     try {
-      const { error } = await supabase
-        .from("shifts")
-        .delete()
-        .eq("id", editingShift.id);
+      // 自分のお店の行だけを取り消せるようにする（印の欄が無いあいだは今までどおり）
+      const { error } = await scopeShiftsQuery<any>(
+        supabase.from("shifts").delete().eq("id", editingShift.id) as any,
+        readTenantScope(),
+        tenantState,
+      );
       if (error) throw error;
       setActionResult("✅ 出店予定を取り消しました");
       setShowFormModal(false);
