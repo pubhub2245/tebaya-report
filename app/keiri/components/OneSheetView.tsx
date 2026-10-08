@@ -126,6 +126,24 @@ export default function OneSheetView({ sheet }: { sheet: MonthlySample }) {
         {sheetDayLabel(sheet.cash.countedOn)}に数えた {sheetYen(sheet.cash.countedYen)}{" "}
         から計算しています。
       </p>
+      {/* 現金の数え方（2026-10-08・kp233・f1-4）。
+           紙を渡された人が足し引きを自分で追えるように、1行ずつ出す。
+           ★たたまない（JavaScript が動かなくても読めること） */}
+      {sheet.cash.ruleLines.length > 0 && (
+        <div className="mt-2 rounded-lg bg-stone-50 px-3 py-2">
+          <p className="text-xs font-bold text-stone-600">現金の数え方</p>
+          {sheet.cash.ruleLines.map((l) => (
+            <p key={l} className="text-xs text-stone-700 tabular-nums">
+              {l}
+            </p>
+          ))}
+          {sheet.cash.notFromSafe && (
+            <p className="mt-1 text-xs text-amber-700 leading-relaxed">
+              {sheet.cash.notFromSafe}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* ---------- ⑤ まだ払っていないお金 ---------- */}
       <div className="mt-5 flex items-baseline justify-between gap-3 border-t border-stone-200 pt-4">

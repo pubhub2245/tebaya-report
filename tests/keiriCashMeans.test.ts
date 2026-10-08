@@ -17,6 +17,8 @@ import {
 } from "../lib/keiri/cashMeans";
 import { cashRuleLines, notFromSafeSentence } from "../lib/keiri/cashCheck";
 import { buildTrialBalance, trialBalanceCashNote } from "../lib/keiri/trialBalance";
+import { buildSelfCheck, cashRuleReconciles } from "../lib/keiri/selfCheck";
+import { buildMonthlySample } from "../lib/keiri/monthlySample";
 
 /**
  * 「経費のうち、ほんとうに金庫から出た分だけを現金から引く」決まりを固定する
@@ -53,7 +55,7 @@ const reports: KeiriReport[] = [
     location: "ながやま鷹尾",
     staff_name: "イデ",
     sales_amount: 100000,
-    labor: [],
+    labor: 0,
     expenses: [
       { description: "肉代", amount: 10000 },
       { description: "レジ袋 PayPay払い", amount: 2000 },
@@ -199,4 +201,21 @@ test("試算表に現金の行が無い月は、1文を出さない", () => {
     trialBalanceCashNote({ trial: buildTrialBalance([]), cashBalance: 1000 }),
     null,
   );
+});
+
+test("読むだけの窓口は、現金の数え方が合ったかを件数と○×だけで返す（f1-4）", () => {
+  const sheet = buildMonthlySample();
+  assert.equal(cashRuleReconciles(sheet), true);
+  const check = buildSelfCheck({ month: "見本の月", ym: sheet.ym, sheet });
+  assert.equal(check.cash.reconciles, true);
+  assert.equal(typeof check.cash.advanceCount, "number");
+  assert.equal(typeof check.cash.noncashCount, "number");
+  // 金額は1文字も返さない（件数と○×だけ）
+  assert.equal(JSON.stringify(check.cash).includes("円"), false);
+});
+
+test("1枚にも「現金の数え方」が入り、最後の行が手元の現金と同じ", () => {
+  const sheet = buildMonthlySample();
+  assert.ok(sheet.cash.ruleLines.length >= 3);
+  assert.ok(sheet.cash.ruleLines[sheet.cash.ruleLines.length - 1].startsWith("＝ 計算上の現金"));
 });
