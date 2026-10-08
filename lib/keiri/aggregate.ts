@@ -18,6 +18,12 @@ import {
   type ExpenseAccountKey,
 } from "./accounts";
 import { amountOf, classifyExpense, expenseItemsOf } from "./classify";
+import {
+  addBreakdown,
+  breakdownCashMeans,
+  EMPTY_BREAKDOWN,
+  type CashMeansBreakdown,
+} from "./cashMeans";
 import { advanceNote } from "./advances";
 import { summarizeShopScope, type ShopCount } from "./shopScope";
 import type {
@@ -470,6 +476,13 @@ export type CashPosition = {
   sales: number;
   /** 期首日以降の経費合計（日報の明細の合計。＝人件費（当日払い）は含み、日当・外注費・家賃は含まない） */
   expenses: number;
+  /**
+   * 上の `expenses` を「払い方」で3つに分けたもの（kp233・f1-4・lib/keiri/cashMeans.ts）。
+   * ★現金残高から引くのは `cash` だけ。
+   *   立替と現金以外（PayPay・プリカなど）は**金庫から出ていない**ので引きません。
+   * ★月の経費（利益の側）は `expenses` のまま＝1円も変わりません。
+   */
+  expenseMeans: CashMeansBreakdown;
   /** 期首日以降に払った給与・外注費・家賃の合計 */
   paid: number;
   /**
@@ -491,8 +504,15 @@ export type CashPosition = {
  *
  *   今の現金 = 期首残高
  *            + 期首日以降の売上合計
- *            − 期首日以降の経費合計（人件費・外注費・家賃を除く）
+ *            − 期首日以降の経費のうち**金庫から出た分だけ**（人件費・外注費・家賃を除く）
  *            − 給与・Alpha・家賃への支払いの累計
+ *            − 返した立替
+ *            − 銀行に入れた分
+ *
+ * ★2026-10-08（kp233・f1-4）に「金庫から出た分だけ」に直しました。
+ *   それまでは経費を**全部**引いていたため、だれかが立て替えた分や
+ *   PayPay・プリカで払った分まで金庫から引いていました（出ていないお金を引いていた）。
+ *   振り分けは lib/keiri/cashMeans.ts。**月の経費と利益は1円も変わりません。**
  *
  * ★経費の明細は「人件費（日報の日当）」「外注費」「家賃」には振り分けない決まりなので
  *   （docs/keiri.md 3-2）、「この3つを除いた経費合計」＝「日報の経費明細の合計」になります。
@@ -537,6 +557,11 @@ export function calcCashPosition(params: {
       s + expenseItemsOf(r.expenses).reduce((t, item) => t + amountOf(item), 0),
     0,
   );
+  // 経費のうち「ほんとうに金庫から出た分」だけを引くために、払い方で分ける（kp233・f1-4）
+  const expenseMeans = since.reduce(
+    (acc, r) => addBreakdown(acc, breakdownCashMeans(r.expenses)),
+    { ...EMPTY_BREAKDOWN },
+  );
   // 支払いは「払った日（paid_on）」で数える（sumPayments と同じ欄）
   const paidTargets = payments.filter((p) => upTo(p.paid_on));
   const paid =
@@ -566,10 +591,19 @@ export function calcCashPosition(params: {
     openingDate: from,
     sales,
     expenses,
+    expenseMeans,
     paid,
     advancesSettled,
     deposits,
-    balance: opening + sales - expenses - paid - advancesSettled - deposits,
+    // ★引くのは「金庫から出た経費」だけ（expenseMeans.cash）。
+    //   立替・現金以外を引くと、出ていないお金を引くことになる（kp233・f1-4）
+    balance:
+      opening +
+      sales -
+      expenseMeans.cash -
+      paid -
+      advancesSettled -
+      deposits,
   };
 }
 

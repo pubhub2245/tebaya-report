@@ -20,9 +20,11 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 
 import { yen, slashDate } from "@/lib/format";
+import { cashRuleLines, notFromSafeSentence } from "@/lib/keiri/cashCheck";
 import {
   buildTrialBalance,
   checkTrialBalance,
+  trialBalanceCashNote,
   trialBalanceToCsv,
 } from "@/lib/keiri/trialBalance";
 import {
@@ -33,6 +35,7 @@ import {
   calcCashPosition,
   calcUnpaid,
   locationProfitBridge,
+  monthEnd,
   locationProfitBridgeLine,
   mergedExpenseByAccount,
   summarizeByLocation,
@@ -86,6 +89,13 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
   const cash = useMemo(
     () => calcCashPosition({ reports, payments, settings, advances }),
     [reports, payments, settings],
+  );
+  /** その月の終わりの時点の現金（試算表の「現金」と突き合わせる相手・kp243） */
+  const cashAtMonthEnd = useMemo(
+    () =>
+      calcCashPosition({ reports, payments, settings, advances, asOf: monthEnd(ym) })
+        .balance,
+    [reports, payments, settings, ym],
   );
   const unpaid = useMemo(
     () => calcUnpaid({ reports, payments, settings, currentYm: ym, advances }),
@@ -150,6 +160,30 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
         profit: summary.profit,
       }),
     [trial, summary],
+  );
+
+  /** 試算表の「現金」が、上の現金とちがって見える所の説明（kp243・f1-7） */
+  const trialCashNote = useMemo(
+    () =>
+      trialBalanceCashNote({
+        trial,
+        cashBalance: cashAtMonthEnd,
+        balanceLabel:
+          cashAtMonthEnd === cash.balance ? "いま手元にある現金" : "この月の終わりの現金",
+      }),
+    [trial, cashAtMonthEnd, cash.balance],
+  );
+
+  /** 「金庫から出ていないので引いていないもの」の1文（当てはまらなければ null） */
+  const demoNotFromSafe = useMemo(
+    () =>
+      notFromSafeSentence({
+        advance: cash.expenseMeans.advance,
+        advanceCount: cash.expenseMeans.advanceCount,
+        noncash: cash.expenseMeans.noncash,
+        noncashCount: cash.expenseMeans.noncashCount,
+      }),
+    [cash],
   );
 
   /** 試算表のCSV（4列）。これも端末にファイルが1つできるだけ */
@@ -255,6 +289,34 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
             )}`}
           />
         </dl>
+        {/* 現金の数え方（2026-10-08・kp233・f1-4）。
+             「計算上の現金」が何通りにも読めると、金庫を数えても差の意味が分からない。
+             足し引きの1行1行を、たたまずに出す。 */}
+        <div className="mt-3 rounded-lg bg-stone-100 px-4 py-3 space-y-1">
+          <p className="text-xs font-bold text-stone-700">現金の数え方</p>
+          {cashRuleLines({
+            openingDate: cash.openingDate,
+            openingBalance: cash.openingBalance,
+            sales: cash.sales,
+            expensesCash: cash.expenseMeans.cash,
+            paid: cash.paid,
+            advancesSettled: cash.advancesSettled,
+            deposits: cash.deposits,
+            balance: cash.balance,
+          }).map((l) => (
+            <p key={l} className="text-sm text-stone-800 tabular-nums">
+              {l}
+            </p>
+          ))}
+          {demoNotFromSafe && (
+            <p className="pt-1 text-xs text-amber-700 leading-relaxed">{demoNotFromSafe}</p>
+          )}
+          <p className="pt-1 text-xs text-stone-500 leading-relaxed">
+            経費のうち<strong>金庫から出た分だけ</strong>を引いています。
+            立替（だれかが自分のお金で払った分）と現金以外（PayPay・プリカなど）は、
+            金庫から出ていないので引きません。月の経費には今までどおり入っています。
+          </p>
+        </div>
         {/* ★ここは正直に書く（9/19 の実測で分かったこと）。
              「まだ払っていないお金」は給与・外注費・家賃の3つだけを数えており、
              仕入れの掛け（今月末に払う肉代など）は入りません。 */}
@@ -576,6 +638,12 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
             {yen(trial.profit)}
             {trialCheck.ok ? "（上の数字と1円まで同じです）" : "（上の数字と合っていません）"}
           </p>
+          {/* 現金が上の「いま手元にある現金」とちがって見える所の説明（kp243・B2 の材料のまま） */}
+          {trialCashNote && (
+            <p className="mt-1 text-xs text-stone-600 leading-relaxed">
+              {trialCashNote.text}
+            </p>
+          )}
           <button
             type="button"
             onClick={downloadTrialCsv}

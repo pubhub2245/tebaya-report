@@ -35,10 +35,12 @@ import {
   buildJournalRows,
   calcCashPosition,
   calcUnpaid,
+  type CashPosition,
   defaultSettingsFor,
   expenseSlices,
   mergedExpenseByAccount,
   isTenantBusinessCode,
+  monthEnd,
   monthKey,
   outsourcingAccountLabelFor,
   outsourcingLabelFor,
@@ -60,14 +62,17 @@ import { toYayoiCsv, yayoiFileName } from "@/lib/keiri/yayoi";
 import {
   buildTrialBalance,
   checkTrialBalance,
+  trialBalanceCashNote,
   trialBalanceToCsv,
 } from "@/lib/keiri/trialBalance";
 import { loadKeiriMonth } from "@/lib/keiri/loadMonth";
 import { readAuthedKeiriScope } from "@/lib/keiri/readSource";
 import {
+  cashRuleLines,
   depositsOf,
   latestCount,
   monthDay,
+  notFromSafeSentence,
   reconcileCash,
   reconcileLines,
   type CashEvent,
@@ -358,6 +363,35 @@ function KeiriInner() {
     [trial, summary],
   );
 
+  /**
+   * 試算表の「現金」と、上の「今の現金」がちがって見える所の説明（kp243・f1-7）。
+   * ★試算表はその月に動いた分だけ、上の数字は今日までの額。
+   *   だから比べる相手は**その月の終わりの時点の現金**にする（asOf で切る）。
+   */
+  const cashAtMonthEnd = useMemo(
+    () =>
+      calcCashPosition({
+        reports,
+        payments,
+        settings: effective,
+        advances,
+        deposits,
+        asOf: monthEnd(ym),
+      }).balance,
+    [reports, payments, effective, advances, deposits, ym],
+  );
+
+  const trialCashNote = useMemo(
+    () =>
+      trialBalanceCashNote({
+        trial,
+        cashBalance: cashAtMonthEnd,
+        balanceLabel:
+          cashAtMonthEnd === cash.balance ? "今の現金" : "この月の終わりの現金",
+      }),
+    [trial, cashAtMonthEnd, cash.balance],
+  );
+
   const downloadCsv = () => {
     const rows = journalRows;
     const blob = new Blob([toCsv(rows)], {
@@ -507,6 +541,12 @@ function KeiriInner() {
           )}・家賃 ${yen(unpaid.rent)}・まだ返していない立替 ${yen(unpaid.advance)}`}
         />
       </section>
+
+      {/* 現金の数え方（2026-10-08・kp233・f1-4）。
+          ★「計算上の現金」が人によって何通りにも読めてしまうと、
+            金庫を数えても出てきた差が何の差なのか分かりません。
+            そこで足し引きの1行1行を、いつでも見えるところに出します。 */}
+      <CashRuleCard cash={cash} />
 
       {/* タブ */}
       <div className="flex gap-2">
@@ -959,6 +999,10 @@ function KeiriInner() {
             ? "（上の月次まとめの数字と1円まで同じです）"
             : "（上の月次まとめの数字と合っていません）"}
         </p>
+        {/* 現金が上の「今の現金」とちがって見える所の説明（kp243・B2 の材料のまま） */}
+        {trialCashNote && (
+          <p className="text-xs text-stone-600 leading-relaxed">{trialCashNote.text}</p>
+        )}
         <button className="btn-secondary text-sm w-full" onClick={downloadTrialCsv}>
           試算表のCSVをダウンロード（4列）
         </button>
@@ -1012,6 +1056,58 @@ function BigNumber({
       <p className={`text-3xl font-bold tabular-nums mt-1 ${color}`}>{text}</p>
       {note && <p className="text-xs text-stone-400 mt-1 leading-relaxed">{note}</p>}
     </div>
+  );
+}
+
+/**
+ * 「現金の数え方」をそのまま出すところ（2026-10-08・kp233・f1-4）。
+ *
+ * ■ なぜ画面に出すのか
+ *   同じ9月のデータから「計算上の金庫残高」が3通り（928,010円／126,552円／79,695円）
+ *   読めてしまっていました。数え方が決まっていないと、じゅんが金庫を数えても
+ *   出てきた「差」が何の差なのか分かりません。
+ *   そこで足し引きを1行ずつ出して、**数え方を1つに固定**します。
+ *
+ * ■ 決めたこと（この画面に書いてあるとおり）
+ *   ・金庫は1つとして数える（手羽屋ともも屋を分けない。お金の置き場が1つだから）
+ *   ・経費のうち**金庫から出た分だけ**を引く。立替と現金以外（PayPay・プリカなど）は引かない
+ */
+function CashRuleCard({ cash }: { cash: CashPosition }) {
+  const lines = cashRuleLines({
+    openingDate: cash.openingDate,
+    openingBalance: cash.openingBalance,
+    sales: cash.sales,
+    expensesCash: cash.expenseMeans.cash,
+    paid: cash.paid,
+    advancesSettled: cash.advancesSettled,
+    deposits: cash.deposits,
+    balance: cash.balance,
+  });
+  const notFromSafe = notFromSafeSentence({
+    advance: cash.expenseMeans.advance,
+    advanceCount: cash.expenseMeans.advanceCount,
+    noncash: cash.expenseMeans.noncash,
+    noncashCount: cash.expenseMeans.noncashCount,
+  });
+  return (
+    <section className="card space-y-2">
+      <h2 className="text-base font-bold text-brand-dark">💴 現金の数え方</h2>
+      <div className="rounded-lg bg-stone-100 px-4 py-3 space-y-1">
+        {lines.map((l) => (
+          <p key={l} className="text-sm text-stone-800 tabular-nums">
+            {l}
+          </p>
+        ))}
+      </div>
+      {notFromSafe && (
+        <p className="text-xs text-amber-700 leading-relaxed">{notFromSafe}</p>
+      )}
+      <p className="text-xs text-stone-500 leading-relaxed">
+        金庫は1つとして数えています（手羽屋ともも屋を分けません。お金の置き場が1つだからです。
+        屋号ごとの売上は「お店の区分」の所に出ています）。
+        金額はどれも日報に入っているものをそのまま足し引きしただけで、ここでは作っていません。
+      </p>
+    </section>
   );
 }
 

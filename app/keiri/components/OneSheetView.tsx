@@ -345,6 +345,12 @@ export default function OneSheetView({ sheet }: { sheet: MonthlySample }) {
             ? "（この1枚の上の数字と1円まで同じです）"
             : "（この1枚の上の数字と合っていません）"}
         </p>
+        {/* 現金が画面の額とちがって見える所の説明（kp243・B2 の材料のまま） */}
+        {sheet.trialCashNote && (
+          <p className="mt-1 text-xs text-stone-600 leading-relaxed">
+            {sheet.trialCashNote}
+          </p>
+        )}
       </details>
 
       {/* ---------- ⑧ 断り書き ---------- */}
