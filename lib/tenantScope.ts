@@ -174,6 +174,18 @@ export function writeTenantScope(
  *   ふつうに `applyTenantScope` で絞る形に直してください。
  */
 /**
+ * ★2026-10-08 追記（kp242）：`shifts` も、立替と同じ形にしました
+ *   （lib/shiftScope.ts ＋ /keiri/sql の貼り紙⑤）。
+ *   **アプリが自分で「印の欄があるか」を見て**、
+ *   ・まだ無ければ 今までどおり（絞らない・印も付けない）
+ *   ・できていれば お店ごとに絞り、保存するときに印を付ける
+ *   に切り替わります。倉庫で貼り紙を1回 流した瞬間から効き、
+ *   **アプリを出し直す必要はありません。**
+ *   ただし `/shifts` の画面には「出店先 問い合わせ」（venue_inquiries）が同居しており、
+ *   そちらにはまだ印の欄がないため、**下の門はそのまま掛けてあります**
+ *   （この一覧から `shifts` を外すのは、問い合わせ側とサーバー側の窓口が済んでから）。
+ */
+/**
  * ★2026-09-24 追記（kp126）：`keiri_advance_expenses` だけは、
  *   欄を足す SQL を用意し、**アプリが自分で「欄があるか」を見る**形に変えました
  *   （supabase/migrations/keiri_advance_expenses_tenant_id.sql ＋ lib/keiri/advanceScope.ts）。

@@ -36,6 +36,10 @@ import {
   describeAdvanceTenantColumn,
   type AdvanceTenantColumnReport,
 } from "@/lib/keiri/advanceScope";
+import {
+  describeShiftsTenantColumn,
+  type ShiftsTenantColumnReport,
+} from "@/lib/shiftScope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -324,9 +328,34 @@ async function checkAdvanceTenantColumn(): Promise<AdvanceTenantColumnReport> {
   }
 }
 
+/**
+ * 出店予定（シフト）の棚に「どの店のものか」の印の欄ができているか。
+ *
+ * ★出店予定の中身は1行も返しません。印の欄を指定して1行読んでみて、
+ *   断られるかどうかだけを見ます（/keiri/sql の貼り紙⑤を流したあとの受け取り確認）。
+ * ★手羽屋の画面には何も影響しません。ここは診断だけです。
+ */
+async function checkShiftsTenantColumn(): Promise<ShiftsTenantColumnReport> {
+  try {
+    const supabase = serviceClientOrNull({ fresh: true }) ?? serverClient({ fresh: true });
+    const { error } = await supabase.from("shifts").select("tenant_id").limit(1);
+    return describeShiftsTenantColumn({ error });
+  } catch {
+    return describeShiftsTenantColumn(null);
+  }
+}
+
 export async function GET() {
-  const [tenants, settings, applications, visits, notifyFacts, tenantRpc, advanceColumn] =
-    await Promise.all([
+  const [
+    tenants,
+    settings,
+    applications,
+    visits,
+    notifyFacts,
+    tenantRpc,
+    advanceColumn,
+    shiftsColumn,
+  ] = await Promise.all([
       checkTable("keiri_tenants"),
       checkTable("keiri_settings"),
       checkTable("keiri_applications"),
@@ -334,6 +363,7 @@ export async function GET() {
       checkNotify(),
       checkTenantRpc(),
       checkAdvanceTenantColumn(),
+      checkShiftsTenantColumn(),
     ]);
 
   // サーバー側の鍵。値そのものは返さない（設定済み／未設定／壊れている だけ）
@@ -405,6 +435,9 @@ export async function GET() {
     //   1回開くだけで分かるようにしてある（2026-09-24・kp127 の受け取り確認）。
     paid_shop_features: {
       advance_expenses: advanceColumn,
+      // 2026-10-08（kp242）：出店予定の棚の印の欄。これが最後の穴だった。
+      // 欄ができた瞬間から、アプリを出し直さずに分けて読み書きする
+      shifts: shiftsColumn,
     },
     // ★notify には「届くか／今月あと何通か／人の言葉での理由」が入る。
     //   2026-09-28（kp198）から、送り先のグループに **本当に届くか** も見ている

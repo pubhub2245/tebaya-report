@@ -8,7 +8,17 @@ import ShiftFormModal, {
   resolveShiftVenueName,
   stripFreeVenueFromNote,
 } from "@/app/components/ShiftFormModal";
-import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
+import {
+  TENANT_COLUMN,
+  applyTenantScope,
+  readTenantScope,
+} from "@/lib/tenantScope";
+import {
+  scopeShiftsQuery,
+  shiftsTenantState,
+  withShiftTenant,
+  type ShiftsTenantState,
+} from "@/lib/shiftScope";
 
 // TODO: 将来追加予定の機能
 // - 希望休申請（shift_change_requestsテーブル）
@@ -73,6 +83,12 @@ export default function ShiftsPage() {
   const [actionResult, setActionResult] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  /**
+   * 出店予定の棚に「どの店のものか」の印の欄ができているか。
+   * まだ無いあいだは絞らず・印も付けない＝今までとまったく同じ動きになる。
+   * （→ lib/shiftScope.ts）
+   */
+  const [tenantState, setTenantState] = useState<ShiftsTenantState>("unknown");
 
   const monthStr = `${year}-${String(month).padStart(2, "0")}`;
   const lastDay = new Date(year, month, 0).getDate();
@@ -81,16 +97,30 @@ export default function ShiftsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [shiftsRes, locsRes] = await Promise.all([
-        supabase
+      const scope = readTenantScope();
+      // 印の欄ができているかを先に1回だけ確かめる（できていなければ今までどおり）
+      const state = await shiftsTenantState(async () => {
+        const { error } = await supabase
           .from("shifts")
-          .select("*, locations(name)")
-          .gte("date", `${monthStr}-01`)
-          .lte("date", `${monthStr}-${lastDay}`)
-          .order("date"),
+          .select(TENANT_COLUMN)
+          .limit(1);
+        return { error };
+      });
+      setTenantState(state);
+      const [shiftsRes, locsRes] = await Promise.all([
+        scopeShiftsQuery<any>(
+          supabase
+            .from("shifts")
+            .select("*, locations(name)")
+            .gte("date", `${monthStr}-01`)
+            .lte("date", `${monthStr}-${lastDay}`)
+            .order("date") as any,
+          scope,
+          state,
+        ),
         applyTenantScope<any>(
           supabase.from("locations").select("id, name, rank, target") as any,
-          readTenantScope(),
+          scope,
         )
           .eq("is_active", true)
           .order("name"),
@@ -253,7 +283,12 @@ export default function ShiftsPage() {
     if (!confirm("このシフトを削除しますか？")) return false;
     setDeletingId(id);
     try {
-      const { error } = await supabase.from("shifts").delete().eq("id", id);
+      // 自分のお店の行だけを消せるようにする（印の欄が無いあいだは今までどおり）
+      const { error } = await scopeShiftsQuery<any>(
+        supabase.from("shifts").delete().eq("id", id) as any,
+        readTenantScope(),
+        tenantState,
+      );
       if (error) throw error;
       setShifts((prev) => prev.filter((s) => s.id !== id));
       return true;
@@ -269,10 +304,14 @@ export default function ShiftsPage() {
   const handleCancel = async (id: number) => {
     if (!confirm("このシフトを中止にしますか？")) return;
     try {
-      const { error } = await supabase
-        .from("shifts")
-        .update({ status: "cancelled", updated_at: new Date().toISOString() })
-        .eq("id", id);
+      const { error } = await scopeShiftsQuery<any>(
+        supabase
+          .from("shifts")
+          .update({ status: "cancelled", updated_at: new Date().toISOString() })
+          .eq("id", id) as any,
+        readTenantScope(),
+        tenantState,
+      );
       if (error) throw error;
       load();
     } catch (e: any) {
@@ -520,18 +559,24 @@ export default function ShiftsPage() {
               setSaving(true);
               try {
                 if (editingShift) {
-                  const { error } = await supabase
-                    .from("shifts")
-                    .update({
-                      ...data,
-                      updated_at: new Date().toISOString(),
-                    })
-                    .eq("id", editingShift.id);
+                  const { error } = await scopeShiftsQuery<any>(
+                    supabase
+                      .from("shifts")
+                      .update({
+                        ...data,
+                        updated_at: new Date().toISOString(),
+                      })
+                      .eq("id", editingShift.id) as any,
+                    readTenantScope(),
+                    tenantState,
+                  );
                   if (error) throw error;
                 } else {
                   const { error } = await supabase
                     .from("shifts")
-                    .insert(data);
+                    .insert(
+                      withShiftTenant(data, readTenantScope(), tenantState),
+                    );
                   if (error) throw error;
                 }
                 setShowAddModal(false);
