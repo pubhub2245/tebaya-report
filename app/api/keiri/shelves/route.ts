@@ -42,11 +42,12 @@ async function probe(table: string, column: string): Promise<ShelfProbe> {
 }
 
 export async function GET() {
-  const [cash, ignores, receiptFlag, advanceTenant] = await Promise.all([
+  const [cash, ignores, receiptFlag, advanceTenant, shiftsTenant] = await Promise.all([
     probe("keiri_cash_events", "id"),
     probe("keiri_expense_ignores", "id"),
     probe("keiri_reports", "receipt_count"),
     probe("advance_expenses", "tenant_id"),
+    probe("shifts", "tenant_id"),
   ]);
 
   const probes: Record<string, ShelfProbe> = {
@@ -54,6 +55,7 @@ export async function GET() {
     expense_ignores: ignores,
     receipt_flag: receiptFlag,
     advance_tenant: advanceTenant,
+    shifts_tenant: shiftsTenant,
   };
 
   const reports: ShelfReport[] = SHELF_STEPS.map((s) =>

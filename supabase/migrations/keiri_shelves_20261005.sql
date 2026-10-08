@@ -14,6 +14,8 @@
 --      → これができると、写真のある経費を拾って読み取りに回せます。
 --   ④ 立替の古い棚（いま使われている方）に「どの店のものか」の欄を足す
 --      → これができると、お店が増えても立替が混ざりません。
+--   ⑤ シフトの棚に「どの店のものか」の欄を足す（2026-10-08 追記）
+--      → ここが最後の穴でした。これができると、お店が増えてもシフトも混ざりません。
 --
 -- ■ 安全について（ここが大事）
 --   ・**足すだけ**です。消す・名前を変える・作り変えるものは1つもありません
@@ -224,6 +226,39 @@ create index if not exists advance_expenses_tenant_idx
 
 
 -- ============================================================
+-- ⑤ シフトの棚に「どの店のものか」の欄を足す（f3-4・f5-4／2026-10-08 追記）
+--
+--   これを流すと：**お店が増えても、シフトが混ざらなくなります。**
+--   お店を分ける印は 日報・出店場所・担当者・商品・立替 の棚にはもう足してあり、
+--   読む所もすべて絞ってあります（2026-10-08 に機械的に数え直して確認）。
+--   残っていた穴は **シフト（shifts）1つだけ**で、この棚には欄そのものが無く、
+--   コードだけでは閉じられませんでした。
+--
+--   ★ 欄を足すだけです。いまある行は1行も書き換えません。
+--     空（null）＝手羽屋、という今までの決まりのままです。
+--   ★ 鍵（RLS）の決まりは1つも変えません。誰が何をできるかは今までどおりです。
+--   ★ 流す前と流した後で、手羽屋のシフト画面は1つも変わりません
+--     （読む所は「印が空のものだけ」＝いまと同じ結果になるように、流れたあとに直します）。
+--   ★ 棚が見つからない倉庫でも途中で止まらないように、あるときだけ足します。
+-- ============================================================
+do $$
+begin
+  if exists (
+    select 1 from information_schema.tables
+    where table_schema = 'public' and table_name = 'shifts'
+  ) then
+    alter table public.shifts
+      add column if not exists tenant_id uuid references public.keiri_tenants (id);
+
+    execute $c$comment on column public.shifts.tenant_id is
+      'どの店のシフトか。空（null）＝手羽屋。値＝keiri_tenants.id。既存の行はすべて空のまま'$c$;
+
+    create index if not exists shifts_tenant_idx on public.shifts (tenant_id);
+  end if;
+end $$;
+
+
+-- ============================================================
 -- 確かめ方（流したあと、これを貼ると結果が1画面で見えます）
 --
 --   select 'keiri_cash_events'    as 棚, count(*) as 行数 from public.keiri_cash_events
@@ -240,4 +275,8 @@ create index if not exists advance_expenses_tenant_idx
 --   写真の印が付いたかは、これで分かります：
 --   select count(*) as 日報, sum(receipt_count) as 写真つきの経費の行
 --   from keiri_reports;
+--
+--   ⑤の欄が付いたかは、これで分かります（2026-10-08 追記）：
+--   select count(tenant_id) as シフトの印がついている行 from public.shifts;
+--   → 0 のまま＝手羽屋のシフトは今までどおりです（欄ができただけ）。
 -- ============================================================
