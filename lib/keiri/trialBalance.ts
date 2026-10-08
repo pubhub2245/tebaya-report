@@ -256,3 +256,52 @@ export function trialBalanceToCsv(trial: TrialBalance): string {
   const BOM = "﻿"; // Excel で日本語が文字化けしないための目印
   return BOM + lines.join("\r\n") + "\r\n";
 }
+
+/**
+ * 試算表のそばに添える「現金が合っていないように見える所」の説明（2026-10-08・kp243・f1-7）。
+ *
+ * ■ なぜ要るのか（B2 が本番を外から見て見つけました）
+ *   試算表の「現金」は、**その月に動いた分だけ**の表です。
+ *   同じページの「いま手元にある現金」は、月のはじめにあった分も入った額です。
+ *   説明が無いと、店主には **5万円 ちがって見えます**（見本の場合）。
+ *
+ * ■ 言葉は B2 が置いた材料のまま（司令室 meta/keiri-material-shisanhyo-genkin-note）
+ *
+ * ■ 守ること
+ *   ・金額を作らない。**月のはじめの現金は引き算で出す**
+ *     （手元の現金 −（試算表の現金の左 − 右））。だから足し算は必ず合います。
+ *   ・現金の行が無い月（仕訳が0件）は、何も出さない（null を返す）。
+ */
+export type TrialCashNote = {
+  /** 月のはじめにあった現金（引き算で出した額） */
+  openingCash: number;
+  /** 試算表の現金の「左 − 右」＝その月に増えた分 */
+  movement: number;
+  /** 画面に出す1文 */
+  text: string;
+};
+
+export function trialBalanceCashNote(params: {
+  trial: TrialBalance;
+  /** 比べる相手の現金（画面に出している「いま手元にある現金」など） */
+  cashBalance: number;
+  /** 比べる相手の呼び名（画面の見出しと同じ字にする） */
+  balanceLabel?: string;
+  yen?: (n: number) => string;
+}): TrialCashNote | null {
+  const line = params.trial.lines.find((l) => l.account === CASH_ACCOUNT);
+  if (!line) return null;
+  const yen = params.yen ?? ((n: number) => `${Math.round(n).toLocaleString("ja-JP")}円`);
+  const label = params.balanceLabel ?? "いま手元にある現金";
+  const movement = Math.round(line.debit - line.credit);
+  const balance = Math.round(params.cashBalance);
+  const openingCash = balance - movement;
+  return {
+    openingCash,
+    movement,
+    text:
+      `この表の「${CASH_ACCOUNT}」は、今月に増えた分と減った分だけを数えています。` +
+      `月のはじめに数えた ${yen(openingCash)} を足すと、` +
+      `上の「${label} ${yen(balance)}」と同じになります。`,
+  };
+}

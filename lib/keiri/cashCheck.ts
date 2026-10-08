@@ -194,3 +194,75 @@ export function reconcileLines(r: CashReconcile): string[] {
     `差　${yen(r.diff ?? 0)}`,
   ];
 }
+
+/**
+ * 「計算上の現金は、こう数えています」の明細（2026-10-08・kp233・f1-4）。
+ *
+ * ■ なぜ要るのか
+ *   じゅんが金庫を数えても、**比べる相手の数え方が1つに決まっていない**と
+ *   出てくる「差」が何の差なのか分かりません（10/8 に A が実測して見つけました。
+ *   同じ9月のデータから 928,010円／126,552円／79,695円 の3通りが出ていました）。
+ *   そこで、足し引きの1行1行を画面にそのまま出して、**数え方を1つに固定**します。
+ *
+ * ■ ここで決めたこと（画面にも同じ言葉で出します）
+ *   ① 金庫は**1つ**として数える。手羽屋ともも屋を分けない
+ *      （同じ会社の2つの屋号で、お金の置き場が1つだからです。
+ *       屋号ごとの売上は「お店の区分」の所に出ています）。
+ *   ② 経費のうち**金庫から出た分だけ**を引く（lib/keiri/cashMeans.ts）。
+ *      立替と現金以外（PayPay・プリカなど）は引かず、別の行に出す。
+ *   ③ 金額は作らない。日報に入っている金額をそのまま足し引きするだけ。
+ */
+export function cashRuleLines(params: {
+  openingDate: string;
+  openingBalance: number;
+  sales: number;
+  /** 金庫から出た経費だけ */
+  expensesCash: number;
+  /** 給与・外注費・家賃に払った分 */
+  paid: number;
+  /** 返した立替 */
+  advancesSettled: number;
+  /** 銀行に入れた分 */
+  deposits: number;
+  /** 計算上の現金 */
+  balance: number;
+}): string[] {
+  const p = params;
+  const lines = [
+    `数え始め ${monthDay(p.openingDate)} の現金　${yen(p.openingBalance)}`,
+    `＋ 売上（金庫に入った分）　${yen(p.sales)}`,
+    `− 金庫から出た経費　${yen(p.expensesCash)}`,
+  ];
+  if (p.paid !== 0) lines.push(`− 給与・外注費・家賃に払った分　${yen(p.paid)}`);
+  if (p.advancesSettled !== 0) lines.push(`− 返した立替　${yen(p.advancesSettled)}`);
+  if (p.deposits !== 0) lines.push(`− 銀行に入れた分　${yen(p.deposits)}`);
+  lines.push(`＝ 計算上の現金　${yen(p.balance)}`);
+  return lines;
+}
+
+/**
+ * 「金庫から出ていないので引いていないもの」の1文。
+ * 当てはまるものが無ければ null（よけいな行を出さない）。
+ */
+export function notFromSafeSentence(params: {
+  advance: number;
+  advanceCount: number;
+  noncash: number;
+  noncashCount: number;
+}): string | null {
+  const parts: string[] = [];
+  if (params.advance > 0) {
+    parts.push(`立替（だれかが自分のお金で払った分）${yen(params.advance)}・${params.advanceCount}件`);
+  }
+  if (params.noncash > 0) {
+    parts.push(
+      `現金以外（PayPay・プリカ・カードなど）${yen(params.noncash)}・${params.noncashCount}件`,
+    );
+  }
+  if (parts.length === 0) return null;
+  return (
+    `上の「金庫から出た経費」に入れていないものがあります：${parts.join("／")}。` +
+    "どちらも金庫からは出ていないので、現金からは引いていません。" +
+    "月の経費（利益の側）には今までどおり入っています。"
+  );
+}

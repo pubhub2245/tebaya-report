@@ -18,6 +18,7 @@
 import { accountLabel, accountLabelForCsv } from "./accounts";
 import { calcOutsourcing, inMonth, monthEnd, rentForMonth } from "./aggregate";
 import { amountOf, classifyExpense, expenseItemsOf } from "./classify";
+import { CASH_MEANS_LABEL, classifyCashMeans } from "./cashMeans";
 import { advanceNote } from "./advances";
 import { PAYMENT_KIND_LABEL, type BusinessTemplate, type KeiriAdvance, type KeiriPayment, type KeiriReport, type KeiriSettings } from "./types";
 
@@ -95,20 +96,27 @@ export function buildJournalRows(params: {
       });
     }
 
-    // 経費（レジから払ったもの）
+    // 経費（日報に入っている分）
     for (const item of expenseItemsOf(r.expenses)) {
       const amount = amountOf(item);
       if (amount === 0) continue;
       const { account } = classifyExpense(item.description, template);
-      // ★「人件費（当日払い）」は、CSVでは「人件費 ／ 現金」の1行で書きます
-      //   （発生と支払いを分けません。もうその場で払っているため。docs/keiri.md 6章）
+      // ★相手（右側）は「金庫から出たのか」で変わります（kp233・f1-4・lib/keiri/cashMeans.ts）。
+      //   現金で払った　… （科目）／ 現金
+      //   立替・現金以外… （科目）／ 未払金
+      //   立替をその日に現金から出すと、実際には出ていないお金が金庫から消えます。
+      //   立替の棚（/keiri/advances）が昔からこの形なので、字を合わせています（kp218）。
+      //   ★かかったお金（左側）は払い方に関わらず同じなので、月の経費と利益は1円も変わりません。
+      const means = classifyCashMeans(item);
       rows.push({
         date: r.date,
         debitAccount: accountLabelForCsv(account),
         debitAmount: amount,
-        creditAccount: CASH,
+        creditAccount: means === "cash" ? CASH : ACCRUED,
         creditAmount: amount,
-        note: (item.description || "").trim() || "経費",
+        note:
+          ((item.description || "").trim() || "経費") +
+          (means === "cash" ? "" : `（${CASH_MEANS_LABEL[means]}）`),
       });
     }
 

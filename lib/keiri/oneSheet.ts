@@ -31,6 +31,7 @@ import {
   calcCashPosition,
   calcUnpaid,
   mergedExpenseByAccount,
+  monthEnd,
   summarizeMonth,
 } from "./aggregate";
 import { depositsOf, latestCount, type CashEvent } from "./cashCheck";
@@ -47,6 +48,7 @@ import { JOURNAL_HEADERS, buildJournalRows, journalExpenseTotal } from "./journa
 import {
   buildTrialBalance,
   checkTrialBalance,
+  trialBalanceCashNote,
   type TrialBalance,
   type TrialBalanceCheck,
 } from "./trialBalance";
@@ -177,6 +179,11 @@ export type MonthlySample = {
   trial: TrialBalance;
   /** 試算表と画面の数字を突き合わせた結果（売上・かかったお金・利益の3つと、左右の合計） */
   trialCheck: TrialBalanceCheck;
+  /**
+   * 試算表の「現金」が、画面の現金とちがって見える所に添える1文（kp243・f1-7）。
+   * 現金の行が無い月は null（よけいな行を出さない）。
+   */
+  trialCashNote: string | null;
   /** マネーフォワードの仕訳帳インポートの列数（27列） */
   mfColumnCount: number;
   /** 弥生会計の仕訳インポートの列の数（25） */
@@ -306,6 +313,19 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
   });
   // 「最後に実際に数えた日」は、金庫を数えた記録があればそちらが正。
   // 無ければ今までどおり期首（数え始めの日）を出す。
+  /**
+   * その月の終わりの時点の現金（試算表の「現金」と突き合わせるため・kp243）。
+   * 上の `cash` は**今日まで**を数えた額なので、終わった月の試算表と並べると
+   * 足し算が合いません。だから月末で切った額を別に出します。
+   */
+  const cashAtMonthEnd = calcCashPosition({
+    reports,
+    payments,
+    settings,
+    advances,
+    deposits: depositsOf(cashEvents),
+    asOf: monthEnd(ym),
+  });
   const counted = latestCount(cashEvents);
   const unpaid = calcUnpaid({ reports, payments, settings, currentYm, advances });
 
@@ -343,6 +363,15 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     sales: summary.sales,
     expenseTotal: summary.expenseTotal,
     profit: summary.profit,
+    yen: sheetYen,
+  });
+
+  // 試算表の「現金」が、画面の現金と5万円ちがって見える所の説明（kp243・B2 の材料のまま）
+  const sameAsNow = cashAtMonthEnd.balance === cash.balance;
+  const cashNote = trialBalanceCashNote({
+    trial,
+    cashBalance: cashAtMonthEnd.balance,
+    balanceLabel: sameAsNow ? "いま手元にある現金" : "この月の終わりの現金",
     yen: sheetYen,
   });
 
@@ -457,6 +486,7 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     journalRowCount: rows.length,
     trial,
     trialCheck,
+    trialCashNote: cashNote ? cashNote.text : null,
     mfColumnCount: MF_HEADERS.length,
     yayoiColumnCount: YAYOI_HEADERS.length,
     expenseTotal: summary.expenseTotal,
