@@ -53,6 +53,16 @@ export type KeiriSelfCheck = {
   sheetReady: boolean;
   /** 合っていない所（金額は伏せてある） */
   problems: string[];
+  /**
+   * 現金の数え方（kp233・f1-4）。**件数と○×だけ**。金額は返さない。
+   * ・reconciles … 「現金の数え方」の最後の行が、画面の現金とぴったり同じか
+   * ・advanceCount / noncashCount … 金庫から出ていないと見分けた行の数
+   */
+  cash: {
+    reconciles: boolean;
+    advanceCount: number;
+    noncashCount: number;
+  };
   /** 人に確かめてもらう必要があるもの（件数だけ） */
   needsHuman: {
     /** 種類が分からず「雑費」に入れた経費の件数 */
@@ -82,6 +92,7 @@ export function unreadableSelfCheck(params: { month: string; ym: string; reason:
     profitOk: false,
     unpaidOk: false,
     trial: { ready: false, balanced: false, accountCount: 0, matchesScreen: false },
+    cash: { reconciles: false, advanceCount: 0, noncashCount: 0 },
     sheetReady: false,
     problems: [maskYen(params.reason)],
     needsHuman: { unmatched: 0, duplicate: 0, noReceipt: null },
@@ -128,10 +139,32 @@ export function buildSelfCheck(params: {
       accountCount: sheet.trial?.lines?.length ?? 0,
       matchesScreen: sheet.trialCheck?.ok ?? false,
     },
+    // 現金の数え方の最後の行が、画面の現金と同じかを外から見えるようにする（kp233・f1-4）
+    cash: {
+      reconciles: cashRuleReconciles(sheet),
+      advanceCount: sheet.cash?.advanceCount ?? 0,
+      noncashCount: sheet.cash?.noncashCount ?? 0,
+    },
     sheetReady: v.ok,
     problems: v.problems.map(maskYen),
     needsHuman,
     summary,
     note: SELF_CHECK_NOTE,
   };
+}
+
+/**
+ * 「現金の数え方」の最後の行が、1枚に出している現金とぴったり同じか（kp233・f1-4）。
+ *
+ * ★金額は返しません。**同じかどうか**だけを返します。
+ *   ここが false なら、紙の上で足し算が合っていないということなので、
+ *   数えた金庫の金額と比べても意味がありません。
+ */
+export function cashRuleReconciles(sheet: MonthlySample): boolean {
+  const lines = sheet.cash?.ruleLines ?? [];
+  const last = lines[lines.length - 1];
+  if (!last) return false;
+  const digits = last.replace(/[^0-9-]/g, "");
+  if (digits === "") return false;
+  return Number(digits) === Math.round(sheet.cash.balance);
 }

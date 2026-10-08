@@ -34,7 +34,13 @@ import {
   monthEnd,
   summarizeMonth,
 } from "./aggregate";
-import { depositsOf, latestCount, type CashEvent } from "./cashCheck";
+import {
+  cashRuleLines,
+  depositsOf,
+  latestCount,
+  notFromSafeSentence,
+  type CashEvent,
+} from "./cashCheck";
 import { findDuplicateExpenses } from "./duplicates";
 import {
   shopScopeNotes,
@@ -95,6 +101,17 @@ export type SampleCash = {
   countedOn: string;
   /** そのとき数えた額 */
   countedYen: number;
+  /**
+   * 「この現金は、こう数えています」の明細（kp233・f1-4）。
+   * ★紙を渡された人が、足し引きを自分で追えるようにするため。
+   */
+  ruleLines: string[];
+  /** 金庫から出ていないので引いていないもの（無ければ null） */
+  notFromSafe: string | null;
+  /** 立替と見分けた行の数 */
+  advanceCount: number;
+  /** 現金以外（PayPay・プリカなど）と見分けた行の数 */
+  noncashCount: number;
 };
 
 /** まだ払っていないお金（相手ごとの内訳つき） */
@@ -502,6 +519,25 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
       balance: cash.balance,
       countedOn: counted ? counted.happened_on : cash.openingDate,
       countedYen: counted ? counted.amount : cash.openingBalance,
+      // 現金の数え方（kp233・f1-4）。★ここでも金額は作らず、cash の中身を並べるだけ
+      ruleLines: cashRuleLines({
+        openingDate: cash.openingDate,
+        openingBalance: cash.openingBalance,
+        sales: cash.sales,
+        expensesCash: cash.expenseMeans.cash,
+        paid: cash.paid,
+        advancesSettled: cash.advancesSettled,
+        deposits: cash.deposits,
+        balance: cash.balance,
+      }),
+      notFromSafe: notFromSafeSentence({
+        advance: cash.expenseMeans.advance,
+        advanceCount: cash.expenseMeans.advanceCount,
+        noncash: cash.expenseMeans.noncash,
+        noncashCount: cash.expenseMeans.noncashCount,
+      }),
+      advanceCount: cash.expenseMeans.advanceCount,
+      noncashCount: cash.expenseMeans.noncashCount,
     },
     unpaid: { total: unpaid.total, lines: unpaidLines },
     review,
