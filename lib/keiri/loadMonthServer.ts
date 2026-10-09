@@ -27,6 +27,11 @@ import {
   type TenantScope,
 } from "@/lib/tenantScope";
 import { normalizeFieldAdvance, normalizeOwnerAdvance } from "@/lib/keiri/advances";
+import {
+  ignoreShelfStateOf,
+  type ExpenseIgnoreRow,
+  type IgnoreShelfState,
+} from "@/lib/keiri/expenseIgnores";
 import { normalizeCashEvents, type CashEvent } from "@/lib/keiri/cashCheck";
 import { defaultSettingsFor } from "@/lib/keiri/index";
 import type {
@@ -58,6 +63,13 @@ export type KeiriMonthServerData = {
    *   「0件だった」と取り違えないように、飛ばしたことを必ず返します。
    */
   advancesSkipped: boolean;
+  /**
+   * 「同じ支払いが2か所にある」ときに、どちらを数えるかを決めた印（kp230・f1-5）。
+   * ★棚（keiri_expense_ignores）がまだ無い倉庫では空のまま＝今までと同じ数字になります。
+   */
+  ignores: ExpenseIgnoreRow[];
+  /** 印を置く棚の様子（ready／missing／unknown） */
+  ignoreShelf: IgnoreShelfState;
 };
 
 /** YYYY-MM-DD を日数ぶんずらす */
@@ -122,7 +134,8 @@ export async function loadKeiriMonthServer(params: {
     let q = applyTenantScope<any>(
       db
         .from("keiri_reports")
-        .select("date, location, staff_name, shop, sales_amount, labor, expenses") as any,
+        // ★id も取る（「同じ支払いが2か所にある」ときの印を、どの行に付けたか分かるように・kp230）
+        .select("id, date, location, staff_name, shop, sales_amount, labor, expenses") as any,
       scope,
     ).gte("date", from);
     if (params.monthOnly) q = q.lte("date", monthEndDate);
@@ -158,7 +171,7 @@ export async function loadKeiriMonthServer(params: {
     {
       const { data, error } = await db
         .from("keiri_advance_expenses")
-        .select("expense_date, amount, payer, source_type, memo")
+        .select("id, expense_date, amount, payer, source_type, memo")
         .eq("business_type_code", businessCode)
         .gte("expense_date", advFrom)
         .lte("expense_date", advTo);
@@ -168,7 +181,7 @@ export async function loadKeiriMonthServer(params: {
     {
       const { data, error } = await db
         .from("advance_expenses")
-        .select("date, amount, payer, description, settled, settled_date")
+        .select("id, date, amount, payer, description, settled, settled_date")
         .gte("date", advFrom)
         .lte("date", advTo);
       if (error) advancesUnreadable = true;
@@ -192,6 +205,20 @@ export async function loadKeiriMonthServer(params: {
     else cashEvents = normalizeCashEvents((data as unknown[]) ?? []);
   }
 
+  // 「同じ支払いが2か所にある」ときの印（kp230）。棚がまだ無い倉庫でも落とさずに先へ進む。
+  let ignores: ExpenseIgnoreRow[] = [];
+  let ignoreShelf: IgnoreShelfState = "unknown";
+  {
+    const { data, error } = await applyTenantScope<any>(
+      db
+        .from("keiri_expense_ignores")
+        .select("id, source, ref_id, line_index, amount, paid_on, reason, undone_at") as any,
+      scope,
+    );
+    ignoreShelf = ignoreShelfStateOf({ error });
+    if (!error) ignores = (data as ExpenseIgnoreRow[]) ?? [];
+  }
+
   return {
     settings,
     settingsMissing: !s,
@@ -203,6 +230,8 @@ export async function loadKeiriMonthServer(params: {
     cashEvents,
     cashShelfMissing,
     advancesSkipped,
+    ignores,
+    ignoreShelf,
   };
 }
 

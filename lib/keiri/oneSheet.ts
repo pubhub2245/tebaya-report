@@ -42,6 +42,7 @@ import {
   type CashEvent,
 } from "./cashCheck";
 import { findDuplicateExpenses } from "./duplicates";
+import { pendingSuspects, type IgnoreMarks } from "./expenseIgnores";
 import {
   shopScopeNotes,
   shopScopeSentence,
@@ -279,6 +280,13 @@ export type OneSheetInput = {
    *   棚がまだ無い倉庫でも1枚は今までと同じ数字で出ます。
    */
   cashEvents?: CashEvent[];
+  /**
+   * 「同じ支払いが2か所にある」ときに、どちらを数えるかを人が決めた印（kp230・f1-5）。
+   * ★渡さなければ印なし＝**いままでとまったく同じ1枚**になります。
+   *   印があるときは、月の経費・利益がその分だけ下がり、
+   *   「確かめてほしいこと」から**決めた組が外れます**。
+   */
+  ignoreMarks?: IgnoreMarks;
 };
 
 /** 日本時間の今日（YYYY-MM-DD）。置いてあるサーバーの時計は日本時間ではないため */
@@ -317,9 +325,10 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     previewRows = SAMPLE_JOURNAL_PREVIEW_ROWS,
     shopFilter = null,
     cashEvents = [],
+    ignoreMarks,
   } = input;
 
-  const summary = summarizeMonth({ ym, reports, template, settings, advances });
+  const summary = summarizeMonth({ ym, reports, template, settings, advances, ignoreMarks });
   // 銀行に入れた分は**現金だけ**を減らす（経費・利益には1円も入れない・kp233）
   const cash = calcCashPosition({
     reports,
@@ -355,7 +364,16 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     .filter((e) => e.yen > 0)
     .sort((a, b) => b.yen - a.yen);
 
-  const rows = buildJournalRows({ ym, reports, payments, template, settings, advances });
+  // ★CSV（仕訳）も、画面と同じ印を見る。見ないと3通りの数え方がずれて1枚が出せない
+  const rows = buildJournalRows({
+    ym,
+    reports,
+    payments,
+    template,
+    settings,
+    advances,
+    ignoreMarks,
+  });
 
   // ★月の経費を、別々の道で3通り数える（f1-2）。
   //   ここで数え直すのは「同じ数字になっているか」をページの上で見せるためで、
@@ -401,7 +419,11 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
   ].filter((l) => l.yen !== 0);
 
   // ---- 確かめてほしいこと ----
-  const dup = findDuplicateExpenses({ ym, reports, advances });
+  // ★人が「どちらを数えるか」を決めた組は、確かめてほしいことから外す（kp230）
+  const found = findDuplicateExpenses({ ym, reports, advances });
+  const dup = ignoreMarks
+    ? pendingSuspects(found.suspects, ignoreMarks)
+    : found;
   const duplicate: SampleDuplicate | null =
     dup.suspects.length > 0
       ? {

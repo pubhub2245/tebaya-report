@@ -25,6 +25,14 @@ import {
   type CashMeansBreakdown,
 } from "./cashMeans";
 import { advanceNote } from "./advances";
+import {
+  advanceIgnored,
+  emptyIgnoreMarks,
+  listIgnoredExpenses,
+  reportLineIgnored,
+  type IgnoredExpense,
+  type IgnoreMarks,
+} from "./expenseIgnores";
 import { summarizeShopScope, type ShopCount } from "./shopScope";
 import type {
   BusinessTemplate,
@@ -156,6 +164,14 @@ export type MonthlySummary = {
   shops: ShopCount[];
   /** 雑費に入れた（対応表に当たらなかった）明細 */
   unmatched: UnmatchedExpense[];
+  /**
+   * 「同じ支払いが2か所にある」ので数えなかった行（kp230・f1-5）。
+   * ★黙って減らさないために、何をいくら外したかを必ず持ち歩きます。
+   *   印が1つも無ければ空＝今までとまったく同じ数字です。
+   */
+  ignored: IgnoredExpense[];
+  /** 数えなかった分の合計（経費には入っていない額） */
+  ignoredTotal: number;
 };
 
 function emptyExpenseByAccount(): Record<ExpenseAccountKey, number> {
@@ -224,9 +240,15 @@ export function summarizeMonth(params: {
   settings: KeiriSettings;
   /** 立替（渡さなければ無しとして数える。いままでと同じ結果になる） */
   advances?: KeiriAdvance[];
+  /**
+   * 「同じ支払いが2か所にある」ので数えない、と人が決めた印（kp230・f1-5）。
+   * ★渡さなければ印なし＝**いままでとまったく同じ数字**になります。
+   */
+  ignoreMarks?: IgnoreMarks;
 }): MonthlySummary {
   const { ym, reports, template, settings } = params;
   const advances = params.advances ?? [];
+  const ignoreMarks = params.ignoreMarks ?? emptyIgnoreMarks();
   const target = reports.filter((r) => inMonth(r.date, ym));
 
   const expenseByAccount = emptyExpenseByAccount();
@@ -242,7 +264,9 @@ export function summarizeMonth(params: {
   for (const r of target) {
     sales += Number(r.sales_amount) || 0;
     payroll += Number(r.labor) || 0;
-    for (const item of expenseItemsOf(r.expenses)) {
+    expenseItemsOf(r.expenses).forEach((item, lineIndex) => {
+      // ★人が「同じ支払いなので数えない」と決めた行は足さない（外した分は ignored に残す）
+      if (reportLineIgnored(ignoreMarks, r, lineIndex)) return;
       const amount = amountOf(item);
       const { account, matched } = classifyExpense(item.description, template);
       expenseByAccount[account] += amount;
@@ -255,11 +279,13 @@ export function summarizeMonth(params: {
           from: "register",
         });
       }
-    }
+    });
   }
 
   // 立替（誰かが自分のお金で先に払った経費）。計上日は「立て替えた日」
   for (const a of advances.filter((x) => inMonth(x.date, ym))) {
+    // ★人が「同じ支払いなので数えない」と決めた立替は足さない（外した分は ignored に残す）
+    if (advanceIgnored(ignoreMarks, a)) continue;
     const amount = Number(a.amount) || 0;
     const note = advanceNote(a);
     if (a.skipReason) {
@@ -305,6 +331,10 @@ export function summarizeMonth(params: {
     0,
   );
 
+  // 数えなかった行（画面に理由つきで出すため。黙って減らさない）
+  const ignored = listIgnoredExpenses({ ym, reports, advances, marks: ignoreMarks });
+  const ignoredTotal = ignored.reduce((t, x) => t + x.amount, 0);
+
   unmatched.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   advanceSkipped.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
@@ -326,6 +356,8 @@ export function summarizeMonth(params: {
     reportCount: target.length,
     shops: summarizeShopScope(target, ym).shops,
     unmatched,
+    ignored,
+    ignoredTotal,
   };
 }
 

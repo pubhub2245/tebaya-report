@@ -22,16 +22,31 @@
  *   3つすべてに当たったときだけ疑いにします。1つの行は1回だけ組にします。
  */
 
-import type { KeiriAdvance, KeiriReport } from "./types";
+import type { AdvanceSource, KeiriAdvance, KeiriReport } from "./types";
 import { amountOf, expenseItemsOf } from "./classify";
 
 /** 疑いの1組 */
 export type DuplicateSuspect = {
   amount: number;
-  /** 日報の側 */
-  report: { date: string; description: string };
-  /** 立替台帳の側 */
-  advance: { date: string; description: string };
+  /**
+   * 日報の側。
+   * ★`id`（元の行の番号）と `lineIndex`（経費の何行目か）は、
+   *   「こちらは数えない」の印をどの行に付けるかを決めるのに使います（kp230）。
+   *   読めなかった古い読み方では空になり、そのときは印を付けられません（出すだけ）。
+   */
+  report: {
+    date: string;
+    description: string;
+    id?: string | number | null;
+    lineIndex: number;
+  };
+  /** 立替台帳の側（`id` と `source` の組で1行を指す） */
+  advance: {
+    date: string;
+    description: string;
+    id?: string | number | null;
+    source?: AdvanceSource;
+  };
   /** 日付のへだたり（日数） */
   dayGap: number;
   /** 同じ言葉（これが一致の根拠） */
@@ -120,16 +135,25 @@ export function findDuplicateExpenses(params: {
   const maxDayGap = params.maxDayGap ?? 31;
 
   // 日報の側（その月の経費明細をぜんぶ1行ずつに開く）
-  const reportLines: { date: string; description: string; amount: number }[] = [];
+  const reportLines: {
+    date: string;
+    description: string;
+    amount: number;
+    id?: string | number | null;
+    lineIndex: number;
+  }[] = [];
   for (const r of reports) {
     if (!String(r.date ?? "").startsWith(ym)) continue;
-    for (const item of expenseItemsOf(r.expenses)) {
+    // ★何行目かは expenseItemsOf で開いた順（0から）。印を付ける場所と同じ数え方にそろえる
+    expenseItemsOf(r.expenses).forEach((item, lineIndex) => {
       reportLines.push({
         date: r.date,
         description: String(item.description ?? ""),
         amount: amountOf(item),
+        id: r.id ?? null,
+        lineIndex,
       });
-    }
+    });
   }
 
   const usedAdvance = new Set<number>();
@@ -159,8 +183,18 @@ export function findDuplicateExpenses(params: {
     const a = advances[found.i];
     suspects.push({
       amount: line.amount,
-      report: { date: line.date, description: line.description },
-      advance: { date: String(a.date ?? ""), description: String(a.description ?? "") },
+      report: {
+        date: line.date,
+        description: line.description,
+        id: line.id ?? null,
+        lineIndex: line.lineIndex,
+      },
+      advance: {
+        date: String(a.date ?? ""),
+        description: String(a.description ?? ""),
+        id: a.id ?? null,
+        source: a.source,
+      },
       dayGap: found.gap,
       sharedWords: found.shared,
       sameMonth: String(a.date ?? "").startsWith(ym),

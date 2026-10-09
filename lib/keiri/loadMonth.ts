@@ -23,6 +23,11 @@ import { applyTenantScope, isTebayaScope, type TenantScope } from "../tenantScop
 import { readKeiriSecret } from "./browserSecret";
 import { decideReadSource, readWindowOutcome } from "./readSource";
 import { normalizeFieldAdvance, normalizeOwnerAdvance } from "./advances";
+import {
+  ignoreShelfStateOf,
+  type ExpenseIgnoreRow,
+  type IgnoreShelfState,
+} from "./expenseIgnores";
 import { normalizeCashEvents, type CashEvent } from "./cashCheck";
 import type {
   KeiriAdvance,
@@ -46,6 +51,13 @@ export type KeiriMonthData = {
   cashEvents: CashEvent[];
   /** 棚がまだ無い（＝貼り紙を流していない）か */
   cashShelfMissing: boolean;
+  /**
+   * 「同じ支払いが2か所にある」ときの印（kp230・f1-5）。
+   * ★棚（keiri_expense_ignores）がまだ無い倉庫では空のまま＝今までどおり「出すだけ」。
+   */
+  ignores: ExpenseIgnoreRow[];
+  /** 印を置く棚がまだ無いか（まだ無いときは選ぶボタンを出さない） */
+  ignoreShelf: IgnoreShelfState;
 };
 
 /**
@@ -116,6 +128,8 @@ async function loadViaServerWindow(params: {
     advances: (d.advances as KeiriAdvance[]) ?? [],
     cashEvents: (d.cashEvents as CashEvent[]) ?? [],
     cashShelfMissing: !!d.cashShelfMissing,
+    ignores: (d.ignores as ExpenseIgnoreRow[]) ?? [],
+    ignoreShelf: (d.ignoreShelf as IgnoreShelfState) ?? "unknown",
   };
 }
 
@@ -168,7 +182,8 @@ export async function loadKeiriMonth(params: {
   // 日報。経費の種類を決めるのに「説明の文字」が要るので明細も取る。
   const repQuery = supabase
     .from("keiri_reports")
-    .select("date, location, staff_name, shop, sales_amount, labor, expenses");
+    // ★id を取るのは「同じ支払いが2か所にある」ときの印を、どの行に付けたか分かるようにするため（kp230）
+    .select("id, date, location, staff_name, shop, sales_amount, labor, expenses");
   const { data: reps, error: rErr } = await applyTenantScope<any>(repQuery as any, scope)
     .gte("date", gte)
     .order("date");
@@ -187,7 +202,7 @@ export async function loadKeiriMonth(params: {
   if (isTebayaScope(scope)) {
     const { data: field } = await supabase
       .from("keiri_advance_expenses")
-      .select("expense_date, amount, payer, source_type, memo")
+      .select("id, expense_date, amount, payer, source_type, memo")
       .eq("business_type_code", businessCode)
       .gte("expense_date", gte);
     for (const row of (field as any[]) ?? []) {
@@ -195,7 +210,7 @@ export async function loadKeiriMonth(params: {
     }
     const { data: owner } = await supabase
       .from("advance_expenses")
-      .select("date, amount, payer, description, settled, settled_date")
+      .select("id, date, amount, payer, description, settled, settled_date")
       .gte("date", gte);
     for (const row of (owner as any[]) ?? []) {
       advances.push(normalizeOwnerAdvance(row));
@@ -221,6 +236,19 @@ export async function loadKeiriMonth(params: {
     }
   }
 
+  // 「同じ支払いが2か所にある」ときの印（kp230）。
+  // ★棚がまだ無い倉庫では、落とさずに「まだ無い」とだけ覚えて先へ進む（金庫の記録と同じ形）。
+  let ignores: ExpenseIgnoreRow[] = [];
+  let ignoreShelf: IgnoreShelfState = "unknown";
+  {
+    const ignoreQuery = supabase
+      .from("keiri_expense_ignores")
+      .select("id, source, ref_id, line_index, amount, paid_on, reason, undone_at");
+    const { data: rows, error: iErr } = await applyTenantScope<any>(ignoreQuery as any, scope);
+    ignoreShelf = ignoreShelfStateOf({ error: iErr });
+    if (!iErr) ignores = ((rows as ExpenseIgnoreRow[]) ?? []);
+  }
+
   return {
     settings,
     settingsMissing: !s,
@@ -229,5 +257,7 @@ export async function loadKeiriMonth(params: {
     advances,
     cashEvents,
     cashShelfMissing,
+    ignores,
+    ignoreShelf,
   };
 }

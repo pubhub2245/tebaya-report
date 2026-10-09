@@ -103,6 +103,8 @@ const KNOWN_ACCOUNT_KEYS = new Set<string>([
 
 /** 現場の立替1行（keiri_advance_expenses）の、必要な列だけ */
 export type FieldAdvanceRow = {
+  /** 元の行の番号。「同じ支払いが2か所にある」ときの印に使う（kp230） */
+  id?: string | number | null;
   expense_date?: string | null;
   amount?: number | null;
   payer?: string | null;
@@ -112,6 +114,8 @@ export type FieldAdvanceRow = {
 
 /** 経営側の立替1行（advance_expenses）の、必要な列だけ */
 export type OwnerAdvanceRow = {
+  /** 元の行の番号。「同じ支払いが2か所にある」ときの印に使う（kp230） */
+  id?: string | number | null;
   date?: string | null;
   amount?: number | null;
   payer?: string | null;
@@ -131,6 +135,7 @@ export function normalizeFieldAdvance(row: FieldAdvanceRow): KeiriAdvance {
   const memo = (row.memo ?? "").trim();
   const skip = ADVANCE_KIND_SKIP[kind] ?? null;
   return {
+    id: row.id ?? null,
     date: String(row.expense_date ?? ""),
     amount: Number(row.amount) || 0,
     // 科目が決まらなかったときに文字から当てるので、種類とメモの両方を渡す
@@ -147,6 +152,7 @@ export function normalizeFieldAdvance(row: FieldAdvanceRow): KeiriAdvance {
 /** 経営側の立替を揃える（自由入力の文字から科目を当てる） */
 export function normalizeOwnerAdvance(row: OwnerAdvanceRow): KeiriAdvance {
   return {
+    id: row.id ?? null,
     date: String(row.date ?? ""),
     amount: Number(row.amount) || 0,
     description: (row.description ?? "").trim() || "立替",

@@ -16,6 +16,13 @@ export type ExpenseItem = {
 
 /** 集計に使う日報1件ぶん */
 export type KeiriReport = {
+  /**
+   * 元の行の番号（daily_reports.id）。
+   * ★「同じ支払いが2か所にある」ときに、どちらを数えるかの印を
+   *   どの行に付けたか分かるようにするために持ちます（kp230・lib/keiri/expenseIgnores.ts）。
+   *   読めないことがある（古い読み方・お試し版の作り物）ので、無くても集計は今までどおり動きます。
+   */
+  id?: string | number | null;
   /** 計上日（YYYY-MM-DD）。★入力日時ではなく、この営業日で数える（現金主義） */
   date: string;
   /** 出店場所（空のこともある） */
@@ -135,6 +142,12 @@ export type AdvanceSource = "field" | "owner";
  *   ・返した立替　　　　　 … その日に「今の現金」から引く
  */
 export type KeiriAdvance = {
+  /**
+   * 元の行の番号（立替の棚の id）。
+   * ★入り口（source）と組で1行を指します。入り口が違えば同じ番号が別の行です。
+   *   「同じ支払いが2か所にある」ときの印に使います（kp230）。無くても集計は動きます。
+   */
+  id?: string | number | null;
   /** 立て替えた日（YYYY-MM-DD）。経費として数えるのはこの日 */
   date: string;
   /** 金額（円） */

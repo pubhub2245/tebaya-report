@@ -36,6 +36,11 @@
 import { CASE_TEBAYA } from "@/lib/keiri/caseNumbers";
 import { summarizeMonth } from "@/lib/keiri/aggregate";
 import { findDuplicateExpenses } from "@/lib/keiri/duplicates";
+import {
+  pendingSuspects,
+  readIgnoreMarks,
+  type IgnoreMarks,
+} from "@/lib/keiri/expenseIgnores";
 import { loadKeiriMonthServer, shiftDate } from "@/lib/keiri/loadMonthServer";
 import { templateFor } from "@/lib/keiri/index";
 import type {
@@ -149,13 +154,22 @@ export function summarizeCaseMonth(params: {
   settingsMissing?: boolean;
   /** 立替の棚が読めなかったか（読めないまま数えると、経費がまるごと落ちる） */
   advancesUnreadable?: boolean;
+  /**
+   * 「同じ支払いが2か所にある」ときに、どちらを数えるかを人が決めた印（kp230）。
+   * ★決めた組は疑いから外れるので、**全部 決まれば利益を出せるようになります**。
+   *   渡さなければ印なし＝今までどおり（疑いが1件でもあれば利益は出しません）。
+   */
+  ignoreMarks?: IgnoreMarks;
 }): CaseMonthFigures {
   const { ym, advances, settings, template } = params;
   // もも屋の日報は数えない（倉庫から取るときにも絞るが、片方だけ直しても狂わないように）
   const reports = params.rows.filter(isCaseShopRow) as unknown as KeiriReport[];
 
-  const summary = summarizeMonth({ ym, reports, template, settings, advances });
-  const dup = findDuplicateExpenses({ ym, reports, advances });
+  const ignoreMarks = params.ignoreMarks;
+  const summary = summarizeMonth({ ym, reports, template, settings, advances, ignoreMarks });
+  // ★人が「どちらを数えるか」を決めた組は、疑いから外す（kp230）
+  const found = findDuplicateExpenses({ ym, reports, advances });
+  const dup = ignoreMarks ? pendingSuspects(found.suspects, ignoreMarks) : found;
 
   const reasons: string[] = [];
   if (dup.suspects.length > 0) {
@@ -218,6 +232,7 @@ export async function getCaseStats(today: Date = new Date()): Promise<CaseStats>
       template: templateFor(CASE_BUSINESS_CODE),
       settingsMissing: data.settingsMissing,
       advancesUnreadable: data.advancesUnreadable,
+      ignoreMarks: readIgnoreMarks(data.ignores),
     });
 
     if (figures.days === 0 || figures.salesYen <= 0) return fallbackStats();
