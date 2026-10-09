@@ -38,8 +38,10 @@ export async function describe(params: {
   tenantId: string | null;
   elapsedMs: number | null;
   ran?: string;
+  /** どの道で確かめたか。"sheet"＝貼り紙⑥（サーバー側の鍵を使っていない） */
+  via?: "sheet" | "key";
 }): Promise<NextResponse> {
-  const { state, tenantId, elapsedMs, ran } = params;
+  const { state, tenantId, elapsedMs, ran, via } = params;
   const read = await readBothWays(tenantId);
   const separated = state.exists ? separationOk(read) : false;
 
@@ -59,6 +61,17 @@ export async function describe(params: {
     testShop: read.testShop,
     separated,
     ...(ran ? { ran } : {}),
+    ...(via
+      ? {
+          via,
+          viaNote:
+            via === "sheet"
+              ? "貼り紙（/keiri/sql）の⑥で作られた店を、経理の設定の行から確かめました。" +
+                "サーバー側の鍵は使っていません（鍵が壊れていても出ます）。" +
+                "作りと初回設定は貼り紙1枚の中で終わるので、かかる時間は貼る数秒です"
+              : "サーバー側の鍵で、お店の棚を直接 読んで確かめました",
+        }
+      : {}),
     summary: trialSummary({ state, separated, elapsedMs }),
     remaining:
       "手順4・5（出店場所・商品・スタッフ）はここでは入れていません。" +

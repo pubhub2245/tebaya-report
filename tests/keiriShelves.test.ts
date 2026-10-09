@@ -6,10 +6,12 @@ import { join } from "node:path";
 import {
   describeShelf,
   isMissingShelf,
+  missingProbe,
   shelfState,
   summarizeShelves,
   SHELF_STEPS,
 } from "../lib/keiri/shelves";
+import { TEST_SHOP } from "../lib/keiri/tenantTrial";
 
 /**
  * 倉庫に流す貼り紙（kp237）の決まりを固定する。
@@ -132,10 +134,10 @@ test("軽い日報の見え方は、レシート写真の住所を抜いたま�
   assert.ok(sql.includes("as receipt_count"));
 });
 
-test("貼り紙に入っている棚は5つで、それぞれ仕上げ表の項目につながっている", () => {
-  assert.equal(SHELF_STEPS.length, 5);
+test("貼り紙に入っているのは6つで、それぞれ仕上げ表の項目につながっている", () => {
+  assert.equal(SHELF_STEPS.length, 6);
   const checks = SHELF_STEPS.map((s) => s.check);
-  assert.deepEqual(checks, ["f1-4", "f1-5", "f1-6", "f3-4", "f3-4"]);
+  assert.deepEqual(checks, ["f1-4", "f1-5", "f1-6", "f3-4", "f3-4", "f5-4"]);
   for (const s of SHELF_STEPS) {
     assert.ok(s.benefit.length > 10, `${s.key} に「流すと何ができるか」が書かれていません`);
   }
@@ -149,6 +151,61 @@ test("⑤ シフトの棚に欄を足すところが貼り紙に入っている�
   assert.ok(sql.includes("create index if not exists shifts_tenant_idx"));
   // 既存の行を書き換えない＝初期値を入れない
   assert.ok(!/add column if not exists tenant_id[^;]*default/i.test(sql));
+});
+
+test("⑥ テストのお店1軒を貼り紙の中で作る（2026-10-09・f5-4 を鍵待ちから外す）", () => {
+  const sql = readFileSync(SQL_PATH, "utf8");
+  const body = sql
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n");
+
+  // 目印・店名・数え始めの日・金庫の起点は、コードの固定値と同じであること
+  assert.ok(body.includes(`'${TEST_SHOP.mark}'`));
+  assert.ok(body.includes(`'${TEST_SHOP.name}'`));
+  assert.ok(body.includes(`'${TEST_SHOP.openingDate}'`));
+  assert.ok(body.includes(String(TEST_SHOP.openingBalance)));
+
+  // 新しい窓口（関数）は1つも作らない＝すでにある初回設定の窓口を呼ぶだけ
+  assert.ok(!/create\s+(or\s+replace\s+)?function/i.test(body));
+  assert.ok(body.includes("public.keiri_tenant_activate("));
+
+  // 何度 流しても増えない（同じ目印があれば作らない・ぶつかっても黙って通す）
+  assert.ok(body.includes("on conflict do nothing"));
+  assert.ok(body.includes("where t.external_session_id = c_mark"));
+
+  // 管理画面の合言葉は中で作って捨てる＝外から渡せない（誰も入れない）
+  assert.ok(/v_hash\s+text\s*:=\s*md5\(/.test(body));
+
+  // 手羽屋のデータには触らない（日報・経費・申し込み・出店場所の行は作らない）
+  for (const forbidden of [
+    "daily_reports",
+    "keiri_advance_expenses",
+    "keiri_applications",
+    "locations",
+    "staff_members",
+    "sale_products",
+  ]) {
+    assert.ok(
+      !new RegExp(`insert\\s+into\\s+public\\.${forbidden}`, "i").test(body),
+      `貼り紙⑥が ${forbidden} に行を足しています`,
+    );
+  }
+  // 消す・書き換える命令は1つも無い
+  for (const forbidden of ["drop ", "truncate ", "delete from"]) {
+    assert.ok(!body.toLowerCase().includes(forbidden), `貼り紙に ${forbidden.trim()} が入っています`);
+  }
+});
+
+test("「貼り紙が作る行がまだ無い」は、棚と同じ「まだ無い」の言い方になる", () => {
+  const probe = missingProbe("テストのお店がまだありません");
+  assert.equal(shelfState(probe), "まだ無い");
+  const report = describeShelf(
+    { step: "⑥", name: "テストのお店", benefit: "手順を通せます", check: "f5-4" },
+    probe,
+  );
+  assert.equal(report.state, "まだ無い");
+  assert.match(report.note, /貼り紙を1回 貼る/);
 });
 
 test("貼り紙は「誰が何をできるか」を1つも変えない（鍵の決まりは足す棚のぶんだけ）", () => {

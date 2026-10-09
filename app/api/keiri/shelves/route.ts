@@ -3,12 +3,14 @@ import { NextResponse } from "next/server";
 import { serverClient, serviceClientOrNull } from "@/lib/supabaseServer";
 import {
   describeShelf,
+  missingProbe,
   summarizeShelves,
   SHELF_STEPS,
   type ShelfProbe,
   type ShelfReport,
 } from "@/lib/keiri/shelves";
 import { CHECK_WINDOW_HEADERS } from "@/lib/keiri/checkWindow";
+import { peekTestShop } from "@/lib/keiri/tenantTrialServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,14 +43,29 @@ async function probe(table: string, column: string): Promise<ShelfProbe> {
   }
 }
 
+/**
+ * ⑥だけは「棚」ではなく、貼り紙が作る**テストのお店1行**を見る。
+ * お店の棚はブラウザの鍵では読めないので、必ず1行できる
+ * **経理の設定の行**を見る（lib/keiri/tenantTrialServer.ts と同じ道）。
+ * ★1行も書き込まない。金額・お店の名前・番号は1文字も返さない。
+ */
+async function probeTrialShop(): Promise<ShelfProbe> {
+  const found = await peekTestShop();
+  if (found.kind === "row") return { ok: true };
+  if (found.kind === "none") return missingProbe("テストのお店がまだありません");
+  return { ok: false, code: null, message: "通信に失敗しました" };
+}
+
 export async function GET() {
-  const [cash, ignores, receiptFlag, advanceTenant, shiftsTenant] = await Promise.all([
-    probe("keiri_cash_events", "id"),
-    probe("keiri_expense_ignores", "id"),
-    probe("keiri_reports", "receipt_count"),
-    probe("advance_expenses", "tenant_id"),
-    probe("shifts", "tenant_id"),
-  ]);
+  const [cash, ignores, receiptFlag, advanceTenant, shiftsTenant, trialShop] =
+    await Promise.all([
+      probe("keiri_cash_events", "id"),
+      probe("keiri_expense_ignores", "id"),
+      probe("keiri_reports", "receipt_count"),
+      probe("advance_expenses", "tenant_id"),
+      probe("shifts", "tenant_id"),
+      probeTrialShop(),
+    ]);
 
   const probes: Record<string, ShelfProbe> = {
     cash_events: cash,
@@ -56,6 +73,7 @@ export async function GET() {
     receipt_flag: receiptFlag,
     advance_tenant: advanceTenant,
     shifts_tenant: shiftsTenant,
+    trial_shop: trialShop,
   };
 
   const reports: ShelfReport[] = SHELF_STEPS.map((s) =>

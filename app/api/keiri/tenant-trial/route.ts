@@ -1,7 +1,6 @@
 import { cannot, describe } from "./describe";
 
-import { findTestShop, setupElapsedMs } from "@/lib/keiri/tenantTrialServer";
-import { serviceClientOrNull } from "@/lib/supabaseServer";
+import { peekTestShop, setupElapsedMs } from "@/lib/keiri/tenantTrialServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,11 +23,9 @@ export const dynamic = "force-dynamic";
  *   ブラウザから倉庫を直に読む道（棚の鍵の決まり）も、ここでは見ていません。
  */
 export async function GET() {
-  const found = await findTestShop(serviceClientOrNull());
-  if (found.kind === "nokey") {
-    return cannot("仕組み側の鍵が使えないので、テストの店を確かめられませんでした");
-  }
-  if (found.kind === "error") {
+  // ★鍵が壊れていても確かめられます（貼り紙⑥で作った店は、経理の設定の行から分かる）
+  const found = await peekTestShop();
+  if (found.kind === "nokey" || found.kind === "error") {
     return cannot("倉庫との通信に失敗したので、確かめられませんでした");
   }
   if (found.kind === "none") {
@@ -48,5 +45,6 @@ export async function GET() {
     },
     tenantId: row.id,
     elapsedMs: setupElapsedMs(row.created_at, row.activated_at),
+    via: row.viaSettings ? "sheet" : "key",
   });
 }
