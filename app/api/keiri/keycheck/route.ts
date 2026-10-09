@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { CHECK_WINDOW_HEADERS } from "@/lib/keiri/checkWindow";
+import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 import {
   KEY_BLOCKED,
   KEY_FIX_STEPS,
@@ -38,7 +38,7 @@ export async function GET() {
   const level = keyFixLevel(report);
 
   return NextResponse.json(
-    {
+    stampCheckWindow({
       configured: report.configured,
       usable: report.usable,
       repaired: report.repaired === true,
@@ -50,7 +50,7 @@ export async function GET() {
       steps: keyFixNeeded(level) ? KEY_FIX_STEPS : [],
       sheet: "/keiri/key",
       note: "読むだけの窓口です。鍵の値・合言葉・環境変数の中身は1文字も返しません",
-    },
+    }),
     { status: 200, headers: CHECK_WINDOW_HEADERS },
   );
 }

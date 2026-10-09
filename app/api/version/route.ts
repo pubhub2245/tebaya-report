@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { BUILD_STAMP, parseBuildStamp } from "@/lib/buildStamp";
-import { CHECK_WINDOW_HEADERS } from "@/lib/keiri/checkWindow";
+import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +28,7 @@ export async function GET() {
   const { commit, builtAt } = parseBuildStamp();
 
   return NextResponse.json(
-    {
+    stampCheckWindow({
       build: BUILD_STAMP,
       commit,
       builtAt,
@@ -39,7 +39,7 @@ export async function GET() {
       //   保存させない札は付けてあるが、道具側のためこみはこちらから消せないので、
       //   住所の後ろに ?v=いまの時刻 を付けてもらう（毎回ちがう住所になるのでためこめない）。
       tip: "この窓口が古い答えを返すように見えるときは、住所の後ろに ?v=（いまの時刻）を付けて開き直してください。読む道具が前の答えをためていることがあります。",
-    },
+    }),
     {
       status: 200,
       // どこにも保存させない（保存されたら意味が無い）／検索結果には載せない

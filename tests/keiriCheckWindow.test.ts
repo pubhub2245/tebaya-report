@@ -11,6 +11,7 @@ import {
   CHECK_WINDOWS,
   CHECK_WINDOW_HEADERS,
   CHECK_WINDOW_PATHS,
+  stampCheckWindow,
 } from "../lib/keiri/checkWindow";
 
 test("窓口は読むだけの住所で、重なりが無い", () => {
@@ -55,5 +56,43 @@ test("確かめる窓口は、どれも読むだけ（棚に書き込む道を�
     for (const bad of [".insert(", ".upsert(", ".delete("]) {
       assert.ok(!src.includes(bad), `読むだけの窓口に書き込みが入っている：${w.path} ${bad}`);
     }
+  }
+});
+
+/**
+ * 「いつ・どの版で答えたか」の札（kp246・2026-10-09）。
+ *
+ * 検査役が「いま見ているのが新しい答えか」をその場で見分けられないと、
+ * 本番が正しくても合否が付けられず足止めになる（10/9 に2回 起きた）。
+ */
+test("窓口の返事には、答えた時刻と版の合言葉が必ず入る", () => {
+  const at = new Date("2026-10-09T09:34:00.000Z");
+  const body = stampCheckWindow({ ok: true, count: 3 }, at);
+  assert.equal(body.ok, true);
+  assert.equal(body.count, 3);
+  assert.equal(body.answeredAt, "2026-10-09T09:34:00.000Z");
+  assert.equal(typeof body.build, "string");
+  assert.ok(body.build.length > 0);
+  assert.match(body.freshness, /answeredAt/);
+});
+
+test("札は元の中身を1つも消さない・上書きしない", () => {
+  const body = stampCheckWindow({ sheetReady: true, problems: [] as string[] });
+  assert.equal(body.sheetReady, true);
+  assert.deepEqual(body.problems, []);
+});
+
+test("外から確かめる窓口は、すべて札を付けて返す（付け忘れが無い）", () => {
+  const { readFileSync, existsSync } = require("node:fs") as typeof import("node:fs");
+  const { join } = require("node:path") as typeof import("node:path");
+  for (const w of CHECK_WINDOWS) {
+    const dir = join(__dirname, "..", "app", ...w.path.split("/").filter(Boolean));
+    const files = [join(dir, "route.ts"), join(dir, "describe.ts")].filter((f) => existsSync(f));
+    assert.ok(files.length > 0, `窓口のコードが見つからない：${w.path}`);
+    const src = files.map((f) => readFileSync(f, "utf8")).join("\n");
+    assert.ok(
+      src.includes("stampCheckWindow("),
+      `窓口に「いつ・どの版で答えたか」の札が付いていない：${w.path}`,
+    );
   }
 });

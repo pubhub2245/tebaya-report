@@ -9,7 +9,7 @@ import {
   type ShelfProbe,
   type ShelfReport,
 } from "@/lib/keiri/shelves";
-import { CHECK_WINDOW_HEADERS } from "@/lib/keiri/checkWindow";
+import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 import { peekTestShop } from "@/lib/keiri/tenantTrialServer";
 
 export const runtime = "nodejs";
@@ -100,5 +100,5 @@ export async function GET() {
 
 /** 窓口の返事（保存させない・検索結果には載せない。lib/keiri/checkWindow.ts） */
 function jsonWindow(body: unknown): NextResponse {
-  return NextResponse.json(body, { status: 200, headers: CHECK_WINDOW_HEADERS });
+  return NextResponse.json(stampCheckWindow(body), { status: 200, headers: CHECK_WINDOW_HEADERS });
 }
