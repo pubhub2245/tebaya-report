@@ -47,7 +47,19 @@ const MISSING_CODES = new Set([
   "42703", // 列がない
   "PGRST204", // 列が見つからない（PostgREST の言い方）
   "PGRST205", // 表が見つからない（PostgREST の言い方）
+  // こちらで「まだ無い」と判断したとき（棚ではなく、貼り紙が作る“行”を見る場合に使う）
+  "MISSING",
 ]);
+
+/**
+ * 「棚ではなく、貼り紙が作る“行”がまだ無い」ことを、棚と同じ形で言うための印。
+ *
+ * 貼り紙⑥は新しい棚を足すのではなく、**テストのお店1行**を作ります。
+ * 行が無いのは失敗ではなく「まだ流していない」なので、棚と同じ言い方にそろえます。
+ */
+export function missingProbe(message: string): ShelfProbe {
+  return { ok: false, code: "MISSING", message };
+}
 
 export function isMissingShelf(probe: ShelfProbe): boolean {
   if (probe.ok) return false;
@@ -116,6 +128,15 @@ export const SHELF_STEPS = [
     name: "シフトの棚に「どの店のものか」の欄",
     benefit: "お店が増えても、シフトがよその店に混ざらなくなります（最後の穴）",
     check: "f3-4",
+  },
+  {
+    key: "trial_shop",
+    step: "⑥",
+    name: "テストのお店1軒（この1枚の中で作って初回設定まで済ませる）",
+    benefit:
+      "2軒目を入れる手順を、こちら側だけで1回 通せるようになります" +
+      "（サーバー側の鍵の貼り直しを待たなくてよくなります）",
+    check: "f5-4",
   },
 ] as const;
 

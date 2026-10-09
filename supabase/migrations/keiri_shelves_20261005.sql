@@ -16,6 +16,12 @@
 --      → これができると、お店が増えても立替が混ざりません。
 --   ⑤ シフトの棚に「どの店のものか」の欄を足す（2026-10-08 追記）
 --      → ここが最後の穴でした。これができると、お店が増えてもシフトも混ざりません。
+--   ⑥ テストのお店1軒を、この1枚の中で作って初回設定まで済ませる（2026-10-09 追記）
+--      → これができると、2軒目を入れる手順を こちら（Claude）だけで通せます。
+--        いままでは、お店1軒ぶんの行を作れるのが「サーバー側の鍵」だけで、
+--        その鍵が壊れているため（kp241）テストの店が1軒も作れず、
+--        **この1枚とは別に、もう1つの手続きを待つ**形になっていました。
+--        ⑥を入れたので、**この1枚を1回 貼るだけで、止まっている3つとも動きます。**
 --
 -- ■ 安全について（ここが大事）
 --   ・**足すだけ**です。消す・名前を変える・作り変えるものは1つもありません
@@ -259,6 +265,80 @@ end $$;
 
 
 -- ============================================================
+-- ⑥ テストのお店1軒を、この1枚の中で作って初回設定まで済ませる（f5-4・f3-4／2026-10-09 追記）
+--
+--   これを流すと：**2軒目を入れる手順を、じゅんの手を借りずに1回 通せます。**
+--   お店の棚（keiri_tenants）はブラウザから読めも書けもしない決まりなので、
+--   行を作れるのは「サーバー側の鍵（SUPABASE_SERVICE_ROLE_KEY）」を持つ側だけです。
+--   その鍵はいま壊れており（kp241）、貼り直すには じゅんが別の画面を2つ 開く必要があります。
+--   そのため仕上げの f5-4 が、この1枚とは別の手続きも待つ形になっていました。
+--   ここで **テストの店1軒を、この1枚の中で作ってしまいます。**
+--   ＝ この1枚を貼った時点で、鍵の貼り直しを待たずに f5-4 まで動きます。
+--
+--   ★ 新しい窓口（関数）は1つも作りません。誰が何をできるか（権限・鍵の決まり）も
+--     1つも変えません。やるのは **行を1つ足して、すでにある窓口を1回 呼ぶ**だけです。
+--   ★ 何度 流しても増えません（同じ目印の行があれば何もしません）。
+--   ★ 管理画面の合言葉は、この中で作ってその場で捨てます。生の値はどこにも残しません。
+--     ＝**このテストの店には誰も入れません**（外から覗かれる心配がありません）。
+--   ★ 手羽屋には1行も触れません。足すのは お店の棚に1行と、
+--     そのお店ぶんの経理の設定に1行（業態コードは t_<お店の番号>）だけです。
+--     日報・経費・申し込み・出店場所・担当者・商品の行は**1行も作りません**。
+--   ★ 値は lib/keiri/tenantTrial.ts の TEST_SHOP と同じ固定値です
+--     （名前の頭に【テスト】が付きます。本物の軒数には数えないこと）。
+-- ============================================================
+do $$
+declare
+  c_mark    constant text := 'test-b2-kensa-1006';
+  c_name    constant text := '【テスト】B2検査食堂';
+  c_date    constant date := '2026-10-06';
+  c_balance constant numeric := 30000;
+  v_id uuid;
+  v_token text;
+  v_status text;
+  -- 戻せない形（16進64文字）。ここで作って、ここで捨てる
+  v_hash text := md5(random()::text || clock_timestamp()::text)
+               || md5(random()::text || clock_timestamp()::text);
+  v_outcome text;
+begin
+  select t.id, t.setup_token, t.status
+    into v_id, v_token, v_status
+    from public.keiri_tenants t
+   where t.external_session_id = c_mark
+   limit 1;
+
+  if v_id is null then
+    insert into public.keiri_tenants (
+      shop_name, template, setup_token, source, status,
+      external_session_id, external_customer_id
+    ) values (
+      null, 'generic',
+      md5(random()::text || clock_timestamp()::text)
+        || substr(md5(random()::text || clock_timestamp()::text), 1, 16),
+      'manual', 'pending', c_mark, c_mark
+    )
+    on conflict do nothing;
+
+    select t.id, t.setup_token, t.status
+      into v_id, v_token, v_status
+      from public.keiri_tenants t
+     where t.external_session_id = c_mark
+     limit 1;
+  end if;
+
+  -- 初回設定は、すでにある窓口にやらせる（同じ道を通す＝二重の作りを持たない）
+  if v_id is not null and v_status = 'pending' then
+    select a.outcome into v_outcome
+      from public.keiri_tenant_activate(
+             v_token, null, c_name, c_date, c_balance, v_hash
+           ) a;
+    raise notice '⑥ テストの店の初回設定：%', coalesce(v_outcome, '（返事なし）');
+  else
+    raise notice '⑥ テストの店は、もうありました（何もしていません）';
+  end if;
+end $$;
+
+
+-- ============================================================
 -- 確かめ方（流したあと、これを貼ると結果が1画面で見えます）
 --
 --   select 'keiri_cash_events'    as 棚, count(*) as 行数 from public.keiri_cash_events
@@ -279,4 +359,13 @@ end $$;
 --   ⑤の欄が付いたかは、これで分かります（2026-10-08 追記）：
 --   select count(tenant_id) as シフトの印がついている行 from public.shifts;
 --   → 0 のまま＝手羽屋のシフトは今までどおりです（欄ができただけ）。
+--
+--   ⑥のテストの店ができたかは、これで分かります（2026-10-09 追記）：
+--   select shop_name as 店名, status as 状態,
+--          activated_at - created_at as かかった時間
+--     from public.keiri_tenants
+--    where external_session_id = 'test-b2-kensa-1006';
+--   → 状態が active・かかった時間が1秒未満なら、手順1〜3まで通っています。
+--   → 本番の https://tebaya-report.vercel.app/api/keiri/tenant-trial を開くと、
+--     こちら側からも確かめられます（サーバー側の鍵が壊れていても出ます）。
 -- ============================================================

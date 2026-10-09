@@ -6,6 +6,7 @@ import { TEST_SHOP } from "@/lib/keiri/tenantTrial";
 import {
   SHOP_COLUMNS,
   findTestShop,
+  peekTestShop,
   setupElapsedMs,
   type TestShopRow,
 } from "@/lib/keiri/tenantTrialServer";
@@ -44,8 +45,25 @@ export const dynamic = "force-dynamic";
  *   ＝このテストの店には誰も入れません（外から覗かれる心配がありません）。
  */
 export async function POST() {
+  // ★まず「もうあるか」を鍵なしでも見る（貼り紙⑥が作っていることがある）
+  const already = await peekTestShop();
+  if (already.kind === "row" && already.row.viaSettings) {
+    return describe({
+      state: { exists: true, createdNow: false, active: true, settingsReady: true },
+      tenantId: already.row.id,
+      elapsedMs: null,
+      ran: "もうありました（貼り紙⑥が作っています）。何も作っていません",
+      via: "sheet",
+    });
+  }
+
   const db = serviceClientOrNull();
-  if (!db) return cannot("仕組み側の鍵が使えないので、テストの店を作れませんでした");
+  if (!db) {
+    return cannot(
+      "仕組み側の鍵が使えないので、ここでは作れませんでした。" +
+        "/keiri/sql の貼り紙（⑥）を1回 貼ると、鍵を待たずにテストの店ができます",
+    );
+  }
 
   const startedAt = Date.now();
   const first = await findTestShop(db);
