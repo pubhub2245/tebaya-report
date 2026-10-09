@@ -45,7 +45,9 @@ export const CHECK_WINDOWS: CheckWindow[] = [
   },
   {
     path: "/api/keiri/selfcheck",
-    what: "前の月の締めが人の手なしで出たか（金額は伏せて○×だけ）",
+    what:
+      "前の月の締めが人の手なしで出たか（金額は伏せて○×だけ）。" +
+      "?ym=2026-08 のように付けると、その月で締め直して答えます（付けなければ前の月）",
     check: "f1-5・f1-2",
   },
   {
@@ -89,6 +91,11 @@ export const CHECK_WINDOW_PATHS: string[] = CHECK_WINDOWS.map((w) => w.path);
  * 窓口の返事に必ず付ける札。
  * ・保存させない（古い中身で「出ていない」と誤報が出ないように）
  * ・検索結果には載せない（読んでよいが、載せる物ではない）
+ */
+/**
+ * ★それでも古い答えが返るように見えるときは、住所の後ろに `?v=いまの時刻` を付けて開き直す。
+ *   保存させない札はこちらで付けられますが、**外から読む道具が自分の手元にためた分**は
+ *   こちらから消せません（2026-10-09 まで、これで3回「本番が古い」の誤報が出ています）。
  */
 export const CHECK_WINDOW_HEADERS: Record<string, string> = {
   "Cache-Control": "no-store, max-age=0, must-revalidate",
