@@ -183,12 +183,17 @@ test("疑いを見つけても、月の経費の合計は1円も変わらない"
   assert.equal(after.expenseTotal, 9989 * 2, "疑いがあっても合計は勝手に減らさない");
 });
 
-test("本物の経理画面に、この疑いを出す場所がある", async () => {
+test("本物の経理画面に、この疑いを出して片付ける場所がある", async () => {
   const { readFileSync } = await import("node:fs");
   const page = readFileSync("app/keiri/page.tsx", "utf8");
   assert.ok(page.includes("findDuplicateExpenses"), "画面が疑いを出していない");
+  // 2026-10-09（kp230）：出すだけでなく「どちらを数えるか」を押して決められる所に変えた。
+  //   見出しと3つの選び方は部品（DuplicateChoices）側にある。
+  assert.ok(page.includes("<DuplicateChoices"), "片付ける部品を出していない");
+  const part = readFileSync("app/keiri/components/DuplicateChoices.tsx", "utf8");
   assert.ok(
-    page.includes("同じ支払いが2か所に書かれている疑い"),
+    part.includes("同じ支払いが2か所に書かれているかもしれません"),
     "見出しの文が無い",
   );
+  assert.ok(part.includes("IGNORE_WORDS"), "画面の言葉を1か所から引いていない");
 });

@@ -20,6 +20,12 @@ import { calcOutsourcing, inMonth, monthEnd, rentForMonth } from "./aggregate";
 import { amountOf, classifyExpense, expenseItemsOf } from "./classify";
 import { CASH_MEANS_LABEL, classifyCashMeans } from "./cashMeans";
 import { advanceNote } from "./advances";
+import {
+  advanceIgnored,
+  emptyIgnoreMarks,
+  reportLineIgnored,
+  type IgnoreMarks,
+} from "./expenseIgnores";
 import { PAYMENT_KIND_LABEL, type BusinessTemplate, type KeiriAdvance, type KeiriPayment, type KeiriReport, type KeiriSettings } from "./types";
 
 /** CSVで使う相手勘定の名前 */
@@ -67,9 +73,20 @@ export function buildJournalRows(params: {
   settings: KeiriSettings;
   /** 立替（渡さなければ無しとして数える。いままでと同じ結果になる） */
   advances?: KeiriAdvance[];
+  /**
+   * 「同じ支払いが2か所にある」ので数えない、と人が決めた印（kp230・f1-5）。
+   * ★渡さなければ印なし＝**いままでとまったく同じ行**になります。
+   *   印がある行は、ここでも作りません。作ると画面・CSV・1枚の3つがずれて、
+   *   検算が合わなくなり1枚そのものが出せなくなります。
+   */
+  ignoreMarks?: IgnoreMarks;
 }): JournalRow[] {
   const { ym, reports, payments, template, settings } = params;
-  const advances = (params.advances ?? []).filter((a) => !a.skipReason);
+  const marks = params.ignoreMarks ?? emptyIgnoreMarks();
+  const advances = (params.advances ?? [])
+    .filter((a) => !a.skipReason)
+    // 数えないと決めた立替は、発生も返金も作らない（片方だけ消すと未払金が狂う）
+    .filter((a) => !advanceIgnored(marks, a));
   const rows: JournalRow[] = [];
 
   const target = reports
@@ -97,9 +114,11 @@ export function buildJournalRows(params: {
     }
 
     // 経費（日報に入っている分）
-    for (const item of expenseItemsOf(r.expenses)) {
+    expenseItemsOf(r.expenses).forEach((item, lineIndex) => {
       const amount = amountOf(item);
-      if (amount === 0) continue;
+      if (amount === 0) return;
+      // 人が「同じ支払いなので数えない」と決めた行は作らない（kp230）
+      if (reportLineIgnored(marks, r, lineIndex)) return;
       const { account } = classifyExpense(item.description, template);
       // ★相手（右側）は「金庫から出たのか」で変わります（kp233・f1-4・lib/keiri/cashMeans.ts）。
       //   現金で払った　… （科目）／ 現金
@@ -118,7 +137,7 @@ export function buildJournalRows(params: {
           ((item.description || "").trim() || "経費") +
           (means === "cash" ? "" : `（${CASH_MEANS_LABEL[means]}）`),
       });
-    }
+    });
 
     // 人件費の発生（その日の日当）
     const labor = Number(r.labor) || 0;

@@ -66,6 +66,19 @@ import {
   trialBalanceToCsv,
 } from "@/lib/keiri/trialBalance";
 import { loadKeiriMonth } from "@/lib/keiri/loadMonth";
+import {
+  readIgnoreMarks,
+  writesForChoice,
+  suspectKeys,
+  suspectTargets,
+  BOTH_COUNT_REASON,
+  BOTH_COUNT_UNDONE_REASON,
+  type ExpenseIgnoreRow,
+  type IgnoreChoice,
+  type IgnoreShelfState,
+} from "@/lib/keiri/expenseIgnores";
+import DuplicateChoices from "@/app/keiri/components/DuplicateChoices";
+import type { DuplicateSuspect } from "@/lib/keiri/duplicates";
 import { readAuthedKeiriScope } from "@/lib/keiri/readSource";
 import {
   cashDiffCauses,
@@ -170,6 +183,14 @@ function KeiriInner() {
   // ★棚（keiri_cash_events）がまだ無い倉庫では空のまま＝この画面は今までどおり。
   const [cashEvents, setCashEvents] = useState<CashEvent[]>([]);
   const [cashShelfMissing, setCashShelfMissing] = useState(false);
+  /**
+   * 「同じ支払いが2か所にある」ときに、どちらを数えるかを決めた印（kp230・f1-5）。
+   * ★棚（keiri_expense_ignores）がまだ無い倉庫では空のまま＝今までどおり「出すだけ」。
+   */
+  const [ignores, setIgnores] = useState<ExpenseIgnoreRow[]>([]);
+  const [ignoreShelf, setIgnoreShelf] = useState<IgnoreShelfState>("unknown");
+  const [ignoreBusy, setIgnoreBusy] = useState<string | null>(null);
+  const [ignoreMsg, setIgnoreMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   /**
@@ -226,6 +247,8 @@ function KeiriInner() {
       setAdvances(data.advances);
       setCashEvents(data.cashEvents);
       setCashShelfMissing(data.cashShelfMissing);
+      setIgnores(data.ignores);
+      setIgnoreShelf(data.ignoreShelf);
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
@@ -239,9 +262,13 @@ function KeiriInner() {
 
   const effective = settings ?? fallbackSettings;
 
+  /** いま効いている「数えない」の印（kp230） */
+  const ignoreMarks = useMemo(() => readIgnoreMarks(ignores), [ignores]);
+
   const summary = useMemo(
-    () => summarizeMonth({ ym, reports, template, settings: effective, advances }),
-    [ym, reports, template, effective, advances],
+    () =>
+      summarizeMonth({ ym, reports, template, settings: effective, advances, ignoreMarks }),
+    [ym, reports, template, effective, advances, ignoreMarks],
   );
 
   // 銀行に入れた分は**現金だけ**を減らす（経費・利益には入れない・kp233）
@@ -340,6 +367,75 @@ function KeiriInner() {
     [ym, reports, advances],
   );
 
+  /**
+   * 「どちらを数えるか」を押して決めたときの保存（kp230・f1-5）。
+   *
+   * ★足すだけです。元の日報の行・立替の行は1文字も書き換えません。
+   *   棚（keiri_expense_ignores）がまだ無い倉庫ではボタンそのものを出していません。
+   */
+  const chooseDuplicate = async (suspect: DuplicateSuspect, choice: IgnoreChoice) => {
+    const keys = suspectKeys(suspect);
+    const key = `${keys.report}/${keys.advance}`;
+    const rows = writesForChoice(suspect, choice);
+    if (rows.length === 0) {
+      setIgnoreMsg("この組は元の記録の番号が読めないので、ここでは決められません。");
+      return;
+    }
+    setIgnoreBusy(key);
+    setIgnoreMsg(null);
+    const { error } = await supabase
+      .from("keiri_expense_ignores")
+      .insert(rows.map((r) => ({ ...r, ...tenantStamp(scope) })));
+    setIgnoreBusy(null);
+    if (error) {
+      setIgnoreMsg(`保存できませんでした：${error.message}`);
+      return;
+    }
+    setIgnoreMsg("✅ 決めた内容を残しました（記録は消していません）");
+    await load();
+  };
+
+  /**
+   * 「元に戻す」。印は消さずに、**効かなくする**だけ（残した跡がそのまま証拠になる）。
+   *   ・「数えない」が効いている行 … 戻した日時を入れる
+   *   ・「別々の支払いとして両方数える」の行 … 理由に（元に戻しました）を足す
+   */
+  const undoDuplicate = async (suspect: DuplicateSuspect) => {
+    const keys = suspectKeys(suspect);
+    const key = `${keys.report}/${keys.advance}`;
+    const targets = suspectTargets(suspect);
+    setIgnoreBusy(key);
+    setIgnoreMsg(null);
+    const problems: string[] = [];
+    for (const t of [targets.report, targets.advance]) {
+      if (!t) continue;
+      const base = () => {
+        const q = supabase.from("keiri_expense_ignores") as any;
+        return { q };
+      };
+      const matchTarget = (query: any) => {
+        let out = query.eq("source", t.source).eq("ref_id", t.ref_id);
+        out = t.line_index === null ? out.is("line_index", null) : out.eq("line_index", t.line_index);
+        return out;
+      };
+      const live = await matchTarget(
+        base().q.update({ undone_at: new Date().toISOString() }),
+      ).is("undone_at", null);
+      if (live.error) problems.push(live.error.message);
+      const both = await matchTarget(
+        base().q.update({ reason: BOTH_COUNT_UNDONE_REASON }),
+      ).eq("reason", BOTH_COUNT_REASON);
+      if (both.error) problems.push(both.error.message);
+    }
+    setIgnoreBusy(null);
+    if (problems.length > 0) {
+      setIgnoreMsg(`元に戻せませんでした：${problems.join("／")}`);
+      return;
+    }
+    setIgnoreMsg("↩ 元に戻しました（記録は消していません）");
+    await load();
+  };
+
   const slices = useMemo(() => expenseSlices(summary), [summary]);
   // 表に出す金額。「人件費（当日払い）」は「人件費」の行にまとめる（docs/keiri.md 3-3）
   const mergedExpense = useMemo(
@@ -371,8 +467,10 @@ function KeiriInner() {
         template,
         settings: effective,
         advances,
+        // ★画面と同じ印を見る（見ないと画面・CSV・1枚の3つがずれる・kp230）
+        ignoreMarks,
       }),
-    [ym, reports, payments, template, effective, advances],
+    [ym, reports, payments, template, effective, advances, ignoreMarks],
   );
 
   /** 試算表（科目ごとの借方・貸方の合計）。CSVと同じ仕訳から作る */
@@ -695,53 +793,34 @@ function KeiriInner() {
                9/12 の日報の経費行と金額までそのまま一致していた（同じ支払いが2か所）。
                **金額は直さない。**どちらを消すかは人が決めることなので、ここでは出すだけ。 */}
           {duplicates.suspects.length > 0 && (
-            <div className="rounded-lg border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900 space-y-2">
+            <DuplicateChoices
+              suspects={duplicates.suspects}
+              marks={ignoreMarks}
+              shelf={ignoreShelf}
+              busy={ignoreBusy}
+              message={ignoreMsg}
+              onChoose={chooseDuplicate}
+              onUndo={undoDuplicate}
+            />
+          )}
+
+          {/* ★数えないことにした分は、黙って減らさずに必ず出す（kp230） */}
+          {summary.ignoredTotal > 0 && (
+            <div className="rounded-lg border border-stone-300 bg-stone-50 p-3 text-xs text-stone-700 space-y-1">
               <p className="font-bold">
-                同じ支払いが2か所に書かれている疑い：{duplicates.suspects.length}組
+                同じ支払いなので数えていない分：{yen(summary.ignoredTotal)}（
+                {summary.ignored.length}件）
               </p>
-              <p className="leading-relaxed">
-                日報の「レジから払った経費」と立替台帳の両方に、
-                <strong>金額が1円まで同じで、説明に同じ言葉が入っている行</strong>があります。
-                同じ支払いなら、どちらか片方を消してください（
-                <Link href="/keiri/advances" className="underline font-bold">
-                  立替の入り口
-                </Link>
-                ）。
-                {duplicates.doubleCountedTotal > 0 && (
-                  <>
-                    <br />
-                    同じ月の中で重なっている分：
-                    <strong>{yen(duplicates.doubleCountedTotal)}</strong>
-                    。この月の経費は、この額だけ多く出ているおそれがあります。
-                  </>
-                )}
-                {duplicates.crossMonthTotal > 0 && (
-                  <>
-                    <br />
-                    月をまたいで重なっている分：
-                    <strong>{yen(duplicates.crossMonthTotal)}</strong>
-                    。どちらの月の経費にするかで、この額が動きます。
-                  </>
-                )}
-              </p>
-              <ul className="space-y-1">
-                {duplicates.suspects.slice(0, 8).map((d, i) => (
-                  <li key={i} className="tabular-nums">
-                    {yen(d.amount)}　日報 {d.report.date}／立替 {d.advance.date}
-                    {!d.sameMonth && <>（月をまたいでいます）</>}
-                    <br />
-                    <span className="text-amber-800">
-                      {d.report.description} ／ {d.advance.description}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              {duplicates.suspects.length > 8 && (
-                <p>…ほか {duplicates.suspects.length - 8}組</p>
-              )}
-              <p className="text-amber-800">
-                ※ 金額が同じだけの別の支払いのこともあります。中身を確かめてから直してください。
-                こちらで金額を変えることはしません。
+              {summary.ignored.map((x, i) => (
+                <p key={i} className="tabular-nums">
+                  {slashDate(x.date)}　{x.description}　{yen(x.amount)}
+                  <span className="text-stone-500">
+                    （{x.source === "report" ? "日報の記録" : "立て替えの記録"}）
+                  </span>
+                </p>
+              ))}
+              <p className="text-stone-500">
+                記録は消していません。上の「元に戻す」でいつでも戻せます。
               </p>
             </div>
           )}

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { loadKeiriMonthServer } from "@/lib/keiri/loadMonthServer";
 import { buildOneSheet } from "@/lib/keiri/oneSheet";
+import { readIgnoreMarks } from "@/lib/keiri/expenseIgnores";
 import { buildSelfCheck, unreadableSelfCheck } from "@/lib/keiri/selfCheck";
 import { previousMonthRange, CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import { templateFor } from "@/lib/keiri/index";
@@ -53,6 +54,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const marks = readIgnoreMarks(data.ignores);
     const sheet = buildOneSheet({
       ym,
       monthLabel: label,
@@ -63,9 +65,27 @@ export async function GET(req: NextRequest) {
       settings: data.settings,
       template: templateFor(CASE_BUSINESS_CODE),
       cashEvents: data.cashEvents,
+      // 「同じ支払いが2か所にある」ときに人が決めた印（kp230）。
+      // 棚がまだ無い倉庫では空なので、数字は今までどおり。
+      ignoreMarks: marks,
     });
 
-    return jsonWindow(buildSelfCheck({ month: label, ym, sheet }));
+    // 「同じ支払いが2か所にある」ときに、どちらを数えるかを決められる状態か（kp230・f1-5）。
+    // ★金額は1円も返しません。返すのは「置き場があるか」と「決めた件数」だけです。
+    const marked = marks.ignored.size + marks.bothCounted.size;
+    return jsonWindow({
+      ...buildSelfCheck({ month: label, ym, sheet }),
+      duplicateMarks: {
+        shelf: data.ignoreShelf,
+        decided: marked,
+        shelfNote:
+          data.ignoreShelf === "ready"
+            ? "決めた内容を残す置き場があります（画面で押して片付けられます）"
+            : data.ignoreShelf === "missing"
+              ? "決めた内容を残す置き場がまだありません（/keiri/sql の貼り紙②を1回 流すと使えます）。いまは疑いを出すだけです"
+              : "置き場があるか確かめられませんでした（今までどおり、疑いを出すだけにしています）",
+      },
+    });
   } catch {
     return jsonWindow(
       unreadableSelfCheck({ month: label, ym, reason: "倉庫との通信に失敗しました" }),
