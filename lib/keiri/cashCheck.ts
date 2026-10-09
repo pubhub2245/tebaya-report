@@ -191,7 +191,8 @@ export function reconcileLines(r: CashReconcile): string[] {
   return [
     `計算上の現金　${yen(r.computed)}（${r.countedOn ? monthDay(r.countedOn) : ""}の時点）`,
     `実際に数えた現金　${yen(r.counted)}（${r.countedOn ? monthDay(r.countedOn) : ""}）`,
-    `差　${yen(r.diff ?? 0)}`,
+    // ★差は「いくら」だけでなく「どちらが多いか」を言葉で添える（B2 材料 2026-10-09）
+    `差　${yen(Math.abs(r.diff ?? 0))}（${diffDirection(r.diff ?? 0)}）`,
   ];
 }
 
@@ -265,4 +266,73 @@ export function notFromSafeSentence(params: {
     "どちらも金庫からは出ていないので、現金からは引いていません。" +
     "月の経費（利益の側）には今までどおり入っています。"
   );
+}
+
+/* ------------------------------------------------------------------ *
+ *  金庫を数えた金額を「その場で比べる」（2026-10-09・kp233・f1-4）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 差の向きを、記号ではなく言葉で言う。
+ *
+ * ■ なぜ言葉にするのか（B2 の材料 2026-10-09）
+ *   「差 3,576円」だけでは、金庫が多いのか少ないのかが分かりません。
+ *   プラス・マイナスの記号は読み飛ばされるので、必ず言葉を添えます。
+ *
+ * @param diff 計算上の残高 − 数えた金額（プラス＝金庫のほうが少ない）
+ */
+export function diffDirection(diff: number): string {
+  if (diff === 0) return "ぴったり";
+  return diff > 0 ? "金庫のほうが少ない" : "金庫のほうが多い";
+}
+
+/**
+ * 差が大きいとき（1,000円以上）に、よくある原因として出す3つ。
+ * ★「正しい処理」は税務の判断にあたるので書きません（docs/keiri.md 5-2）。
+ *   心当たりを人が確かめるための手がかりだけを出します。
+ */
+export const DIFF_CAUSES: readonly string[] = [
+  "日報に書いていない売上や支払いがある",
+  "立て替えたお金を金庫から返したのに、まだ書いていない",
+  "銀行に入れたお金を書いていない",
+];
+
+/** 差が大きいときだけ、よくある原因を返す（小さければ空） */
+export function cashDiffCauses(r: CashReconcile): readonly string[] {
+  if (r.diff === null) return [];
+  return Math.abs(r.diff) >= NEAR_ENOUGH_YEN ? DIFF_CAUSES : [];
+}
+
+/**
+ * まだ記録に残さずに、入れた金額をその場で比べる（**計算だけ**・倉庫は触らない）。
+ *
+ * ■ なぜ要るのか（ここが肝です）
+ *   突き合わせそのものには、倉庫の置き場は1つも要りません。
+ *   要るのは「数えた日の時点の計算上の残高」と「数えた金額」の2つだけです。
+ *   ところがこれまでは、記録を残す置き場（keiri_cash_events）が無いあいだ
+ *   **比べること自体ができませんでした**（置き場に入れてから読み返す作りだったため）。
+ *   置き場の用意は倉庫の手続きを1回 待ちますが、比べるのは今すぐできます。
+ *   そこで「比べる」と「記録に残す」を分けました。
+ *
+ * ■ 答えの形は、記録から出すときと同じです
+ *   同じ reconcileCash を通します（言い方が2つに分かれると、
+ *   記録する前と後で画面の文が変わってしまいます）。
+ */
+export function previewCashCount(params: {
+  /** 数えた日の時点の計算上の残高（calcCashPosition の asOf で出す） */
+  computedAtCount: number | null;
+  /** 数えた日（YYYY-MM-DD） */
+  countedOn: string;
+  /** 数えた金額 */
+  counted: number;
+  /** 今日（YYYY-MM-DD） */
+  today: string;
+}): CashReconcile {
+  return reconcileCash({
+    events: [
+      { kind: "count", happened_on: params.countedOn, amount: Math.round(params.counted) },
+    ],
+    computedAtCount: params.computedAtCount,
+    today: params.today,
+  });
 }

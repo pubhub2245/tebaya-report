@@ -20,7 +20,14 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 
 import { yen, slashDate } from "@/lib/format";
-import { cashRuleLines, notFromSafeSentence } from "@/lib/keiri/cashCheck";
+import {
+  cashDiffCauses,
+  cashRuleLines,
+  notFromSafeSentence,
+  previewCashCount,
+  reconcileLines,
+  type CashReconcile,
+} from "@/lib/keiri/cashCheck";
 import {
   buildTrialBalance,
   checkTrialBalance,
@@ -74,6 +81,13 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
   const [input, setInput] = useState<DemoInput>(() => emptyDemoInput(today));
   const [problem, setProblem] = useState<string | null>(null);
   const [added, setAdded] = useState(0);
+  /**
+   * 金庫を数えた金額を、その場で比べた答え（2026-10-09・kp233・f1-4）。
+   * ★本物の画面と同じ関数（previewCashCount）を通します。ここに計算を写しません。
+   * ★お試し版なので、入れた金額はどこにも残りません（倉庫につながっていません）。
+   */
+  const [countYen, setCountYen] = useState("");
+  const [countReconcile, setCountReconcile] = useState<CashReconcile | null>(null);
 
   const settings = useMemo(() => demoSettings(ym), [ym]);
   const payments = useMemo(() => demoPayments(), []);
@@ -316,6 +330,79 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
             立替（だれかが自分のお金で払った分）と現金以外（PayPay・プリカなど）は、
             金庫から出ていないので引きません。月の経費には今までどおり入っています。
           </p>
+        </div>
+
+        {/* 金庫を数えて合っているか見る（2026-10-09・kp233・f1-4）。
+             ★本物の画面と同じ関数（previewCashCount）を通します。
+             ★お試し版なので、入れた金額はどこにも残りません。 */}
+        <div className="mt-3 rounded-lg border border-stone-200 px-4 py-3 space-y-2">
+          <p className="text-sm font-bold text-stone-800">金庫を数えて、合っているか見る</p>
+          <p className="text-xs text-stone-600 leading-relaxed">
+            いま金庫にある現金を数えて、金額を入れるだけです。
+            お札と小銭をぜんぶ足した額を入れてください（銀行に入れた分は入れません）。
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="number"
+              inputMode="numeric"
+              className="field flex-1"
+              value={countYen}
+              onChange={(e) => setCountYen(e.target.value)}
+              placeholder={`例：${Math.max(0, cashAtMonthEnd - 3576)}`}
+              aria-label="数えた金額（円）"
+            />
+            <button
+              type="button"
+              className="btn-primary sm:w-48"
+              onClick={() => {
+                const n = Number(countYen);
+                if (countYen === "" || !Number.isFinite(n) || n < 0) {
+                  setCountReconcile(null);
+                  return;
+                }
+                setCountReconcile(
+                  previewCashCount({
+                    computedAtCount: cashAtMonthEnd,
+                    countedOn: monthEnd(ym),
+                    counted: Math.round(n),
+                    today,
+                  }),
+                );
+              }}
+            >
+              この金額で比べる
+            </button>
+          </div>
+          {countReconcile && (
+            <div className="rounded-lg bg-stone-100 px-4 py-3 space-y-1">
+              {reconcileLines(countReconcile).map((l) => (
+                <p key={l} className="text-sm text-stone-800 tabular-nums">
+                  {l}
+                </p>
+              ))}
+              <p
+                className={
+                  "text-sm font-bold " +
+                  (countReconcile.diff === 0 ? "text-emerald-700" : "text-stone-900")
+                }
+              >
+                {countReconcile.verdict}
+              </p>
+              {cashDiffCauses(countReconcile).length > 0 && (
+                <div className="pt-1">
+                  <p className="text-xs text-stone-600">よくある原因は次の3つです。</p>
+                  <ul className="mt-1 list-disc pl-5 text-xs text-stone-600 leading-relaxed">
+                    {cashDiffCauses(countReconcile).map((c) => (
+                      <li key={c}>{c}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <p className="pt-1 text-xs text-stone-400">
+                差が出ても、こちらで金額を直すことはしません。記録を残すだけです。
+              </p>
+            </div>
+          )}
         </div>
         {/* ★ここは正直に書く（9/19 の実測で分かったこと）。
              「まだ払っていないお金」は給与・外注費・家賃の3つだけを数えており、
