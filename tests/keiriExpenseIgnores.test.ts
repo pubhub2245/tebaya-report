@@ -22,6 +22,7 @@ import {
 import { summarizeMonth } from "../lib/keiri/aggregate";
 import { findDuplicateExpenses } from "../lib/keiri/duplicates";
 import { buildOneSheet } from "../lib/keiri/oneSheet";
+import { buildDupCheck } from "../lib/keiri/dupCheckScenario";
 import { templateFor } from "../lib/keiri/index";
 import type { KeiriAdvance, KeiriReport, KeiriSettings } from "../lib/keiri/types";
 
@@ -272,4 +273,31 @@ test("印が無いときの1枚は、今までとまったく同じ（疑いは�
   assert.equal(before.profitYen, after.profitYen);
   assert.equal(before.review.duplicate?.count, 1);
   assert.equal(after.review.duplicate?.count, 1);
+});
+
+/**
+ * 外から確かめる窓口（/api/keiri/dupcheck）の中身。
+ * ★ここが ok にならないと、検査役は「片付けられる」ことを外から確かめられない。
+ */
+test("架空のお店の4通りが、そのまま確かめられる形で出る（/api/keiri/dupcheck の中身）", () => {
+  const check = buildDupCheck();
+  assert.equal(check.suspectFound, true);
+  assert.equal(check.ok, true, check.problems.join("／"));
+  assert.equal(check.cases.length, 4);
+  const [none, byReport, byAdvance, both] = check.cases;
+  assert.equal(none.expenseYen, 36000);
+  assert.equal(none.suspectsLeft, 1);
+  assert.equal(byReport.expenseYen, 18000);
+  assert.equal(byReport.notCountedYen, 18000);
+  assert.equal(byReport.profitYen, 32000);
+  assert.equal(byAdvance.expenseYen, 18000);
+  assert.equal(both.expenseYen, 36000);
+  assert.equal(both.notCountedYen, 0);
+  for (const c of check.cases) {
+    assert.equal(c.threeWaysAgree, true, c.choice);
+    assert.equal(c.sheetReady, true, c.choice);
+  }
+  // 架空のお店の名前だけを出す（出る数字に手羽屋の実データは入らない）
+  assert.equal(check.shop, "サンプル食堂");
+  assert.ok(!JSON.stringify(check.cases).includes("手羽屋"));
 });
