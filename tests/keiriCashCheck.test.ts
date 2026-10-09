@@ -8,10 +8,13 @@ import {
   type KeiriSettings,
 } from "../lib/keiri";
 import {
+  cashDiffCauses,
   daysBetween,
   depositsOf,
+  diffDirection,
   latestCount,
   normalizeCashEvents,
+  previewCashCount,
   reconcileCash,
   reconcileLines,
   type CashEvent,
@@ -229,4 +232,87 @@ test("1枚の要約の『今の現金』は、預け入れを引いた額にな�
   // 記録が無ければ今までどおり（期首の日と金額）
   assert.equal(withoutEvents.cash.countedOn, settings.opening_date);
   assert.equal(withoutEvents.cash.countedYen, settings.opening_balance);
+});
+
+
+/* ------------------------------------------------------------------ *
+ *  記録に残す前に「その場で比べる」（2026-10-09・kp233・f1-4）
+ *
+ *  ■ ここで守りたいこと
+ *    ⑤ 比べるのに倉庫の置き場は要らない（記録が0件でも答えが出る）
+ *    ⑥ 記録から出した答えと、その場で比べた答えが **同じ** になる
+ *       （記録する前と後で画面の文が変わらないため）
+ *    ⑦ 差は「いくら」だけでなく「どちらが多いか」を言葉で言う
+ * ------------------------------------------------------------------ */
+
+test("その場で比べる：記録が1件も無くても、計算上・実際・差の3つが出る", () => {
+  const computed = calcCashPosition({ reports, payments, settings, asOf: "2026-09-10" }).balance;
+  const r = previewCashCount({
+    computedAtCount: computed,
+    countedOn: "2026-09-10",
+    counted: 146424,
+    today: "2026-09-10",
+  });
+  assert.equal(r.neverCounted, false);
+  assert.equal(r.computed, computed);
+  assert.equal(r.counted, 146424);
+  assert.equal(r.diff, computed - 146424);
+  assert.equal(reconcileLines(r).length, 3);
+});
+
+test("その場で比べた答えは、記録から出した答えと1円まで同じ", () => {
+  const computed = calcCashPosition({ reports, payments, settings, asOf: "2026-09-10" }).balance;
+  const saved = reconcileCash({
+    events: [{ kind: "count", happened_on: "2026-09-10", amount: 149000 }],
+    computedAtCount: computed,
+    today: "2026-09-12",
+  });
+  const preview = previewCashCount({
+    computedAtCount: computed,
+    countedOn: "2026-09-10",
+    counted: 149000,
+    today: "2026-09-12",
+  });
+  assert.equal(preview.computed, saved.computed);
+  assert.equal(preview.counted, saved.counted);
+  assert.equal(preview.diff, saved.diff);
+  assert.equal(preview.verdict, saved.verdict);
+  assert.deepEqual(reconcileLines(preview), reconcileLines(saved));
+});
+
+test("差の向きは記号ではなく言葉で言う", () => {
+  assert.equal(diffDirection(0), "ぴったり");
+  assert.equal(diffDirection(3576), "金庫のほうが少ない");
+  assert.equal(diffDirection(-3576), "金庫のほうが多い");
+  const r = previewCashCount({
+    computedAtCount: 150000,
+    countedOn: "2026-09-10",
+    counted: 146424,
+    today: "2026-09-10",
+  });
+  // 差の行には、金額と「どちらが多いか」の両方が入る
+  const line = reconcileLines(r)[2];
+  assert.ok(line.includes("3,576円"));
+  assert.ok(line.includes("金庫のほうが少ない"));
+  // マイナス記号だけで向きを表さない
+  assert.ok(!line.includes("-3,576"));
+});
+
+test("よくある原因は、差が1,000円以上のときだけ出す", () => {
+  const big = previewCashCount({
+    computedAtCount: 150000,
+    countedOn: "2026-09-10",
+    counted: 146424,
+    today: "2026-09-10",
+  });
+  assert.equal(cashDiffCauses(big).length, 3);
+  const small = previewCashCount({
+    computedAtCount: 150000,
+    countedOn: "2026-09-10",
+    counted: 149500,
+    today: "2026-09-10",
+  });
+  assert.deepEqual(cashDiffCauses(small), []);
+  const none = reconcileCash({ events: [], computedAtCount: 150000, today: "2026-09-10" });
+  assert.deepEqual(cashDiffCauses(none), []);
 });

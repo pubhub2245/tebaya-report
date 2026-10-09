@@ -68,14 +68,17 @@ import {
 import { loadKeiriMonth } from "@/lib/keiri/loadMonth";
 import { readAuthedKeiriScope } from "@/lib/keiri/readSource";
 import {
+  cashDiffCauses,
   cashRuleLines,
   depositsOf,
   latestCount,
   monthDay,
   notFromSafeSentence,
+  previewCashCount,
   reconcileCash,
   reconcileLines,
   type CashEvent,
+  type CashReconcile,
 } from "@/lib/keiri/cashCheck";
 import { shopScopeSentence } from "@/lib/keiri/shopScope";
 import {
@@ -273,6 +276,28 @@ function KeiriInner() {
   const reconcile = useMemo(
     () => reconcileCash({ events: cashEvents, computedAtCount, today: todayStr() }),
     [cashEvents, computedAtCount],
+  );
+
+  /**
+   * 「その日の時点の計算上の残高」を、画面から聞けるようにする（2026-10-09・kp233・f1-4）。
+   *
+   * ★記録に残す置き場がまだ無くても、**比べることはできます**。
+   *   比べるのに要るのは「数えた日の時点の計算上の残高」と「数えた金額」の2つだけで、
+   *   置き場は “あとから読み返す” ためだけに要るものです。
+   */
+  const computedAsOf = useCallback(
+    (date: string): number | null => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+      return calcCashPosition({
+        reports,
+        payments,
+        settings: effective,
+        advances,
+        deposits,
+        asOf: date,
+      }).balance;
+    },
+    [reports, payments, effective, advances, deposits],
   );
 
   // 家賃は「今月まで」を数えるので、今日の月を渡す
@@ -846,17 +871,18 @@ function KeiriInner() {
       )}
 
       {/* 金庫の突き合わせ（2026-10-05・kp233・f1-4）。
-          ★棚（keiri_cash_events）がまだ無いあいだは**何も出さない**。
-            流す前の本番が今までどおり動くため（kp237 ⑤）。 */}
-      {!cashShelfMissing && (
-        <CashCountCard
-          reconcile={reconcile}
-          balanceNow={cash.balance}
-          depositsTotal={cash.deposits}
-          scope={scope}
-          onSaved={load}
-        />
-      )}
+          ★2026-10-09 まで、棚（keiri_cash_events）が無いあいだは**何も出していません**でした。
+            ところが突き合わせ自体に棚は要りません（要るのは数えた金額と、その日の計算上の残高だけ）。
+            棚が無いときは「比べるところまで」を出し、記録に残す所だけを閉じます。 */}
+      <CashCountCard
+        reconcile={reconcile}
+        balanceNow={cash.balance}
+        depositsTotal={cash.deposits}
+        scope={scope}
+        onSaved={load}
+        shelfMissing={cashShelfMissing}
+        computedAsOf={computedAsOf}
+      />
 
       {/* 毎月お渡しする1枚（2026-10-04・kp231）。
           数字は書き写しません。この画面と同じ計算（lib/keiri/oneSheet.ts）を通ります。 */}
@@ -1483,12 +1509,18 @@ function CashCountCard({
   depositsTotal,
   scope,
   onSaved,
+  shelfMissing,
+  computedAsOf,
 }: {
   reconcile: ReturnType<typeof reconcileCash>;
   balanceNow: number;
   depositsTotal: number;
   scope: TenantScope;
   onSaved: () => void;
+  /** 記録に残す置き場（keiri_cash_events）がまだ無いか */
+  shelfMissing: boolean;
+  /** その日の時点の計算上の残高（比べる相手） */
+  computedAsOf: (date: string) => number | null;
 }) {
   const [countOn, setCountOn] = useState(todayStr());
   const [countYen, setCountYen] = useState("");
@@ -1497,6 +1529,34 @@ function CashCountCard({
   const [depositYen, setDepositYen] = useState("");
   const [saving, setSaving] = useState<null | "count" | "deposit">(null);
   const [msg, setMsg] = useState("");
+  /** 入れた金額を、記録に残す前にその場で比べた答え（2026-10-09・kp233） */
+  const [preview, setPreview] = useState<CashReconcile | null>(null);
+
+  /** 入れた金額を読む（空・マイナス・数字でないものは断る） */
+  const readYen = (raw: string): number | null => {
+    const n = Number(raw);
+    if (raw === "" || !Number.isFinite(n) || n < 0) return null;
+    return Math.round(n);
+  };
+
+  /** 「この金額で比べる」。**保存はしません**（倉庫に1行も書きません） */
+  const compare = () => {
+    const amount = readYen(countYen);
+    if (!countOn || amount === null) {
+      setMsg("数えた日と金額を入れてください（金額は0以上）");
+      setPreview(null);
+      return;
+    }
+    setMsg("");
+    setPreview(
+      previewCashCount({
+        computedAtCount: computedAsOf(countOn),
+        countedOn: countOn,
+        counted: amount,
+        today: todayStr(),
+      }),
+    );
+  };
 
   const save = async (kind: "count" | "deposit") => {
     const on = kind === "count" ? countOn : depositOn;
@@ -1523,6 +1583,7 @@ function CashCountCard({
     if (kind === "count") {
       setCountYen("");
       setCountNote("");
+      setPreview(null);
     } else {
       setDepositYen("");
     }
@@ -1535,6 +1596,9 @@ function CashCountCard({
   return (
     <section className="card space-y-3">
       <h2 className="text-lg font-bold text-brand-dark">🔐 金庫を数えて、合っているか見る</h2>
+      <p className="text-sm text-stone-600 leading-relaxed">
+        いま金庫にある現金を数えて、金額を入れるだけです。1分で終わります。
+      </p>
 
       {reconcile.neverCounted ? (
         <p className="text-sm text-stone-700 leading-relaxed">{reconcile.verdict}</p>
@@ -1569,7 +1633,8 @@ function CashCountCard({
       <div className="pt-3 border-t border-stone-200 space-y-2">
         <h3 className="text-sm font-bold text-brand-dark">金庫を数えた日</h3>
         <p className="text-xs text-stone-600 leading-relaxed">
-          お札と小銭を数えた金額を、そのまま入れてください。月に1回で大丈夫です。
+          お札と小銭をぜんぶ足した額を入れてください。銀行に入れた分は入れません。
+          月に1回で大丈夫です。
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
@@ -1582,7 +1647,7 @@ function CashCountCard({
             />
           </div>
           <div>
-            <label className="label">金庫にあった金額（円）</label>
+            <label className="label">数えた金額（円）</label>
             <input
               type="number"
               inputMode="numeric"
@@ -1603,51 +1668,103 @@ function CashCountCard({
             />
           </div>
         </div>
-        <button
-          className="btn-primary w-full"
-          onClick={() => void save("count")}
-          disabled={saving !== null}
-        >
-          {saving === "count" ? "保存中…" : "この金額で記録する"}
+        {/* ★「比べる」と「記録に残す」を分けています（2026-10-09・kp233）。
+               比べるのに倉庫の置き場は要らないので、置き場が準備中でもここは使えます。 */}
+        <button className="btn-primary w-full" onClick={compare} disabled={saving !== null}>
+          この金額で比べる
         </button>
+
+        {preview && (
+          <div className="rounded-lg bg-stone-100 px-4 py-3 space-y-1">
+            {reconcileLines(preview).map((l) => (
+              <p key={l} className="text-sm text-stone-800 tabular-nums">
+                {l}
+              </p>
+            ))}
+            <p
+              className={
+                "text-sm font-bold " +
+                (preview.diff === 0 ? "text-emerald-700" : "text-stone-900")
+              }
+            >
+              {preview.verdict}
+            </p>
+            {cashDiffCauses(preview).length > 0 && (
+              <div className="pt-1">
+                <p className="text-xs text-stone-600">よくある原因は次の3つです。</p>
+                <ul className="mt-1 list-disc pl-5 text-xs text-stone-600 leading-relaxed">
+                  {cashDiffCauses(preview).map((c) => (
+                    <li key={c}>{c}</li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-xs text-stone-600 leading-relaxed">
+                  心当たりを直してから、もう一度 比べてください。
+                  分からなければ、このまま記録だけ残せます（金額はこちらで直しません）。
+                </p>
+              </div>
+            )}
+            <p className="pt-1 text-xs text-stone-400">
+              ここまでは記録に残していません（倉庫に1行も書いていません）。
+            </p>
+          </div>
+        )}
+
+        {shelfMissing ? (
+          <p className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-800 leading-relaxed">
+            いまは「比べる」ところまで使えます。
+            数えた記録を残しておく置き場だけ準備中で、準備ができたら
+            同じ画面から「記録する」ボタンが出ます。
+          </p>
+        ) : (
+          <button
+            className="btn-secondary w-full"
+            onClick={() => void save("count")}
+            disabled={saving !== null}
+          >
+            {saving === "count" ? "保存中…" : "この結果を記録する"}
+          </button>
+        )}
       </div>
 
-      {/* ② 銀行に入れた */}
-      <div className="pt-3 border-t border-stone-200 space-y-2">
-        <h3 className="text-sm font-bold text-brand-dark">売上を銀行に入れた</h3>
-        <p className="text-xs text-stone-600 leading-relaxed">
-          金庫から銀行に移した金額を入れてください。利益は変わらず、金庫の現金だけ減ります。
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label className="label">入れた日</label>
-            <input
-              type="date"
-              className="field"
-              value={depositOn}
-              onChange={(e) => setDepositOn(e.target.value)}
-            />
+      {/* ② 銀行に入れた。★記録に残す置き場が準備中のあいだは出しません
+             （入れても残せないので、押せるボタンを出さない） */}
+      {!shelfMissing && (
+        <div className="pt-3 border-t border-stone-200 space-y-2">
+          <h3 className="text-sm font-bold text-brand-dark">売上を銀行に入れた</h3>
+          <p className="text-xs text-stone-600 leading-relaxed">
+            金庫から銀行に移した金額を入れてください。利益は変わらず、金庫の現金だけ減ります。
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="label">入れた日</label>
+              <input
+                type="date"
+                className="field"
+                value={depositOn}
+                onChange={(e) => setDepositOn(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label">金額（円）</label>
+              <input
+                type="number"
+                inputMode="numeric"
+                className="field"
+                value={depositYen}
+                onChange={(e) => setDepositYen(e.target.value)}
+                placeholder="例：300000"
+              />
+            </div>
           </div>
-          <div>
-            <label className="label">金額（円）</label>
-            <input
-              type="number"
-              inputMode="numeric"
-              className="field"
-              value={depositYen}
-              onChange={(e) => setDepositYen(e.target.value)}
-              placeholder="例：300000"
-            />
-          </div>
+          <button
+            className="btn-secondary w-full"
+            onClick={() => void save("deposit")}
+            disabled={saving !== null}
+          >
+            {saving === "deposit" ? "保存中…" : "預け入れを記録する"}
+          </button>
         </div>
-        <button
-          className="btn-secondary w-full"
-          onClick={() => void save("deposit")}
-          disabled={saving !== null}
-        >
-          {saving === "deposit" ? "保存中…" : "預け入れを記録する"}
-        </button>
-      </div>
+      )}
 
       {msg && <p className="text-sm font-semibold">{msg}</p>}
       {reconcile.countedOn && (
