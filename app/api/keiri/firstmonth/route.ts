@@ -10,7 +10,7 @@ import {
 } from "@/lib/keiri/firstMonth";
 import { templateFor, TENANT_FALLBACK_SETTINGS } from "@/lib/keiri/index";
 import { businessCodeForScope } from "@/lib/tenantScope";
-import { CHECK_WINDOW_HEADERS } from "@/lib/keiri/checkWindow";
+import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -98,5 +98,5 @@ export async function GET() {
     withoutSetup,
   });
 
-  return NextResponse.json(result, { status: 200, headers: CHECK_WINDOW_HEADERS });
+  return NextResponse.json(stampCheckWindow(result), { status: 200, headers: CHECK_WINDOW_HEADERS });
 }

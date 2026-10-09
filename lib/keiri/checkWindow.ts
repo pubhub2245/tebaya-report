@@ -28,6 +28,8 @@
  *   上の決まり①（読むだけ）は保たれています。
  */
 
+import { BUILD_STAMP } from "@/lib/buildStamp";
+
 export type CheckWindow = {
   /** 住所 */
   path: string;
@@ -101,3 +103,39 @@ export const CHECK_WINDOW_HEADERS: Record<string, string> = {
   "Cache-Control": "no-store, max-age=0, must-revalidate",
   "X-Robots-Tag": "noindex, nofollow",
 };
+
+/**
+ * 窓口の返事に必ず足す「いつ・どの版で答えたか」の2つ（2026-10-09・kp246）。
+ *
+ * ■ なぜ要るか
+ *   検査役（B2）が 10/9 に2回つづけて「古い答えが返る」と気づきました。実測すると、
+ *   本番の中身は新しい版で動いていて、**外から読む道具が前の答えを手元にためていた**
+ *   だけでした。ところが窓口の返事には時刻も版の札も入っていないため、
+ *   **検査役はその場で「いま見ているのが新しい答えか」を見分けられません**。
+ *   ＝ 本番が正しいのに合否を付けられない、という足止めが起きます。
+ *
+ * ■ どう直すか
+ *   すべての窓口の返事に `build`（版の合言葉）と `answeredAt`（答えを作った時刻）を足します。
+ *   ・`build` が本番の版（/api/version）と同じ → その答えは新しい版のもの
+ *   ・`answeredAt` が今の時刻から大きく離れている → **読む道具がためた古い答え**
+ *   どちらも公開してよい情報だけです（鍵・合言葉・環境変数の値は入れません）。
+ */
+export type CheckWindowStamp = {
+  /** 組み立てたときの合言葉（/api/version の build と見比べる） */
+  build: string;
+  /** この答えを作った時刻。今の時刻と大きく違えば、読む道具がためた古い答え */
+  answeredAt: string;
+  /** 見分け方を1行で（検査役がそのまま読める言葉） */
+  freshness: string;
+};
+
+/** 窓口の返事に「いつ・どの版で答えたか」を足す。※この関数だけが札の形を決める */
+export function stampCheckWindow<T>(body: T, now: Date = new Date()): T & CheckWindowStamp {
+  return {
+    ...(body as object),
+    build: BUILD_STAMP,
+    answeredAt: now.toISOString(),
+    freshness:
+      "build が /api/version と同じで、answeredAt がいまの時刻なら、この答えは新しい版のものです。answeredAt が古ければ、読む道具が前の答えをためています（住所の後ろに ?v=いまの時刻 を付けて開き直してください）。",
+  } as T & CheckWindowStamp;
+}

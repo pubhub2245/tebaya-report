@@ -6,7 +6,7 @@
  */
 import { NextResponse } from "next/server";
 
-import { CHECK_WINDOW_HEADERS } from "@/lib/keiri/checkWindow";
+import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 import {
   TEST_SHOP,
   TRIAL_LIMIT_MS,
@@ -19,7 +19,7 @@ import { readBothWays } from "@/lib/keiri/tenantTrialServer";
 
 /** 窓口の返事（保存させない・検索結果には載せない。lib/keiri/checkWindow.ts） */
 export function jsonWindow(body: unknown): NextResponse {
-  return NextResponse.json(body, { status: 200, headers: CHECK_WINDOW_HEADERS });
+  return NextResponse.json(stampCheckWindow(body), { status: 200, headers: CHECK_WINDOW_HEADERS });
 }
 
 /** 確かめられなかった・できなかったときの返事（理由を1行で返すだけ） */

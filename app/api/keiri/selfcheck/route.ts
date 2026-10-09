@@ -5,7 +5,7 @@ import { buildOneSheet } from "@/lib/keiri/oneSheet";
 import { buildSelfCheck, unreadableSelfCheck } from "@/lib/keiri/selfCheck";
 import { previousMonthRange, CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import { templateFor } from "@/lib/keiri/index";
-import { CHECK_WINDOW_HEADERS } from "@/lib/keiri/checkWindow";
+import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -85,5 +85,5 @@ function monthLabelOf(ym: string): string {
 
 /** 窓口の返事（保存させない・検索結果には載せない。lib/keiri/checkWindow.ts） */
 function jsonWindow(body: unknown): NextResponse {
-  return NextResponse.json(body, { status: 200, headers: CHECK_WINDOW_HEADERS });
+  return NextResponse.json(stampCheckWindow(body), { status: 200, headers: CHECK_WINDOW_HEADERS });
 }

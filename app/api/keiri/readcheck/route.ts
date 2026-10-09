@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 
 import { serverClient } from "@/lib/supabaseServer";
-import { CHECK_WINDOW_HEADERS } from "@/lib/keiri/checkWindow";
+import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 import { resolveReadScope } from "@/lib/keiri/readScope";
 import { probeTenantRpc } from "@/lib/keiri/tenantAccess";
 
@@ -84,7 +84,7 @@ export async function GET() {
   const ok = problems.length === 0;
 
   return NextResponse.json(
-    {
+    stampCheckWindow({
       ok,
       checks,
       problems,
@@ -98,7 +98,7 @@ export async function GET() {
         "お店ごとに棚の鍵で守るところ（倉庫の決まりを絞る）は、まだ残っています。",
       remaining:
         "ブラウザから倉庫を直に読む道は、棚の鍵の決まりを1回 流すまで閉じられません（f3-4 はまだ合格ではありません）",
-    },
+    }),
     { headers: CHECK_WINDOW_HEADERS },
   );
 }
