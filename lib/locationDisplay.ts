@@ -35,6 +35,13 @@ export function shortLocationName(fullName: string): string {
 
 /** 特別出店（イベント系）かどうか判定 */
 export function isSpecialEvent(locationName: string): boolean {
-  const keywords = ["イオンモール", "イベント", "朝市", "BIG OPUS"];
+  const keywords = [
+    "イオンモール",
+    "イベント",
+    "朝市",
+    "BIG OPUS",
+    "まつり",
+    "祭",
+  ];
   return keywords.some((k) => locationName.includes(k));
 }
