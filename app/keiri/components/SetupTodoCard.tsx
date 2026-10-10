@@ -21,7 +21,7 @@ import type { SetupTodo, SetupTodoItem } from "@/lib/keiri/setupTodo";
  *   ・読めなければ黙って出さない。**この部品が落ちても経理の画面は今までどおり**
  *   ・鍵・合言葉・金額は1文字も出さない（窓口も返しません）
  */
-export default function SetupTodoCard() {
+export default function SetupTodoCard({ here }: { here?: string } = {}) {
   const [todo, setTodo] = useState<SetupTodo | null>(null);
 
   useEffect(() => {
@@ -43,19 +43,20 @@ export default function SetupTodoCard() {
   }, []);
 
   if (!todo) return null;
-  const left = todo.items.filter((i) => i.state !== "済み");
+  // いま開いている1枚のことは出さない（「この1枚をひらく」が自分自身になるため）
+  const left = todo.items.filter((i) => i.state !== "済み" && i.href !== here);
   if (left.length === 0) return null;
 
   return (
     <section className="card border-2 border-amber-300 bg-amber-50">
       <h2 className="text-lg font-bold text-amber-900">
-        🙋 のこりの手続き（じゅんだけ・{todo.remaining}件）
+        🙋 のこりの手続き（じゅんだけ・{todo.remaining}件{here ? "／このほかに" : ""}）
       </h2>
       <p className="mt-1 text-sm leading-relaxed text-amber-900">{todo.summary}</p>
       <ol className="mt-3 space-y-3">
         {left.map((item, i) => (
           <li key={item.id}>
-            <Row item={item} no={i + 1} />
+            <Row item={item} no={i + 1} here={here} />
           </li>
         ))}
       </ol>
@@ -67,7 +68,7 @@ export default function SetupTodoCard() {
   );
 }
 
-function Row({ item, no }: { item: SetupTodoItem; no: number }) {
+function Row({ item, no, here }: { item: SetupTodoItem; no: number; here?: string }) {
   const unknown = item.state === "分からない";
   return (
     <div className="rounded-xl border border-amber-200 bg-white p-3">
@@ -86,12 +87,15 @@ function Row({ item, no }: { item: SetupTodoItem; no: number }) {
       <p className="mt-1 text-sm leading-relaxed text-stone-700">{item.benefit}</p>
       <p className="mt-1 text-xs leading-relaxed text-stone-500">いまの状態：{item.detail}</p>
       <div className="mt-2">
-        {item.href === "/keiri" ? (
+        {item.href === "/keiri" && here === "/keiri" ? (
           <a href="#kinko" className="btn-secondary text-sm">
             この画面の「🔐 金庫を数えて、合っているか見る」へ ↓
           </a>
         ) : (
-          <Link href={item.href} className="btn-secondary text-sm">
+          <Link
+            href={item.href === "/keiri" ? "/keiri#kinko" : item.href}
+            className="btn-secondary text-sm"
+          >
             この1枚をひらく →
           </Link>
         )}

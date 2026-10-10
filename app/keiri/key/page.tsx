@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import SetupTodoCard from "@/app/keiri/components/SetupTodoCard";
+
 import {
   KEY_BLOCKED,
   KEY_FIX_STEPS,
@@ -116,6 +118,9 @@ export default function KeiriKeyPage() {
           倉庫に貼る1枚を開く
         </Link>
       </section>
+
+      {/* のこりの手続き（2026-10-10・kp247） */}
+      <SetupTodoCard here="/keiri/key" />
 
       <p className="text-xs text-stone-500 leading-relaxed">
         この画面は検索に出しません。鍵の値・合言葉は1文字も出しません。

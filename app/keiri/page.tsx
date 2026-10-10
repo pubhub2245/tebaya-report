@@ -610,7 +610,7 @@ function KeiriInner() {
             じゅんがふだん開くこの画面からは1つも見えていなかった。
             手羽屋として開いているときだけ出す（お店には出さない）。
             のこりが0件なら何も出ない＝ふだんの画面は今までどおり。 */}
-      {scope === null && <SetupTodoCard />}
+      {scope === null && <SetupTodoCard here="/keiri" />}
 
       {/* 月の切り替え */}
       <div className="card flex items-center justify-between">

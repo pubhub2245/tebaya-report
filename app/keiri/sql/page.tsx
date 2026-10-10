@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import Link from "next/link";
 
+import SetupTodoCard from "@/app/keiri/components/SetupTodoCard";
+
 import { SHELF_STEPS } from "@/lib/keiri/shelves";
 import { sqlEditorUrl } from "@/lib/keiri/warehouseLinks";
 import { CopyButton, ShelfStatus } from "./SqlSheet";
@@ -125,6 +127,11 @@ export default function KeiriSqlPage() {
           ))}
         </ul>
       </section>
+
+      {/* のこりの手続き（2026-10-10・kp247）。
+          ★3つの1枚が互いにリンクしていなかったので、どこに降りても
+            のこりが見えるようにする。済んだものは出ない。 */}
+      <SetupTodoCard here="/keiri/sql" />
 
       <section className="rounded-2xl border border-stone-200 bg-white p-4 space-y-3">
         <h2 className="text-base font-bold text-stone-900">いまの状態</h2>
