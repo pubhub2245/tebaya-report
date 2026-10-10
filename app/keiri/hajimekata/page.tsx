@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { priceLabel } from "@/lib/keiri/caseNumbers";
+import { keiriSetupHandoffLine } from "@/lib/keiri/offer";
 import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
 import { keiriMetadata } from "@/lib/keiri/metadata";
 
@@ -11,6 +12,13 @@ import { keiriMetadata } from "@/lib/keiri/metadata";
  * ★書くのは、このアプリを使い始めるときの実際の順番だけ。
  *   「開業1年目にやるべき手続き」のような一般論・行政手続きは書かない
  *   （確かめられないことは書かない／税務の判断はしない・CLAUDE.md 5-2）。
+ *
+ * ★「誰が初期設定をやるのか」は、ここで文を書かない（2026-10-10・B2 の検査から）。
+ *   店主に見える3ページ（/keiri/case・/keiri/plan・ここ）で言い方が食い違っていて、
+ *   このページだけが「申し込んだあとに開く画面で、お店の人が自分で入れる」と読めました。
+ *   実際は申し込み直後に画面が自動では出ないので、そのとおりに読んだ店主は
+ *   「画面が出ない」で止まります。文は lib/keiri/offer.ts の
+ *   keiriSetupHandoffLine() だけが持ち、3ページとも同じ1文を出します。
  */
 
 export const metadata: Metadata = keiriMetadata({
@@ -26,8 +34,8 @@ const DAY1: { title: string; body: string }[] = [
   {
     title: "店の名前・数え始めの日・その日の手元の現金",
     body:
-      "お申し込みのあと、こちらからお店専用の入口（リンク）が届きます。" +
-      "それを開いて入れるのは、この3つだけです。" +
+      // ★入口が誰からどう届くかは、3ページ共通の1文にまかせる（上の★を参照）
+      keiriSetupHandoffLine() +
       "「数え始めの日」から先の利益と現金を数えます。過去にさかのぼって入れ直す必要はありません。",
   },
   {
@@ -114,6 +122,12 @@ export default function KeiriHajimekataPage() {
         <p className="mt-3 text-sm text-stone-600 leading-relaxed">
           ここで登録したものが、毎日の入力から手打ちを減らしていきます。
           毎回手で打つ項目が残っていると、必ず打ち忘れが出ます。
+        </p>
+        {/* ★「お店が自分で全部やる」と読めないようにする（2026-10-10・B2 の検査）。
+              少ない軒数にこちらが入って設定する、が 2026-10-02 の決めごと。 */}
+        <p className="mt-2 text-sm text-stone-600 leading-relaxed">
+          この3つは、あとから足せます。分からないところは、こちらで一緒に入れます。
+          お店で全部そろえてから始める必要はありません。
         </p>
       </section>
 

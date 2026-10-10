@@ -130,5 +130,7 @@ export async function POST() {
     ran: createdNow
       ? "この回で1軒 作って、初回設定まで済ませました"
       : "もうありました。何も作っていません",
+    // ここまで来たのは鍵が使えたときだけ（＝作れる）
+    creatable: "yes",
   });
 }

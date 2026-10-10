@@ -96,3 +96,58 @@ test("外から確かめる窓口は、すべて札を付けて返す（付け�
     );
   }
 });
+
+/**
+ * 「札を付けて返す窓口なのに、一覧に入っていない」を自動で見つける（2026-10-10・B）。
+ *
+ * ■ なぜ要るか
+ *   同じ取りこぼしが 2回 起きています。
+ *   ・10/06 … robots.txt が窓口をことわっていて、検査役が1つも開けなかった
+ *   ・10/10 … 新しい窓口（/api/keiri/setuptodo）を一覧に足し忘れ、
+ *             本番は正しいのに検査役だけが開けなかった
+ *   どちらも「窓口を作ったのに、読んでよい住所の一覧に入っていない」が原因です。
+ *   一覧（CHECK_WINDOWS）から robots.txt が作られるので、
+ *   **足し忘れると、外から確かめられないまま「確かめられます」と言ってしまいます。**
+ *
+ * ■ 何を見ているか
+ *   窓口の返事に札を付ける合図（stampCheckWindow）を使っているコードを全部ひろい、
+ *   その住所（または1つ上の住所）が一覧に入っているかを見ます。
+ *   ＝ 次に新しい窓口を作ったとき、一覧に足すまでテストが通りません。
+ */
+test("札を付けて返す窓口は、ぜんぶ一覧に入っている（足し忘れが起きない）", () => {
+  const { readdirSync, readFileSync, statSync } = require("node:fs") as typeof import("node:fs");
+  const { join, relative, sep } = require("node:path") as typeof import("node:path");
+
+  const apiRoot = join(__dirname, "..", "app", "api");
+  const stamped: string[] = [];
+
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!/\.tsx?$/.test(name)) continue;
+      if (!readFileSync(full, "utf8").includes("stampCheckWindow(")) continue;
+      // 住所は「ファイルの置き場所」から作る（/app/api/keiri/shelves/route.ts → /api/keiri/shelves）
+      const rel = relative(join(__dirname, "..", "app"), dir).split(sep).join("/");
+      stamped.push(`/${rel}`);
+    }
+  };
+  walk(apiRoot);
+
+  assert.ok(stamped.length > 0, "札を付ける窓口が1つも見つからない（探し方が壊れている）");
+
+  for (const path of stamped) {
+    const parent = path.split("/").slice(0, -1).join("/");
+    assert.ok(
+      CHECK_WINDOW_PATHS.includes(path) || CHECK_WINDOW_PATHS.includes(parent),
+      `窓口が一覧（CHECK_WINDOWS）に入っていないので、外から開けません：${path}`,
+    );
+  }
+});
+
+test("のこりの手続きを数える窓口も、一覧に入っている（kp247）", () => {
+  assert.ok(CHECK_WINDOW_PATHS.includes("/api/keiri/setuptodo"));
+});
