@@ -10,9 +10,11 @@ import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow"
 import {
   TEST_SHOP,
   TRIAL_LIMIT_MS,
+  TRIAL_CREATE_PATH,
   elapsedLabel,
   separationOk,
   trialSummary,
+  type TrialCreatable,
   type TrialState,
 } from "@/lib/keiri/tenantTrial";
 import { readBothWays } from "@/lib/keiri/tenantTrialServer";
@@ -40,8 +42,11 @@ export async function describe(params: {
   ran?: string;
   /** どの道で確かめたか。"sheet"＝貼り紙⑥（サーバー側の鍵を使っていない） */
   via?: "sheet" | "key";
+  /** いまここで1軒 作れるか（鍵が使えるか）。省略＝確かめていない */
+  creatable?: TrialCreatable;
 }): Promise<NextResponse> {
   const { state, tenantId, elapsedMs, ran, via } = params;
+  const creatable: TrialCreatable = params.creatable ?? "unknown";
   const read = await readBothWays(tenantId);
   const separated = state.exists ? separationOk(read) : false;
 
@@ -72,11 +77,15 @@ export async function describe(params: {
               : "サーバー側の鍵で、お店の棚を直接 読んで確かめました",
         }
       : {}),
-    summary: trialSummary({ state, separated, elapsedMs }),
+    summary: trialSummary({ state, separated, elapsedMs, creatable }),
+    // いまここで作れるか（送る住所も一緒に出す。読む住所に POST すると 405 になるため）
+    creatable,
+    createPath: TRIAL_CREATE_PATH,
     remaining:
       "手順4・5（出店場所・商品・スタッフ）はここでは入れていません。" +
-      "出店場所と担当者の棚は、手羽屋が毎日使う画面がお店で絞らずに読んでいるため、" +
-      "先にそちらを絞ってからでないとテストの店のぶんを入れられません",
+      "出店場所・担当者・商品の読みは、もうお店で絞ってあります（2026-10-08・kp242）。" +
+      "のこっているのは、シフトの棚に「どの店か」の欄そのものが無いことだけで、" +
+      "/keiri/sql の貼り紙（⑤）を1回 流すと埋まります",
     note:
       "テストの店は架空の1軒です（本物の軒数に数えないこと）。" +
       "合言葉・鍵の値・お店の番号は1文字も返しません。本物の金額も返しません",

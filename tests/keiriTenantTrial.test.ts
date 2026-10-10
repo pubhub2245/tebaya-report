@@ -15,6 +15,7 @@ import {
   elapsedLabel,
   separationOk,
   trialSummary,
+  TRIAL_CREATE_PATH,
   type TrialRead,
 } from "../lib/keiri/tenantTrial";
 
@@ -72,8 +73,38 @@ test("まとめの1行：店が無いときは作り方を言う", () => {
     state: { exists: false, createdNow: false, active: false, settingsReady: false },
     separated: false,
     elapsedMs: null,
+    creatable: "yes",
   });
   assert.match(s, /まだありません/);
+  // ★送る住所は「作る窓口」でなければならない（読む住所に送ると 405 で終わる）
+  assert.ok(s.includes(TRIAL_CREATE_PATH));
+});
+
+/**
+ * できないことを「できます」と言わない（2026-10-10・本番で実測した取り違え）。
+ * 鍵が壊れているあいだは、送っても作れない。
+ */
+test("まとめの1行：鍵が使えないときは「送っても作れません」と言う", () => {
+  const s = trialSummary({
+    state: { exists: false, createdNow: false, active: false, settingsReady: false },
+    separated: false,
+    elapsedMs: null,
+    creatable: "no",
+  });
+  assert.match(s, /作れません/);
+  assert.match(s, /貼り紙/);
+  // 「送れば作れます」と読める言い方を残さない
+  assert.ok(!/送ると、こちら側だけで1軒 作れます/.test(s));
+});
+
+test("まとめの1行：作れるか確かめていないときは、言い切らない", () => {
+  const s = trialSummary({
+    state: { exists: false, createdNow: false, active: false, settingsReady: false },
+    separated: false,
+    elapsedMs: null,
+  });
+  assert.match(s, /確かめられませんでした/);
+  assert.ok(!/作れます/.test(s));
 });
 
 test("まとめの1行：初回設定まで終わっていれば、かかった時間と30分以内かを言う", () => {
