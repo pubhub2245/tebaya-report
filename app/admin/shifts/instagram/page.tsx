@@ -6,6 +6,17 @@ import { supabase } from "@/lib/supabase";
 import { shortLocationName, isSpecialEvent } from "@/lib/locationDisplay";
 import { isWeekendOrHoliday } from "@/lib/japaneseHolidays";
 import AdminGate from "@/app/components/AdminGate";
+import {
+  addDays,
+  dayName,
+  defaultWeekStart,
+  dowOf,
+  hoursLabel,
+  shortDate,
+  toYmd,
+  weekDates,
+  weekLabel,
+} from "@/lib/igWeek";
 
 // TODO: 将来追加予定の機能
 // - Instagram投稿用テンプレートのカスタマイズ機能
@@ -18,6 +29,8 @@ type Shift = {
   target: number;
   staff_name: string | null;
   status: string;
+  planned_open_time?: string | null;
+  planned_close_time?: string | null;
   locations?: { name: string } | null;
 };
 
@@ -30,6 +43,11 @@ export default function InstagramShiftsPage() {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
+  // 週ごと（既定）か、月のカレンダーか
+  const [mode, setMode] = useState<"week" | "month">("week");
+  const [weekStart, setWeekStart] = useState(() =>
+    defaultWeekStart(toYmd(now)),
+  );
 
   const monthStr = `${year}-${String(month).padStart(2, "0")}`;
   const lastDay = new Date(year, month, 0).getDate();
@@ -40,14 +58,17 @@ export default function InstagramShiftsPage() {
       const { data } = await supabase
         .from("shifts")
         .select("*, locations(name)")
-        .gte("date", `${monthStr}-01`)
-        .lte("date", `${monthStr}-${lastDay}`)
+        .gte("date", mode === "week" ? weekStart : `${monthStr}-01`)
+        .lte(
+          "date",
+          mode === "week" ? addDays(weekStart, 6) : `${monthStr}-${lastDay}`,
+        )
         .neq("status", "cancelled")
         .order("date");
       setShifts((data as Shift[]) || []);
       setLoading(false);
     })();
-  }, [year, month]);
+  }, [year, month, mode, weekStart]);
 
   // カレンダー週配列
   const calendarWeeks = useMemo(() => {
@@ -135,7 +156,7 @@ export default function InstagramShiftsPage() {
     };
   };
 
-  const igContent = (
+  const monthContent = (
     <div
       style={{
         width: "100%",
@@ -423,6 +444,270 @@ export default function InstagramShiftsPage() {
     </div>
   );
 
+  // ---- 週ごとの予定（縦長 4:5。Instagramのフィードにそのまま使える形） ----
+  const weekContent = (
+    <div
+      style={{
+        width: "100%",
+        maxWidth: 540,
+        aspectRatio: "4 / 5",
+        background: "linear-gradient(135deg, #FFF5E6 0%, #FFE4D6 100%)",
+        borderRadius: 24,
+        padding: "20px 16px 16px",
+        position: "relative",
+        overflow: "hidden",
+        fontFamily:
+          '-apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif',
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      {/* 装飾円 */}
+      <div
+        style={{
+          position: "absolute",
+          top: -30,
+          right: -30,
+          width: 120,
+          height: 120,
+          borderRadius: "50%",
+          background: "rgba(255, 217, 61, 0.25)",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          bottom: 40,
+          left: -40,
+          width: 100,
+          height: 100,
+          borderRadius: "50%",
+          background: "rgba(255, 107, 107, 0.15)",
+        }}
+      />
+
+      {/* ヘッダー */}
+      <div
+        style={{
+          textAlign: "center",
+          marginBottom: 10,
+          position: "relative",
+          zIndex: 1,
+        }}
+      >
+        <span
+          style={{
+            display: "inline-block",
+            background: "#fff",
+            color: "#D85A30",
+            fontWeight: 800,
+            fontSize: 11,
+            padding: "3px 10px",
+            borderRadius: 20,
+            marginBottom: 4,
+          }}
+        >
+          🍗 手羽屋
+        </span>
+        <div
+          style={{
+            color: "#993C1D",
+            fontSize: 22,
+            fontWeight: 900,
+            lineHeight: 1.2,
+          }}
+        >
+          {weekLabel(weekStart)}
+        </div>
+        <div
+          style={{
+            color: "#B45309",
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: "0.3em",
+            marginTop: 2,
+          }}
+        >
+          出 店 ス ケ ジ ュ ー ル
+        </div>
+      </div>
+
+      {/* 1日1行 × 7日 */}
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          gap: 5,
+          position: "relative",
+          zIndex: 1,
+          minHeight: 0,
+        }}
+      >
+        {weekDates(weekStart).map((ds) => {
+          const dayShifts = shiftsByDate.get(ds) || [];
+          const off = dayShifts.length === 0;
+          const { style: cellSt, hasSpecial } = cellStyle(dayShifts, ds);
+          const onColor = cellSt.color === "#fff";
+          const dow = dowOf(ds);
+          // 同じ場所にスタッフが2人入っている日は、場所名を1回だけ出す
+          const names = Array.from(
+            new Set(
+              dayShifts.map((s) =>
+                shortLocationName((s.locations as any)?.name || ""),
+              ),
+            ),
+          ).filter(Boolean);
+          const timed = dayShifts.find((s) => s.planned_open_time);
+          const hours = timed
+            ? hoursLabel(timed.planned_open_time, timed.planned_close_time)
+            : "";
+          const nameText = names.join("・");
+          const dateColor = onColor
+            ? "#fff"
+            : dow === 0 || isWeekendOrHoliday(ds) && dow !== 6
+              ? "#DC2626"
+              : dow === 6
+                ? "#2563EB"
+                : "#44403C";
+
+          return (
+            <div
+              key={ds}
+              style={{
+                ...cellSt,
+                flex: 1,
+                minHeight: 0,
+                borderRadius: 10,
+                padding: "0 12px",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                boxShadow: off ? "none" : "0 2px 4px rgba(0,0,0,0.06)",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: 66,
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 4,
+                  color: dateColor,
+                  opacity: off ? 0.75 : 1,
+                }}
+              >
+                <span style={{ fontSize: 18, fontWeight: 900 }}>
+                  {shortDate(ds)}
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 800 }}>
+                  {dayName(ds)}
+                </span>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: off ? 13 : nameText.length > 10 ? 14 : 17,
+                    fontWeight: off ? 700 : 800,
+                    lineHeight: 1.2,
+                    color: off ? "#A8A29E" : onColor ? "#fff" : "#D85A30",
+                    wordBreak: "keep-all",
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  {off ? "お休み" : `${hasSpecial ? "🎉 " : ""}${nameText}`}
+                </div>
+                {hours && (
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      lineHeight: 1.3,
+                      color: onColor ? "rgba(255,255,255,0.95)" : "#78716C",
+                    }}
+                  >
+                    {hours}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 凡例 */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          gap: 16,
+          marginTop: 8,
+          fontSize: 8,
+          fontWeight: 700,
+          color: "#78716C",
+          position: "relative",
+          zIndex: 1,
+        }}
+      >
+        <span>
+          <span
+            style={{
+              display: "inline-block",
+              width: 10,
+              height: 10,
+              borderRadius: 3,
+              background: "linear-gradient(135deg, #FFD93D, #FF9A3C)",
+              verticalAlign: "middle",
+              marginRight: 3,
+            }}
+          />
+          土日祝日
+        </span>
+        <span>
+          <span
+            style={{
+              display: "inline-block",
+              width: 10,
+              height: 10,
+              borderRadius: 3,
+              background: "linear-gradient(135deg, #FF6B6B, #FF3D7F)",
+              verticalAlign: "middle",
+              marginRight: 3,
+            }}
+          />
+          🎉 特別出店
+        </span>
+      </div>
+
+      {/* フッター */}
+      <div
+        style={{
+          textAlign: "center",
+          marginTop: 6,
+          position: "relative",
+          zIndex: 1,
+        }}
+      >
+        <span
+          style={{
+            display: "inline-block",
+            background: "#fff",
+            color: "#78716C",
+            fontSize: 8,
+            fontWeight: 600,
+            padding: "3px 14px",
+            borderRadius: 20,
+          }}
+        >
+          📍 都城市内&nbsp;&nbsp;|&nbsp;&nbsp;@tebaya_official
+        </span>
+      </div>
+    </div>
+  );
+
+  const igContent = mode === "week" ? weekContent : monthContent;
+
   if (loading) {
     return (
       <AdminGate>
@@ -480,20 +765,58 @@ export default function InstagramShiftsPage() {
           </h1>
         </header>
 
-        {/* 月切替 */}
+        {/* 週ごと／月ごとの切替 */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setMode("week")}
+            className={`py-2 rounded-xl text-sm font-bold border ${
+              mode === "week"
+                ? "bg-stone-700 text-white border-stone-700"
+                : "bg-white text-stone-600 border-stone-300"
+            }`}
+          >
+            週ごと
+          </button>
+          <button
+            onClick={() => setMode("month")}
+            className={`py-2 rounded-xl text-sm font-bold border ${
+              mode === "month"
+                ? "bg-stone-700 text-white border-stone-700"
+                : "bg-white text-stone-600 border-stone-300"
+            }`}
+          >
+            月のカレンダー
+          </button>
+        </div>
+
+        {/* 週・月の切替 */}
         <div className="flex items-center justify-center gap-3">
           <button
-            onClick={prevMonth}
+            onClick={
+              mode === "week"
+                ? () => setWeekStart(addDays(weekStart, -7))
+                : prevMonth
+            }
             className="text-2xl px-3 py-1 rounded-lg hover:bg-stone-100"
+            aria-label={mode === "week" ? "前の週" : "前の月"}
           >
             ◀
           </button>
-          <span className="text-xl font-bold text-brand-dark">
-            {year}年{month}月
+          <span
+            className={`font-bold text-brand-dark whitespace-nowrap ${
+              mode === "week" ? "text-base" : "text-xl"
+            }`}
+          >
+            {mode === "week" ? weekLabel(weekStart) : `${year}年${month}月`}
           </span>
           <button
-            onClick={nextMonth}
+            onClick={
+              mode === "week"
+                ? () => setWeekStart(addDays(weekStart, 7))
+                : nextMonth
+            }
             className="text-2xl px-3 py-1 rounded-lg hover:bg-stone-100"
+            aria-label={mode === "week" ? "次の週" : "次の月"}
           >
             ▶
           </button>
