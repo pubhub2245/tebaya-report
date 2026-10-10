@@ -87,6 +87,14 @@ export const CHECK_WINDOWS: CheckWindow[] = [
     check: "f1-5",
   },
   {
+    path: "/api/keiri/cashcheck",
+    what:
+      "金庫を数えた金額と、計算上の現金の突き合わせが正しく動くか（架空のお店で6通り試した結果）。" +
+      "ぴったり／ほぼ合う／金庫が少ない／金庫が多い／まだ数えていない／久しく数えていない で、" +
+      "差の言葉と、よくある原因3つがどう出るか。?counted=123456 を付けるとその金額でも試せます",
+    check: "f1-4",
+  },
+  {
     path: "/api/keiri/firstmonth",
     what: "まっさらなお店に日報1枚で、今月の利益と今の現金が出るか（架空のお店の数字）",
     check: "f3-3",
