@@ -78,6 +78,7 @@ import {
   type IgnoreShelfState,
 } from "@/lib/keiri/expenseIgnores";
 import DuplicateChoices from "@/app/keiri/components/DuplicateChoices";
+import SetupTodoCard from "@/app/keiri/components/SetupTodoCard";
 import type { DuplicateSuspect } from "@/lib/keiri/duplicates";
 import { readAuthedKeiriScope } from "@/lib/keiri/readSource";
 import {
@@ -603,6 +604,13 @@ function KeiriInner() {
           </Link>
         </div>
       </header>
+
+      {/* のこりの手続き（2026-10-10・kp247）。
+          ★じゅんにしかできない一度きりの手続きの入口が3か所に散っていて、
+            じゅんがふだん開くこの画面からは1つも見えていなかった。
+            手羽屋として開いているときだけ出す（お店には出さない）。
+            のこりが0件なら何も出ない＝ふだんの画面は今までどおり。 */}
+      {scope === null && <SetupTodoCard />}
 
       {/* 月の切り替え */}
       <div className="card flex items-center justify-between">
@@ -1673,7 +1681,7 @@ function CashCountCard({
   const lines = reconcileLines(reconcile);
 
   return (
-    <section className="card space-y-3">
+    <section id="kinko" className="card space-y-3 scroll-mt-4">
       <h2 className="text-lg font-bold text-brand-dark">🔐 金庫を数えて、合っているか見る</h2>
       <p className="text-sm text-stone-600 leading-relaxed">
         いま金庫にある現金を数えて、金額を入れるだけです。1分で終わります。
