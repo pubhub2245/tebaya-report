@@ -4,6 +4,7 @@ import { join } from "node:path";
 import Link from "next/link";
 
 import { SHELF_STEPS } from "@/lib/keiri/shelves";
+import { sqlEditorUrl } from "@/lib/keiri/warehouseLinks";
 import { CopyButton, ShelfStatus } from "./SqlSheet";
 
 /**
@@ -51,6 +52,9 @@ const APPLICATIONS_FILE = "keiri_applications_optional_contact.sql";
 export default function KeiriSqlPage() {
   const sheet = readSql(SHEET_FILE);
   const applications = readSql(APPLICATIONS_FILE);
+  // 倉庫の SQL Editor への行き先（lib/keiri/warehouseLinks.ts）。
+  // 読めなければリンクを出さず、今までどおり文だけ残す（間違った所へ送らないため）
+  const editor = sqlEditorUrl();
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 space-y-6">
@@ -71,12 +75,35 @@ export default function KeiriSqlPage() {
         <ol className="list-decimal pl-5 space-y-1 text-sm text-stone-800 leading-relaxed">
           <li>下の［貼り紙をぜんぶコピーする］を押す</li>
           <li>
-            Supabase を開き、左の <strong>SQL Editor</strong> に貼って{" "}
-            <strong>Run</strong> を押す
+            {editor ? (
+              <>
+                下の［倉庫の貼る場所をひらく］を押す（新しいタブで、貼る所がそのまま開きます）
+              </>
+            ) : (
+              <>
+                Supabase を開き、左の <strong>SQL Editor</strong> に貼って{" "}
+                <strong>Run</strong> を押す
+              </>
+            )}
+          </li>
+          <li>
+            大きな白い枠の中に貼って、<strong>Run</strong>（右下の緑のボタン）を押す
           </li>
           <li>このページをもう一度ひらく（下の「いまの状態」が「ある」に変わります）</li>
         </ol>
         <CopyButton text={sheet} label="貼り紙をぜんぶコピーする" />
+        {editor && (
+          /* ★行き先は倉庫の住所から組み立てています（lib/keiri/warehouseLinks.ts）。
+             鍵・合言葉は1文字も入っていません。 */
+          <a
+            href={editor}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block w-full rounded-xl bg-stone-800 px-4 py-3 text-center text-sm font-bold text-white"
+          >
+            倉庫の貼る場所をひらく（新しいタブ）
+          </a>
+        )}
         <p className="text-xs text-stone-600 leading-relaxed">
           押しても何も起きないとき（古いブラウザなど）は、下の文を長押しでコピーしてください。
         </p>
