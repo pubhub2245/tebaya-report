@@ -18,14 +18,10 @@
  *   ・書き込みは一切しない。
  */
 
-import { supabase as browserSupabase } from "../supabase";
+import { supabase } from "../supabase";
 import { applyTenantScope, isTebayaScope, type TenantScope } from "../tenantScope";
 import { readKeiriSecret } from "./browserSecret";
-import {
-  canFallbackToBrowserOnDenied,
-  decideReadSource,
-  readWindowOutcome,
-} from "./readSource";
+import { decideReadSource, readWindowOutcome } from "./readSource";
 import { normalizeFieldAdvance, normalizeOwnerAdvance } from "./advances";
 import {
   ignoreShelfStateOf,
@@ -79,13 +75,10 @@ export type KeiriMonthData = {
  *   ただし **「合言葉が合わない」だけは戻しません**（2026-10-07・kp239）。
  *   戻すと、合っていない人に、その番号のお店の帳簿を出してしまうためです。
  *
- * ■ 2026-10-11 から、手羽屋もここを通ります（kp239・f3-4）
- *   それまでは手羽屋だけブラウザ直読みでした。残しておくと、経理の画面に
- *   「ブラウザが名乗った番号で帳簿を開く道」が1本 残り続けます。
+ * ■ 手羽屋はここを通りません（今までどおり）
  */
 async function loadViaServerWindow(params: {
   ym: string;
-  scope: TenantScope;
   fallbackSettings: KeiriSettings;
 }): Promise<KeiriMonthData | null> {
   const passwordHash = readKeiriSecret();
@@ -112,10 +105,6 @@ async function loadViaServerWindow(params: {
   // ★「合言葉が合わない」ときは、ブラウザ直読みに落としません。
   //   落とすと、合っていない人に、その番号のお店の帳簿を出してしまいます。
   if (outcome.kind === "denied") {
-    // ★手羽屋だけは、ここで今までどおりの読み方に戻します（2026-10-11・kp239）。
-    //   手羽屋の帳簿は「戻った先」そのものなので、戻しても よその店の数字は1円も出ません。
-    //   逆に戻さないと、合言葉の形が少しちがうだけで じゅんの経理画面が開かなくなります。
-    if (canFallbackToBrowserOnDenied(params.scope)) return null;
     throw new Error(
       "この画面を開く合言葉が合いませんでした。いったん「ログアウト」して、入り直してください。",
     );
@@ -144,7 +133,7 @@ async function loadViaServerWindow(params: {
   };
 }
 
-export type KeiriMonthParams = {
+export async function loadKeiriMonth(params: {
   /** 見ている月（YYYY-MM） */
   ym: string;
   /** いまどのお店として開いているか（null＝手羽屋） */
@@ -153,39 +142,18 @@ export type KeiriMonthParams = {
   businessCode: string;
   /** 設定の行が無いときに使う値 */
   fallbackSettings: KeiriSettings;
-};
-
-export async function loadKeiriMonth(params: KeiriMonthParams): Promise<KeiriMonthData> {
-  const { ym, scope, fallbackSettings } = params;
+}): Promise<KeiriMonthData> {
+  const { ym, scope, businessCode, fallbackSettings } = params;
 
   // ★どこから読むかは lib/keiri/readSource.ts の1か所で決める（kp239・f3-4）。
-  //   2026-10-11 から **手羽屋もここを通ります**（それまでは手羽屋だけブラウザ直読み）。
-  //   窓口はお店の番号を受け取らず、合言葉からサーバーが決めるので、
-  //   ブラウザが名乗った番号で帳簿が開く道が、経理の画面から無くなります。
-  //   札が無い・窓口が無い・通信できない ときだけ、今までどおりの読み方に落ちます。
+  //   申し込んだお店は、まずサーバー側の窓口から読む。
+  //   窓口が使えないときだけ、今までどおりブラウザから読む道に落ちる
+  //   （そのときも読む相手は「入室の印」のお店のままで、手羽屋には絶対に倒れない）。
+  //   手羽屋（印が空）はここを通らず、今までと1行も変わらない。
   if (decideReadSource(scope) === "server") {
-    const viaServer = await loadViaServerWindow({ ym, scope, fallbackSettings });
+    const viaServer = await loadViaServerWindow({ ym, fallbackSettings });
     if (viaServer) return viaServer;
   }
-
-  return loadKeiriMonthDirect(params);
-}
-
-/**
- * ブラウザ（または、同じ鍵を使うサーバー）から倉庫を直接のぞいて読む、今までの道。
- *
- * ■ なぜ外から呼べる形にしたか（2026-10-11・kp239）
- *   手羽屋も窓口から読むように変えたので、**2つの道が同じ数字を出すか**を
- *   外から1回で確かめられる必要があります（/api/keiri/readpaths）。
- *   そのために「読む相手（倉庫の鍵）」を差し替えられる形にしました。
- *   差し替えないときは、今までとまったく同じブラウザの鍵で読みます。
- */
-export async function loadKeiriMonthDirect(
-  params: KeiriMonthParams & { db?: typeof browserSupabase },
-): Promise<KeiriMonthData> {
-  const { ym, scope, businessCode, fallbackSettings } = params;
-  // 差し替えが無ければ、今までどおりブラウザの鍵で読む
-  const supabase = params.db ?? browserSupabase;
 
   // 設定（数え始めの日・期首残高・Alphaの率・家賃）
   const { data: s, error: sErr } = await supabase
