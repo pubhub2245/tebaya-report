@@ -25,6 +25,7 @@
  */
 
 import { calcCashPosition, type CashPosition } from "./aggregate";
+import { previousMonthRange } from "./caseStats";
 import {
   DIFF_CAUSES,
   NEAR_ENOUGH_YEN,
@@ -46,18 +47,39 @@ import {
   demoSettings,
 } from "./demo";
 
-/** 架空のお店の月（お試し版と同じ数字が出るように固定する） */
-export const CASH_CHECK_YM = "2026-09";
+/**
+ * 架空のお店の月。**終わった月（前の月）**を使う（2026-10-11・検査役 B2 の気づき）。
+ *
+ * ■ なぜ「今月」ではないのか
+ *   この筋書きには「月の末日に金庫を数えた」「30日以上 数えていない」の2場面が要ります。
+ *   今月を使うと末日が未来になり、6通りのうち2つが作れません。
+ * ■ なぜ literal で書かないのか
+ *   2026-09 と書き固めていたため、お試し版（/keiri/demo は『今月』）と月の表示が食い違い、
+ *   検査役が「数字はお試し版と同じなのに月が9月」と迷いました（10/11 09:55 の気づき）。
+ *   前の月を今日から出せば、迷う理由（書き固めた古い月）が消え、ひとりでに追いついていきます。
+ */
+export function cashCheckYm(today: Date = new Date()): string {
+  return previousMonthRange(today).start.slice(0, 7);
+}
 
-/** 突き合わせる日（＝数えた日）。この日までの計算上の残高と比べる */
-export const CASH_CHECK_COUNTED_ON = `${CASH_CHECK_YM}-30`;
+/** 突き合わせる日（＝数えた日）。その月の末日。この日までの計算上の残高と比べる */
+export function cashCheckCountedOn(today: Date = new Date()): string {
+  return previousMonthRange(today).end;
+}
 
 /**
  * 「久しく数えていない」を試すための、ずっと前に数えた日。
  * ★数え始めの日（月の頭）より後にしてある（前にすると「数え始め前の残高」と
  *   比べることになり、画面に出ない場面になってしまう）。
  */
-export const CASH_CHECK_STALE_ON = `${CASH_CHECK_YM}-05`;
+export function cashCheckStaleOn(today: Date = new Date()): string {
+  return `${cashCheckYm(today)}-05`;
+}
+
+/** 以前の書き方で読んでいる所のために残す（中身は「前の月」） */
+export const CASH_CHECK_YM = cashCheckYm();
+export const CASH_CHECK_COUNTED_ON = cashCheckCountedOn();
+export const CASH_CHECK_STALE_ON = cashCheckStaleOn();
 
 /** ③で使うズレ（1,000円 以上＝原因を出す側） */
 const SHORT_BY = 3576;
@@ -127,6 +149,8 @@ export type CashCheckResult = {
   what: string;
   shopName: string;
   ym: string;
+  /** なぜお試し版と月の表示が違うのか（検査役が迷わないように） */
+  ymNote: string;
   /** 計算上の現金は、こう数えています（画面と同じ明細） */
   howComputed: string[];
   /** 金庫から出ていないので引いていないもの（無ければ null） */
@@ -156,6 +180,7 @@ export function buildCashCheck(params?: {
   today?: string;
 }): CashCheckResult {
   const today = params?.today ?? new Date().toISOString().slice(0, 10);
+  const ym = CASH_CHECK_YM;
   const pos = cashCheckPosition();
   const computed = pos.balance;
 
@@ -224,7 +249,12 @@ export function buildCashCheck(params?: {
       "金庫を数えた金額と、計算上の現金を突き合わせる所が正しく動くか（f1-4）。" +
       "ボタンを押さずに、外から読むだけで確かめられます",
     shopName: DEMO_SHOP_NAME,
-    ym: CASH_CHECK_YM,
+    ym,
+    ymNote:
+      "この筋書きは**終わった月（前の月）**を使います。お試し版（/keiri/demo）と" +
+      "1枚の見本（/keiri/monthly-sample）は『今月』を使うので、月の表示だけが違います。" +
+      "1日ぶんの数字の作り方は同じ関数なので、金額はお試し版と同じです" +
+      "（月の末日に数えた・30日以上 数えていない の2場面を作るために、終わった月が要ります）。",
     howComputed: cashRuleLines({
       openingDate: pos.openingDate,
       openingBalance: pos.openingBalance,

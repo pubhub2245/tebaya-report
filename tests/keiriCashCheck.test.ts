@@ -8,6 +8,8 @@ import {
   type KeiriSettings,
 } from "../lib/keiri";
 import {
+  CASH_COUNT_KIND_LABEL,
+  cashCountKind,
   cashDiffCauses,
   daysBetween,
   depositsOf,
@@ -315,4 +317,37 @@ test("よくある原因は、差が1,000円以上のときだけ出す", () => 
   assert.deepEqual(cashDiffCauses(small), []);
   const none = reconcileCash({ events: [], computedAtCount: 150000, today: "2026-09-10" });
   assert.deepEqual(cashDiffCauses(none), []);
+});
+
+/**
+ * 突き合わせの答えを「5通り」に畳むところ（2026-10-11・f1-4）。
+ *
+ * ■ 何を守っているか
+ *   じゅんが金庫を数えて入れる所は合言葉の内側なので、外からは
+ *   「入れたのか・合ったのか」が分かりませんでした。金額を出さずに
+ *   5通りのどれかだけを外に出すので、**畳み方を間違えると合否を誤ります**。
+ */
+test("5通りの畳み方（金額を出さずに合否が分かる）", () => {
+  const base = {
+    neverCounted: false,
+    computed: 100000,
+    counted: 100000,
+    countedOn: "2026-09-30",
+    daysSince: 1,
+    verdict: "",
+    stale: null,
+  };
+  assert.equal(cashCountKind({ ...base, diff: 0 }), "exact");
+  assert.equal(cashCountKind({ ...base, diff: 999 }), "near");
+  assert.equal(cashCountKind({ ...base, diff: -999 }), "near");
+  // 1,000円 ちょうどは「ほぼ合う」に入れない（画面の線と同じ）
+  assert.equal(cashCountKind({ ...base, diff: 1000 }), "short");
+  assert.equal(cashCountKind({ ...base, diff: -1000 }), "over");
+  assert.equal(
+    cashCountKind({ ...base, neverCounted: true, computed: null, counted: null, countedOn: null, diff: null }),
+    "none",
+  );
+  assert.equal(cashCountKind({ ...base, computed: null, diff: null }), "unknown");
+  // 「合った」とみなすのは ぴったり と ほぼ合う の2つだけ
+  for (const k of ["exact", "near"] as const) assert.ok(CASH_COUNT_KIND_LABEL[k]);
 });

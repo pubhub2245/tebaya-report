@@ -287,6 +287,36 @@ export function diffDirection(diff: number): string {
 }
 
 /**
+ * 突き合わせの答えを「ひとこと」に畳む（2026-10-11・f1-4）。
+ *
+ * ■ なぜ要るのか
+ *   じゅんの経理の画面は合言葉の内側なので、検査役（B2）も こちら（Claude）も
+ *   「金庫を数えたら合っていたのか」を目で見られません。金額を外に出さずに
+ *   **合っていたかどうかだけ**を外から確かめられるように、答えを5通りに畳みます。
+ *   ★金額は返しません。返すのはこの5通りのどれか、だけです。
+ */
+export type CashCountKind = "none" | "exact" | "near" | "short" | "over" | "unknown";
+
+/** 5通りの言い方（画面と同じ言葉づかい） */
+export const CASH_COUNT_KIND_LABEL: Record<CashCountKind, string> = {
+  none: "まだ1回も数えていません",
+  exact: "ぴったり合っています",
+  near: "ほぼ合っています（1,000円 未満のズレ）",
+  short: "金庫のほうが少ないです",
+  over: "金庫のほうが多いです",
+  unknown: "計算上の現金が出せませんでした",
+};
+
+/** 突き合わせの答えを5通りに畳む（金額は見せない） */
+export function cashCountKind(r: CashReconcile): CashCountKind {
+  if (r.neverCounted) return "none";
+  if (r.diff === null) return "unknown";
+  if (r.diff === 0) return "exact";
+  if (Math.abs(r.diff) < NEAR_ENOUGH_YEN) return "near";
+  return r.diff > 0 ? "short" : "over";
+}
+
+/**
  * 差が大きいとき（1,000円以上）に、よくある原因として出す3つ。
  * ★「正しい処理」は税務の判断にあたるので書きません（docs/keiri.md 5-2）。
  *   心当たりを人が確かめるための手がかりだけを出します。

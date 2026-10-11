@@ -7,6 +7,14 @@ import { buildSelfCheck, unreadableSelfCheck } from "@/lib/keiri/selfCheck";
 import { previousMonthRange, CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import { templateFor } from "@/lib/keiri/index";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
+import {
+  CASH_COUNT_KIND_LABEL,
+  cashCountKind,
+  latestCount,
+  reconcileCash,
+} from "@/lib/keiri/cashCheck";
+import { calcCashPosition } from "@/lib/keiri/aggregate";
+import { depositsOf } from "@/lib/keiri/cashCheck";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,6 +83,9 @@ export async function GET(req: NextRequest) {
     const marked = marks.ignored.size + marks.bothCounted.size;
     return jsonWindow({
       ...buildSelfCheck({ month: label, ym, sheet }),
+      // 金庫を数えた記録と、計算上の現金が合っていたか（2026-10-11・f1-4）。
+      // ★金額は1円も返しません。返すのは「記録があるか」と「5通りのどれか」だけです。
+      cashCount: cashCountOf(data),
       duplicateMarks: {
         shelf: data.ignoreShelf,
         decided: marked,
@@ -91,6 +102,60 @@ export async function GET(req: NextRequest) {
       unreadableSelfCheck({ month: label, ym, reason: "倉庫との通信に失敗しました" }),
     );
   }
+}
+
+/**
+ * 「金庫を数えた記録があるか、あれば合っていたか」を外から確かめられる形にする
+ * （2026-10-11・f1-4）。
+ *
+ * ■ なぜ要るのか
+ *   f1-4 の合否は「今の現金残高が、実際の金庫の残高と合うか」です。ところが
+ *   じゅんが数えて入れる所は合言葉の内側なので、**入れたかどうかも、合ったかどうかも、
+ *   外からは一度も分かりませんでした**（2026-10-11 の検査でも『じゅん待ち』のまま）。
+ *   そこで金額を出さずに、記録の件数と「5通りのどれか」だけを返します。
+ *
+ * ■ 月は関係ありません（?ym= を変えても答えは同じ）。
+ *   突き合わせは「最後に数えた日」で行うものなので、見ている月では動きません。
+ *
+ * ★返すのは件数・日付・5通りのどれか だけ。金額は1円も返しません。
+ */
+function cashCountOf(data: Awaited<ReturnType<typeof loadKeiriMonthServer>>) {
+  const events = data.cashEvents ?? [];
+  const counts = events.filter((e) => e.kind === "count").length;
+  const deposits = events.filter((e) => e.kind === "deposit").length;
+  const last = latestCount(events);
+  const computedAtCount = last
+    ? calcCashPosition({
+        reports: data.reports ?? [],
+        payments: data.payments ?? [],
+        settings: data.settings,
+        advances: data.advances ?? [],
+        deposits: depositsOf(events),
+        asOf: last.happened_on,
+      }).balance
+    : null;
+  const r = reconcileCash({
+    events,
+    computedAtCount,
+    today: new Date().toISOString().slice(0, 10),
+  });
+  const kind = cashCountKind(r);
+  return {
+    shelf: data.cashShelfMissing ? "missing" : "ready",
+    shelfNote: data.cashShelfMissing
+      ? "数えた記録を残す置き場がまだありません（/keiri/sql の貼り紙①を1回 流すと使えます）。いまは画面で比べるところまでしかできません"
+      : "数えた記録を残す置き場があります",
+    countRecords: counts,
+    depositRecords: deposits,
+    latestCountOn: last?.happened_on ?? null,
+    daysSinceCount: r.daysSince,
+    kind,
+    kindLabel: CASH_COUNT_KIND_LABEL[kind],
+    matched: kind === "exact" || kind === "near",
+    note:
+      "金額は1円も返していません（記録の件数・最後に数えた日・5通りのどれか だけ）。" +
+      "見ている月を変えても、この答えは変わりません（突き合わせは最後に数えた日で行うため）。",
+  };
 }
 
 /**
