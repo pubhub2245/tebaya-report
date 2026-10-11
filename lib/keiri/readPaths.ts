@@ -37,6 +37,14 @@ export type ReadPathNumbers = {
   expenseTotal: number;
   /** 利益 */
   profit: number;
+  /**
+   * いまの現金（金庫にあるはずの額）。
+   * ★ここを比べるのが肝（2026-10-11・kp249）。じゅんが金庫を数えて見比べる相手なので、
+   *   読み方を寄せたせいでここが動いては、f1-4（金庫と合うか）の確かめが成り立たない。
+   */
+  cash: number;
+  /** 「同じ支払いが2か所にある疑い」の件数（人の確認待ちの数） */
+  dupes: number;
   /** 設定（数え始めの日・期首残高・率・家賃）を1本の文字にしたもの */
   settingsKey: string;
 };
@@ -65,6 +73,8 @@ const NUMBER_FIELDS: { key: keyof ReadPathNumbers; what: string }[] = [
   { key: "sales", what: "売上" },
   { key: "expenseTotal", what: "かかったお金の合計" },
   { key: "profit", what: "利益" },
+  { key: "cash", what: "いまの現金（金庫にあるはずの額）" },
+  { key: "dupes", what: "同じ支払いが2か所にある疑いの件数" },
 ];
 
 /**

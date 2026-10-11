@@ -7,7 +7,9 @@ import { defaultSettingsFor, templateFor } from "@/lib/keiri/index";
 import { loadKeiriMonthDirect, type KeiriMonthData } from "@/lib/keiri/loadMonth";
 import { loadKeiriMonthServer } from "@/lib/keiri/loadMonthServer";
 import { readIgnoreMarks } from "@/lib/keiri/expenseIgnores";
-import { summarizeMonth } from "@/lib/keiri/aggregate";
+import { calcCashPosition, summarizeMonth } from "@/lib/keiri/aggregate";
+import { depositsOf } from "@/lib/keiri/cashCheck";
+import { findDuplicateExpenses } from "@/lib/keiri/duplicates";
 import { serverClient } from "@/lib/supabaseServer";
 import { TEBAYA_SCOPE } from "@/lib/tenantScope";
 
@@ -105,6 +107,19 @@ function numbersOf(
     ignoreMarks: marks,
   });
   const s = data.settings;
+  // 画面と同じ順番・同じ材料で「いまの現金」を出す（app/keiri/page.tsx と同じ呼び方）
+  const cash = calcCashPosition({
+    reports: data.reports ?? [],
+    payments: data.payments ?? [],
+    settings: s,
+    advances: data.advances ?? [],
+    deposits: depositsOf(data.cashEvents ?? []),
+  });
+  const dupes = findDuplicateExpenses({
+    ym,
+    reports: data.reports ?? [],
+    advances: data.advances ?? [],
+  });
   return {
     reports: (data.reports ?? []).filter((r) => String(r.date ?? "").startsWith(ym)).length,
     payments: (data.payments ?? []).length,
@@ -113,6 +128,8 @@ function numbersOf(
     sales: summary.sales,
     expenseTotal: summary.expenseTotal,
     profit: summary.profit,
+    cash: cash.balance,
+    dupes: dupes.suspects.length,
     settingsKey: [
       s.opening_date,
       s.opening_balance,

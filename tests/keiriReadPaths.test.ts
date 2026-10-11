@@ -20,6 +20,8 @@ function numbers(over: Partial<ReadPathNumbers> = {}): ReadPathNumbers {
     sales: 554700,
     expenseTotal: 714554,
     profit: -159854,
+    cash: 1004399,
+    dupes: 30,
     settingsKey: "2026-09-10|145000|0.1|35000|2026-09",
     ...over,
   };
@@ -52,4 +54,22 @@ test("経理の設定がちがえば、差ではなく『ちがう』だけを�
   assert.equal(r.same, false);
   assert.equal(r.diffs.length, 1);
   assert.equal(r.diffs[0].diff, null);
+});
+
+/**
+ * ★2026-10-11（kp249）：ここを比べていなかったので、1回 戻すことになった。
+ *   立替の件数だけがちがったとき、月の金額は同じでも
+ *   **金庫にあるはずの額**と**人の確認待ちの件数**は動きうる。
+ *   じゅんが金庫を数えて見比べる相手なので、必ず比べる。
+ */
+test("金庫にあるはずの額がちがえば『ちがう』と言う", () => {
+  const r = compareReadPaths(numbers(), numbers({ cash: 1004398 }));
+  assert.equal(r.same, false);
+  assert.deepEqual(r.diffs, [{ what: "いまの現金（金庫にあるはずの額）", diff: 1 }]);
+});
+
+test("人の確認待ち（同じ支払いの疑い）の件数がちがえば『ちがう』と言う", () => {
+  const r = compareReadPaths(numbers(), numbers({ dupes: 31 }));
+  assert.equal(r.same, false);
+  assert.deepEqual(r.diffs, [{ what: "同じ支払いが2か所にある疑いの件数", diff: -1 }]);
 });
