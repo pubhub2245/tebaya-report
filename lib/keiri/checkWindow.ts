@@ -49,8 +49,9 @@ export const CHECK_WINDOWS: CheckWindow[] = [
     path: "/api/keiri/selfcheck",
     what:
       "前の月の締めが人の手なしで出たか（金額は伏せて○×だけ）。" +
-      "?ym=2026-08 のように付けると、その月で締め直して答えます（付けなければ前の月）",
-    check: "f1-5・f1-2",
+      "?ym=2026-08 のように付けると、その月で締め直して答えます（付けなければ前の月）。" +
+      "cashCount に『金庫を数えた記録があるか・あれば合っていたか』も出ます（金額は返しません）",
+    check: "f1-5・f1-2・f1-4",
   },
   {
     path: "/api/keiri/scopecheck",
