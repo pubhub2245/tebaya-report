@@ -3,6 +3,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 import { previousMonthRange, CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import { compareReadPaths, type ReadPathNumbers } from "@/lib/keiri/readPaths";
+import { describeAdvanceWindow } from "@/lib/keiri/advanceWindow";
+import { advanceReadRange } from "@/lib/keiri/advanceRange";
+import { buildJournalRows } from "@/lib/keiri/journal";
 import { defaultSettingsFor, templateFor } from "@/lib/keiri/index";
 import { loadKeiriMonthDirect, type KeiriMonthData } from "@/lib/keiri/loadMonth";
 import { loadKeiriMonthServer } from "@/lib/keiri/loadMonthServer";
@@ -72,10 +75,17 @@ export async function GET(req: NextRequest) {
     });
 
     const result = compareReadPaths(numbersOf(ym, viaWindow), numbersOf(ym, viaDirect));
+
+    // ③ 立替を「前後40日」の期間で読むと何行ふえて、何が動くか（kp250・f1-2／f1-4）。
+    //    読み方を寄せたときに会計ソフト向けの表が 133→124 行に減ったので、
+    //    その9行が何者なのかを外から読むだけで確かめられるようにする。
+    const advanceWindow = await compareAdvanceWindow({ ym, base: viaWindow, db });
+
     return jsonWindow({
       ok: result.same,
       ym,
       ...result,
+      advanceWindow,
       what: "2つの道（サーバー側の窓口／ブラウザ直読み）に同じ月を読ませて、差だけを出しています",
       note:
         "金額そのものは返していません。差が 0 ＝ 2つの道の答えが同じ、という読み方です。",
@@ -90,6 +100,81 @@ export async function GET(req: NextRequest) {
       reason: String(e?.message ?? e).slice(0, 200),
     });
   }
+}
+
+/**
+ * 立替を「前後40日」の期間で読んだ場合との差を数える（kp250・f1-2／f1-4）。
+ *
+ * ■ なぜ要るのか
+ *   10/11 に立替を読む期間を1本（ふだんの画面と同じ期間）に寄せたところ、
+ *   会計ソフト向けの表が **133行から124行に減りました**。
+ *   減った9行は「前の月に立て替えて、この月に返した分」と見られますが、
+ *   じゅんの経理の画面は合言葉の内側なので、こちらからは目で確かめられません。
+ *   そこで**同じ月を2つの期間に読ませて、ふえる行の中身と、入れたら動く額**を出します。
+ *
+ * ■ 返すのは件数と「差」だけ。立替の金額そのもの・払った人の名前は返しません。
+ * ■ 1行も書き込みません（読むだけ）。
+ */
+async function compareAdvanceWindow(params: {
+  ym: string;
+  base: Awaited<ReturnType<typeof loadKeiriMonthServer>>;
+  db: ReturnType<typeof serverClient>;
+}) {
+  const { ym, base, db } = params;
+  const opening = base.settings.opening_date || `${ym}-01`;
+  const ranges = {
+    screen: advanceReadRange({ ym, openingDate: opening }),
+    wide: advanceReadRange({ ym, openingDate: opening, monthOnly: true }),
+  };
+
+  // 前後40日の期間で、立替だけを読み直す（ほかの棚は base の答えをそのまま使う）
+  const wide = await loadKeiriMonthServer({
+    ym,
+    businessCode: CASE_BUSINESS_CODE,
+    scope: TEBAYA_SCOPE,
+    monthOnly: true,
+    db,
+  });
+  if (wide.advancesUnreadable) {
+    return {
+      ok: false,
+      ranges,
+      message: "立替の棚が読めなかったので、2つの期間を比べられませんでした。",
+    };
+  }
+
+  const found = describeAdvanceWindow({ ym, screen: base.advances ?? [], wide: wide.advances ?? [] });
+  // 入れたら何がいくら動くか（差だけ）。日報・設定・払った記録・金庫の記録は base のまま
+  const withScreen = numbersOf(ym, base);
+  const withWide = numbersOf(ym, { ...base, advances: wide.advances ?? [] });
+  const rowsOf = (advances: typeof base.advances) =>
+    buildJournalRows({
+      ym,
+      reports: base.reports ?? [],
+      payments: base.payments ?? [],
+      template: templateFor(CASE_BUSINESS_CODE),
+      settings: base.settings,
+      advances: advances ?? [],
+      ignoreMarks: readIgnoreMarks([]),
+    }).length;
+
+  return {
+    ok: true,
+    ranges,
+    ...found,
+    /** 前後40日の期間にすると、いくら動くか（＝広い側 − いまの画面） */
+    diffIfIncluded: {
+      advanceCount: withWide.advances - withScreen.advances,
+      expenseTotal: withWide.expenseTotal - withScreen.expenseTotal,
+      profit: withWide.profit - withScreen.profit,
+      cash: withWide.cash - withScreen.cash,
+      dupes: withWide.dupes - withScreen.dupes,
+      csvRows: rowsOf(wide.advances ?? []) - rowsOf(base.advances ?? []),
+    },
+    note:
+      "立替の金額そのもの・払った人の名前は返していません。件数と、入れたら動く差だけです。" +
+      "いまの画面と会計ソフト向けの表は『ふだんの画面の期間』で動いています（kp250 で入れるか入れないかを決めます）。",
+  };
 }
 
 /** 読んだ答えを、比べられる形（件数と金額）に直す */
