@@ -163,9 +163,13 @@ export default function AdminGate({
         sessionStorage.setItem(SS_KEY, "1");
         sessionStorage.removeItem(SS_SHOP_KEY);
       } catch {}
-      // ★手羽屋は今までどおり（サーバー側の窓口は使わない）。
-      //   前にこの端末でお店として入っていたときの札が残っていたら捨てる。
+      // ★手羽屋も、経理の数字はサーバー側の窓口から読みます（2026-10-11・kp239）。
+      //   そのために、入れた合言葉の「戻せない形」をこのタブだけに覚えておきます。
+      //   ・打った文字そのものは、どこにも残しません
+      //   ・タブを閉じる／「ログアウト」を押すと消えます
+      //   ・覚えられない端末（古い・HTTPSでない）では、今までどおりの読み方に戻ります
       forgetKeiriSecret();
+      rememberKeiriSecret(await hashSecretInBrowser(pw));
       // この端末に「よそのお店」の印が残っていたら消す（手羽屋の端末に戻す）
       writeTenantScope(TEBAYA_SCOPE);
       // この端末を「じゅんの端末」として覚える（ホームの帯の出し分けだけに使う）。

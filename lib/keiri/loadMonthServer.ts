@@ -27,6 +27,7 @@ import {
   type TenantScope,
 } from "@/lib/tenantScope";
 import { normalizeFieldAdvance, normalizeOwnerAdvance } from "@/lib/keiri/advances";
+import { advanceReadRange } from "@/lib/keiri/advanceRange";
 import {
   ignoreShelfStateOf,
   type ExpenseIgnoreRow,
@@ -158,9 +159,13 @@ export async function loadKeiriMonthServer(params: {
   }
 
   // 立替。棚が2つあり列の名前も違うので形をそろえる。
-  // 「月をまたいで同じ支払いが入っていないか」も見るので前後に40日の余白を取る。
-  const advFrom = shiftDate(from, -40);
-  const advTo = shiftDate(monthEndDate, 40);
+  // ★読む期間は lib/keiri/advanceRange.ts の1か所で決める（2026-10-11・kp249）。
+  //   ここに期間を書いていたため、画面側（loadMonth.ts）と17件ずれていた。
+  const advRange = advanceReadRange({
+    ym,
+    openingDate: settings.opening_date || monthStart,
+    monthOnly: params.monthOnly,
+  });
   const advances: KeiriAdvance[] = [];
   let advancesUnreadable = false;
   // ★立替の2つの棚には「どの店のものか」の欄がまだ無い。
@@ -169,21 +174,25 @@ export async function loadKeiriMonthServer(params: {
   const advancesSkipped = !tebaya;
   if (tebaya) {
     {
-      const { data, error } = await db
+      const fieldQuery = db
         .from("keiri_advance_expenses")
         .select("id, expense_date, amount, payer, source_type, memo")
         .eq("business_type_code", businessCode)
-        .gte("expense_date", advFrom)
-        .lte("expense_date", advTo);
+        .gte("expense_date", advRange.from);
+      const { data, error } = await (advRange.to
+        ? fieldQuery.lte("expense_date", advRange.to)
+        : fieldQuery);
       if (error) advancesUnreadable = true;
       for (const row of (data as any[]) ?? []) advances.push(normalizeFieldAdvance(row));
     }
     {
-      const { data, error } = await db
+      const ownerQuery = db
         .from("advance_expenses")
         .select("id, date, amount, payer, description, settled, settled_date")
-        .gte("date", advFrom)
-        .lte("date", advTo);
+        .gte("date", advRange.from);
+      const { data, error } = await (advRange.to
+        ? ownerQuery.lte("date", advRange.to)
+        : ownerQuery);
       if (error) advancesUnreadable = true;
       for (const row of (data as any[]) ?? []) advances.push(normalizeOwnerAdvance(row));
     }
