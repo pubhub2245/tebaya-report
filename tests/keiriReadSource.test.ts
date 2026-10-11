@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 
 import {
   KEIRI_SHOP_AUTH_KEY,
+  canFallbackToBrowserOnDenied,
   decideReadSource,
   effectiveKeiriScope,
   readAuthedKeiriScope,
@@ -58,9 +59,19 @@ test("置き場が読めない端末でも落ちない（手羽屋に倒す）",
   assert.equal(readAuthedKeiriScope(broken), null);
 });
 
-test("お店はサーバー側の窓口から、手羽屋は今までどおりブラウザから読む", () => {
+test("お店も手羽屋も、まずサーバー側の窓口から読む（2026-10-11・kp239）", () => {
   assert.equal(decideReadSource(SHOP), "server");
-  assert.equal(decideReadSource(null), "browser");
+  // 2026-10-11 まで手羽屋だけ "browser" だった。経理の画面に
+  // 「ブラウザが名乗った番号で帳簿が開く道」を残さないため、手羽屋も窓口に寄せた
+  assert.equal(decideReadSource(null), "server");
+});
+
+test("『合言葉が合わない』で今までどおりに戻してよいのは手羽屋だけ", () => {
+  // 手羽屋は、戻った先が手羽屋の帳簿そのものなので、よその数字は1円も出ない
+  assert.equal(canFallbackToBrowserOnDenied(null), true);
+  // お店で戻すと、合っていない人にその番号のお店の帳簿を出してしまう
+  assert.equal(canFallbackToBrowserOnDenied(SHOP), false);
+  assert.equal(canFallbackToBrowserOnDenied(OTHER), false);
 });
 
 test("窓口の返事：合言葉が合わないときは、ブラウザ直読みに落とさない", () => {
