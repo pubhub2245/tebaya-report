@@ -100,13 +100,6 @@ export const CHECK_WINDOWS: CheckWindow[] = [
     check: "f3-3",
   },
   {
-    path: "/api/keiri/readpaths",
-    what:
-      "経理の数字を読む2つの道（サーバー側の窓口／これまでのブラウザ直読み）が、" +
-      "同じ月で同じ答えを出すか。返すのは差と件数だけで、金額そのものは返しません",
-    check: "f3-4・f1-2",
-  },
-  {
     path: "/api/keiri/setuptodo",
     what:
       "じゅんにしかできない一度きりの手続きが、いま何件のこっているか" +

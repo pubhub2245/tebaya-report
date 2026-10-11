@@ -73,33 +73,12 @@ export type ReadSource =
 /**
  * 読む先を決める（計算だけ）。
  *
- * ■ 2026-10-11（kp239・f3-4）：**手羽屋もサーバー側の窓口から読みます。**
- *   それまでは手羽屋だけブラウザから倉庫を直接のぞいていました。残しておくと、
- *   経理の画面に「ブラウザが名乗った番号で帳簿を開く道」が1本 残り続けます。
- *   窓口はお店の番号を受け取らず、**合言葉からサーバーが決める**ので、そこが閉まります。
- *
- * ■ 今までどおりの読み方に落ちる道は残します（締め出さないため）
- *   札がこのタブに無い・窓口がまだ無い・通信できない——どれも「読めない」ではなく
- *   今までの道へ落とします。手羽屋の場合は「合言葉が合わない」でも落とします
- *   （下の canFallbackToBrowserOnDenied）。
+ * ・お店として入っている（印がある）なら必ず窓口。番号を書き換えても、
+ *   窓口は合言葉から店を決めるので、よその帳簿は開きません。
+ * ・手羽屋は今までどおりブラウザから。
  */
-export function decideReadSource(_scope: TenantScope): ReadSource {
-  return "server";
-}
-
-/**
- * 窓口が「合言葉が合わない」と断ったとき、今までどおりの読み方に戻してよいか。
- *
- * ■ なぜお店では戻さないのか
- *   戻すと、合っていない人に **その番号のお店の帳簿** を出してしまいます。
- *
- * ■ なぜ手羽屋では戻してよいのか
- *   戻った先が手羽屋の帳簿そのものなので、よそのお店の数字は1円も出ません。
- *   逆に戻さないと、合言葉の形がほんの少しちがうだけで（前後の空白など）
- *   じゅんの経理画面が開かなくなります。**締まる側には倒れません。**
- */
-export function canFallbackToBrowserOnDenied(scope: TenantScope): boolean {
-  return normalizeTenantScope(scope) === null;
+export function decideReadSource(scope: TenantScope): ReadSource {
+  return normalizeTenantScope(scope) === null ? "browser" : "server";
 }
 
 /** 窓口に聞いた結果の読み分け */
