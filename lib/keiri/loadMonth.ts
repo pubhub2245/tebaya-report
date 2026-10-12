@@ -34,6 +34,7 @@ import {
   type IgnoreShelfState,
 } from "./expenseIgnores";
 import { normalizeCashEvents, type CashEvent } from "./cashCheck";
+import { normalizeRegisterCloses, type RegisterCloseRow } from "./registerFloat";
 import type {
   KeiriAdvance,
   KeiriPayment,
@@ -63,6 +64,13 @@ export type KeiriMonthData = {
   cashEvents: CashEvent[];
   /** 棚がまだ無い（＝貼り紙を流していない）か */
   cashShelfMissing: boolean;
+  /**
+   * 閉店後に**レジに残してあるつり銭**の実測（2026-10-12・f1-4）。
+   * ★月の経費・利益・会計ソフト向けCSVには1円も入れません。
+   *   金庫を数えたときに「金庫だけを数えた場合の相手」を並べるためだけに使います
+   *   （lib/keiri/registerFloat.ts）。読めなければ空のまま＝今までどおり。
+   */
+  registerCloses: RegisterCloseRow[];
   /**
    * 「同じ支払いが2か所にある」ときの印（kp230・f1-5）。
    * ★棚（keiri_expense_ignores）がまだ無い倉庫では空のまま＝今までどおり「出すだけ」。
@@ -149,6 +157,8 @@ async function loadViaServerWindow(params: {
     advancesRepaidEarlier: (d.advancesRepaidEarlier as KeiriAdvance[]) ?? [],
     cashEvents: (d.cashEvents as CashEvent[]) ?? [],
     cashShelfMissing: !!d.cashShelfMissing,
+    // ★窓口がまだこの欄を返さない版でも落ちないように、無ければ空のまま（＝今までどおり）
+    registerCloses: (d.registerCloses as RegisterCloseRow[]) ?? [],
     ignores: (d.ignores as ExpenseIgnoreRow[]) ?? [],
     ignoreShelf: (d.ignoreShelf as IgnoreShelfState) ?? "unknown",
   };
@@ -310,6 +320,23 @@ export async function loadKeiriMonthDirect(
     }
   }
 
+  // 閉店後にレジに残したつり銭（日報の実測）。**金庫の外にあるお金**なので、
+  // 金庫を数えた金額と比べるときの相手に使う（f1-4）。
+  // ★読めなくても落とさない。読めなければ相手が増えないだけで、今までの数字は1円も動かない。
+  // ★経費の明細は取らない（3つの欄だけ＝CLAUDE.md 4-2 を守る）。
+  let registerCloses: RegisterCloseRow[] = [];
+  try {
+    const regQuery = supabase
+      .from("daily_reports")
+      .select("date, unit_number, register_total");
+    const { data: regs, error: regErr } = await applyTenantScope<any>(regQuery as any, scope)
+      .gte("date", gte)
+      .order("date");
+    if (!regErr) registerCloses = normalizeRegisterCloses((regs as unknown[]) ?? []);
+  } catch {
+    // 読めなければ空のまま
+  }
+
   // 「同じ支払いが2か所にある」ときの印（kp230）。
   // ★棚がまだ無い倉庫では、落とさずに「まだ無い」とだけ覚えて先へ進む（金庫の記録と同じ形）。
   let ignores: ExpenseIgnoreRow[] = [];
@@ -332,6 +359,7 @@ export async function loadKeiriMonthDirect(
     advancesRepaidEarlier,
     cashEvents,
     cashShelfMissing,
+    registerCloses,
     ignores,
     ignoreShelf,
   };

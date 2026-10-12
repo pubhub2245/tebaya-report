@@ -24,17 +24,24 @@
 
 import { NEAR_ENOUGH_YEN } from "./cashCheck";
 
-/** 数え方の見分け（2通り） */
+/** 数え方の見分け */
 export type CashVariantKey =
   /** いまの画面の数え方（前の月に立て替えて今月 返した分を引かない） */
   | "nowScreen"
   /** 返した日で引く数え方（立て替えた日がいつでも、返した日に引く） */
-  | "withEarlierRepaid";
+  | "withEarlierRepaid"
+  /** いまの画面の数え方から、レジに残してあるつり銭を別に置いた金額（金庫だけを数えたとき） */
+  | "nowScreenSafeOnly"
+  /** 返した日で引く数え方から、さらにレジのつり銭を別に置いた金額 */
+  | "withEarlierRepaidSafeOnly";
 
 /** 画面に出す数え方の名前 */
 export const CASH_VARIANT_LABEL: Record<CashVariantKey, string> = {
   nowScreen: "いまの画面の数え方",
   withEarlierRepaid: "前の月に立て替えて今月 返した分も引く数え方",
+  nowScreenSafeOnly: "いまの画面の数え方から、レジのつり銭を別に置いた金額（金庫だけ）",
+  withEarlierRepaidSafeOnly:
+    "前の月に返した分も引き、レジのつり銭も別に置いた金額（金庫だけ）",
 };
 
 /** それぞれの数え方の、ひとこと説明 */
@@ -43,7 +50,21 @@ export const CASH_VARIANT_NOTE: Record<CashVariantKey, string> = {
     "数え始めの日より前に立て替えたお金は、返した分も引いていません（いま画面に出ている金額です）。",
   withEarlierRepaid:
     "前の月までに立て替えて、そのあと返したお金も「返した日」に引きます。",
+  nowScreenSafeOnly:
+    "閉店のときレジに残してあるつり銭（日報の実測）を引いた金額です。金庫だけを数えたときはこちらに合います。",
+  withEarlierRepaidSafeOnly:
+    "返した分を引いたうえで、レジに残してあるつり銭（日報の実測）も引いた金額です。",
 };
+
+/** レジのつり銭を別に置いた数え方か（＝じゅんが金庫だけを数えた、ということ） */
+export function isSafeOnlyVariant(key: CashVariantKey): boolean {
+  return key === "nowScreenSafeOnly" || key === "withEarlierRepaidSafeOnly";
+}
+
+/** 「前の月に返した分も引く」側の数え方か */
+export function isWithRepaidVariant(key: CashVariantKey): boolean {
+  return key === "withEarlierRepaid" || key === "withEarlierRepaidSafeOnly";
+}
 
 /** 比べる相手1つ */
 export type CashVariant = {
@@ -57,32 +78,46 @@ export type CashVariant = {
 /**
  * 比べる相手を組み立てる。
  *
- * ★2つの金額が同じなら、1つだけ返します（意味の無い選択肢を画面に出さないため）。
+ * ★同じ金額になる相手は足しません（意味の無い選択肢を画面に出さないため）。
+ * ★ここでは金額を作りません。渡された残高を足し引きするだけです。
  *
  * @param screenBalance        いまの画面の数え方の残高
  * @param withRepaidBalance    返した日で引く数え方の残高（読めなければ null）
+ * @param registerFloat        レジに残してあるつり銭の合計（日報の実測。0・null なら足さない）
  */
 export function buildCashVariants(params: {
   screenBalance: number | null;
   withRepaidBalance: number | null;
+  /**
+   * レジに残してあるつり銭（2026-10-12・f1-4）。
+   * ★これを渡すと「金庫だけを数えたとき」の相手も並びます。
+   *   渡さない／0 のときは、今までどおり最大2つしか並びません。
+   */
+  registerFloat?: number | null;
 }): CashVariant[] {
   const { screenBalance, withRepaidBalance } = params;
   if (screenBalance === null) return [];
-  const out: CashVariant[] = [
-    {
-      key: "nowScreen",
-      label: CASH_VARIANT_LABEL.nowScreen,
-      note: CASH_VARIANT_NOTE.nowScreen,
-      balance: Math.round(screenBalance),
-    },
-  ];
-  if (withRepaidBalance !== null && Math.round(withRepaidBalance) !== Math.round(screenBalance)) {
+  const float = Math.round(params.registerFloat ?? 0);
+  const out: CashVariant[] = [];
+  /** 同じ金額の相手は並べない */
+  const push = (key: CashVariantKey, balance: number) => {
+    const yen = Math.round(balance);
+    if (out.some((v) => v.balance === yen)) return;
     out.push({
-      key: "withEarlierRepaid",
-      label: CASH_VARIANT_LABEL.withEarlierRepaid,
-      note: CASH_VARIANT_NOTE.withEarlierRepaid,
-      balance: Math.round(withRepaidBalance),
+      key,
+      label: CASH_VARIANT_LABEL[key],
+      note: CASH_VARIANT_NOTE[key],
+      balance: yen,
     });
+  };
+  push("nowScreen", screenBalance);
+  if (withRepaidBalance !== null) push("withEarlierRepaid", withRepaidBalance);
+  // レジのつり銭は、金庫の外に置いてあるお金。金庫だけを数えたときはこちらに合う
+  if (float > 0) {
+    push("nowScreenSafeOnly", screenBalance - float);
+    if (withRepaidBalance !== null) {
+      push("withEarlierRepaidSafeOnly", withRepaidBalance - float);
+    }
   }
   return out;
 }
@@ -148,6 +183,9 @@ export function pickCashVariant(params: {
   }
 
   const hit = rows.find((r) => r.near) ?? null;
+  const count = kanjiCount(rows.length);
+  // 2つなら「どちらにも」、3つ以上なら「どれにも」（日本語として自然な言い方にそろえる）
+  const anyOf = rows.length === 2 ? "どちらにも" : "どれにも";
   if (!hit) {
     return {
       hasChoice: true,
@@ -155,7 +193,7 @@ export function pickCashVariant(params: {
       matched: null,
       rows,
       lines: [
-        "数え方は2通りありますが、どちらにも合いませんでした。",
+        `数え方は${count}通りありますが、${anyOf}合いませんでした。`,
         ...rows.map(
           (r) =>
             `${r.variant.label}　${yen(r.variant.balance)}（差 ${yen(Math.abs(r.diff))}）`,
@@ -171,17 +209,42 @@ export function pickCashVariant(params: {
     matched: hit.variant,
     rows,
     lines: [
-      `数え方は2通りありますが、「${hit.variant.label}」のほうに合いました。`,
+      `数え方は${count}通りありますが、「${hit.variant.label}」のほうに合いました。`,
       ...rows.map(
         (r) =>
           `${r.variant.key === hit.variant.key ? "✅ " : "　"}${r.variant.label}　` +
           `${yen(r.variant.balance)}（差 ${yen(Math.abs(r.diff))}）`,
       ),
-      hit.variant.key === "withEarlierRepaid"
-        ? "いま画面に出ている現金は、前の月に立て替えて返した分を引いていないぶん多く出ています。こちらで数え方をそろえます（書き忘れを探す必要はありません）。"
-        : "いま画面に出ている数え方で合っています。このまま進めて大丈夫です。",
+      ...matchedSentences(hit.variant.key),
     ],
   };
+}
+
+/** 「2」「3」「4」を漢数字にする（画面の言い方にそろえる） */
+function kanjiCount(n: number): string {
+  return ["", "1", "2", "3", "4", "5", "6"][n] ?? String(n);
+}
+
+/**
+ * 合った数え方から、じゅんに出す結びの1〜2行を作る。
+ * ★「書き忘れを探してください」とは言いません。数え方のちがいなら、そう言います。
+ */
+function matchedSentences(key: CashVariantKey): string[] {
+  const out: string[] = [];
+  if (isWithRepaidVariant(key)) {
+    out.push(
+      "いま画面に出ている現金は、前の月に立て替えて返した分を引いていないぶん多く出ています。こちらで数え方をそろえます（書き忘れを探す必要はありません）。",
+    );
+  }
+  if (isSafeOnlyVariant(key)) {
+    out.push(
+      "数えていただいたのは金庫だけで、レジに残してあるつり銭は金庫の外にあります。その分も合わせると計算どおりです（書き忘れを探す必要はありません）。",
+    );
+  }
+  if (out.length === 0) {
+    out.push("いま画面に出ている数え方で合っています。このまま進めて大丈夫です。");
+  }
+  return out;
 }
 
 /**

@@ -34,6 +34,10 @@ import {
   type IgnoreShelfState,
 } from "@/lib/keiri/expenseIgnores";
 import { normalizeCashEvents, type CashEvent } from "@/lib/keiri/cashCheck";
+import {
+  normalizeRegisterCloses,
+  type RegisterCloseRow,
+} from "@/lib/keiri/registerFloat";
 import { defaultSettingsFor } from "@/lib/keiri/index";
 import type {
   KeiriAdvance,
@@ -63,6 +67,14 @@ export type KeiriMonthServerData = {
   cashEvents: CashEvent[];
   /** 金庫の記録の棚がまだ無いか（貼り紙を流していない） */
   cashShelfMissing: boolean;
+  /**
+   * 閉店後に**レジに残してあるつり銭**の実測（2026-10-12・f1-4）。
+   * ★月の経費・利益・会計ソフト向けCSVには1円も入れません。
+   *   金庫を数えたときに「金庫だけを数えた場合の相手」を並べるためだけに使います。
+   */
+  registerCloses: RegisterCloseRow[];
+  /** 閉店後のレジ金を読めなかったか（**0円と取り違えない**ため） */
+  registerUnreadable: boolean;
   /**
    * 立替の棚を**読まずに飛ばした**か（手羽屋以外のお店のとき）。
    * ★立替の2つの棚には「どの店のものか」の欄がまだ無いので、
@@ -245,6 +257,22 @@ export async function loadKeiriMonthServer(params: {
     else cashEvents = normalizeCashEvents((data as unknown[]) ?? []);
   }
 
+  // 閉店後にレジに残したつり銭（日報の実測）。**金庫の外にあるお金**なので、
+  // 金庫を数えた金額と比べるときの相手に使う（f1-4）。
+  // ★読めなくても落とさない。経費の明細は取らない（3つの欄だけ＝CLAUDE.md 4-2）。
+  let registerCloses: RegisterCloseRow[] = [];
+  let registerUnreadable = false;
+  {
+    const { data, error } = await applyTenantScope<any>(
+      db.from("daily_reports").select("date, unit_number, register_total") as any,
+      scope,
+    )
+      .gte("date", from)
+      .order("date");
+    if (error) registerUnreadable = true;
+    else registerCloses = normalizeRegisterCloses((data as unknown[]) ?? []);
+  }
+
   // 「同じ支払いが2か所にある」ときの印（kp230）。棚がまだ無い倉庫でも落とさずに先へ進む。
   let ignores: ExpenseIgnoreRow[] = [];
   let ignoreShelf: IgnoreShelfState = "unknown";
@@ -270,6 +298,8 @@ export async function loadKeiriMonthServer(params: {
     advancesRepaidEarlier,
     cashEvents,
     cashShelfMissing,
+    registerCloses,
+    registerUnreadable,
     advancesSkipped,
     ignores,
     ignoreShelf,

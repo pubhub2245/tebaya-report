@@ -179,16 +179,87 @@ test("⑤ 外から確かめる筋書きが、4通りとも正しく出る", asy
   );
   const v = buildCashVariantCheck();
   assert.equal(checkVariantCases(v).length, 0, "筋書きの検算に不合格が無い");
-  assert.equal(v.cases.length, 4);
+  // ①②③④ に、⑤⑥（金庫だけを数えた場面）を足して6つ
+  assert.equal(v.cases.length, 6);
   assert.equal(v.balances.nowScreen - v.balances.withEarlierRepaid, v.repaidEarlierYen);
+  assert.equal(
+    v.balances.nowScreen - v.balances.nowScreenSafeOnly,
+    v.registerFloatYen,
+    "レジのつり銭ぶんだけ引いた金額になっている",
+  );
+  assert.equal(
+    v.balances.withEarlierRepaid - v.balances.withEarlierRepaidSafeOnly,
+    v.registerFloatYen,
+  );
   // ④（分かれていない月）は行が1行も増えない
   assert.equal(v.cases[3].lines.length, 0);
-  // ★架空の残高は2つともプラス（「金庫に −28万円 ある」という場面を作らない）
+  // ★架空の残高は4つともプラス（「金庫に −28万円 ある」という場面を作らない）
   assert.ok(v.balances.nowScreen > 0);
   assert.ok(v.balances.withEarlierRepaid > 0);
+  assert.ok(v.balances.nowScreenSafeOnly > 0);
+  assert.ok(v.balances.withEarlierRepaidSafeOnly > 0);
 
   // 窓口そのものも、この検算を自分で通している
   const whole = buildCashCheck({ countedYen: null });
   assert.equal(whole.ok, true, whole.problems.join(" / "));
-  assert.equal(whole.variants.cases.length, 4);
+  assert.equal(whole.variants.cases.length, 6);
+});
+
+/**
+ * レジに残してあるつり銭は「金庫の外」にあるお金（2026-10-12・f1-4）。
+ *
+ * じゅんにお願いしているのは「金庫を数える」ことなので、つり銭ぶんだけ必ず食い違う。
+ * 「合う」の線は1,000円 未満なので、黙っていると**合っているのに**
+ * 「金庫のほうが少ないです。書き忘れた支払いを探してください」と出てしまう。
+ */
+test("⑥ 金庫だけを数えたときは、レジのつり銭ぶんの相手も並び、書き忘れを探させない", async () => {
+  const { latestRegisterFloat, normalizeRegisterCloses, registerFloatLines } = await import(
+    "../lib/keiri/registerFloat"
+  );
+  // 号車ごとに「いちばん新しい閉店後のレジ金」だけを足す（混ぜない・CLAUDE.md 4-9）
+  const rows = normalizeRegisterCloses([
+    { date: "2026-09-10", unit_number: 1, register_total: 20000 },
+    { date: "2026-09-28", unit_number: "1号車", register_total: 31000 },
+    { date: "2026-09-27", unit_number: 2, register_total: 29000 },
+    { date: "2026-10-05", unit_number: 2, register_total: 50000 },
+    // 号車が空・金額がおかしい行は捨てる
+    { date: "2026-09-28", unit_number: "", register_total: 99999 },
+    { date: "こわれた日付", unit_number: 1, register_total: 1000 },
+  ]);
+  const f = latestRegisterFloat(rows, "2026-09-30");
+  assert.equal(f.units.length, 2);
+  assert.equal(f.total, 60000, "1号車 31,000＋2号車 29,000（9/30 までの最後の数え）");
+  assert.equal(f.latestOn, "2026-09-28");
+  assert.ok(registerFloatLines(f).some((l) => l.includes("1号車のレジ")));
+
+  // 4通りの相手が並ぶ（金額が重なる相手は並べない）
+  const variants = buildCashVariants({
+    screenBalance: 1004399,
+    withRepaidBalance: 510699,
+    registerFloat: f.total,
+  });
+  assert.equal(variants.length, 4);
+  assert.deepEqual(
+    variants.map((v) => v.balance),
+    [1004399, 510699, 944399, 450699],
+  );
+
+  // 金庫だけを数えた（944,399円）→ つり銭のことを言い、書き忘れを探させない
+  const safeOnly = pickCashVariant({ variants, counted: 944399 });
+  assert.equal(safeOnly.match, "nowScreenSafeOnly");
+  assert.ok(safeOnly.lines.some((l) => l.includes("レジに残してあるつり銭")));
+  assert.ok(safeOnly.lines.some((l) => l.includes("書き忘れを探す必要はありません")));
+
+  // 返した分も引く側＋金庫だけ（450,699円）も名指しできる
+  assert.equal(
+    pickCashVariant({ variants, counted: 450699 }).match,
+    "withEarlierRepaidSafeOnly",
+  );
+
+  // つり銭が0なら、今までどおり相手は2つだけ（画面に何も増えない）
+  assert.equal(
+    buildCashVariants({ screenBalance: 1004399, withRepaidBalance: 510699, registerFloat: 0 })
+      .length,
+    2,
+  );
 });
