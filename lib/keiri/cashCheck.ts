@@ -317,6 +317,23 @@ export function cashCountKind(r: CashReconcile): CashCountKind {
 }
 
 /**
+ * 「結局、合っていたのか」を1つに決める（2026-10-12・f1-4）。
+ *
+ * ■ なぜ要るのか
+ *   金庫の現金には数え方が何通りかあります（前の月に返した立替を引くか／
+ *   レジに残してあるつり銭を金庫の外と見るか）。じゅんが金庫だけを数えると、
+ *   いちばん素直な数え方からは外れますが、**それは合っている状態**です。
+ *   ところが5通りの言い方（kind）だけを見ると「金庫のほうが少ない」に見えるため、
+ *   外から見ると不合格に見えてしまいます。そこで判断を1か所にまとめました。
+ *
+ * @param kind            5通りの言い方
+ * @param variantMatched  どれかの数え方に合ったか（合っていなければ false）
+ */
+export function cashCountMatched(kind: CashCountKind, variantMatched: boolean): boolean {
+  return kind === "exact" || kind === "near" || variantMatched;
+}
+
+/**
  * 差が大きいとき（1,000円以上）に、よくある原因として出す3つ。
  * ★「正しい処理」は税務の判断にあたるので書きません（docs/keiri.md 5-2）。
  *   心当たりを人が確かめるための手がかりだけを出します。
