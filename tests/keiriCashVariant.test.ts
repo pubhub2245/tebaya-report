@@ -168,3 +168,24 @@ test("④ 外に出す形では、金額を1円も返さない", () => {
   assert.equal(unread.differs, false);
   assert.ok(unread.note.includes("読めなかった"));
 });
+
+/**
+ * 外から確かめる窓口（/api/keiri/cashcheck）の筋書きを固定する（2026-10-12・kp250・f1-4）。
+ * ★検査役（B2）は合言葉の内側の経理画面を開けないので、ここが唯一の確かめ口になる。
+ */
+test("⑤ 外から確かめる筋書きが、4通りとも正しく出る", async () => {
+  const { buildCashVariantCheck, checkVariantCases, buildCashCheck } = await import(
+    "../lib/keiri/cashCheckScenario"
+  );
+  const v = buildCashVariantCheck();
+  assert.equal(checkVariantCases(v).length, 0, "筋書きの検算に不合格が無い");
+  assert.equal(v.cases.length, 4);
+  assert.equal(v.balances.nowScreen - v.balances.withEarlierRepaid, v.repaidEarlierYen);
+  // ④（分かれていない月）は行が1行も増えない
+  assert.equal(v.cases[3].lines.length, 0);
+
+  // 窓口そのものも、この検算を自分で通している
+  const whole = buildCashCheck({ countedYen: null });
+  assert.equal(whole.ok, true, whole.problems.join(" / "));
+  assert.equal(whole.variants.cases.length, 4);
+});

@@ -40,6 +40,13 @@ import {
   type CashReconcile,
 } from "./cashCheck";
 import {
+  CASH_VARIANT_LABEL,
+  buildCashVariants,
+  pickCashVariant,
+  type CashVariantKey,
+  type CashVariantMatch,
+} from "./cashVariant";
+import {
   DEMO_SHOP_NAME,
   demoAdvances,
   demoPayments,
@@ -145,6 +152,35 @@ function caseOf(params: {
   };
 }
 
+/**
+ * 「2通りの数え方のどちらに合うか」の1場面（2026-10-12・kp250・f1-4）。
+ * ★検査役（B2）は合言葉の内側の経理画面を開けないので、ここで外から確かめられるようにする。
+ */
+export type CashVariantCase = {
+  /** その場面の名前 */
+  name: string;
+  /** 数えたことにした金額 */
+  counted: number;
+  /** どちらに合ったか */
+  match: CashVariantMatch;
+  /** 合った数え方の名前（合わなければ null） */
+  matchedLabel: string | null;
+  /** 画面に出る行（本物と同じ関数が作ったもの） */
+  lines: string[];
+};
+
+export type CashVariantCheck = {
+  what: string;
+  /** 架空の「前の月に立て替えて、この月に返した」額 */
+  repaidEarlierYen: number;
+  /** 2通りの残高 */
+  balances: { nowScreen: number; withEarlierRepaid: number };
+  /** それぞれの数え方の名前 */
+  labels: Record<CashVariantKey, string>;
+  cases: CashVariantCase[];
+  note: string;
+};
+
 export type CashCheckResult = {
   what: string;
   shopName: string;
@@ -162,6 +198,11 @@ export type CashCheckResult = {
   /** 差が大きいときに出す原因の一覧（画面に出るものと同じ） */
   causeList: readonly string[];
   cases: CashCheckCase[];
+  /**
+   * 数え方が2通りに分かれたときに、どちらに合うかを言えるか（2026-10-12・kp250・f1-4）。
+   * ★手羽屋の9月はここが分かれています（9行・493,700円）。
+   */
+  variants: CashVariantCheck;
   /** 言葉と数字のつじつまが合っているか（検算の結果） */
   ok: boolean;
   /** 合っていなかったところ（ok が true なら空） */
@@ -242,7 +283,8 @@ export function buildCashCheck(params?: {
     );
   }
 
-  const problems = checkCases(cases);
+  const variants = buildCashVariantCheck({ today });
+  const problems = [...checkCases(cases), ...checkVariantCases(variants)];
 
   return {
     what:
@@ -275,6 +317,7 @@ export function buildCashCheck(params?: {
     staleDays: STALE_DAYS,
     causeList: DIFF_CAUSES,
     cases,
+    variants,
     ok: problems.length === 0,
     problems,
     note:
@@ -319,6 +362,110 @@ export function checkCases(cases: CashCheckCase[]): string[] {
       problems.push(`${c.name}：数えていないのに、差や原因が出ています`);
     }
     if (!c.verdict) problems.push(`${c.name}：差の言い方が空です`);
+  }
+  return problems;
+}
+
+/** 架空の「前の月に立て替えて、この月に返した」額（実データは1円も使わない） */
+const DEMO_REPAID_EARLIER_YEN = 493700;
+
+/**
+ * 「2通りの数え方のどちらに合うか」を、架空のお店の数字で外から確かめられる形にする
+ * （2026-10-12・kp250・f1-4）。
+ *
+ * ■ なぜ要るか
+ *   手羽屋の9月は、金庫の数え方が2通りに分かれています
+ *   （前の月までに立て替えて9月に返した 9行・493,700円 を引くかどうか）。
+ *   このままだと、じゅんが金庫を数えたときに
+ *   「金庫のほうが49万円 少ない／書き忘れを探してください」と出てしまいます。
+ *   直したつもりが本当に直っているかは、**合言葉の内側の画面**でしか見えないので、
+ *   架空のお店で**本物と同じ関数**に4通りを計算させて、外から読めるようにします。
+ *
+ * ★架空の金額だけを使います（手羽屋の実データは1円も入りません）。
+ */
+export function buildCashVariantCheck(params?: { today?: string }): CashVariantCheck {
+  void params;
+  const nowScreen = cashCheckPosition().balance;
+  const withRepaid = nowScreen - DEMO_REPAID_EARLIER_YEN;
+  const variants = buildCashVariants({
+    screenBalance: nowScreen,
+    withRepaidBalance: withRepaid,
+  });
+
+  const one = (name: string, counted: number): CashVariantCase => {
+    const pick = pickCashVariant({ variants, counted });
+    return {
+      name,
+      counted,
+      match: pick.match,
+      matchedLabel: pick.matched ? pick.matched.label : null,
+      lines: pick.lines,
+    };
+  };
+
+  const cases: CashVariantCase[] = [
+    one("① 金庫が「いまの画面の数え方」に合った", nowScreen),
+    one("② 金庫が「前の月に返した分も引く数え方」に合った", withRepaid),
+    one("③ どちらにも合わない（数え方では説明がつかない差）", withRepaid - 50000),
+  ];
+
+  // ④ 分かれていない月＝選択肢そのものを出さない
+  const single = pickCashVariant({
+    variants: buildCashVariants({ screenBalance: nowScreen, withRepaidBalance: nowScreen }),
+    counted: nowScreen,
+  });
+  cases.push({
+    name: "④ 数え方が分かれていない月（画面には何も増えない）",
+    counted: nowScreen,
+    match: single.match,
+    matchedLabel: single.matched ? single.matched.label : null,
+    lines: single.lines,
+  });
+
+  return {
+    what:
+      "金庫の現金の数え方が2通りに分かれたとき、入れた金額がどちらに合うかを" +
+      "画面が自分で言えるか（f1-4・kp250）。ボタンを押さずに外から読むだけで確かめられます",
+    repaidEarlierYen: DEMO_REPAID_EARLIER_YEN,
+    balances: { nowScreen, withEarlierRepaid: withRepaid },
+    labels: CASH_VARIANT_LABEL,
+    cases,
+    note:
+      "①②は合った側を名指しし、③は「どちらにも合いませんでした」と言い、" +
+      "④は行が1行も出ません（＝画面に何も増えない）。" +
+      "金額は架空のお店のもので、こちらで1円も直していません。",
+  };
+}
+
+/**
+ * 2通りの数え方の筋書きを検算する（検査役が目で数えなくてよいように）。
+ *
+ * 見るのは4つだけ：
+ *   ① いまの画面の残高を入れたら「いまの画面の数え方」に合う
+ *   ② 返した分を引いた残高を入れたら「返した分も引く数え方」に合う
+ *   ③ どちらからも遠い金額なら「どちらでもない」と言う
+ *   ④ 分かれていない月は、行が1行も出ない
+ */
+export function checkVariantCases(v: CashVariantCheck): string[] {
+  const problems: string[] = [];
+  const want: CashVariantMatch[] = ["nowScreen", "withEarlierRepaid", "neither", "single"];
+  v.cases.forEach((c, i) => {
+    if (c.match !== want[i]) {
+      problems.push(`${c.name}：合う側の見分けが「${c.match}」になっています`);
+    }
+  });
+  const neither = v.cases.find((c) => c.match === "neither");
+  if (neither && neither.matchedLabel !== null) {
+    problems.push("どちらにも合わないのに、合った数え方の名前が出ています");
+  }
+  const single = v.cases.find((c) => c.match === "single");
+  if (single && single.lines.length !== 0) {
+    problems.push("数え方が分かれていない月なのに、画面に行が増えています");
+  }
+  for (const c of v.cases) {
+    if (c.match !== "single" && c.lines.length === 0) {
+      problems.push(`${c.name}：画面に出る行が空です`);
+    }
   }
   return problems;
 }
