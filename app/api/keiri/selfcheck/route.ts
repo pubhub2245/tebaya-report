@@ -14,6 +14,7 @@ import {
   reconcileCash,
 } from "@/lib/keiri/cashCheck";
 import { calcCashPosition } from "@/lib/keiri/aggregate";
+import { cashVariantWindow } from "@/lib/keiri/cashVariant";
 import { depositsOf } from "@/lib/keiri/cashCheck";
 
 export const runtime = "nodejs";
@@ -86,6 +87,14 @@ export async function GET(req: NextRequest) {
       // 金庫を数えた記録と、計算上の現金が合っていたか（2026-10-11・f1-4）。
       // ★金額は1円も返しません。返すのは「記録があるか」と「5通りのどれか」だけです。
       cashCount: cashCountOf(data),
+      // 金庫の数え方が2通りに分かれているか（2026-10-12・kp250・f1-4）。
+      // ★金額は1円も返しません。返すのは行数と「分かれているか」だけです。
+      cashVariants: cashVariantWindow({
+        extraRows: (data.advancesRepaidEarlier ?? []).map((a) => ({
+          settledInMonth: String(a.settledDate ?? "").startsWith(ym),
+        })),
+        readable: !data.advancesUnreadable && !data.advancesSkipped,
+      }),
       duplicateMarks: {
         shelf: data.ignoreShelf,
         decided: marked,

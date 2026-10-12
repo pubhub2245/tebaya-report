@@ -94,6 +94,11 @@ import {
   type CashEvent,
   type CashReconcile,
 } from "@/lib/keiri/cashCheck";
+import {
+  buildCashVariants,
+  pickCashVariant,
+  type CashVariantPick,
+} from "@/lib/keiri/cashVariant";
 import { shopScopeSentence } from "@/lib/keiri/shopScope";
 import {
   PAYMENT_KIND_LABEL,
@@ -180,6 +185,12 @@ function KeiriInner() {
    * ★月の経費は「立替も含めた全部」で1つに決めています（kp218）。
    */
   const [advances, setAdvances] = useState<KeiriAdvance[]>([]);
+  /**
+   * 「前の月までに立て替えて、この期間に返した立替」（2026-10-12・kp250・f1-4）。
+   * ★月の経費・利益・会計ソフト向けCSVには**1円も入れません**。
+   *   金庫を数えたときに「もう1通りの数え方」を出すためだけに使います。
+   */
+  const [advancesRepaidEarlier, setAdvancesRepaidEarlier] = useState<KeiriAdvance[]>([]);
   // 金庫を数えた記録・銀行に入れた記録（kp233・f1-4）。
   // ★棚（keiri_cash_events）がまだ無い倉庫では空のまま＝この画面は今までどおり。
   const [cashEvents, setCashEvents] = useState<CashEvent[]>([]);
@@ -246,6 +257,7 @@ function KeiriInner() {
       setReports(data.reports);
       setPayments(data.payments);
       setAdvances(data.advances);
+      setAdvancesRepaidEarlier(data.advancesRepaidEarlier ?? []);
       setCashEvents(data.cashEvents);
       setCashShelfMissing(data.cashShelfMissing);
       setIgnores(data.ignores);
@@ -326,6 +338,36 @@ function KeiriInner() {
       }).balance;
     },
     [reports, payments, effective, advances, deposits],
+  );
+
+  /**
+   * 「もう1通りの数え方」での、その日の時点の残高（2026-10-12・kp250・f1-4）。
+   *
+   * ■ なぜ2通り出すのか（やさしい説明）
+   *   金庫からお金が出るのは「**返した日**」です。ところがいまの画面は、
+   *   前の月までに立て替えたお金を（立て替えた日が期間の外なので）読んでおらず、
+   *   **返した分を引いていません**。手羽屋の9月では9行・約49万円ぶんです。
+   *   どちらが正しいかは、じゅんが金庫を数えた金額で決まります。
+   *   そこで**両方を並べて、合った側を画面が言う**ようにしました。
+   *   ★画面のいちばん上に出ている金額は、今までどおり1円も変えていません。
+   *
+   *   読めなかった（棚が無い・よそのお店として開いている）ときは null を返し、
+   *   画面は今までどおり1通りだけを出します。
+   */
+  const computedAsOfWithRepaid = useCallback(
+    (date: string): number | null => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+      if (advancesRepaidEarlier.length === 0) return null;
+      return calcCashPosition({
+        reports,
+        payments,
+        settings: effective,
+        advances: [...advances, ...advancesRepaidEarlier],
+        deposits,
+        asOf: date,
+      }).balance;
+    },
+    [reports, payments, effective, advances, advancesRepaidEarlier, deposits],
   );
 
   // 家賃は「今月まで」を数えるので、今日の月を渡す
@@ -969,6 +1011,8 @@ function KeiriInner() {
         onSaved={load}
         shelfMissing={cashShelfMissing}
         computedAsOf={computedAsOf}
+        computedAsOfWithRepaid={computedAsOfWithRepaid}
+        repaidEarlierRows={advancesRepaidEarlier.length}
       />
 
       {/* 毎月お渡しする1枚（2026-10-04・kp231）。
@@ -1598,6 +1642,8 @@ function CashCountCard({
   onSaved,
   shelfMissing,
   computedAsOf,
+  computedAsOfWithRepaid,
+  repaidEarlierRows,
 }: {
   reconcile: ReturnType<typeof reconcileCash>;
   balanceNow: number;
@@ -1608,6 +1654,10 @@ function CashCountCard({
   shelfMissing: boolean;
   /** その日の時点の計算上の残高（比べる相手） */
   computedAsOf: (date: string) => number | null;
+  /** もう1通りの数え方での残高（分かれていなければ null・kp250・f1-4） */
+  computedAsOfWithRepaid: (date: string) => number | null;
+  /** 「返した日で引く数え方」でだけ数に入る立替の行数 */
+  repaidEarlierRows: number;
 }) {
   const [countOn, setCountOn] = useState(todayStr());
   const [countYen, setCountYen] = useState("");
@@ -1618,6 +1668,8 @@ function CashCountCard({
   const [msg, setMsg] = useState("");
   /** 入れた金額を、記録に残す前にその場で比べた答え（2026-10-09・kp233） */
   const [preview, setPreview] = useState<CashReconcile | null>(null);
+  /** 2通りの数え方のどちらに合ったか（2026-10-12・kp250・f1-4） */
+  const [variantPick, setVariantPick] = useState<CashVariantPick | null>(null);
 
   /** 入れた金額を読む（空・マイナス・数字でないものは断る） */
   const readYen = (raw: string): number | null => {
@@ -1632,17 +1684,27 @@ function CashCountCard({
     if (!countOn || amount === null) {
       setMsg("数えた日と金額を入れてください（金額は0以上）");
       setPreview(null);
+      setVariantPick(null);
       return;
     }
     setMsg("");
+    const screenBalance = computedAsOf(countOn);
     setPreview(
       previewCashCount({
-        computedAtCount: computedAsOf(countOn),
+        computedAtCount: screenBalance,
         countedOn: countOn,
         counted: amount,
         today: todayStr(),
       }),
     );
+    // ★数え方が2通りに分かれている月だけ、どちらに合うかも出す（kp250・f1-4）。
+    //   分かれていなければ variants は1つしか返らないので、画面には何も増えません。
+    const variants = buildCashVariants({
+      screenBalance,
+      withRepaidBalance: computedAsOfWithRepaid(countOn),
+    });
+    const pick = pickCashVariant({ variants, counted: amount });
+    setVariantPick(pick.hasChoice ? pick : null);
   };
 
   const save = async (kind: "count" | "deposit") => {
@@ -1671,6 +1733,7 @@ function CashCountCard({
       setCountYen("");
       setCountNote("");
       setPreview(null);
+      setVariantPick(null);
     } else {
       setDepositYen("");
     }
@@ -1776,7 +1839,24 @@ function CashCountCard({
             >
               {preview.verdict}
             </p>
-            {cashDiffCauses(preview).length > 0 && (
+            {/* 数え方が2通りに分かれている月だけ出す（2026-10-12・kp250・f1-4）。
+                ★差が「書き忘れ」ではなく「数え方のちがい」のときに、そう言うため。 */}
+            {variantPick && (
+              <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
+                {variantPick.lines.map((l) => (
+                  <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
+                    {l}
+                  </p>
+                ))}
+                <p className="text-xs text-stone-500 leading-relaxed">
+                  ちがうのは「前の月までに立て替えて、そのあと返したお金」を引くかどうかの1点だけです
+                  （{repaidEarlierRows} 行）。金額はこちらで1円も直していません。
+                </p>
+              </div>
+            )}
+            {/* ★数え方のちがいで説明がついたときは「よくある原因」を出さない。
+                   出すと、書き忘れなど1件も無いのに探し物をさせてしまう。 */}
+            {cashDiffCauses(preview).length > 0 && !variantPick?.matched && (
               <div className="pt-1">
                 <p className="text-xs text-stone-600">よくある原因は次の3つです。</p>
                 <ul className="mt-1 list-disc pl-5 text-xs text-stone-600 leading-relaxed">
