@@ -366,8 +366,16 @@ export function checkCases(cases: CashCheckCase[]): string[] {
   return problems;
 }
 
-/** 架空の「前の月に立て替えて、この月に返した」額（実データは1円も使わない） */
-const DEMO_REPAID_EARLIER_YEN = 493700;
+/**
+ * 架空の「前の月に立て替えて、この月に返した」額（実データは1円も使わない）。
+ *
+ * ★架空のお店の残高の**半分**にする。手羽屋の実額（493,700円）をそのまま使うと、
+ *   架空のお店の残高（約21万円）を超えて「金庫に −28万円 ある」という
+ *   ありえない場面になり、読んだ人が迷います（2026-10-12 に本番で実測して気づいた）。
+ */
+function demoRepaidEarlierYen(nowScreen: number): number {
+  return Math.max(1000, Math.round(nowScreen / 2 / 100) * 100);
+}
 
 /**
  * 「2通りの数え方のどちらに合うか」を、架空のお店の数字で外から確かめられる形にする
@@ -386,7 +394,8 @@ const DEMO_REPAID_EARLIER_YEN = 493700;
 export function buildCashVariantCheck(params?: { today?: string }): CashVariantCheck {
   void params;
   const nowScreen = cashCheckPosition().balance;
-  const withRepaid = nowScreen - DEMO_REPAID_EARLIER_YEN;
+  const repaidEarlierYen = demoRepaidEarlierYen(nowScreen);
+  const withRepaid = nowScreen - repaidEarlierYen;
   const variants = buildCashVariants({
     screenBalance: nowScreen,
     withRepaidBalance: withRepaid,
@@ -406,7 +415,11 @@ export function buildCashVariantCheck(params?: { today?: string }): CashVariantC
   const cases: CashVariantCase[] = [
     one("① 金庫が「いまの画面の数え方」に合った", nowScreen),
     one("② 金庫が「前の月に返した分も引く数え方」に合った", withRepaid),
-    one("③ どちらにも合わない（数え方では説明がつかない差）", withRepaid - 50000),
+    // ★どちらからも 1,000円 以上 離れた金額（2つの残高のちょうど真ん中）
+    one(
+      "③ どちらにも合わない（数え方では説明がつかない差）",
+      Math.round((nowScreen + withRepaid) / 2),
+    ),
   ];
 
   // ④ 分かれていない月＝選択肢そのものを出さない
@@ -426,7 +439,7 @@ export function buildCashVariantCheck(params?: { today?: string }): CashVariantC
     what:
       "金庫の現金の数え方が2通りに分かれたとき、入れた金額がどちらに合うかを" +
       "画面が自分で言えるか（f1-4・kp250）。ボタンを押さずに外から読むだけで確かめられます",
-    repaidEarlierYen: DEMO_REPAID_EARLIER_YEN,
+    repaidEarlierYen,
     balances: { nowScreen, withEarlierRepaid: withRepaid },
     labels: CASH_VARIANT_LABEL,
     cases,
