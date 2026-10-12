@@ -5,6 +5,7 @@ import { TebayaOnlyBlock } from "./components/TebayaOnlyGate";
 import AppTitle from "./components/AppTitle";
 import OwnerOutreachNudge from "./components/OwnerOutreachNudge";
 import OwnerApplicationAlert from "./components/OwnerApplicationAlert";
+import OwnerSetupTodoNotice from "./components/OwnerSetupTodoNotice";
 import KeiriCaseLink from "./components/KeiriCaseLink";
 
 /** グループ見出し */
@@ -43,6 +44,14 @@ export default function MenuPage() {
       <header className="mb-6 text-center">
         <AppTitle />
       </header>
+
+      {/* じゅんだけの一度きりの手続きが のこっていることの知らせ（2026-10-12・f1-4／f3-4／f5-4）。
+          のこりは3つ（貼り紙・金庫を数える・鍵の貼り直し）で、仕上げの3項目がこれ待ち。
+          一覧は経理の画面（/keiri）に出していたが、じゅんが毎日ひらくのはここなので、
+          同じ答えをここにも出す。赤い知らせとまったく同じ印を使う＝スタッフには出ない。
+          出すのは「のこり何件・何分・どの1枚をひらくか」だけで、鍵・金額・お店の名前は出さない。
+          日報のデータは1行も読み書きしない。 */}
+      <OwnerSetupTodoNotice />
 
       {/* お申し込みが入ったのに誰も気づかない、を防ぐ赤い知らせ（kp156）。
           知らせる道はスタッフのLINEしかなく、今月あと5通しか残っていない。
