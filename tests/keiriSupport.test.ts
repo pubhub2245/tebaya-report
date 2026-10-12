@@ -137,3 +137,17 @@ test("窓口の宛先：別の宛先に分けたいときは、設定したほ�
     else process.env.NEXT_PUBLIC_KEIRI_SUPPORT_EMAIL = before;
   }
 });
+
+test("よくある質問の『◯個にまとめました』を直書きしない（10と書いて11個 並んでいた）", () => {
+  const src = readFileSync("app/keiri/help/page.tsx", "utf8");
+  const hardcoded = src.match(/よくある質問を[0-9０-９]+個/);
+  assert.equal(
+    hardcoded,
+    null,
+    `数を直書きすると、質問を足したときに嘘になる（見つかった書き方：${hardcoded?.[0]}）`,
+  );
+  assert.ok(
+    src.includes("よくある質問を{KEIRI_FAQ.length}個"),
+    "下に並べる数をそのまま数える書き方になっていない",
+  );
+});
