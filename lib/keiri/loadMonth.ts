@@ -27,7 +27,7 @@ import {
   readWindowOutcome,
 } from "./readSource";
 import { normalizeFieldAdvance, normalizeOwnerAdvance } from "./advances";
-import { advanceReadRange } from "./advanceRange";
+import { advanceReadRange, advanceRepaidEarlierRange } from "./advanceRange";
 import {
   ignoreShelfStateOf,
   type ExpenseIgnoreRow,
@@ -48,6 +48,13 @@ export type KeiriMonthData = {
   reports: KeiriReport[];
   payments: (KeiriPayment & { id: number })[];
   advances: KeiriAdvance[];
+  /**
+   * 「前の月までに立て替えて、この期間に返した立替」（2026-10-12・kp250・f1-4）。
+   * ★**月の経費・利益・会計ソフト向けCSVには1円も入れません。**
+   *   金庫を数えたときに「もう1通りの数え方」を出すためだけに使います
+   *   （lib/keiri/cashVariant.ts）。理由は lib/keiri/advanceRange.ts に書いてあります。
+   */
+  advancesRepaidEarlier: KeiriAdvance[];
   /**
    * 金庫を数えた記録と、銀行に入れた記録（kp233・f1-4）。
    * ★棚（keiri_cash_events）がまだ無い倉庫でも落ちないように、
@@ -138,6 +145,8 @@ async function loadViaServerWindow(params: {
     reports: (d.reports as KeiriReport[]) ?? [],
     payments: (d.payments as (KeiriPayment & { id: number })[]) ?? [],
     advances: (d.advances as KeiriAdvance[]) ?? [],
+    // ★窓口がまだこの欄を返さない版でも落ちないように、無ければ空のまま（＝今までどおり）
+    advancesRepaidEarlier: (d.advancesRepaidEarlier as KeiriAdvance[]) ?? [],
     cashEvents: (d.cashEvents as CashEvent[]) ?? [],
     cashShelfMissing: !!d.cashShelfMissing,
     ignores: (d.ignores as ExpenseIgnoreRow[]) ?? [],
@@ -232,6 +241,7 @@ export async function loadKeiriMonthDirect(
 
   // 立替。棚が2つあり（現場／経営側）、列の名前も違うので形を揃えてから使う。
   const advances: KeiriAdvance[] = [];
+  const advancesRepaidEarlier: KeiriAdvance[] = [];
   if (isTebayaScope(scope)) {
     // ★読む期間は lib/keiri/advanceRange.ts の1か所で決める（2026-10-11・kp249）。
     //   サーバー側の窓口（loadMonthServer.ts）と同じ関数を呼ぶので、もうずれません。
@@ -257,6 +267,27 @@ export async function loadKeiriMonthDirect(
       : ownerQuery);
     for (const row of (owner as any[]) ?? []) {
       advances.push(normalizeOwnerAdvance(row));
+    }
+    // 「前の月までに立て替えて、この期間に返した立替」を**別の入れ物**で読む（kp250・f1-4）。
+    // ★読めなくても落とさない・上の advances には1行も混ぜない
+    //   （混ぜると月の経費と会計ソフト向けCSVが黙って動きます）。
+    try {
+      const repaidRange = advanceRepaidEarlierRange(advRange);
+      const repaidQuery = supabase
+        .from("advance_expenses")
+        .select("id, date, amount, payer, description, settled, settled_date")
+        .lt("date", repaidRange.advancedBefore)
+        .eq("settled", true)
+        .gte("settled_date", repaidRange.repaidFrom);
+      const { data: repaidRows } = await (repaidRange.repaidTo
+        ? repaidQuery.lte("settled_date", repaidRange.repaidTo)
+        : repaidQuery);
+      for (const row of (repaidRows as any[]) ?? []) {
+        advancesRepaidEarlier.push(normalizeOwnerAdvance(row));
+      }
+    } catch {
+      // ★ここで落とさない。読めなければ「もう1通りの数え方」を出さないだけで、
+      //   今までの数字（経費・利益・CSV・画面）は1円も変わりません。
     }
   }
 
@@ -298,6 +329,7 @@ export async function loadKeiriMonthDirect(
     reports: (reps as KeiriReport[]) ?? [],
     payments: (pays as (KeiriPayment & { id: number })[]) ?? [],
     advances,
+    advancesRepaidEarlier,
     cashEvents,
     cashShelfMissing,
     ignores,

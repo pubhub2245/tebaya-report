@@ -33,6 +33,8 @@ function fakeDb(rowsByTable: Record<string, unknown[]> = {}) {
       eq: (c: string, v: string) => (call.filters.push(`eq:${c}=${v}`), q),
       is: (c: string, _v: null) => (call.filters.push(`is:${c}=null`), q),
       gte: () => q,
+      gt: () => q,
+      lt: (c: string, v: string) => (call.filters.push(`lt:${c}<${v}`), q),
       lte: () => q,
       order: () => Promise.resolve({ data: rowsByTable[table] ?? [], error: null }),
       maybeSingle: () => Promise.resolve({ data: null, error: null }),
@@ -93,4 +95,39 @@ test("業態コードと、どのお店かの印が食い違っていないか�
   assert.equal(businessCodeMatchesScope(`t_${id}`, id), true);
   assert.equal(businessCodeMatchesScope("tebaya", id), false, "手羽屋のコードでよその店は読まない");
   assert.equal(businessCodeMatchesScope(`t_${id}`, null), false);
+});
+
+/**
+ * 「前の月までに立て替えて、この月に返した立替」を**別の入れ物**で読む
+ * （2026-10-12・kp250・f1-4）。
+ *
+ * ★この行は金庫の数え方を2通り出すためだけに使い、月の経費・利益・CSVには入れません。
+ *   よその店として読むときは、上の②と同じ決まりで**読みません**（立替の棚に印が無いため）。
+ */
+test("前の月に立て替えて今月 返した立替を、別の入れ物で読む（手羽屋のときだけ）", async () => {
+  const { db, calls } = fakeDb();
+  const data = await loadKeiriMonthServer({ ym: "2026-09", businessCode: "tebaya", db });
+
+  const owner = calls.filter((c) => c.table === "advance_expenses");
+  assert.equal(owner.length, 2, "経営側の立替の棚に2回 聞く（ふだんの分と、前の月に立て替えた分）");
+  const extra = owner.find((c) => c.filters.some((f) => f.startsWith("lt:date<")));
+  assert.ok(extra, "立て替えた日が期間より前の行に絞っている");
+  assert.ok(extra!.filters.includes("eq:settled=true"), "返し終わった行だけに絞っている");
+  // 別の入れ物なので、ふだんの立替には混ざらない
+  assert.ok(Array.isArray(data.advancesRepaidEarlier));
+
+  const otherId = "11111111-2222-3333-4444-555555555555";
+  const other = fakeDb();
+  const o = await loadKeiriMonthServer({
+    ym: "2026-09",
+    businessCode: `t_${otherId}`,
+    scope: otherId,
+    db: other.db,
+  });
+  assert.equal(
+    other.calls.filter((c) => c.table === "advance_expenses").length,
+    0,
+    "よその店として読むときは、立替の棚に1回も聞かない",
+  );
+  assert.equal(o.advancesRepaidEarlier.length, 0);
 });

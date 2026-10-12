@@ -67,3 +67,31 @@ export function advanceReadRange(params: {
   // ふだんの経理の画面。画面が昔から使っている期間と1日もちがえないこと
   return { from: monthStart < opening ? monthStart : opening, to: null };
 }
+
+/**
+ * 「前の月までに立て替えて、この期間に返した立替」を読むための条件
+ * （2026-10-12・kp250・f1-4）。
+ *
+ * ■ なぜ別に読むのか（やさしい説明）
+ *   立替は「**立て替えた日**」で読んでいます（経費をどの月に入れるかは
+ *   CLAUDE.md 5-4b のとおり、立て替えた日で決まるからです）。
+ *   ところが**金庫からお金が出るのは「返した日」**です。
+ *   前の月までに立て替えて今月 返したお金は、立て替えた日が期間の外なので
+ *   読まれず、**金庫の計算から引かれていません**（9月は9行・49万円ぶん）。
+ *
+ *   いまの画面の金額を黙って動かさないために、この行は**別の入れ物**で読みます。
+ *   金庫を数えたときの「もう1通りの数え方」を出すためだけに使い、
+ *   月の経費・利益・会計ソフト向けCSVには1円も入れません。
+ *
+ * @returns from より前に立て替えた行のうち、返した日が期間の中にあるものを読む条件
+ */
+export function advanceRepaidEarlierRange(range: AdvanceReadRange): {
+  /** 立て替えた日がこの日より前（＝ふだんは読まれない行） */
+  advancedBefore: string;
+  /** 返した日がこの日から */
+  repaidFrom: string;
+  /** 返した日がこの日まで（null なら区切らない） */
+  repaidTo: string | null;
+} {
+  return { advancedBefore: range.from, repaidFrom: range.from, repaidTo: range.to };
+}
