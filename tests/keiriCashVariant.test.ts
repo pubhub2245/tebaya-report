@@ -183,6 +183,9 @@ test("⑤ 外から確かめる筋書きが、4通りとも正しく出る", asy
   assert.equal(v.balances.nowScreen - v.balances.withEarlierRepaid, v.repaidEarlierYen);
   // ④（分かれていない月）は行が1行も増えない
   assert.equal(v.cases[3].lines.length, 0);
+  // ★架空の残高は2つともプラス（「金庫に −28万円 ある」という場面を作らない）
+  assert.ok(v.balances.nowScreen > 0);
+  assert.ok(v.balances.withEarlierRepaid > 0);
 
   // 窓口そのものも、この検算を自分で通している
   const whole = buildCashCheck({ countedYen: null });
