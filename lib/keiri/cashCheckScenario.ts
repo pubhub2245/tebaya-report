@@ -94,6 +94,12 @@ const SHORT_BY = 3576;
 const OVER_BY = 12000;
 /** ②で使うズレ（1,000円 未満＝おつりの誤差の範囲） */
 const NEAR_BY = 500;
+/**
+ * 架空の「レジに残してあるつり銭」（2号車ぶん・2026-10-12・f1-4）。
+ * ★手羽屋の実データは1円も使いません。おつりの誤差の線（1,000円）より
+ *   はっきり大きい額にして、「金庫だけを数えた場面」が別の相手になることを確かめます。
+ */
+const DEMO_REGISTER_FLOAT_YEN = 60000;
 
 /** 架空のお店の現金の様子（お試し版とまったく同じ作り方） */
 export function cashCheckPosition(asOf: string = CASH_CHECK_COUNTED_ON): CashPosition {
@@ -173,8 +179,16 @@ export type CashVariantCheck = {
   what: string;
   /** 架空の「前の月に立て替えて、この月に返した」額 */
   repaidEarlierYen: number;
-  /** 2通りの残高 */
-  balances: { nowScreen: number; withEarlierRepaid: number };
+  /** 架空の「レジに残してあるつり銭」（金庫の外にあるお金・2026-10-12・f1-4） */
+  registerFloatYen: number;
+  /** 数え方ごとの残高 */
+  balances: {
+    nowScreen: number;
+    withEarlierRepaid: number;
+    /** レジのつり銭を金庫の外として引いた金額（金庫だけを数えたとき） */
+    nowScreenSafeOnly: number;
+    withEarlierRepaidSafeOnly: number;
+  };
   /** それぞれの数え方の名前 */
   labels: Record<CashVariantKey, string>;
   cases: CashVariantCase[];
@@ -396,9 +410,12 @@ export function buildCashVariantCheck(params?: { today?: string }): CashVariantC
   const nowScreen = cashCheckPosition().balance;
   const repaidEarlierYen = demoRepaidEarlierYen(nowScreen);
   const withRepaid = nowScreen - repaidEarlierYen;
+  // 架空の「レジに残してあるつり銭」（2号車ぶん）。金庫の外にあるお金
+  const registerFloatYen = DEMO_REGISTER_FLOAT_YEN;
   const variants = buildCashVariants({
     screenBalance: nowScreen,
     withRepaidBalance: withRepaid,
+    registerFloat: registerFloatYen,
   });
 
   const one = (name: string, counted: number): CashVariantCase => {
@@ -412,22 +429,33 @@ export function buildCashVariantCheck(params?: { today?: string }): CashVariantC
     };
   };
 
+  // ★どの数え方からも 1,000円 以上 離れた金額（いちばん大きい残高より さらに上）
+  const farFromAll =
+    variants.reduce((max, v) => Math.max(max, v.balance), 0) + NEAR_ENOUGH_YEN * 3;
+
   const cases: CashVariantCase[] = [
     one("① 金庫が「いまの画面の数え方」に合った", nowScreen),
     one("② 金庫が「前の月に返した分も引く数え方」に合った", withRepaid),
-    // ★どちらからも 1,000円 以上 離れた金額（2つの残高のちょうど真ん中）
+    one("③ どちらにも合わない（数え方では説明がつかない差）", farFromAll),
+    // ★金庫だけを数えた（レジのつり銭は数えていない）場面。
+    //   ここで「書き忘れを探してください」と出すと、無い探し物をさせてしまう（f1-4）
+    one("⑤ 金庫だけを数えた（レジのつり銭は数えていない）", nowScreen - registerFloatYen),
     one(
-      "③ どちらにも合わない（数え方では説明がつかない差）",
-      Math.round((nowScreen + withRepaid) / 2),
+      "⑥ 金庫だけを数えて、返した分も引く数え方に合った",
+      withRepaid - registerFloatYen,
     ),
   ];
 
   // ④ 分かれていない月＝選択肢そのものを出さない
   const single = pickCashVariant({
-    variants: buildCashVariants({ screenBalance: nowScreen, withRepaidBalance: nowScreen }),
+    variants: buildCashVariants({
+      screenBalance: nowScreen,
+      withRepaidBalance: nowScreen,
+      registerFloat: 0,
+    }),
     counted: nowScreen,
   });
-  cases.push({
+  cases.splice(3, 0, {
     name: "④ 数え方が分かれていない月（画面には何も増えない）",
     counted: nowScreen,
     match: single.match,
@@ -437,15 +465,23 @@ export function buildCashVariantCheck(params?: { today?: string }): CashVariantC
 
   return {
     what:
-      "金庫の現金の数え方が2通りに分かれたとき、入れた金額がどちらに合うかを" +
+      "金庫の現金の数え方が分かれたとき、入れた金額がどれに合うかを" +
       "画面が自分で言えるか（f1-4・kp250）。ボタンを押さずに外から読むだけで確かめられます",
     repaidEarlierYen,
-    balances: { nowScreen, withEarlierRepaid: withRepaid },
+    registerFloatYen,
+    balances: {
+      nowScreen,
+      withEarlierRepaid: withRepaid,
+      nowScreenSafeOnly: nowScreen - registerFloatYen,
+      withEarlierRepaidSafeOnly: withRepaid - registerFloatYen,
+    },
     labels: CASH_VARIANT_LABEL,
     cases,
     note:
-      "①②は合った側を名指しし、③は「どちらにも合いませんでした」と言い、" +
+      "①②⑤⑥は合った側を名指しし、③は「どれにも合いませんでした」と言い、" +
       "④は行が1行も出ません（＝画面に何も増えない）。" +
+      "⑤⑥は「金庫だけを数えて、レジのつり銭は数えていない」場面で、" +
+      "ここで『書き忘れを探してください』と出さないことを確かめています。" +
       "金額は架空のお店のもので、こちらで1円も直していません。",
   };
 }
@@ -461,7 +497,14 @@ export function buildCashVariantCheck(params?: { today?: string }): CashVariantC
  */
 export function checkVariantCases(v: CashVariantCheck): string[] {
   const problems: string[] = [];
-  const want: CashVariantMatch[] = ["nowScreen", "withEarlierRepaid", "neither", "single"];
+  const want: CashVariantMatch[] = [
+    "nowScreen",
+    "withEarlierRepaid",
+    "neither",
+    "single",
+    "nowScreenSafeOnly",
+    "withEarlierRepaidSafeOnly",
+  ];
   v.cases.forEach((c, i) => {
     if (c.match !== want[i]) {
       problems.push(`${c.name}：合う側の見分けが「${c.match}」になっています`);
@@ -478,6 +521,13 @@ export function checkVariantCases(v: CashVariantCheck): string[] {
   for (const c of v.cases) {
     if (c.match !== "single" && c.lines.length === 0) {
       problems.push(`${c.name}：画面に出る行が空です`);
+    }
+    // ★金庫だけを数えた場面で「書き忘れ」と言わないこと（無い探し物をさせないため・f1-4）
+    if (
+      (c.match === "nowScreenSafeOnly" || c.match === "withEarlierRepaidSafeOnly") &&
+      !c.lines.some((l) => l.includes("レジに残してあるつり銭"))
+    ) {
+      problems.push(`${c.name}：レジのつり銭のことが1行も出ていません`);
     }
   }
   return problems;

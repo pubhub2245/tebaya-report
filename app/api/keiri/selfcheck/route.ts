@@ -14,7 +14,11 @@ import {
   reconcileCash,
 } from "@/lib/keiri/cashCheck";
 import { calcCashPosition } from "@/lib/keiri/aggregate";
-import { cashVariantWindow } from "@/lib/keiri/cashVariant";
+import { buildCashVariants, cashVariantWindow } from "@/lib/keiri/cashVariant";
+import {
+  latestRegisterFloat,
+  registerFloatWindow,
+} from "@/lib/keiri/registerFloat";
 import { depositsOf } from "@/lib/keiri/cashCheck";
 
 export const runtime = "nodejs";
@@ -95,6 +99,9 @@ export async function GET(req: NextRequest) {
         })),
         readable: !data.advancesUnreadable && !data.advancesSkipped,
       }),
+      // レジに残してあるつり銭（金庫の外のお金）を見分けられる状態か（2026-10-12・f1-4）。
+      // ★金額は1円も返しません。返すのは号車の数・最後の日・相手の数だけです。
+      registerFloat: registerFloatOf(data),
       duplicateMarks: {
         shelf: data.ignoreShelf,
         decided: marked,
@@ -165,6 +172,49 @@ function cashCountOf(data: Awaited<ReturnType<typeof loadKeiriMonthServer>>) {
       "金額は1円も返していません（記録の件数・最後に数えた日・5通りのどれか だけ）。" +
       "見ている月を変えても、この答えは変わりません（突き合わせは最後に数えた日で行うため）。",
   };
+}
+
+/**
+ * 「レジに残してあるつり銭を見分けられるか」を外から確かめられる形にする
+ * （2026-10-12・f1-4）。
+ *
+ * ■ なぜ要るのか
+ *   じゅんにお願いしているのは「**金庫**を数える」ことですが、お金の置き場は
+ *   金庫だけではありません。閉店のときレジには翌日のつり銭が号車ごとに残っています。
+ *   「合う」の線は1,000円 未満なので、黙っていると**合っているのに**
+ *   「金庫のほうが少ないです。書き忘れた支払いを探してください」と出てしまいます。
+ *   そこで比べる相手にその分を引いた金額も並べ、画面がどれに合うかを名指しします。
+ *
+ * ★返すのは号車の数・最後に数えた日・相手の数だけ。金額は1円も返しません。
+ */
+function registerFloatOf(data: Awaited<ReturnType<typeof loadKeiriMonthServer>>) {
+  const readable = !data.registerUnreadable;
+  const float = latestRegisterFloat(data.registerCloses ?? []);
+  // 画面に並ぶ「比べる相手」の数だけを数える（金額は外に出さない）
+  const screen = calcCashPosition({
+    reports: data.reports ?? [],
+    payments: data.payments ?? [],
+    settings: data.settings,
+    advances: data.advances ?? [],
+    deposits: depositsOf(data.cashEvents ?? []),
+  }).balance;
+  const repaid = data.advancesRepaidEarlier ?? [];
+  const withRepaid =
+    repaid.length > 0
+      ? calcCashPosition({
+          reports: data.reports ?? [],
+          payments: data.payments ?? [],
+          settings: data.settings,
+          advances: [...(data.advances ?? []), ...repaid],
+          deposits: depositsOf(data.cashEvents ?? []),
+        }).balance
+      : null;
+  const targets = buildCashVariants({
+    screenBalance: screen,
+    withRepaidBalance: withRepaid,
+    registerFloat: readable ? float.total : 0,
+  }).length;
+  return registerFloatWindow({ float, readable, variantTargets: targets });
 }
 
 /**

@@ -99,6 +99,11 @@ import {
   pickCashVariant,
   type CashVariantPick,
 } from "@/lib/keiri/cashVariant";
+import {
+  latestRegisterFloat,
+  registerFloatLines,
+  type RegisterCloseRow,
+} from "@/lib/keiri/registerFloat";
 import { shopScopeSentence } from "@/lib/keiri/shopScope";
 import {
   PAYMENT_KIND_LABEL,
@@ -196,6 +201,12 @@ function KeiriInner() {
   const [cashEvents, setCashEvents] = useState<CashEvent[]>([]);
   const [cashShelfMissing, setCashShelfMissing] = useState(false);
   /**
+   * 閉店後に**レジに残してあるつり銭**の実測（2026-10-12・f1-4）。
+   * ★月の経費・利益・会計ソフト向けCSVには**1円も入れません**。
+   *   金庫を数えたときに「金庫だけを数えた場合の相手」を並べるためだけに使います。
+   */
+  const [registerCloses, setRegisterCloses] = useState<RegisterCloseRow[]>([]);
+  /**
    * 「同じ支払いが2か所にある」ときに、どちらを数えるかを決めた印（kp230・f1-5）。
    * ★棚（keiri_expense_ignores）がまだ無い倉庫では空のまま＝今までどおり「出すだけ」。
    */
@@ -260,6 +271,7 @@ function KeiriInner() {
       setAdvancesRepaidEarlier(data.advancesRepaidEarlier ?? []);
       setCashEvents(data.cashEvents);
       setCashShelfMissing(data.cashShelfMissing);
+      setRegisterCloses(data.registerCloses ?? []);
       setIgnores(data.ignores);
       setIgnoreShelf(data.ignoreShelf);
     } catch (e: any) {
@@ -1013,6 +1025,7 @@ function KeiriInner() {
         computedAsOf={computedAsOf}
         computedAsOfWithRepaid={computedAsOfWithRepaid}
         repaidEarlierRows={advancesRepaidEarlier.length}
+        registerCloses={registerCloses}
       />
 
       {/* 毎月お渡しする1枚（2026-10-04・kp231）。
@@ -1644,6 +1657,7 @@ function CashCountCard({
   computedAsOf,
   computedAsOfWithRepaid,
   repaidEarlierRows,
+  registerCloses,
 }: {
   reconcile: ReturnType<typeof reconcileCash>;
   balanceNow: number;
@@ -1658,6 +1672,8 @@ function CashCountCard({
   computedAsOfWithRepaid: (date: string) => number | null;
   /** 「返した日で引く数え方」でだけ数に入る立替の行数 */
   repaidEarlierRows: number;
+  /** 閉店後にレジに残したつり銭の実測（号車ごと・2026-10-12・f1-4） */
+  registerCloses: RegisterCloseRow[];
 }) {
   const [countOn, setCountOn] = useState(todayStr());
   const [countYen, setCountYen] = useState("");
@@ -1670,6 +1686,13 @@ function CashCountCard({
   const [preview, setPreview] = useState<CashReconcile | null>(null);
   /** 2通りの数え方のどちらに合ったか（2026-10-12・kp250・f1-4） */
   const [variantPick, setVariantPick] = useState<CashVariantPick | null>(null);
+  /** 比べたときに使った「レジに残してあるつり銭」（2026-10-12・f1-4） */
+  const [variantFloat, setVariantFloat] = useState(0);
+  /** いま入れている「数えた日」の時点で、レジに残してあるつり銭（画面に出すため） */
+  const floatNow = useMemo(
+    () => latestRegisterFloat(registerCloses, countOn),
+    [registerCloses, countOn],
+  );
 
   /** 入れた金額を読む（空・マイナス・数字でないものは断る） */
   const readYen = (raw: string): number | null => {
@@ -1699,9 +1722,13 @@ function CashCountCard({
     );
     // ★数え方が2通りに分かれている月だけ、どちらに合うかも出す（kp250・f1-4）。
     //   分かれていなければ variants は1つしか返らないので、画面には何も増えません。
+    // ★レジに残してあるつり銭は**金庫の外**にあるお金。金庫だけを数えたときの相手も並べる（f1-4）
+    const float = latestRegisterFloat(registerCloses, countOn);
+    setVariantFloat(float.total);
     const variants = buildCashVariants({
       screenBalance,
       withRepaidBalance: computedAsOfWithRepaid(countOn),
+      registerFloat: float.total,
     });
     const pick = pickCashVariant({ variants, counted: amount });
     setVariantPick(pick.hasChoice ? pick : null);
@@ -1786,6 +1813,22 @@ function CashCountCard({
           お札と小銭をぜんぶ足した額を入れてください。銀行に入れた分は入れません。
           月に1回で大丈夫です。
         </p>
+        {/* レジに残してあるつり銭は「金庫の外」にあるお金（2026-10-12・f1-4）。
+            入れても入れなくてもよい形にして、どちらで数えたかは画面が見分けます。
+            ★ここに出すのは日報の実測（閉店後のレジ金）だけ。推測の金額は作りません。 */}
+        {floatNow.units.length > 0 && (
+          <div className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 space-y-1">
+            <p className="text-xs text-stone-600 leading-relaxed">
+              レジに残してあるつり銭は、入れなくて大丈夫です（金庫の外にあるお金です）。
+              入れた場合も、どちらで数えたかは下の答えで見分けます。
+            </p>
+            {registerFloatLines(floatNow).map((l) => (
+              <p key={l} className="text-xs text-stone-700 tabular-nums">
+                {l}
+              </p>
+            ))}
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label className="label">数えた日</label>
@@ -1849,8 +1892,14 @@ function CashCountCard({
                   </p>
                 ))}
                 <p className="text-xs text-stone-500 leading-relaxed">
-                  ちがうのは「前の月までに立て替えて、そのあと返したお金」を引くかどうかの1点だけです
-                  （{repaidEarlierRows} 行）。金額はこちらで1円も直していません。
+                  ちがうのは次の点だけです。
+                  {repaidEarlierRows > 0
+                    ? `「前の月までに立て替えて、そのあと返したお金」を引くかどうか（${repaidEarlierRows} 行）。`
+                    : ""}
+                  {variantFloat > 0
+                    ? `レジに残してあるつり銭 ${yen(variantFloat)} を「金庫の外」として引くかどうか。`
+                    : ""}
+                  金額はこちらで1円も直していません。
                 </p>
               </div>
             )}
