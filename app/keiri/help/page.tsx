@@ -47,7 +47,9 @@ export default function KeiriHelpPage() {
         <p className="text-xs font-bold text-amber-700 tracking-wide">経理パッケージ</p>
         <h1 className="mt-2 text-3xl font-bold text-stone-900 leading-tight">困ったとき</h1>
         <p className="mt-3 text-stone-600 leading-relaxed">
-          よくある質問を10個にまとめました。ここに無いことは、下の窓口からお知らせください。
+          {/* ★数を直書きしない（2026-10-12）。10個と書いてあるのに11個 並んでいた。
+              質問を足すたびに直し忘れるので、下に並べる数をそのまま数えて書く。 */}
+          よくある質問を{KEIRI_FAQ.length}個にまとめました。ここに無いことは、下の窓口からお知らせください。
         </p>
       </header>
 
