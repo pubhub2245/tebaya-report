@@ -263,3 +263,21 @@ test("⑥ 金庫だけを数えたときは、レジのつり銭ぶんの相手�
     2,
   );
 });
+
+/**
+ * 「結局 合っていたのか」の判断を1か所に固定する（2026-10-12・f1-4）。
+ *
+ * じゅんが**金庫だけ**を数えると、いちばん素直な数え方からは外れる。
+ * それを「合っていない」と外に出すと、合っているのに不合格に見えてしまう。
+ */
+test("⑦ 数え方のちがいで説明がついたときも「合った」とする", async () => {
+  const { cashCountMatched } = await import("../lib/keiri/cashCheck");
+  assert.equal(cashCountMatched("exact", false), true);
+  assert.equal(cashCountMatched("near", false), true);
+  // 金庫だけを数えた＝素直な数え方からは外れるが、数え方が名指しできたので合っている
+  assert.equal(cashCountMatched("short", true), true);
+  assert.equal(cashCountMatched("over", true), true);
+  // 名指しできなければ、正直に「合っていない」
+  assert.equal(cashCountMatched("short", false), false);
+  assert.equal(cashCountMatched("none", false), false);
+});

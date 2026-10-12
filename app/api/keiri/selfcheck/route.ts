@@ -10,11 +10,16 @@ import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow"
 import {
   CASH_COUNT_KIND_LABEL,
   cashCountKind,
+  cashCountMatched,
   latestCount,
   reconcileCash,
 } from "@/lib/keiri/cashCheck";
 import { calcCashPosition } from "@/lib/keiri/aggregate";
-import { buildCashVariants, cashVariantWindow } from "@/lib/keiri/cashVariant";
+import {
+  buildCashVariants,
+  cashVariantWindow,
+  pickCashVariant,
+} from "@/lib/keiri/cashVariant";
 import {
   latestRegisterFloat,
   registerFloatWindow,
@@ -156,6 +161,23 @@ function cashCountOf(data: Awaited<ReturnType<typeof loadKeiriMonthServer>>) {
     today: new Date().toISOString().slice(0, 10),
   });
   const kind = cashCountKind(r);
+  // ★数えた金額が「どの数え方」に合ったかも返す（2026-10-12・f1-4）。
+  //   金庫だけを数えた／前の月に返した分を引く——どちらも「合っている」のに、
+  //   kind だけ見ると「金庫のほうが少ない」に見えてしまい、外から見ると不合格に見える。
+  const pick =
+    last && computedAtCount !== null
+      ? pickCashVariant({
+          variants: buildCashVariants({
+            screenBalance: computedAtCount,
+            withRepaidBalance: withRepaidBalanceAsOf(data, last.happened_on),
+            registerFloat: data.registerUnreadable
+              ? 0
+              : latestRegisterFloat(data.registerCloses ?? [], last.happened_on).total,
+          }),
+          counted: last.amount,
+        })
+      : null;
+  const variantMatched = pick?.matched ?? null;
   return {
     shelf: data.cashShelfMissing ? "missing" : "ready",
     shelfNote: data.cashShelfMissing
@@ -167,11 +189,36 @@ function cashCountOf(data: Awaited<ReturnType<typeof loadKeiriMonthServer>>) {
     daysSinceCount: r.daysSince,
     kind,
     kindLabel: CASH_COUNT_KIND_LABEL[kind],
-    matched: kind === "exact" || kind === "near",
+    // ★どの数え方に合ったか（合わなければ null）。金額ではなく名前だけを返す
+    variantMatch: variantMatched ? variantMatched.key : null,
+    variantMatchLabel: variantMatched ? variantMatched.label : null,
+    /**
+     * 合っていたか。**数え方のちがいで説明がついた場合も「合った」**とします
+     * （金庫だけを数えた／前の月に返した分を引く、は どちらも合っている状態です）。
+     */
+    matched: cashCountMatched(kind, variantMatched !== null),
     note:
-      "金額は1円も返していません（記録の件数・最後に数えた日・5通りのどれか だけ）。" +
-      "見ている月を変えても、この答えは変わりません（突き合わせは最後に数えた日で行うため）。",
+      "金額は1円も返していません（記録の件数・最後に数えた日・5通りのどれか・合った数え方の名前 だけ）。" +
+      "見ている月を変えても、この答えは変わりません（突き合わせは最後に数えた日で行うため）。" +
+      "変わった数え方で合ったときは variantMatch にその名前が入ります（＝合っています）。",
   };
+}
+
+/** 「前の月に立て替えて、この期間に返した分も引く」側の、その日の時点の残高 */
+function withRepaidBalanceAsOf(
+  data: Awaited<ReturnType<typeof loadKeiriMonthServer>>,
+  asOf: string,
+): number | null {
+  const repaid = data.advancesRepaidEarlier ?? [];
+  if (repaid.length === 0) return null;
+  return calcCashPosition({
+    reports: data.reports ?? [],
+    payments: data.payments ?? [],
+    settings: data.settings,
+    advances: [...(data.advances ?? []), ...repaid],
+    deposits: depositsOf(data.cashEvents ?? []),
+    asOf,
+  }).balance;
 }
 
 /**

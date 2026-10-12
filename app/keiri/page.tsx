@@ -1694,6 +1694,29 @@ function CashCountCard({
     [registerCloses, countOn],
   );
 
+  /**
+   * **記録に残したあと**の突き合わせも、同じように数え方を名指しする（2026-10-12・f1-4）。
+   *
+   * ■ なぜ要るのか
+   *   「この金額で比べる」で出る答えは数え方を名指ししますが、**保存したあとに
+   *   毎回 出る上の答え**は名指ししていませんでした。そのため、記録を残した翌日に
+   *   同じ画面を開くと「金庫のほうが◯◯円 少ないです。書き忘れた現金の支払いを
+   *   見てください」に戻ってしまい、**無い探し物をさせてしまいます**。
+   *   比べるのと同じ関数を通して、言い方を1つにそろえます。
+   */
+  const savedPick = useMemo<CashVariantPick | null>(() => {
+    if (reconcile.neverCounted || reconcile.counted === null || !reconcile.countedOn) {
+      return null;
+    }
+    const variants = buildCashVariants({
+      screenBalance: computedAsOf(reconcile.countedOn),
+      withRepaidBalance: computedAsOfWithRepaid(reconcile.countedOn),
+      registerFloat: latestRegisterFloat(registerCloses, reconcile.countedOn).total,
+    });
+    const pick = pickCashVariant({ variants, counted: reconcile.counted });
+    return pick.hasChoice ? pick : null;
+  }, [reconcile, computedAsOf, computedAsOfWithRepaid, registerCloses]);
+
   /** 入れた金額を読む（空・マイナス・数字でないものは断る） */
   const readYen = (raw: string): number | null => {
     const n = Number(raw);
@@ -1786,14 +1809,26 @@ function CashCountCard({
               {l}
             </p>
           ))}
-          <p
-            className={
-              "text-sm font-bold " +
-              (reconcile.diff === 0 ? "text-emerald-700" : "text-stone-900")
-            }
-          >
-            {reconcile.verdict}
-          </p>
+          {/* ★数え方のちがいで説明がついたときは、「書き忘れを探してください」とは言わない。
+                 言ってしまうと、合っているのに無い探し物をさせてしまう（2026-10-12・f1-4）。 */}
+          {savedPick?.matched ? (
+            <div className="space-y-1">
+              {savedPick.lines.map((l) => (
+                <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
+                  {l}
+                </p>
+              ))}
+            </div>
+          ) : (
+            <p
+              className={
+                "text-sm font-bold " +
+                (reconcile.diff === 0 ? "text-emerald-700" : "text-stone-900")
+              }
+            >
+              {reconcile.verdict}
+            </p>
+          )}
           {reconcile.stale && (
             <p className="text-xs text-amber-700">{reconcile.stale}</p>
           )}
