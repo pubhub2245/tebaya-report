@@ -34,6 +34,7 @@ import {
   type IgnoreShelfState,
 } from "@/lib/keiri/expenseIgnores";
 import { normalizeCashEvents, type CashEvent } from "@/lib/keiri/cashCheck";
+import { decodeCashCountMemo, mergeCashEvents } from "@/lib/keiri/cashCountMemo";
 import {
   normalizeRegisterCloses,
   type RegisterCloseRow,
@@ -131,7 +132,10 @@ export async function loadKeiriMonthServer(params: {
   // 設定（数え始めの日・期首残高・外注費の率・家賃）
   const { data: s } = await db
     .from("keiri_settings")
-    .select("opening_date, opening_balance, outsourcing_rate, monthly_rent, rent_start_month")
+    .select(
+      // ★memo も取る：置き場がまだ無いあいだ、金庫を数えた1回をここに控えている（f1-4）
+      "opening_date, opening_balance, outsourcing_rate, monthly_rent, rent_start_month, memo",
+    )
     .eq("business_type_code", businessCode)
     .maybeSingle();
   const settings: KeiriSettings = s
@@ -255,6 +259,9 @@ export async function loadKeiriMonthServer(params: {
       .order("happened_on", { ascending: false });
     if (error) cashShelfMissing = true;
     else cashEvents = normalizeCashEvents((data as unknown[]) ?? []);
+    // ★置き場がまだ無いあいだ、経理の設定のおまけ欄に控えた「数えた1回」も読む（f1-4）。
+    //   画面（/keiri）はこの窓口から読むので、ここを通さないと控えが画面に出ない。
+    cashEvents = mergeCashEvents(cashEvents, decodeCashCountMemo((s as any)?.memo));
   }
 
   // 閉店後にレジに残したつり銭（日報の実測）。**金庫の外にあるお金**なので、

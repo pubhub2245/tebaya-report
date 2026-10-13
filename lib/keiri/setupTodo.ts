@@ -75,7 +75,7 @@ export type SetupTodoInput = {
    * shelfMissing＝記録を置く棚（貼り紙①）がまだ無い。
    * counted＝数えた記録が1行でもあるか。
    */
-  cash: { shelfMissing: boolean; counted: boolean } | null;
+  cash: { shelfMissing: boolean; counted: boolean; countedInMemo?: boolean } | null;
 };
 
 const SQL_SHEET = "/keiri/sql";
@@ -123,17 +123,25 @@ function cashItem(input: SetupTodoInput["cash"]): SetupTodoItem {
   if (!input) {
     return { ...base, state: "分からない", detail: "いま確かめられませんでした" };
   }
+  // ★棚がまだ無くても、数えた1回は控えに残ります（2026-10-13・f1-4）。
+  //   「入れても残りません」と言い続けると、1分で済む手続きが2分の貼り紙を待ちます。
+  if (input.counted) {
+    return {
+      ...base,
+      state: "済み",
+      detail: input.countedInMemo
+        ? "数えた記録が控えに残っています（棚ができたら、そのまま記録に移ります）"
+        : "数えた記録が残っています",
+    };
+  }
   if (input.shelfMissing) {
     return {
       ...base,
       state: "のこり",
       detail:
-        "いま入れても、画面にその場で答えは出ますが記録は残りません" +
-        "（記録の棚は上の貼り紙でできます）",
+        "棚は準備中ですが、いま入れれば控えに残ります" +
+        "（画面にその場で答えも出ます）",
     };
-  }
-  if (input.counted) {
-    return { ...base, state: "済み", detail: "数えた記録が残っています" };
   }
   return { ...base, state: "のこり", detail: "数えた記録がまだ1件もありません" };
 }

@@ -94,6 +94,7 @@ import {
   type CashEvent,
   type CashReconcile,
 } from "@/lib/keiri/cashCheck";
+import { encodeCashCountMemo } from "@/lib/keiri/cashCountMemo";
 import {
   buildCashVariants,
   pickCashVariant,
@@ -1020,6 +1021,7 @@ function KeiriInner() {
         balanceNow={cash.balance}
         depositsTotal={cash.deposits}
         scope={scope}
+        businessCode={BUSINESS_CODE}
         onSaved={load}
         shelfMissing={cashShelfMissing}
         computedAsOf={computedAsOf}
@@ -1652,6 +1654,7 @@ function CashCountCard({
   balanceNow,
   depositsTotal,
   scope,
+  businessCode,
   onSaved,
   shelfMissing,
   computedAsOf,
@@ -1663,6 +1666,8 @@ function CashCountCard({
   balanceNow: number;
   depositsTotal: number;
   scope: TenantScope;
+  /** いま開いているお店の業態コード（控えを置く設定の行を指すのに使う） */
+  businessCode: string;
   onSaved: () => void;
   /** 記録に残す置き場（keiri_cash_events）がまだ無いか */
   shelfMissing: boolean;
@@ -1788,6 +1793,67 @@ function CashCountCard({
       setDepositYen("");
     }
     setMsg("✅ 記録しました");
+    onSaved();
+  };
+
+  /**
+   * 置き場（keiri_cash_events）がまだ無いあいだ、数えた1回を
+   * **経理の設定のおまけ欄**に控える（2026-10-13・kp245・f1-4）。
+   *
+   * ■ なぜこうするのか（やさしい説明）
+   *   数えた記録を置く棚は、倉庫に貼り紙を1回 貼ると できます。
+   *   貼るまでのあいだ、押しても何も残らないと、**1分で済む「数える」が
+   *   2分の「貼る」を待つ**ことになります。そこで、もうある設定の行の
+   *   ひとこと欄に1件だけ控えて、貼る前でも「合っていたか」が残るようにします。
+   *
+   * ■ 守っていること
+   *   ・いま書いてあるひとことは消しません（印の中だけに書きます）。
+   *   ・控えるのは **いちばん新しい1回だけ**。金額は1円も直しません。
+   *   ・棚ができたあとは棚のほうが正で、同じ日・同じ金額は1件として数えます。
+   */
+  const saveCountToMemo = async () => {
+    const amount = readYen(countYen);
+    if (!countOn || amount === null) {
+      setMsg("数えた日と金額を入れてください（金額は0以上）");
+      return;
+    }
+    setSaving("count");
+    setMsg("");
+    // いま書いてあるひとことを消さないよう、先に読んでから足す
+    const { data, error: rErr } = await supabase
+      .from("keiri_settings")
+      .select("memo")
+      .eq("business_type_code", businessCode)
+      .maybeSingle();
+    if (rErr) {
+      setSaving(null);
+      setMsg(`控えを残せませんでした：${rErr.message}`);
+      return;
+    }
+    const next = encodeCashCountMemo((data as any)?.memo ?? null, {
+      happened_on: countOn,
+      amount,
+      note: countNote || null,
+    });
+    if (next === null) {
+      setSaving(null);
+      setMsg("数えた日と金額を入れてください（金額は0以上）");
+      return;
+    }
+    const { error } = await supabase
+      .from("keiri_settings")
+      .update({ memo: next })
+      .eq("business_type_code", businessCode);
+    setSaving(null);
+    if (error) {
+      setMsg(`控えを残せませんでした：${error.message}`);
+      return;
+    }
+    setCountYen("");
+    setCountNote("");
+    setPreview(null);
+    setVariantPick(null);
+    setMsg("✅ 控えに残しました（置き場ができたら、そのまま記録に移ります）");
     onSaved();
   };
 
@@ -1961,11 +2027,23 @@ function CashCountCard({
         )}
 
         {shelfMissing ? (
-          <p className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-800 leading-relaxed">
-            いまは「比べる」ところまで使えます。
-            数えた記録を残しておく置き場だけ準備中で、準備ができたら
-            同じ画面から「記録する」ボタンが出ます。
-          </p>
+          /* ★置き場がまだ無くても、数えた1回は残せます（2026-10-13・f1-4）。
+                 ここを「準備中です」で止めていたあいだ、1分で済む「数える」が
+                 2分の「貼り紙」を待っていました。 */
+          <div className="space-y-2">
+            <button
+              className="btn-secondary w-full"
+              onClick={() => void saveCountToMemo()}
+              disabled={saving !== null}
+            >
+              {saving === "count" ? "控えています…" : "この結果を控えに残す"}
+            </button>
+            <p className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-800 leading-relaxed">
+              数えた記録を置く棚は準備中なので、いまは「いちばん新しい1回だけ」を
+              経理の設定のひとこと欄に控えます。棚ができたら、そのまま記録に移ります
+              （二重には数えません）。金額はこちらで1円も直しません。
+            </p>
+          </div>
         ) : (
           <button
             className="btn-secondary w-full"

@@ -34,6 +34,7 @@ import {
   type IgnoreShelfState,
 } from "./expenseIgnores";
 import { normalizeCashEvents, type CashEvent } from "./cashCheck";
+import { decodeCashCountMemo, mergeCashEvents } from "./cashCountMemo";
 import { normalizeRegisterCloses, type RegisterCloseRow } from "./registerFloat";
 import type {
   KeiriAdvance,
@@ -211,7 +212,9 @@ export async function loadKeiriMonthDirect(
   const { data: s, error: sErr } = await supabase
     .from("keiri_settings")
     .select(
-      "opening_date, opening_balance, outsourcing_rate, monthly_rent, rent_start_month",
+      // ★memo も取る：置き場（keiri_cash_events）がまだ無いあいだ、
+      //   金庫を数えた1回をここに控えているため（lib/keiri/cashCountMemo.ts・f1-4）
+      "opening_date, opening_balance, outsourcing_rate, monthly_rent, rent_start_month, memo",
     )
     .eq("business_type_code", businessCode)
     .maybeSingle();
@@ -318,6 +321,9 @@ export async function loadKeiriMonthDirect(
     } else {
       cashEvents = normalizeCashEvents((cash as unknown[]) ?? []);
     }
+    // ★置き場がまだ無いあいだ、経理の設定のおまけ欄に控えた「数えた1回」も読む（f1-4）。
+    //   置き場ができたあとも読み、同じ日・同じ金額は1件として数える（二重に数えない）。
+    cashEvents = mergeCashEvents(cashEvents, decodeCashCountMemo((s as any)?.memo));
   }
 
   // 閉店後にレジに残したつり銭（日報の実測）。**金庫の外にあるお金**なので、
