@@ -12,8 +12,9 @@
  * ★鍵・合言葉の値は返しません。
  */
 
-import { serverClient, serviceClientOrNull } from "@/lib/supabaseServer";
+import { anonClient, serverClient, serviceClientOrNull } from "@/lib/supabaseServer";
 import {
+  BACKUP_COPY_TABLE,
   describeShelf,
   missingProbe,
   SHELF_STEPS,
@@ -46,9 +47,47 @@ async function probeTrialShop(): Promise<ShelfProbe> {
   return { ok: false, code: null, message: "通信に失敗しました" };
 }
 
-/** 貼り紙の①〜⑥を、ぜんぶ読んで並べる */
+/**
+ * ⑦だけは「棚があるか」ではなく、**表に出ている鍵では読めないか**を見る。
+ *
+ * ■ ここが他と逆です（やさしい説明）
+ *   ①〜⑥は「読めたら、流れている」でした。⑦は鍵をかける話なので、
+ *   **読めてしまったら、まだ流れていない**という逆の読み方になります。
+ *   だから必ず**公開の鍵**（ブラウザに配られているのと同じ鍵）で聞きます。
+ *   サーバー側の鍵で聞くと、鍵の決まりを飛び越えて読めてしまい、
+ *   「まだ開いている」のに「閉まっている」と答えてしまいます。
+ *
+ * ★行の中身は1文字も読みません（件数があるかだけを見ます）。
+ */
+export async function probeBackupLocked(): Promise<ShelfProbe> {
+  try {
+    const db = anonClient({ fresh: true });
+    const { count, error } = await db
+      .from(BACKUP_COPY_TABLE)
+      .select("*", { count: "exact", head: true });
+
+    if (error) {
+      // 控えそのものが無い倉庫＝漏れる所が無い（＝これ以上やることが無い）
+      if (isMissingTable(error.code, error.message)) return { ok: true };
+      // 断られた＝鍵が効いている
+      if (String(error.code ?? "") === "42501" || /permission denied/i.test(error.message ?? "")) {
+        return { ok: true };
+      }
+      // それ以外は「分からない」。閉まったことにしない
+      return { ok: false, code: error.code ?? null, message: error.message ?? null };
+    }
+
+    // 1行も見えない＝鍵が効いている（控えには13行あるので、空ではありません）
+    if ((count ?? 0) === 0) return { ok: true };
+    return missingProbe("公開の鍵で、まだ中の行が数えられます（鍵がかかっていません）");
+  } catch {
+    return { ok: false, code: null, message: "通信に失敗しました" };
+  }
+}
+
+/** 貼り紙の①〜⑦を、ぜんぶ読んで並べる */
 export async function readShelfReports(): Promise<ShelfReport[]> {
-  const [cash, ignores, receiptFlag, advanceTenant, shiftsTenant, trialShop] =
+  const [cash, ignores, receiptFlag, advanceTenant, shiftsTenant, trialShop, backupLocked] =
     await Promise.all([
       probeShelf("keiri_cash_events", "id"),
       probeShelf("keiri_expense_ignores", "id"),
@@ -56,6 +95,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
       probeShelf("advance_expenses", "tenant_id"),
       probeShelf("shifts", "tenant_id"),
       probeTrialShop(),
+      probeBackupLocked(),
     ]);
 
   const probes: Record<string, ShelfProbe> = {
@@ -65,6 +105,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     advance_tenant: advanceTenant,
     shifts_tenant: shiftsTenant,
     trial_shop: trialShop,
+    backup_locked: backupLocked,
   };
 
   return SHELF_STEPS.map((s) =>

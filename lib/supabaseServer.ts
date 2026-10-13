@@ -151,6 +151,23 @@ export function serverClient(opts?: ServerClientOptions): SupabaseClient {
 }
 
 /**
+ * **表に出ている鍵（公開の鍵）だけ**で倉庫につなぐ。
+ *
+ * ■ なぜ要るか（2026-10-13・f3-4）
+ *   「ブラウザに配られている鍵で、この棚が読めてしまわないか」を確かめるには、
+ *   必ずその鍵で聞かないといけません。`serverClient()` はサーバー側の鍵が
+ *   使えるときはそちらを使うので（鍵の決まりを飛び越えて読めてしまう）、
+ *   確かめには使えません。ここは**いつでも公開の鍵だけ**を使います。
+ *
+ * ★読むだけの確かめに使うもので、書き込みには使いません。
+ */
+export function anonClient(opts?: ServerClientOptions): SupabaseClient {
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
+  const anon = anonKeyStatus();
+  return createClient(url, anon.ok ? anon.key : "", clientOptions(opts));
+}
+
+/**
  * マスターキーが必要な処理（バックアップ・写真の引っ越しなど）専用の接続。
  * 使えないときは null を返す。呼び出し側は理由を利用者に伝えること。
  */

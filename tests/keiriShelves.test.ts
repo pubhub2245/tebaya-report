@@ -12,6 +12,7 @@ import {
   shelfState,
   summarizeShelves,
   SHELF_STEPS,
+  BACKUP_COPY_TABLE,
 } from "../lib/keiri/shelves";
 import { TEST_SHOP } from "../lib/keiri/tenantTrial";
 
@@ -136,10 +137,10 @@ test("軽い日報の見え方は、レシート写真の住所を抜いたま�
   assert.ok(sql.includes("as receipt_count"));
 });
 
-test("貼り紙に入っているのは6つで、それぞれ仕上げ表の項目につながっている", () => {
-  assert.equal(SHELF_STEPS.length, 6);
+test("貼り紙に入っているのは7つで、それぞれ仕上げ表の項目につながっている", () => {
+  assert.equal(SHELF_STEPS.length, 7);
   const checks = SHELF_STEPS.map((s) => s.check);
-  assert.deepEqual(checks, ["f1-4", "f1-5", "f1-6", "f3-4", "f3-4", "f5-4"]);
+  assert.deepEqual(checks, ["f1-4", "f1-5", "f1-6", "f3-4", "f3-4", "f5-4", "f3-4"]);
   for (const s of SHELF_STEPS) {
     assert.ok(s.benefit.length > 10, `${s.key} に「流すと何ができるか」が書かれていません`);
   }
@@ -226,6 +227,33 @@ test("貼り紙は「誰が何をできるか」を1つも変えない（鍵の�
     "create policy keiri_cash_events_all",
     "create policy keiri_expense_ignores_all",
   ]);
+});
+
+test("⑦ 日報の古い控えに鍵をかける（2026-10-13・f3-4）。消さない・決まりは作らない", () => {
+  const sql = readFileSync(SQL_PATH, "utf8");
+  const body = sql
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n");
+
+  // 名前が daily_reports_backup… で始まる控えだけを相手にする
+  assert.match(body, /relname like 'daily\\_reports\\_backup%'/);
+  // もう鍵が付いているものは触らない＝何度 流しても同じ
+  assert.ok(body.includes("c.relrowsecurity = false"));
+  // 鍵をかけるだけ。中身は触らない・外さない
+  assert.match(body, /enable row level security/);
+  assert.ok(!/disable row level security/i.test(body), "貼り紙が鍵を外しています");
+  for (const forbidden of ["drop table", "truncate", "delete from", "update public.daily_reports_backup"]) {
+    assert.ok(
+      !body.toLowerCase().includes(forbidden),
+      `貼り紙⑦に ${forbidden} が入っています（控えは元に戻す命綱なので消さない）`,
+    );
+  }
+  // 控えの名前は lib 側と1か所でそろえる
+  assert.equal(BACKUP_COPY_TABLE, "daily_reports_backup_20260902");
+  const step7 = SHELF_STEPS.find((x) => x.step === "⑦");
+  assert.ok(step7, "⑦が一覧に入っていません");
+  assert.equal(step7?.check, "f3-4");
 });
 
 /**

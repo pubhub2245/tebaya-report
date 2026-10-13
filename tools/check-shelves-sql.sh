@@ -73,6 +73,12 @@ done
 # 本番にしかない棚（移行ファイルが無い）を、最小の形で用意する
 psql -q >/dev/null 2>&1 <<'SQL'
 create table if not exists public.locations (id bigserial primary key, name text);
+-- 本番にある「日報の古い控え」（2026-09-02・13行）を、同じ形で1つ作る。
+-- ⑦が鍵をかける相手。鍵の決まりは**付けない**状態から始める（本番と同じ）
+create table if not exists public.daily_reports_backup_20260902
+  (id bigserial primary key, date date, sales_amount integer, expenses jsonb);
+insert into public.daily_reports_backup_20260902 (date, sales_amount)
+  values ('2026-09-01', 12345), ('2026-09-02', 23456);
 create table if not exists public.shifts (id bigserial primary key, date date, staff_name text, location text);
 insert into public.shifts (date, staff_name, location) values ('2026-08-01','テスト','テスト広場');
 insert into public.daily_reports (date, location, staff_name, shop, sales_amount, expenses) values
@@ -94,6 +100,7 @@ want() { # 期待する値と実際の値を比べる： want 名前 期待 実�
 }
 
 BEFORE_REPORTS="$(q "select count(*)||'/'||count(tenant_id) from public.daily_reports")"
+BEFORE_BACKUP="$(q "select count(*) from public.daily_reports_backup_20260902")"
 
 # --- 貼り紙を3回 流す ---------------------------------------------------------
 for i in 1 2 3; do
@@ -103,9 +110,13 @@ for i in 1 2 3; do
   if [ "$i" = "1" ]; then
     grep -q "⑥ テストの店の初回設定：ok" "$WORK/run$i.log" \
       && say "⑥ テストのお店ができた" "OK" || say "⑥ テストのお店ができた" "NG"
+    grep -q "⑦ 日報の古い控えに鍵をかけました" "$WORK/run$i.log" \
+      && say "⑦ 控えに鍵をかけた" "OK" || say "⑦ 控えに鍵をかけた" "NG"
   else
     grep -q "⑥ テストの店は、もうありました" "$WORK/run$i.log" \
       && say "$i 回目は増やさない" "OK" || say "$i 回目は増やさない" "NG"
+    grep -q "⑦ 鍵をかける控えはありませんでした" "$WORK/run$i.log" \
+      && say "⑦ $i 回目は何もしない" "OK" || say "⑦ $i 回目は何もしない" "NG"
   fi
 done
 
@@ -121,6 +132,9 @@ want "⑥ テストのお店が1軒だけ・active" "1/active" "$(q "select coun
 want "⑥ そのお店ぶんの設定が1行" "1" "$(q "select count(*) from public.keiri_settings where business_type_code like 't\_%'")"
 want "日報は1行も変わらない（件数／印つき）" "$BEFORE_REPORTS" "$(q "select count(*)||'/'||count(tenant_id) from public.daily_reports")"
 want "シフトの印も空のまま" "0" "$(q "select count(tenant_id) from public.shifts")"
+want "⑦ 日報の古い控えに鍵がかかった" "t" "$(q "select relrowsecurity from pg_class where relname='daily_reports_backup_20260902'")"
+want "⑦ その控えの決まりは0本（サーバー側の鍵だけ）" "0" "$(q "select count(*) from pg_policies where tablename='daily_reports_backup_20260902'")"
+want "⑦ 控えの中身は1行も減らない" "$BEFORE_BACKUP" "$(q "select count(*) from public.daily_reports_backup_20260902")"
 
 # --- 止め木が効くか -----------------------------------------------------------
 psql -q -c "insert into public.keiri_cash_events(kind,happened_on,amount) values ('count','2026-10-13',-1)" >/dev/null 2>&1 \
@@ -133,7 +147,7 @@ psql -q -c "insert into public.keiri_expense_ignores(source,ref_id,line_index) v
 
 echo "----------------------------------------------"
 if [ "$NG" = "0" ]; then
-  echo "OK：貼り紙は6つぜんぶ通り、何度 流しても増えません（本番ではなく、同じ形の空の倉庫での結果です）"
+  echo "OK：貼り紙は7つぜんぶ通り、何度 流しても増えません（本番ではなく、同じ形の空の倉庫での結果です）"
   exit 0
 fi
 echo "NG：直してから、じゅんに渡す1枚を更新してください"
