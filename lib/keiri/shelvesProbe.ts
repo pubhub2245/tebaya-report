@@ -22,6 +22,7 @@ import {
   type ShelfReport,
 } from "@/lib/keiri/shelves";
 import { peekTestShop } from "@/lib/keiri/tenantTrialServer";
+import { decodeCashCountMemo } from "@/lib/keiri/cashCountMemo";
 
 /** その棚（または欄）が1行 読めるかだけを見る。中身は捨てる */
 export async function probeShelf(table: string, column: string): Promise<ShelfProbe> {
@@ -121,9 +122,29 @@ export type CashCountProbe = {
   shelfMissing: boolean;
   /** 手羽屋ぶんの「数えた記録」が1行でもあるか */
   counted: boolean;
+  /** 棚ではなく、経理の設定のおまけ欄に控えてあるか（2026-10-13・f1-4） */
+  countedInMemo: boolean;
   /** 読めなかった（通信の失敗など） */
   unreadable: boolean;
 };
+
+/**
+ * 棚がまだ無いあいだ、経理の設定のおまけ欄に控えた「数えた1回」があるかだけを見る。
+ * ★金額も日付も返しません（あるか／無いかだけ）。
+ */
+async function probeCashCountMemo(db: ReturnType<typeof serverClient>): Promise<boolean> {
+  try {
+    const { data, error } = await db
+      .from("keiri_settings")
+      .select("memo")
+      .eq("business_type_code", "tebaya")
+      .maybeSingle();
+    if (error) return false;
+    return decodeCashCountMemo((data as any)?.memo).length > 0;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * 「金庫を数えた記録」が手羽屋ぶんに1行でもあるかだけを見る。
@@ -139,15 +160,31 @@ export async function probeCashCount(): Promise<CashCountProbe> {
       .is("tenant_id", null)
       .limit(1);
     if (!error) {
-      return { shelfMissing: false, counted: (data?.length ?? 0) > 0, unreadable: false };
+      const onShelf = (data?.length ?? 0) > 0;
+      // ★棚があっても、控えだけが残っていることがある（棚ができた直後）。
+      //   どちらかに1回でもあれば「数えた記録がある」とする。
+      const inMemo = onShelf ? false : await probeCashCountMemo(db);
+      return {
+        shelfMissing: false,
+        counted: onShelf || inMemo,
+        countedInMemo: inMemo,
+        unreadable: false,
+      };
     }
     // 棚そのものが無いのは「失敗」ではなく「まだ流していない」
     if (isMissingTable(error.code, error.message)) {
-      return { shelfMissing: true, counted: false, unreadable: false };
+      // ★棚が無くても、おまけ欄に控えがあれば「数えた記録がある」（2026-10-13・f1-4）
+      const inMemo = await probeCashCountMemo(db);
+      return {
+        shelfMissing: true,
+        counted: inMemo,
+        countedInMemo: inMemo,
+        unreadable: false,
+      };
     }
-    return { shelfMissing: false, counted: false, unreadable: true };
+    return { shelfMissing: false, counted: false, countedInMemo: false, unreadable: true };
   } catch {
-    return { shelfMissing: false, counted: false, unreadable: true };
+    return { shelfMissing: false, counted: false, countedInMemo: false, unreadable: true };
   }
 }
 

@@ -64,11 +64,15 @@ test("棚があって数えた記録もあれば、金庫の手続きは済み",
   assert.match(t.summary, /のこりの手続きはありません/);
 });
 
-test("棚がまだ無いときは、金庫は「のこり」で、記録が残らないことを言う", () => {
+// ★2026-10-13（f1-4）：棚がまだ無くても、数えた1回は「控え」に残るようにした。
+//   そのため「記録は残りません」ではなく「控えに残ります」と言う。
+//   （1分で済む手続きが、2分の貼り紙を待たないようにするため）
+test("棚がまだ無いときは、金庫は「のこり」。ただし控えに残ることを言う", () => {
   const t = buildSetupTodo(ALL_UNDONE);
   const cash = t.items.find((i) => i.id === "cash")!;
   assert.equal(cash.state, "のこり");
-  assert.match(cash.detail, /記録は残りません/);
+  assert.match(cash.detail, /控えに残ります/);
+  assert.doesNotMatch(cash.detail, /記録は残りません/);
 });
 
 test("棚はあるが まだ1件も数えていない：のこり・言い方を分ける", () => {

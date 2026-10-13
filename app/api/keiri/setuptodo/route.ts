@@ -40,7 +40,13 @@ export async function GET() {
   const todo = buildSetupTodo({
     shelves: { done: shelfSummary.done, total: shelfSummary.total },
     key: { configured: key.configured, usable: key.usable },
-    cash: cash.unreadable ? null : { shelfMissing: cash.shelfMissing, counted: cash.counted },
+    cash: cash.unreadable
+      ? null
+      : {
+          shelfMissing: cash.shelfMissing,
+          counted: cash.counted,
+          countedInMemo: cash.countedInMemo,
+        },
   });
 
   return NextResponse.json(
