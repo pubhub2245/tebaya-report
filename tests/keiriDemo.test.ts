@@ -238,13 +238,40 @@ test("0円の経費は行ごと落とす（嘘の記録を作らない）", () =
   assert.deepEqual(r.expenses, [{ description: "肉 仕入れ", amount: 3000 }]);
 });
 
+/**
+ * 見本（お試し版・毎月お渡しする1枚）は**その月**のものなので、
+ * 月の後ろの日に置くと、月の前半に開いた人には
+ * 「作成日より後の日付の日報」が出て、店主が迷う（2026-10-13・B2 が2回 見つけた）。
+ * 日にちは月初に寄せておく。**金額は1円も変えない。**
+ */
+test("見本の日付は月初に寄せてある（作成日より後の日付を出さない）", () => {
+  const ym = "2026-09";
+  const days = demoReports(ym).map((r) => Number(r.date.slice(-2)));
+  for (const d of days) {
+    assert.ok(d <= 8, `見本の日報が ${d} 日に置かれています。月初（8日まで）に寄せてください`);
+  }
+  const adv = demoAdvances(ym);
+  for (const a of adv) {
+    assert.ok(Number(a.date.slice(-2)) <= 8, "見本の立替が月の後ろに置かれています");
+    if (a.settledDate) {
+      assert.ok(Number(a.settledDate.slice(-2)) <= 8, "見本の「返した日」が月の後ろに置かれています");
+    }
+  }
+  // 金額の合計は動かさない（お試し版・1枚の見本の数字が変わらないこと）
+  assert.equal(
+    demoReports(ym).reduce((s, r) => s + r.sales_amount, 0),
+    241000,
+  );
+  assert.equal(adv.reduce((s, a) => s + a.amount, 0), 34500);
+});
+
 test("足した日報は日付の順に並び直す", () => {
   const ym = "2026-09";
   const added = demoInputToReport({ ...emptyDemoInput(`${ym}-05`), sales: "10000" });
   const sorted = sortDemoReports([...demoReports(ym), added]);
   assert.deepEqual(
     sorted.map((r) => r.date),
-    [`${ym}-03`, `${ym}-05`, `${ym}-08`, `${ym}-14`],
+    [`${ym}-03`, `${ym}-05`, `${ym}-06`, `${ym}-08`],
   );
 });
 
