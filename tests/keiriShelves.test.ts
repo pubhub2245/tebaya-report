@@ -4,7 +4,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  SHELF_SQL_DRYRUN,
   describeShelf,
+  dryRunLine,
   isMissingShelf,
   missingProbe,
   shelfState,
@@ -224,4 +226,33 @@ test("貼り紙は「誰が何をできるか」を1つも変えない（鍵の�
     "create policy keiri_cash_events_all",
     "create policy keiri_expense_ignores_all",
   ]);
+});
+
+/**
+ * 流す前の「下見」の約束（2026-10-13・f1-4・f3-4・f5-4）。
+ *
+ * この貼り紙は、仕上げの残り3つが全部 待っている1枚なので、
+ * **中身を足したら、もう一度 通してから じゅんに渡す**。
+ * 番号を足して下見を忘れると、ここで止まる。
+ */
+test("貼り紙に番号を足したら、下見もやり直してある", () => {
+  for (const s of SHELF_STEPS) {
+    assert.ok(
+      (SHELF_SQL_DRYRUN.steps as readonly string[]).includes(s.step),
+      `${s.step} が下見に入っていません。tools/check-shelves-sql.sh を流し直してください`,
+    );
+  }
+  assert.equal(SHELF_SQL_DRYRUN.steps.length, SHELF_STEPS.length);
+  // 下見は「何度 流しても増えない」を見るので、2回以上 流していること
+  assert.ok(SHELF_SQL_DRYRUN.runs >= 2);
+});
+
+test("下見の1行には、本番ではないことが書いてある", () => {
+  const line = dryRunLine();
+  assert.match(line, /確かめてあります/);
+  assert.match(SHELF_SQL_DRYRUN.caveat, /本番そのものではなく/);
+  // 金額・合言葉・鍵の値を書かない（外から読める窓口に出すため）
+  const all = JSON.stringify(SHELF_SQL_DRYRUN);
+  assert.ok(!/[0-9]{4,}円/.test(all), "下見に金額が入っています");
+  assert.ok(!/eyJ|service_role|password/i.test(all), "下見に鍵・合言葉のたぐいが入っています");
 });
