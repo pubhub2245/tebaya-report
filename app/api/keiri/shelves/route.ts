@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { summarizeShelves } from "@/lib/keiri/shelves";
+import { SHELF_SQL_DRYRUN, summarizeShelves } from "@/lib/keiri/shelves";
 import { readShelfReports } from "@/lib/keiri/shelvesProbe";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 
@@ -34,6 +34,9 @@ export async function GET() {
     ...summary,
     sheet: "/keiri/sql",
     file: "supabase/migrations/keiri_shelves_20261005.sql",
+    // 流す前の下見（2026-10-13・B）。じゅんが押す前に、同じ形の空の倉庫で3回 通した結果。
+    // ★本番の金額・お店の名前・鍵の値は1文字も入っていません。
+    dry_run: SHELF_SQL_DRYRUN,
     shelves: reports,
     // 申し込みの控えの決まり（貼り紙の0番）は、ここではなく診断の窓口で分かる
     applications_policy: {

@@ -5,7 +5,7 @@ import Link from "next/link";
 
 import SetupTodoCard from "@/app/keiri/components/SetupTodoCard";
 
-import { SHELF_STEPS } from "@/lib/keiri/shelves";
+import { SHELF_STEPS, SHELF_SQL_DRYRUN, dryRunLine } from "@/lib/keiri/shelves";
 import { sqlEditorUrl } from "@/lib/keiri/warehouseLinks";
 import { CopyButton, ShelfStatus } from "./SqlSheet";
 
@@ -71,6 +71,23 @@ export default function KeiriSqlPage() {
           棚は触っていません。
         </p>
       </header>
+
+      {/* 流す前の下見（2026-10-13・B）。
+          ★この1枚は仕上げの残り3つ（f1-4・f3-4・f5-4）が全部 待っている1枚なのに、
+            どこでも一度も流したことがありませんでした。途中で止まるとじゅんの2分が
+            むだになるので、同じ形の空の倉庫で3回 通してから出しています。 */}
+      <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 space-y-2">
+        <h2 className="text-base font-bold text-emerald-900">
+          流す前に、こちらで通して確かめてあります
+        </h2>
+        <p className="text-sm text-emerald-900 leading-relaxed">{dryRunLine()}</p>
+        <ul className="list-disc pl-5 space-y-1 text-sm text-emerald-900 leading-relaxed">
+          {SHELF_SQL_DRYRUN.findings.map((f) => (
+            <li key={f}>{f}</li>
+          ))}
+        </ul>
+        <p className="text-xs text-emerald-800 leading-relaxed">{SHELF_SQL_DRYRUN.caveat}</p>
+      </section>
 
       <section className="rounded-2xl border border-stone-200 bg-white p-4 space-y-3">
         <h2 className="text-base font-bold text-stone-900">やること（3手）</h2>
