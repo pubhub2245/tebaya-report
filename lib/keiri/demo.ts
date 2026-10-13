@@ -58,7 +58,13 @@ export function demoSettings(ym: string): KeiriSettings {
 
 /**
  * 最初から入っている日報3件。
- * 「もう何日か使ったお店」の状態から始めたいので、月の3日・8日・14日に置いています。
+ * 「もう何日か使ったお店」の状態から始めたいので、月の3日・6日・8日に置いています。
+ *
+ * ★**月の後ろの日に置かないこと**（2026-10-13・B2 が本番で2回 見つけた）。
+ *   お試し版と「毎月お渡しする1枚」は**その月**の見本なので、月の後ろの日に置くと、
+ *   月の前半に開いた人には「作成日より後の日付の日報」が出て、店主が迷います
+ *   （10/6 に一度 直り、日付が進んで10/13 にまた出ました）。
+ *   金額は1円も変えていません。日にちだけ月初に寄せてあります。
  */
 export function demoReports(ym: string): KeiriReport[] {
   return [
@@ -88,7 +94,7 @@ export function demoReports(ym: string): KeiriReport[] {
       ],
     },
     {
-      date: `${ym}-14`,
+      date: `${ym}-06`,
       location: "駅前広場",
       staff_name: "スタッフA",
       sales_amount: 95000,
@@ -126,11 +132,14 @@ export function demoPayments(): KeiriPayment[] {
  *
  * ・1件目 … まだ返していない（まだ払っていないお金に入り、現金は減らない）
  * ・2件目 … 月のうちに返した（返した日に現金から出る）
+ *
+ * ★日報と同じで、**月初に寄せてあります**（作成日より後の日付を見本に出さないため）。
+ *   金額・返したかどうかは1つも変えていません。
  */
 export function demoAdvances(ym: string): KeiriAdvance[] {
   return [
     {
-      date: `${ym}-05`,
+      date: `${ym}-02`,
       amount: 30000,
       description: "お祭りの出店料（振込）",
       payer: "オーナー",
@@ -139,12 +148,12 @@ export function demoAdvances(ym: string): KeiriAdvance[] {
       source: "owner",
     },
     {
-      date: `${ym}-09`,
+      date: `${ym}-04`,
       amount: 4500,
       description: "ガソリン",
       payer: "スタッフB",
       settled: true,
-      settledDate: `${ym}-12`,
+      settledDate: `${ym}-05`,
       source: "field",
     },
   ];
