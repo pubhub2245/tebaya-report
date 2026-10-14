@@ -229,17 +229,33 @@ test("貼り紙は「誰が何をできるか」を1つも変えない（鍵の�
   ]);
 });
 
-test("⑦ 日報の古い控えに鍵をかける（2026-10-13・f3-4）。消さない・決まりは作らない", () => {
+test("⑦ 手羽屋のデータの写しに鍵をかける（2026-10-13・2026-10-14 拡大・f3-4）。消さない・決まりは作らない", () => {
   const sql = readFileSync(SQL_PATH, "utf8");
   const body = sql
     .split("\n")
     .filter((line) => !line.trim().startsWith("--"))
     .join("\n");
 
-  // 名前が daily_reports_backup… で始まる控えだけを相手にする
-  assert.match(body, /relname like 'daily\\_reports\\_backup%'/);
-  // もう鍵が付いているものは触らない＝何度 流しても同じ
+  // 2026-10-14：相手を「写しぜんぶ」に広げた。見分けは名前のかたち
+  //   （lib/keiri/copyTables.ts と同じ形にそろえてある）
+  for (const pattern of [
+    "(^|_)backups?(_|$)",
+    "(^|_)bak(_|$)",
+    "(^|_)copy(_|$)",
+    "(^|_)old(_|$)",
+    "(^|_)snapshots?(_|$)",
+    "^deleted_",
+  ]) {
+    assert.ok(body.includes(pattern), `⑦ の見分けに ${pattern} が入っていません`);
+  }
+  // ★止め木①：もう鍵が付いているものは触らない＝何度 流しても同じ。
+  //   いま使っている棚はすべて鍵が付いているので、ここで必ず外れる
   assert.ok(body.includes("c.relrowsecurity = false"));
+  // ★止め木②：決まり（ポリシー）が1本も無い棚だけ。
+  //   いま使っている棚には「全員OK」が1本あるので、ここでも外れる
+  assert.match(body, /not exists\s*\(\s*\n?\s*select 1 from pg_policies/);
+  // ★止め木③：別のアプリ（pkmn_…）の棚は触らない（CLAUDE.md 4-11）
+  assert.match(body, /relname not like 'pkmn\\_%'/);
   // 鍵をかけるだけ。中身は触らない・外さない
   assert.match(body, /enable row level security/);
   assert.ok(!/disable row level security/i.test(body), "貼り紙が鍵を外しています");

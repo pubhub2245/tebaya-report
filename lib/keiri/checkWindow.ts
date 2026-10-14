@@ -81,6 +81,13 @@ export const CHECK_WINDOWS: CheckWindow[] = [
     check: "共通・f5-4",
   },
   {
+    path: "/api/keiri/copies",
+    what:
+      "手羽屋のデータの『写し』（控え・引っ越し前の控えなど）が、公開の鍵で読めてしまわないか。" +
+      "★ここだけ読み方が逆で、『まだ読めます』＝ まだ開いている。棚の名前と ○× だけを返します",
+    check: "f3-4",
+  },
+  {
     path: "/api/keiri/dupcheck",
     what:
       "同じ支払いが2か所にある疑いを、押して片付けられるか（架空のお店で4通り試した結果）。" +
