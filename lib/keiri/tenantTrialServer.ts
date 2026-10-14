@@ -14,6 +14,9 @@
 import { CASE_BUSINESS_CODE, previousMonthRange } from "@/lib/keiri/caseStats";
 import { loadKeiriMonthServer } from "@/lib/keiri/loadMonthServer";
 import { TEST_SHOP, type TrialRead } from "@/lib/keiri/tenantTrial";
+
+/** 手順4・5で入れる行の名前の頭。これが付いていない行は「よその行」 */
+const TEST_PREFIX = "【テスト】";
 import { serverClient, serviceClientOrNull } from "@/lib/supabaseServer";
 import { businessCodeForScope } from "@/lib/tenantScope";
 
@@ -149,7 +152,7 @@ export async function readBothWays(tenantId: string | null): Promise<{
   if (!tenantId) {
     return {
       tebaya,
-      testShop: { reportCount: 0, advancesRead: false, readable: false },
+      testShop: { reportCount: 0, foreignCount: 0, advancesRead: false, readable: false },
       month: label,
       ym,
     };
@@ -160,10 +163,16 @@ export async function readBothWays(tenantId: string | null): Promise<{
     scope: tenantId,
     monthOnly: true,
   });
+  // そのお店として読んだ行のうち、**よそのお店の行**が何件あるか。
+  // 手順4・5で入れるテストの行は名前の頭に【テスト】が付くので、それ以外を数える。
+  const foreignCount = other.reports.filter(
+    (r) => !String(r.location ?? "").startsWith(TEST_PREFIX),
+  ).length;
   return {
     tebaya,
     testShop: {
       reportCount: other.reports.length,
+      foreignCount,
       advancesRead: !other.advancesSkipped,
       readable: !other.reportsUnreadable,
     },

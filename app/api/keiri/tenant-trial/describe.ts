@@ -82,7 +82,9 @@ export async function describe(params: {
     creatable,
     createPath: TRIAL_CREATE_PATH,
     remaining:
-      "手順4・5（出店場所・商品・スタッフ）はここでは入れていません。" +
+      "手順4・5・6（出店場所・日報1枚・読み比べ）はこの窓口では見ていません。" +
+      "別の窓口 /api/keiri/tenant-trial/steps で見られます" +
+      "（通すのは /api/keiri/tenant-trial/steps/run へ POST 1回。2026-10-14・f5-4）。" +
       "出店場所・担当者・商品の読みは、もうお店で絞ってあります（2026-10-08・kp242）。" +
       "のこっているのは、シフトの棚に「どの店か」の欄そのものが無いことだけで、" +
       "/keiri/sql の貼り紙（⑤）を1回 流すと埋まります",

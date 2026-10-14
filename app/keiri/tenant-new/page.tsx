@@ -196,9 +196,19 @@ export default function KeiriTenantNewPage() {
           <strong>それは誰でもお店を作れる状態にすることなので、やりません。</strong>
         </p>
         <p className="text-sm text-stone-800 leading-relaxed">
-          ですので、端から端まで通すのは<strong>最初の1軒が決まった日</strong>になります。
-          手順1を1回 流していただければ、手順2〜6はこの紙のとおりに進みます。
-          かかった時間は、通したあとこの紙に書き足します。
+          待っているのは、その<strong>手順1だけ</strong>です
+          （<Link href="/keiri/sql" className="underline">
+            /keiri/sql
+          </Link>{" "}
+          の貼り紙を1回 貼ると、その中で手順1〜3までテストの店で済みます）。
+        </p>
+        <p className="text-sm text-stone-800 leading-relaxed">
+          <strong>手順4・5・6 は、2026-10-14 にこちら側で通せる形にしました。</strong>
+          テストの店の出店場所を1件・日報を1枚 入れて、そのお店の数字だけが出ることを
+          数え直すところまで、<strong>呼び出し1回</strong>で終わります
+          （入れる行はすべて名前の頭に【テスト】が付き、手羽屋の画面には1行も出ません。
+          入れる前と後で手羽屋に見える件数を数え、1件でも動いたらその場で取り消します）。
+          ＝ 貼り紙が1回 貼られた時点で、6手ぜんぶが通ります。
         </p>
       </section>
 
