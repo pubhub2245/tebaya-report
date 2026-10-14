@@ -7,7 +7,13 @@ import {
   LIVE_TABLES,
   copyCandidateNames,
 } from "../lib/keiri/copyCandidates";
-import { isCopyTableName, isForeignTable } from "../lib/keiri/copyTables";
+import {
+  COPY_CLOSED,
+  COPY_OPEN,
+  isCopyTableName,
+  isForeignTable,
+  verdictFromAnonRead,
+} from "../lib/keiri/copyTables";
 import { KNOWN_COPY_TABLES, f34Note, sweepNote } from "../lib/keiri/copyProbe";
 
 /**
@@ -120,4 +126,42 @@ test("両方 閉まったときだけ『棚の鍵の分は閉まっている』�
 test("聞けなかったときは、分からないまま合格にしない", () => {
   const note = f34Note(true, { table: "daily_reports", readable: null, note: "？" });
   assert.match(note, /分からないまま合格にしないこと/);
+});
+
+/**
+ * 聞き方の落とし穴を固定する（2026-10-14 18:5x に本番で踏んだもの）。
+ * ・無い棚を「読めました」と取り違えない
+ * ・鍵が効いている棚は「0件」と答えるので、1件以上のときだけ「開いている」と言う
+ */
+test("行が0件なら『開いている』とは言わない（鍵が効いているか、空の棚）", () => {
+  const v = verdictFromAnonRead({ table: "table_snapshots", ok: true, rows: 0 });
+  assert.equal(v.state, COPY_CLOSED);
+  assert.match(v.note, /中身は返ってきません/);
+});
+
+test("行が1件以上あったときだけ『まだ読めます』と言う", () => {
+  const v = verdictFromAnonRead({
+    table: "daily_reports_backup_20260902",
+    ok: true,
+    rows: 13,
+  });
+  assert.equal(v.state, COPY_OPEN);
+});
+
+test("行数が分からないときは、今までどおり『読めた＝開いている』", () => {
+  const v = verdictFromAnonRead({ table: "x_backup", ok: true });
+  assert.equal(v.state, COPY_OPEN);
+  const n = verdictFromAnonRead({ table: "x_backup", ok: true, rows: null });
+  assert.equal(n.state, COPY_OPEN);
+});
+
+test("そんな棚はありません（42P01）は、閉まっている側に入れる", () => {
+  const v = verdictFromAnonRead({
+    table: "agenda_items_snapshot_20260902",
+    ok: false,
+    code: "42P01",
+    message: 'relation "public.agenda_items_snapshot_20260902" does not exist',
+  });
+  assert.equal(v.state, COPY_CLOSED);
+  assert.match(v.note, /ありません/);
 });
