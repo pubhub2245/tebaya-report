@@ -32,8 +32,15 @@ export const dynamic = "force-dynamic";
  * ★ 鍵・合言葉の値は返しません。返すのは棚の名前と ○× だけです。
  * ★ 手羽屋の日報・シフト・レジ・LINE には一切触れていません。
  */
-export async function GET() {
-  const report = await probeCopyTables();
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const from = Number(url.searchParams.get("from") ?? 0);
+  const limit = Number(url.searchParams.get("limit") ?? 0);
+  const report = await probeCopyTables({
+    sweep: url.searchParams.get("sweep") !== "no",
+    from: Number.isFinite(from) ? from : 0,
+    limit: Number.isFinite(limit) && limit > 0 ? limit : undefined,
+  });
 
   return NextResponse.json(
     stampCheckWindow({
@@ -42,6 +49,12 @@ export async function GET() {
       reversed:
         "読み方が逆です：『まだ読めます』＝ まだ開いている（直すことがある）。『読めません』＝ 鍵が効いている",
       fix: "開いている写しは、/keiri/sql の貼り紙⑦を1回 流すと閉まります（消しません・中身は1行も触りません・1行で元に戻せます）",
+      sweepHow:
+        "倉庫が棚の名前の一覧を出してくれないので（公開の読み取りでは 401）、" +
+        "こちらで写しの名前を組み立てて片っぱしから聞いています。" +
+        "『そんな棚はありません』がほとんどなので、無かった数だけを返し、" +
+        "開いている／聞けなかった棚だけを並べます。" +
+        "続きがあるときは ?from=… を付けて開いてください（?sweep=no で組み立てを止められます）",
     }),
     { status: 200, headers: CHECK_WINDOW_HEADERS },
   );
