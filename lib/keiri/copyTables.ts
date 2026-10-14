@@ -99,12 +99,27 @@ export const COPY_UNKNOWN = "分かりません";
 export function verdictFromAnonRead(input: {
   table: string;
   ok: boolean;
+  /**
+   * 返ってきた行数（2026-10-14 追加）。
+   * ★**鍵が効いている棚は、エラーではなく「0件」と答えます**（空の棚と同じ返事）。
+   *   だから 1件以上あったときだけ「読めてしまう」と言います。
+   *   渡されなかったとき（null / 未指定）は、今までどおり「読めた＝開いている」。
+   */
+  rows?: number | null;
   code?: string | null;
   message?: string | null;
 }): CopyTableVerdict {
   const code = String(input.code ?? "");
   const message = String(input.message ?? "");
   if (input.ok) {
+    const rows = input.rows;
+    if (rows !== undefined && rows !== null && rows <= 0) {
+      return {
+        table: input.table,
+        state: COPY_CLOSED,
+        note: "中身は返ってきません（鍵が効いているか、空の棚です）",
+      };
+    }
     return {
       table: input.table,
       state: COPY_OPEN,

@@ -95,14 +95,38 @@ export function namesFromOpenApi(json: unknown): string[] {
   return [...found].filter((n) => n && !n.startsWith("rpc")).sort();
 }
 
-/** その棚を、公開の鍵で1行ぶん読んでみる（中身は捨てる） */
+/**
+ * その棚を、公開の鍵で聞いてみる（**行の中身は1行も受け取りません**）。
+ *
+ * ■ 2026-10-14 18:5x に見つけた落とし穴（同じ間違いを二度としないため）
+ *   ここは長いあいだ「件数だけを聞く」やり方（head だけの問い合わせ）で聞いていました。
+ *   ところがこのやり方だと、**倉庫の返事の中身が空になる**ため、
+ *   使っている部品が「そんな棚はありません（404）」を
+ *   **ふつうの返事と取り違えます**（＝無い棚まで「読めました」に見える）。
+ *   実際に本番で、ありもしない名前が 72 本ぜんぶ「まだ読めます」と出ました。
+ *   そこで **行を0件だけ要求する聞き方**に替えます。返事に中身が入るので、
+ *   「無い」「断られた」「読めた」を取り違えません。
+ *
+ * ■ もう1つの落とし穴：**鍵が効いていても『断られた』とは返ってきません**
+ *   棚に鍵がかかっていて読む決まりが1本も無いとき、倉庫は
+ *   エラーではなく「0件です」と答えます（空の棚と見分けが付きません）。
+ *   だから **行数が1以上 返ってきたときだけ「読めてしまう」**と言い、
+ *   0件のときは「読めません（中身は返りません）」までにして、
+ *   嘘の安心も、嘘の警告も出さないようにします。
+ *
+ * ★行の中身（金額・お店の名前・連絡先）は1文字も受け取りません（limit 0）。
+ */
 async function askAnon(table: string): Promise<CopyTableVerdict> {
   try {
     const db = anonClient({ fresh: true });
-    const { error } = await db.from(table).select("*", { count: "exact", head: true });
+    const { error, count } = await db
+      .from(table)
+      .select("*", { count: "exact" })
+      .limit(0);
     return verdictFromAnonRead({
       table,
       ok: !error,
+      rows: count ?? null,
       code: error?.code ?? null,
       message: error?.message ?? null,
     });
