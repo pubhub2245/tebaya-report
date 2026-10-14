@@ -79,6 +79,16 @@ create table if not exists public.daily_reports_backup_20260902
   (id bigserial primary key, date date, sales_amount integer, expenses jsonb);
 insert into public.daily_reports_backup_20260902 (date, sales_amount)
   values ('2026-09-01', 12345), ('2026-09-02', 23456);
+-- 2026-10-14：⑦を「写しぜんぶ」に広げたので、下見でも相手を増やす。
+--   ・receipt_migration_backup … 日報の控えとは別の名前の写し（これも閉まるはず）
+--   ・pkmn_entries_backup_20260823 … **別のアプリ**の写し（名前は当てはまるが触らないはず）
+--   ・bakery_sales … 名前に bak が入っているだけの、いま使っている棚（触らないはず）
+create table if not exists public.receipt_migration_backup
+  (id bigserial primary key, note text);
+insert into public.receipt_migration_backup (note) values ('ひとつ');
+create table if not exists public.pkmn_entries_backup_20260823
+  (id bigserial primary key, note text);
+create table if not exists public.bakery_sales (id bigserial primary key, note text);
 create table if not exists public.shifts (id bigserial primary key, date date, staff_name text, location text);
 insert into public.shifts (date, staff_name, location) values ('2026-08-01','テスト','テスト広場');
 insert into public.daily_reports (date, location, staff_name, shop, sales_amount, expenses) values
@@ -110,12 +120,12 @@ for i in 1 2 3; do
   if [ "$i" = "1" ]; then
     grep -q "⑥ テストの店の初回設定：ok" "$WORK/run$i.log" \
       && say "⑥ テストのお店ができた" "OK" || say "⑥ テストのお店ができた" "NG"
-    grep -q "⑦ 日報の古い控えに鍵をかけました" "$WORK/run$i.log" \
-      && say "⑦ 控えに鍵をかけた" "OK" || say "⑦ 控えに鍵をかけた" "NG"
+    grep -q "⑦ 手羽屋のデータの写しに鍵をかけました" "$WORK/run$i.log" \
+      && say "⑦ 写しに鍵をかけた" "OK" || say "⑦ 写しに鍵をかけた" "NG"
   else
     grep -q "⑥ テストの店は、もうありました" "$WORK/run$i.log" \
       && say "$i 回目は増やさない" "OK" || say "$i 回目は増やさない" "NG"
-    grep -q "⑦ 鍵をかける控えはありませんでした" "$WORK/run$i.log" \
+    grep -q "⑦ 鍵をかける写しはありませんでした" "$WORK/run$i.log" \
       && say "⑦ $i 回目は何もしない" "OK" || say "⑦ $i 回目は何もしない" "NG"
   fi
 done
@@ -135,6 +145,12 @@ want "シフトの印も空のまま" "0" "$(q "select count(tenant_id) from pub
 want "⑦ 日報の古い控えに鍵がかかった" "t" "$(q "select relrowsecurity from pg_class where relname='daily_reports_backup_20260902'")"
 want "⑦ その控えの決まりは0本（サーバー側の鍵だけ）" "0" "$(q "select count(*) from pg_policies where tablename='daily_reports_backup_20260902'")"
 want "⑦ 控えの中身は1行も減らない" "$BEFORE_BACKUP" "$(q "select count(*) from public.daily_reports_backup_20260902")"
+# 2026-10-14：⑦を「写しぜんぶ」に広げた分の確かめ。
+#   いちばん大事なのは **いま使っている棚と別のアプリの棚に届かないこと**。
+want "⑦ もう1つの写しにも鍵がかかった" "t" "$(q "select relrowsecurity from pg_class where relname='receipt_migration_backup'")"
+want "⑦ 別のアプリの写しは触らない" "f" "$(q "select relrowsecurity from pg_class where relname='pkmn_entries_backup_20260823'")"
+want "⑦ 名前が似ているだけの棚は触らない" "f" "$(q "select relrowsecurity from pg_class where relname='bakery_sales'")"
+want "⑦ 日報そのものの鍵の決まりは減らない" "1" "$(q "select count(*) from pg_policies where tablename='daily_reports'")"
 
 # --- 止め木が効くか -----------------------------------------------------------
 psql -q -c "insert into public.keiri_cash_events(kind,happened_on,amount) values ('count','2026-10-13',-1)" >/dev/null 2>&1 \
