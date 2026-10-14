@@ -76,6 +76,13 @@ export const CHECK_WINDOWS: CheckWindow[] = [
     check: "f5-4・f3-4",
   },
   {
+    path: "/api/keiri/tenant-trial/steps",
+    what:
+      "2軒目を入れる手順の**手順4・5・6**まで通ったか（そのお店の出店場所1件・日報1枚・" +
+      "そこから今月の利益と今の現金が出るか・手羽屋の数字が混ざらないか）",
+    check: "f5-4・f3-4",
+  },
+  {
     path: "/api/keiri/keycheck",
     what: "サーバー側の鍵が使える状態か（値は1文字も返さず、使えるか・なぜ使えないかだけ）",
     check: "共通・f5-4",

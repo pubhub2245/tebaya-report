@@ -58,12 +58,23 @@ export type TrialRead = {
   reportCount: number;
   advancesRead: boolean;
   readable: boolean;
+  /**
+   * そのうち「よそのお店（手羽屋）の行」が何件あったか（2026-10-14・f5-4）。
+   *
+   * ■ なぜ足したか（やさしい説明）
+   *   手順5でテストの店に**そのお店じしんの日報を1枚**入れると、
+   *   「テストの店として読んだ件数」は 0 件ではなくなります。
+   *   そこで「0件か」ではなく「**よその行が混ざっていないか**」で見ます。
+   *   見分けは名前の頭の【テスト】です（手順4・5で入れる行は必ず付きます）。
+   *   渡されなかったときは、これまでどおり件数そのもので見ます。
+   */
+  foreignCount?: number;
 };
 
 /**
  * 「分かれている」と言ってよいか。
  *
- * ★テストの店として読んで0件 だけでは足りません（棚が落ちていても0件になるため）。
+ * ★テストの店として読んで「よその行が0件」だけでは足りません（棚が落ちていても0件になるため）。
  *   手羽屋として読んだときに**ちゃんと行が出ている**ことまで揃って、初めて
  *   「分かれている」と言えます。
  * ★立替の2つの棚には「どの店のものか」の欄がまだ無いので、
@@ -74,7 +85,7 @@ export function separationOk(params: { tebaya: TrialRead; testShop: TrialRead })
   return (
     tebaya.readable &&
     tebaya.reportCount > 0 &&
-    testShop.reportCount === 0 &&
+    (testShop.foreignCount ?? testShop.reportCount) === 0 &&
     testShop.advancesRead === false
   );
 }
