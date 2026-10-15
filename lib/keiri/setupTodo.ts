@@ -51,6 +51,17 @@ export type SetupTodoItem = {
   checks: string[];
   /** いまの状態を1行で（数字は「何本／何本」だけ。中身は出さない） */
   detail: string;
+  /**
+   * 画面で「押すボタン」を順番どおりに並べたもの（2026-10-15・f1-4）。
+   *
+   * ■ なぜ要るのか
+   *   金庫の1分は、画面で **2回 押して初めて記録に残ります**
+   *   （［この金額で比べる］→［この結果を控えに残す］）。
+   *   お願いの文が1回目で終わっていたため、押しても記録が残らず、
+   *   こちら側から「合っていた」を確かめられない道が残っていました。
+   *   押すものを全部ここに書き、画面にもそのまま出します。
+   */
+  presses?: string[];
 };
 
 export type SetupTodo = {
@@ -62,6 +73,14 @@ export type SetupTodo = {
   allDone: boolean;
   /** 1行のまとめ */
   summary: string;
+  /**
+   * 「3つは互いに待っていない」ことを1行で（2026-10-15・f1-4）。
+   *
+   * のこりが2件以上のときだけ出す。順番に見えると
+   * 「上が済むまで下は押しても意味が無い」と読まれ、1分で済む手続きが
+   * 2分の手続きを待つことになる（実際に 2026-10-15 にそう読まれた）。
+   */
+  independentNote: string | null;
 };
 
 /** 窓口が倉庫を読んで分かったこと。読めなければ null（＝分からない） */
@@ -119,6 +138,8 @@ function cashItem(input: SetupTodoInput["cash"]): SetupTodoItem {
     benefit: "「計算上の現金」と「実際の金庫」が合っているかが、その場で分かります",
     href: CASH_SHEET,
     checks: ["f1-4"],
+    // ★2回目を書き忘れると、押しても記録が残らない（f1-4 が確かめられない）
+    presses: ["この金額で比べる", "この結果を控えに残す（これで終わりです）"],
   };
   if (!input) {
     return { ...base, state: "分からない", detail: "いま確かめられませんでした" };
@@ -140,7 +161,7 @@ function cashItem(input: SetupTodoInput["cash"]): SetupTodoItem {
       state: "のこり",
       detail:
         "棚は準備中ですが、いま入れれば控えに残ります" +
-        "（画面にその場で答えも出ます）",
+        "（貼り紙を待ちません。画面にその場で答えも出ます）",
     };
   }
   return { ...base, state: "のこり", detail: "数えた記録がまだ1件もありません" };
@@ -194,8 +215,25 @@ export function buildSetupTodo(input: SetupTodoInput): SetupTodo {
       : `のこりの手続きは ${remaining} 件です（合わせて ${totalMinutes(items)}分ほど）` +
         (unknown > 0 ? `。ほかに ${unknown} 件は確かめられませんでした` : "");
 
-  return { items, remaining, unknown, allDone, summary };
+  return {
+    items,
+    remaining,
+    unknown,
+    allDone,
+    summary,
+    independentNote: remaining >= 2 ? INDEPENDENT_NOTE : null,
+  };
 }
+
+/**
+ * 3つの手続きは、互いに待っていない（2026-10-15・f1-4）。
+ *
+ * 金庫を数える1分は、倉庫の貼り紙を待ちません（記録を置く棚がまだ無いあいだは
+ * 経理の設定のひとこと欄に控えます）。順番に並んでいるのは「おすすめの順」だけです。
+ */
+export const INDEPENDENT_NOTE =
+  "この3つは互いに待っていません。どれから押しても、その1つぶんだけ前に進みます" +
+  "（金庫の1分は、倉庫の貼り紙を待ちません）。";
 
 /** のこっている分だけの時間の合計（表示用。おおよそで十分） */
 export function totalMinutes(items: SetupTodoItem[]): number {
