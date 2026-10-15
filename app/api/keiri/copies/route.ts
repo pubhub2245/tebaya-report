@@ -59,6 +59,11 @@ export async function GET(req: Request) {
   return NextResponse.json(
     stampCheckWindow({
       ...report,
+      quick:
+        "**合否だけを1秒で見たいときは /api/keiri/copies?sweep=no を開いてください**" +
+        "（2026-10-15 18:3x）。verdict・live・tenantRows はそのまま返り、" +
+        "写しの名前を 819 本 聞く所だけを省きます（実測：約1秒／ぜんぶ聞くと10〜13秒）。" +
+        "読む道具の待ち時間が10秒で切れると、ぜんぶ聞く形は『サーバー側の誤り』に見えます",
       verdictHow:
         "**f3-4 の合否は verdict だけ見れば分かります**（2026-10-15 18:3x）。" +
         "2つ揃って初めて合格です：①よその店の行が公開の鍵で読めない " +
