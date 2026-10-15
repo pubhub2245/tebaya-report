@@ -43,14 +43,23 @@ export default function SetupTodoCard({ here }: { here?: string } = {}) {
   }, []);
 
   if (!todo) return null;
-  // いま開いている1枚のことは出さない（「この1枚をひらく」が自分自身になるため）
-  const left = todo.items.filter((i) => i.state !== "済み" && i.href !== here);
+  /**
+   * いま開いている1枚のことは出さない（「この1枚をひらく」が自分自身になるため）。
+   *
+   * ★ただし「金庫を数える」だけは例外（2026-10-15・f1-4）。
+   *   行き先が同じ /keiri でも、**その画面の下のほうにある別の欄**なので、
+   *   出さないと じゅんが毎日ひらく画面に この1分が1件も見えません
+   *   （実際に「↓ この画面の…へ」の案内は、ここで外れていたため一度も出ていませんでした）。
+   */
+  const left = todo.items.filter(
+    (i) => i.state !== "済み" && (i.href !== here || i.id === "cash"),
+  );
   if (left.length === 0) return null;
 
   return (
     <section className="card border-2 border-amber-300 bg-amber-50">
       <h2 className="text-lg font-bold text-amber-900">
-        🙋 のこりの手続き（じゅんだけ・{todo.remaining}件{here ? "／このほかに" : ""}）
+        🙋 のこりの手続き（じゅんだけ・{todo.remaining}件）
       </h2>
       <p className="mt-1 text-sm leading-relaxed text-amber-900">{todo.summary}</p>
       {/* ★「上が済むまで下は意味が無い」と読まれないように出す（2026-10-15・f1-4）。
@@ -109,8 +118,8 @@ function Row({ item, no, here }: { item: SetupTodoItem; no: number; here?: strin
       )}
       <div className="mt-2">
         {item.href === "/keiri" && here === "/keiri" ? (
-          <a href="#kinko" className="btn-secondary text-sm">
-            この画面の「🔐 金庫を数えて、合っているか見る」へ ↓
+          <a href="#kinko" className="btn-primary text-sm">
+            ↓ この画面の「🔐 金庫を数えて、合っているか見る」へ
           </a>
         ) : (
           <Link
