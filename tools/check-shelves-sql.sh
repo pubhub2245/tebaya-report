@@ -62,6 +62,8 @@ SQL
 psql -q -f "$ROOT/supabase/schema.sql" >/dev/null 2>&1
 # 日報に expenses_total（本番にある列。移行ファイルは列がある前提で書かれている）
 psql -q -c "alter table public.daily_reports add column if not exists expenses_total integer not null default 0" >/dev/null 2>&1
+# 日報の unit_number（本番にある列。号車＝レジの持ち主。移行ファイルには残っていない）
+psql -q -c "alter table public.daily_reports add column if not exists unit_number smallint" >/dev/null 2>&1
 for f in daily_reports_shop_alcohol_products daily_reports_exclude_from_stats fix_expenses_total_column \
          staff_members sale_products keiri_settings_and_payments keiri_office_rent \
          advance_expenses keiri_account_mapping keiri_advance_expenses keiri_advance_expenses_receipt \
@@ -96,6 +98,13 @@ insert into public.daily_reports (date, location, staff_name, shop, sales_amount
   '[{"description":"仕入","amount":12000,"receipt_image_url":"https://example/x.jpg"},{"description":"場代","amount":3405}]'::jsonb);
 SQL
 
+# 本番の Supabase と同じく、公開の鍵（anon）に読む許可を与える。
+# ⑧は「公開の鍵では よその店の行が読めない」ことを確かめるので、この許可が無いと試せない。
+psql -q >/dev/null 2>&1 <<'SQL'
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on all tables in schema public to anon, authenticated;
+SQL
+
 NG=0
 # ★「OK」を出したときに 0 で返すこと（1 で返すと、呼び出し側の || が
 #   そのまま「NG」も出してしまう。2026-10-13 に実際にやった）
@@ -118,11 +127,15 @@ for i in 1 2 3; do
   rc=$?
   want "$i 回目が最後まで通る" "0" "$rc"
   if [ "$i" = "1" ]; then
+    grep -q "⑧ よその店の日報を、公開の鍵では読めないようにしました" "$WORK/run$i.log" \
+      && say "⑧ 読む決まりを足した" "OK" || say "⑧ 読む決まりを足した" "NG"
     grep -q "⑥ テストの店の初回設定：ok" "$WORK/run$i.log" \
       && say "⑥ テストのお店ができた" "OK" || say "⑥ テストのお店ができた" "NG"
     grep -q "⑦ 手羽屋のデータの写しに鍵をかけました" "$WORK/run$i.log" \
       && say "⑦ 写しに鍵をかけた" "OK" || say "⑦ 写しに鍵をかけた" "NG"
   else
+    grep -q "⑧ 読む決まりは、もうありました" "$WORK/run$i.log" \
+      && say "⑧ $i 回目は何もしない" "OK" || say "⑧ $i 回目は何もしない" "NG"
     grep -q "⑥ テストの店は、もうありました" "$WORK/run$i.log" \
       && say "$i 回目は増やさない" "OK" || say "$i 回目は増やさない" "NG"
     grep -q "⑦ 鍵をかける写しはありませんでした" "$WORK/run$i.log" \
@@ -150,7 +163,29 @@ want "⑦ 控えの中身は1行も減らない" "$BEFORE_BACKUP" "$(q "select c
 want "⑦ もう1つの写しにも鍵がかかった" "t" "$(q "select relrowsecurity from pg_class where relname='receipt_migration_backup'")"
 want "⑦ 別のアプリの写しは触らない" "f" "$(q "select relrowsecurity from pg_class where relname='pkmn_entries_backup_20260823'")"
 want "⑦ 名前が似ているだけの棚は触らない" "f" "$(q "select relrowsecurity from pg_class where relname='bakery_sales'")"
-want "⑦ 日報そのものの鍵の決まりは減らない" "1" "$(q "select count(*) from pg_policies where tablename='daily_reports'")"
+# ⑦では日報そのものの決まりを1本も減らさない。
+# 2026-10-15：⑧が「印が空の行だけ 読んでよい」を**足す**ので、本数は 1 → 2 になる
+# （「だれでもOK」は消していないことを、⑧の所でも名指しで確かめている）。
+want "⑦⑧ 日報の決まりは減らず2本（だれでもOK＋⑧）" "2" "$(q "select count(*) from pg_policies where tablename='daily_reports'")"
+
+# --- ⑧ よその店の日報が、公開の鍵で読めないか（2026-10-15 追記・f3-4） --------
+#   ★いちばん大事なのは **手羽屋の行が今までどおり読めること**。
+#     ここが崩れたら、日報の入力そのものが止まる。
+want "⑧ 読む決まりが1本 付いた" "1" "$(q "select count(*) from pg_policies where tablename='daily_reports' and policyname='keiri_only_tebaya_rows_readable'")"
+want "⑧ いまある「だれでもOK」は消していない" "1" "$(q "select count(*) from pg_policies where tablename='daily_reports' and policyname='allow all daily_reports'")"
+# よその店の行（印つき）を1行 入れて、公開の鍵で見えるかを試す
+TEST_TENANT="$(q "select id from public.keiri_tenants where external_session_id='test-b2-kensa-1006' limit 1")"
+psql -q -c "insert into public.daily_reports (date, location, staff_name, shop, sales_amount, tenant_id) values ('2026-09-07','【テスト】テスト広場','【テスト】テスト太郎','手羽屋',1000,'$TEST_TENANT')" >/dev/null 2>&1
+want "⑧ 手羽屋の行は、公開の鍵で今までどおり読める" "1" "$(q "set role anon; select count(*) from public.daily_reports where tenant_id is null")"
+want "⑧ よその店の行は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.daily_reports where tenant_id is not null")"
+want "⑧ 軽い日報（経理の見え方）も、よその店は読めない" "0" "$(q "set role anon; select count(*) from public.keiri_reports where tenant_id is not null")"
+want "⑧ 書き換えて取り出す道でも読めない" "0" "$(q "set role anon; with u as (update public.daily_reports set handover=handover where tenant_id is not null returning 1) select count(*) from u")"
+want "⑧ 窓口は、その店の日報を返す" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_reports(null,null,null,'test-b2-kensa-1006')")"
+want "⑧ 窓口は、知らない印には何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_reports(null,null,null,'test-knowhere')")"
+want "⑧ 窓口は、合言葉のかたちでなければ何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_reports('ちがう合言葉',null,null,null)")"
+want "⑧ 窓口はレシート写真の住所を返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_reports(null,null,null,'test-b2-kensa-1006') w, jsonb_array_elements(w -> 'expenses') x where x ? 'receipt_image_url'")"
+# 入れたテストの行は、確かめが済んだら取り消す（本番ではなく、このパソコンの中の倉庫）
+psql -q -c "delete from public.daily_reports where tenant_id is not null" >/dev/null 2>&1
 
 # --- 止め木が効くか -----------------------------------------------------------
 psql -q -c "insert into public.keiri_cash_events(kind,happened_on,amount) values ('count','2026-10-13',-1)" >/dev/null 2>&1 \
@@ -163,7 +198,7 @@ psql -q -c "insert into public.keiri_expense_ignores(source,ref_id,line_index) v
 
 echo "----------------------------------------------"
 if [ "$NG" = "0" ]; then
-  echo "OK：貼り紙は7つぜんぶ通り、何度 流しても増えません（本番ではなく、同じ形の空の倉庫での結果です）"
+  echo "OK：貼り紙は8つぜんぶ通り、何度 流しても増えません（本番ではなく、同じ形の空の倉庫での結果です）"
   exit 0
 fi
 echo "NG：直してから、じゅんに渡す1枚を更新してください"

@@ -104,6 +104,14 @@ export async function POST(req: NextRequest) {
       scope,
       // 現金は数え始めの日から積み上げるので、その月だけでは足りない
       monthOnly: false,
+      // ★よその店の行は、貼り紙⑧のあと公開の鍵では読めない（f3-4・kp251）。
+      //   そのお店の日報は**倉庫の窓口ごし**に読む。窓口に渡すのは
+      //   「戻せない形の合言葉」だけで、**お店の番号は渡さない**（kp239 ②）。
+      //   手羽屋として読むときは渡さない＝読み方は今までどおり。
+      tenantReadHash:
+        resolved.outcome === "tenant"
+          ? String(body.passwordHash ?? "").trim().toLowerCase()
+          : undefined,
       db,
     });
     return NextResponse.json({

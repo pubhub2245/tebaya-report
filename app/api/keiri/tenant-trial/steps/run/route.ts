@@ -13,6 +13,7 @@ import {
   type StepsState,
   type TebayaVisible,
 } from "@/lib/keiri/tenantTrialSteps";
+import { readTenantReportsViaWindow } from "@/lib/keiri/loadMonthServer";
 import { serverClient } from "@/lib/supabaseServer";
 import { applyTenantScope } from "@/lib/tenantScope";
 
@@ -124,12 +125,24 @@ export async function POST() {
   let reportReady = false;
   const reportDate = testReportDate();
   try {
-    const { data: already, error: readErr } = await db
-      .from("daily_reports")
-      .select("id")
-      .eq("tenant_id", tenantId)
-      .eq("date", reportDate)
-      .limit(1);
+    // ★貼り紙⑧のあと、テストの店の行は**公開の鍵では読めません**（f3-4・kp251）。
+    //   そのままだと「もう入っているか」が毎回「入っていない」に見えて、
+    //   押すたびに同じ日報が増えてしまいます。
+    //   そこで倉庫の窓口ごしに聞き、窓口がまだ無い倉庫では今までどおり棚を読みます。
+    const viaWindow = await readTenantReportsViaWindow(db as any, {
+      testMark: TEST_SHOP.mark,
+      from: reportDate,
+      to: reportDate,
+    });
+    const { data: already, error: readErr } =
+      viaWindow.outcome === "ok"
+        ? { data: viaWindow.rows, error: null as any }
+        : await db
+            .from("daily_reports")
+            .select("id")
+            .eq("tenant_id", tenantId)
+            .eq("date", reportDate)
+            .limit(1);
     if (readErr) problems.push("日報の棚を読めませんでした");
     else if ((already?.length ?? 0) > 0) reportReady = true;
     else {

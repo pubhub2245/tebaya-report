@@ -162,6 +162,10 @@ export async function readBothWays(tenantId: string | null): Promise<{
     businessCode: businessCodeForScope(tenantId),
     scope: tenantId,
     monthOnly: true,
+    // ★貼り紙⑧のあと、テストの店の行は公開の鍵では読めない（f3-4・kp251）。
+    //   倉庫の窓口ごしに読む。窓口はテストの印（test-… ＋ 店名が【テスト】）
+    //   でしか開かないので、本物のお店の行はここから1行も出ない。
+    tenantReadTestMark: TEST_SHOP.mark,
   });
   // そのお店として読んだ行のうち、**よそのお店の行**が何件あるか。
   // 手順4・5で入れるテストの行は名前の頭に【テスト】が付くので、それ以外を数える。

@@ -226,6 +226,10 @@ const ALLOWED_WITHOUT_SCOPE = new Set([
   // 全部の行を直す道具なので、ここは絞らないのが正しい。
   "lib/receiptMigration.ts",
   "app/api/admin/reocr-receipts/route.ts",
+  // 「よその店の行が、公開の鍵で見えてしまわないか」を確かめる所（f3-4・2026-10-15）。
+  // ここは**わざと逆**で、印が付いた行（よその店の行）だけを数える。
+  // 件数しか受け取らず、中身は1文字も読まない（lib/keiri/tenantReadGuard.ts）。
+  "lib/keiri/tenantReadGuard.ts",
 ]);
 
 test("日報を読む所には必ず『どの店か』の絞り込みが付いている", () => {

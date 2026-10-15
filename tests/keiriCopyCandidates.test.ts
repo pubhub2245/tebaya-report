@@ -15,6 +15,12 @@ import {
   verdictFromAnonRead,
 } from "../lib/keiri/copyTables";
 import { KNOWN_COPY_TABLES, f34Note, sweepNote } from "../lib/keiri/copyProbe";
+import {
+  TENANT_READ_POLICY,
+  TENANT_READ_WINDOW,
+  decideSeparated,
+  guardNote,
+} from "../lib/keiri/tenantReadGuard";
 
 /**
  * 「写しの名前を組み立てて片っぱしから聞く」ところを固定する（f3-4・2026-10-14）。
@@ -100,32 +106,90 @@ test("聞いた結果の1行は、開いている写しを先に言う", () => {
 
 /**
  * 写しを閉めただけで f3-4 を合格にしないこと（2026-10-14）。
- * いま使っている日報の棚が公開の読み取りで読めるなら、分かれていない。
+ *
+ * ★2026-10-15 に見方を直した。**手羽屋の行（印が空）は、貼り紙⑧を流したあとも
+ *   公開の鍵で読める**（お店ごとの入室がまだ無いため。CLAUDE.md 4-8）。
+ *   f3-4 が聞いているのは「よその店のデータが見えないか」なので、
+ *   判定は**印が付いた行**だけで行う。
  */
-test("写しが全部閉まっても、日報の棚が読めるなら『まだ閉まっていない』と言う", () => {
-  const note = f34Note(true, {
-    table: "daily_reports",
-    readable: true,
-    note: "読めます",
+const LIVE_READABLE = { table: "daily_reports", readable: true, note: "読めます" } as const;
+
+test("よその店の行が公開の鍵で見えるなら『まだ閉まっていない』と言う", () => {
+  const note = f34Note(true, LIVE_READABLE, {
+    anonVisible: 3,
+    windowReady: false,
+    viaWindow: null,
+    separated: false,
+    note: "公開の鍵で、よその店の日報が 3 行 読めます。貼り紙⑧（/keiri/sql）を1回 流すと読めなくなります",
+    policy: TENANT_READ_POLICY,
+    window: TENANT_READ_WINDOW,
   });
-  assert.match(note, /日報の棚そのものが公開の鍵で読めます/);
-  assert.match(note, /f3-4 はここで閉まりません/);
-  assert.match(note, /kp239/);
+  assert.match(note, /よその店の日報が 3 行 読めます/);
+  assert.match(note, /貼り紙⑧/);
 });
 
-test("両方 閉まったときだけ『棚の鍵の分は閉まっている』と言う", () => {
-  const note = f34Note(true, {
-    table: "daily_reports",
-    readable: false,
-    note: "読めません",
+test("手羽屋の行が読めるだけでは『閉まっていない』と言わない（2026-10-15）", () => {
+  const note = f34Note(true, LIVE_READABLE, {
+    anonVisible: 0,
+    windowReady: true,
+    viaWindow: 1,
+    separated: true,
+    note: "よその店の日報は、公開の鍵では1行も読めません",
+    policy: TENANT_READ_POLICY,
+    window: TENANT_READ_WINDOW,
   });
   assert.match(note, /公開の鍵では読めません/);
   assert.doesNotMatch(note, /閉まりません/);
 });
 
+test("よその店の行が1行も無いときは、閉まったことにしない", () => {
+  const note = f34Note(true, LIVE_READABLE, {
+    anonVisible: 0,
+    windowReady: true,
+    viaWindow: 0,
+    separated: null,
+    note: "よその店の行が1行も無いので、隠れているかどうかは まだ試せていません",
+    policy: TENANT_READ_POLICY,
+    window: TENANT_READ_WINDOW,
+  });
+  assert.match(note, /まだ試せていません/);
+  assert.doesNotMatch(note, /閉まっています（f3-4/);
+});
+
 test("聞けなかったときは、分からないまま合格にしない", () => {
   const note = f34Note(true, { table: "daily_reports", readable: null, note: "？" });
   assert.match(note, /分からないまま合格にしないこと/);
+});
+
+/* ---------- ⑧の判定そのもの（lib/keiri/tenantReadGuard.ts） ---------- */
+
+test("公開の鍵で よその店の行が1行でも見えたら、分かれていない", () => {
+  assert.equal(decideSeparated({ anonVisible: 1, windowReady: true, viaWindow: 1 }), false);
+});
+
+test("窓口では見えるのに公開の鍵では見えない、が揃ったときだけ『分かれている』", () => {
+  assert.equal(decideSeparated({ anonVisible: 0, windowReady: true, viaWindow: 2 }), true);
+});
+
+test("よその店の行が1行も無いときは、分かれているとも言わない（null）", () => {
+  assert.equal(decideSeparated({ anonVisible: 0, windowReady: true, viaWindow: 0 }), null);
+  assert.equal(decideSeparated({ anonVisible: 0, windowReady: false, viaWindow: null }), null);
+});
+
+test("公開の鍵で聞けなかったときは、分かれているとも言わない（null）", () => {
+  assert.equal(decideSeparated({ anonVisible: null, windowReady: true, viaWindow: 5 }), null);
+});
+
+test("まだ流れていないときの1行には、何をすればよいかが書いてある", () => {
+  const note = guardNote({
+    anonVisible: 2,
+    windowReady: false,
+    viaWindow: null,
+    separated: false,
+  });
+  assert.match(note, /貼り紙⑧/);
+  // 手羽屋の行は読めたままで正しい、と必ず添える（取り違え防止）
+  assert.match(note, /手羽屋の行＝印が空は、今までどおり読めます/);
 });
 
 /**

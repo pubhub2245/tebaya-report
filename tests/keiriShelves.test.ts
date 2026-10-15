@@ -137,10 +137,20 @@ test("軽い日報の見え方は、レシート写真の住所を抜いたま�
   assert.ok(sql.includes("as receipt_count"));
 });
 
-test("貼り紙に入っているのは7つで、それぞれ仕上げ表の項目につながっている", () => {
-  assert.equal(SHELF_STEPS.length, 7);
+test("貼り紙に入っているのは8つで、それぞれ仕上げ表の項目につながっている", () => {
+  assert.equal(SHELF_STEPS.length, 8);
   const checks = SHELF_STEPS.map((s) => s.check);
-  assert.deepEqual(checks, ["f1-4", "f1-5", "f1-6", "f3-4", "f3-4", "f5-4", "f3-4"]);
+  assert.deepEqual(checks, [
+    "f1-4",
+    "f1-5",
+    "f1-6",
+    "f3-4",
+    "f3-4",
+    "f5-4",
+    "f3-4",
+    // ⑧ よその店の日報を、公開の鍵では読めないようにする（2026-10-15）
+    "f3-4",
+  ]);
   for (const s of SHELF_STEPS) {
     assert.ok(s.benefit.length > 10, `${s.key} に「流すと何ができるか」が書かれていません`);
   }
@@ -169,8 +179,14 @@ test("⑥ テストのお店1軒を貼り紙の中で作る（2026-10-09・f5-4 
   assert.ok(body.includes(`'${TEST_SHOP.openingDate}'`));
   assert.ok(body.includes(String(TEST_SHOP.openingBalance)));
 
-  // 新しい窓口（関数）は1つも作らない＝すでにある初回設定の窓口を呼ぶだけ
-  assert.ok(!/create\s+(or\s+replace\s+)?function/i.test(body));
+  // 新しい窓口（関数）は1つも作らない＝すでにある初回設定の窓口を呼ぶだけ。
+  // ★2026-10-15：⑧が窓口を1つ作るので、**⑥の所だけ**を切り出して見る
+  //   （貼り紙ぜんぶを見ると、⑧の窓口に引っかかって意味が変わってしまう）。
+  const sixth = body.slice(
+    body.indexOf(`'${TEST_SHOP.mark}'`) - 2000 > 0 ? body.indexOf(`'${TEST_SHOP.mark}'`) - 2000 : 0,
+    body.indexOf("relrowsecurity = false"),
+  );
+  assert.ok(!/create\s+(or\s+replace\s+)?function/i.test(sixth));
   assert.ok(body.includes("public.keiri_tenant_activate("));
 
   // 何度 流しても増えない（同じ目印があれば作らない・ぶつかっても黙って通す）
@@ -211,22 +227,52 @@ test("「貼り紙が作る行がまだ無い」は、棚と同じ「まだ無�
   assert.match(report.note, /貼り紙を1回 貼る/);
 });
 
-test("貼り紙は「誰が何をできるか」を1つも変えない（鍵の決まりは足す棚のぶんだけ）", () => {
+test("貼り紙は、いまある決まりを1本も消さない・取り上げない（足すだけ）", () => {
   const body = readFileSync(SQL_PATH, "utf8")
     .split("\n")
     .filter((line) => !line.trim().startsWith("--"))
     .join("\n")
     .toLowerCase();
-  // 権限を渡す・取り上げる命令は1つも入れない
-  for (const forbidden of ["grant ", "revoke ", "security definer", "alter policy"]) {
-    assert.ok(!body.includes(forbidden), `貼り紙に ${forbidden.trim()} が入っています`);
+
+  // いまある決まりを消す・作り変える命令は1つも入れない
+  for (const forbidden of [
+    "drop policy",
+    "alter policy",
+    "drop function",
+    "drop table",
+    "grant all",
+    "on all tables",
+  ]) {
+    assert.ok(!body.includes(forbidden), `貼り紙に ${forbidden} が入っています`);
   }
-  // 決まりを作るのは、この貼り紙で新しく足した2つの棚だけ
-  const created = body.match(/create policy (\w+)/g) ?? [];
+
+  // 決まりを作るのは、新しく足した2つの棚と、⑧の「読む決まり」だけ
+  const created = body.match(/create policy "?(\w+)"?/g) ?? [];
   assert.deepEqual(created, [
     "create policy keiri_cash_events_all",
     "create policy keiri_expense_ignores_all",
+    'create policy "keiri_only_tebaya_rows_readable"',
   ]);
+
+  // ⑧の決まりは「読むときだけ」「印が空の行だけ」の追い禁止であること。
+  // ★ここが for all になると、手羽屋の日報の保存まで止まる（絶対に変えない）
+  assert.match(
+    body,
+    /create policy "keiri_only_tebaya_rows_readable" on public\.daily_reports\s*\n\s*as restrictive for select to public\s*\n\s*using \(tenant_id is null\)/,
+  );
+
+  // ⑧で作る窓口のぶんだけ、許可を渡す。渡す相手は anon / authenticated / service_role のみ
+  const grants = body.match(/grant execute on function [^;]+/g) ?? [];
+  assert.equal(grants.length, 1, "許可を渡しているのは⑧の窓口1つだけであること");
+  assert.match(grants[0], /public\.keiri_tenant_reports\(text, date, date, text\)/);
+  assert.match(grants[0], /to anon, authenticated, service_role/);
+  // 渡す前に、だれでも実行できる状態を取り下げている（既存の窓口と同じ形）
+  assert.match(
+    body,
+    /revoke all on function public\.keiri_tenant_reports\(text, date, date, text\) from public/,
+  );
+  // security definer（棚の決まりを飛び越えて読む作り）は、その窓口1つだけ
+  assert.equal((body.match(/security definer/g) ?? []).length, 1);
 });
 
 test("⑦ 手羽屋のデータの写しに鍵をかける（2026-10-13・2026-10-14 拡大・f3-4）。消さない・決まりは作らない", () => {

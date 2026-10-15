@@ -23,8 +23,12 @@ import { businessCodeMatchesScope, loadKeiriMonthServer } from "../lib/keiri/loa
 type Call = { table: string; filters: string[] };
 
 /** 倉庫のふり。どの棚に、どんな絞り込みで聞いたかだけを覚える */
-function fakeDb(rowsByTable: Record<string, unknown[]> = {}) {
+function fakeDb(
+  rowsByTable: Record<string, unknown[]> = {},
+  rpcImpl?: (fn: string, args: Record<string, unknown>) => { data: unknown; error: any },
+) {
   const calls: Call[] = [];
+  const rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
   function from(table: string) {
     const call: Call = { table, filters: [] };
     calls.push(call);
@@ -43,7 +47,15 @@ function fakeDb(rowsByTable: Record<string, unknown[]> = {}) {
     };
     return q;
   }
-  return { db: { from } as unknown, calls };
+  const rpc = (fn: string, args: Record<string, unknown>) => {
+    rpcCalls.push({ fn, args });
+    return Promise.resolve(
+      rpcImpl
+        ? rpcImpl(fn, args)
+        : { data: null, error: { code: "PGRST202", message: "Could not find the function" } },
+    );
+  };
+  return { db: { from, rpc } as unknown, calls, rpcCalls };
 }
 
 const tableNames = (calls: Call[]) => calls.map((c) => c.table);
@@ -130,4 +142,103 @@ test("前の月に立て替えて今月 返した立替を、別の入れ物で�
     "よその店として読むときは、立替の棚に1回も聞かない",
   );
   assert.equal(o.advancesRepaidEarlier.length, 0);
+});
+
+/* ------------------------------------------------------------------ *
+ *  よその店の日報は「倉庫の窓口ごし」に読む（2026-10-15・kp251・f3-4）
+ *
+ *  貼り紙⑧を流すと、日報の棚は「印が空の行だけ 読んでよい」になる。
+ *  手羽屋（印が空）は今までどおりだが、**よその店の行は公開の鍵では読めない**。
+ *  そこで、そのお店の日報は窓口（keiri_tenant_reports）ごしに読む。
+ * ------------------------------------------------------------------ */
+
+const OTHER_SHOP = "11111111-2222-3333-4444-555555555555";
+
+/** 窓口が返す1行（作り物。実在のお店の金額ではありません） */
+const WINDOW_ROW = {
+  id: "r1",
+  date: "2026-09-07",
+  location: "【テスト】テスト広場",
+  staff_name: "【テスト】テスト太郎",
+  shop: "手羽屋",
+  sales_amount: 1000,
+  labor: 0,
+  expenses: [],
+  unit_number: 1,
+  register_total: 30000,
+};
+
+test("合言葉を渡すと、よその店の日報は窓口ごしに読む（棚に直接は聞かない）", async () => {
+  const hash = "a".repeat(64);
+  const { db, calls, rpcCalls } = fakeDb({}, () => ({ data: [WINDOW_ROW], error: null }));
+  const data = await loadKeiriMonthServer({
+    ym: "2026-09",
+    businessCode: "t_abc",
+    scope: OTHER_SHOP,
+    monthOnly: true,
+    tenantReadHash: hash,
+    db,
+  });
+
+  assert.equal(rpcCalls.length, 1, "窓口は1回だけ呼ぶ（日報とレジ金を同じ1回で受け取る）");
+  assert.equal(rpcCalls[0].fn, "keiri_tenant_reports");
+  // ★窓口に渡すのは合言葉（戻せない形）だけ。**お店の番号は渡さない**（kp239 ②）
+  assert.equal(rpcCalls[0].args.p_password_hash, hash);
+  assert.ok(
+    !JSON.stringify(rpcCalls[0].args).includes(OTHER_SHOP),
+    "お店の番号を窓口に渡していない",
+  );
+
+  assert.equal(data.reports.length, 1);
+  assert.equal(data.reports[0].date, "2026-09-07");
+  assert.equal(data.reportsUnreadable, false);
+  // レジ金も同じ返事から作る（もう一度 棚に聞かない）
+  assert.equal(data.registerCloses.length, 1);
+  assert.equal(data.registerCloses[0].amount, 30000);
+  // 日報の棚・軽い日報の棚には1回も聞いていない
+  assert.ok(!tableNames(calls).includes("keiri_reports"));
+  assert.ok(!tableNames(calls).includes("daily_reports"));
+  // 立替は今までどおり読まない（混ざらない）
+  assert.equal(data.advancesSkipped, true);
+});
+
+test("窓口がまだ無い倉庫では、今までどおり棚を読む（流す前と同じ）", async () => {
+  const { db, calls } = fakeDb({ keiri_reports: [] });
+  const data = await loadKeiriMonthServer({
+    ym: "2026-09",
+    businessCode: "t_abc",
+    scope: OTHER_SHOP,
+    monthOnly: true,
+    tenantReadHash: "b".repeat(64),
+    db,
+  });
+  assert.ok(tableNames(calls).includes("keiri_reports"), "窓口が無ければ棚に聞く");
+  assert.equal(data.reports.length, 0);
+});
+
+test("手羽屋として読むときは、窓口を1回も呼ばない（読み方は今までどおり）", async () => {
+  const { db, rpcCalls, calls } = fakeDb({}, () => ({ data: [WINDOW_ROW], error: null }));
+  await loadKeiriMonthServer({
+    ym: "2026-09",
+    businessCode: "tebaya",
+    tenantReadHash: "c".repeat(64),
+    db,
+  });
+  assert.equal(rpcCalls.length, 0);
+  assert.ok(tableNames(calls).includes("keiri_reports"));
+});
+
+test("テストの店の印でも窓口ごしに読める（2軒目を入れる手順・f5-4）", async () => {
+  const { db, rpcCalls } = fakeDb({}, () => ({ data: [WINDOW_ROW], error: null }));
+  await loadKeiriMonthServer({
+    ym: "2026-09",
+    businessCode: "t_abc",
+    scope: OTHER_SHOP,
+    monthOnly: true,
+    tenantReadTestMark: "test-b2-kensa-1006",
+    db,
+  });
+  assert.equal(rpcCalls.length, 1);
+  assert.equal(rpcCalls[0].args.p_test_mark, "test-b2-kensa-1006");
+  assert.equal(rpcCalls[0].args.p_password_hash, null);
 });
