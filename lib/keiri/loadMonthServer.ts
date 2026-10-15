@@ -19,6 +19,8 @@
  */
 
 import { serverClient } from "@/lib/supabaseServer";
+import { isMissingFunction } from "@/lib/keiri/tenantAccess";
+import { TENANT_READ_WINDOW } from "@/lib/keiri/tenantReadGuard";
 import {
   applyTenantScope,
   businessCodeForScope,
@@ -100,6 +102,64 @@ export function shiftDate(ymd: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * よその店の日報を、**倉庫の窓口ごし**に読む（f3-4・2026-10-15・kp251）。
+ *
+ * ■ なぜ要るのか（やさしい説明）
+ *   貼り紙⑧を流すと、日報の棚は「**印が空の行だけ 読んでよい**」になります。
+ *   手羽屋（印が空）は今までどおりですが、**よその店の行は公開の鍵では読めません**。
+ *   いまサーバー側の鍵は壊れているので（kp241）、ここも公開の鍵で読んでいます。
+ *   ＝ よその店は、同じ⑧で作る**倉庫の窓口**ごしに読む必要があります。
+ *
+ * ■ 窓口は「お店の番号」を受け取りません
+ *   渡すのは**合言葉を戻せない形にしたもの**だけで、どのお店かは倉庫が決めます
+ *   （kp239 ② と同じ決まり）。番号を書き換えても、よその店の帳簿は開きません。
+ *
+ * ■ 窓口がまだ無い倉庫では、今までどおりに戻ります
+ *   貼り紙を流す前は窓口がありません。そのときは**今までの読み方**に落とすので、
+ *   流す前と流したあとで、同じコードがどちらでも動きます。
+ */
+export type TenantWindowRow = {
+  id?: unknown;
+  date?: unknown;
+  location?: unknown;
+  staff_name?: unknown;
+  shop?: unknown;
+  sales_amount?: unknown;
+  labor?: unknown;
+  expenses?: unknown;
+  unit_number?: unknown;
+  register_total?: unknown;
+};
+
+export type TenantWindowResult =
+  /** 窓口ごしに読めた */
+  | { outcome: "ok"; rows: TenantWindowRow[] }
+  /** 窓口がまだ無い＝今までどおりの読み方に戻す */
+  | { outcome: "missing" }
+  /** 呼べたが失敗した。**0件と取り違えない** */
+  | { outcome: "error" };
+
+/** 窓口に1回だけ聞く。読むだけ・書き込みはしない */
+export async function readTenantReportsViaWindow(
+  db: { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: any }> },
+  args: { passwordHash?: string; testMark?: string; from: string; to?: string | null },
+): Promise<TenantWindowResult> {
+  try {
+    const { data, error } = await db.rpc(TENANT_READ_WINDOW, {
+      p_password_hash: args.passwordHash ?? null,
+      p_from: args.from,
+      p_to: args.to ?? null,
+      p_test_mark: args.testMark ?? null,
+    });
+    if (error) return isMissingFunction(error) ? { outcome: "missing" } : { outcome: "error" };
+    if (!Array.isArray(data)) return { outcome: "error" };
+    return { outcome: "ok", rows: data as TenantWindowRow[] };
+  } catch {
+    return { outcome: "error" };
+  }
+}
+
 export async function loadKeiriMonthServer(params: {
   /** 見る月（YYYY-MM） */
   ym: string;
@@ -115,6 +175,16 @@ export async function loadKeiriMonthServer(params: {
    * ★ここを渡さなかったときの結果は、これまでと1行も変わりません。
    */
   scope?: TenantScope;
+  /**
+   * よその店として読むときに、倉庫の窓口へ渡す「合言葉を戻せない形にしたもの」。
+   * ★渡さなければ今までどおり棚を直に読みます（手羽屋の読み方は何も変わりません）。
+   */
+  tenantReadHash?: string;
+  /**
+   * テストの店として読むときの印（test- で始まるもの）。
+   * 2軒目を入れる手順を、こちら側だけで通すための道です（f5-4）。
+   */
+  tenantReadTestMark?: string;
   /**
    * 倉庫につなぐ物を差し替える口（テスト専用）。
    * 渡さなければ、いつもどおりサーバー側の読み取り用でつなぐ。
@@ -151,10 +221,41 @@ export async function loadKeiriMonthServer(params: {
   const opening = settings.opening_date || monthStart;
   const from = params.monthOnly ? monthStart : monthStart < opening ? monthStart : opening;
 
+  // よその店の行は、貼り紙⑧のあと**公開の鍵では読めません**（f3-4・kp251）。
+  // そのときは倉庫の窓口ごしに1回 読んで、日報とレジ金の両方をここから作ります。
+  // ★窓口がまだ無い倉庫・合言葉を渡されなかったときは null のままで、
+  //   下の「今までどおりの読み方」がそのまま動きます（流す前と同じ結果）。
+  let windowRows: TenantWindowRow[] | null = null;
+  if (!tebaya && (params.tenantReadHash || params.tenantReadTestMark)) {
+    const got = await readTenantReportsViaWindow(db as any, {
+      passwordHash: params.tenantReadHash,
+      testMark: params.tenantReadTestMark,
+      from,
+      to: null,
+    });
+    if (got.outcome === "ok") windowRows = got.rows;
+  }
+
   // 日報（レシート写真の住所を抜いた軽い見え方）
   let reports: KeiriReport[] = [];
   let reportsUnreadable = false;
-  {
+  if (windowRows) {
+    reports = windowRows
+      .filter((r) => {
+        const d = String(r.date ?? "");
+        return !params.monthOnly || (d >= monthStart && d <= monthEndDate);
+      })
+      .map((r) => ({
+        id: r.id as any,
+        date: String(r.date ?? ""),
+        location: (r.location ?? null) as any,
+        staff_name: (r.staff_name ?? null) as any,
+        shop: (r.shop ?? null) as any,
+        sales_amount: (r.sales_amount ?? 0) as any,
+        labor: (r.labor ?? 0) as any,
+        expenses: (r.expenses ?? []) as any,
+      })) as KeiriReport[];
+  } else {
     let q = applyTenantScope<any>(
       db
         .from("keiri_reports")
@@ -269,7 +370,10 @@ export async function loadKeiriMonthServer(params: {
   // ★読めなくても落とさない。経費の明細は取らない（3つの欄だけ＝CLAUDE.md 4-2）。
   let registerCloses: RegisterCloseRow[] = [];
   let registerUnreadable = false;
-  {
+  if (windowRows) {
+    // 窓口が同じ1回で返してくれているので、もう一度 倉庫に聞かない
+    registerCloses = normalizeRegisterCloses(windowRows as unknown[]);
+  } else {
     const { data, error } = await applyTenantScope<any>(
       db.from("daily_reports").select("date, unit_number, register_total") as any,
       scope,

@@ -35,6 +35,10 @@ import {
   copyCandidateNames,
   type SweepTally,
 } from "@/lib/keiri/copyCandidates";
+import {
+  probeTenantReadGuard,
+  type TenantReadGuardReport,
+} from "@/lib/keiri/tenantReadGuard";
 
 /**
  * これまでに見つかっている写しの名前。
@@ -149,6 +153,11 @@ export type CopyProbeReport = {
   sweep: CopySweepReport | null;
   /** いま使っている棚（日報）が、公開の鍵で読めるか */
   live: LiveShelfReport;
+  /**
+   * **よその店の行**が、公開の鍵から隠れているか（f3-4 の本題・2026-10-15）。
+   * ★手羽屋の行（印が空）は流したあとも読めます。それが正しい形です。
+   */
+  tenantRows: TenantReadGuardReport;
   /** f3-4 全体の答え（写しだけでは閉まらない） */
   f34: string;
   sheet: string;
@@ -169,14 +178,23 @@ export type CopySweepReport = SweepTally & {
  *  名前を組み立てて片っぱしから聞く（2026-10-14 18:34・kp239・f3-4）
  * ------------------------------------------------------------------ */
 
-/** 一度に聞く本数の既定（サーバーの持ち時間に収まる数） */
-export const SWEEP_LIMIT_DEFAULT = 160;
+/**
+ * 一度に聞く本数の既定。
+ *
+ * ■ 2026-10-15 に 160 → 1200 へ上げました（f3-4）
+ *   組み立てた名前は 800 通りをこえます。160 本ずつだと、外から確かめる人が
+ *   **?from=… を付けて5〜6回 開き直さないと**「ぜんぶ聞き終えた」になりません。
+ *   実際に 10/15 の朝は 72 本で止まっていて、「ほかに開いた写しは無い」と
+ *   言えない状態が1日続きました。1回 開けば終わるようにします
+ *   （持ち時間も上げ、窓口の制限時間を60秒にしてあります）。
+ */
+export const SWEEP_LIMIT_DEFAULT = 1200;
 /** 一度に聞く本数の上限 */
-export const SWEEP_LIMIT_MAX = 400;
+export const SWEEP_LIMIT_MAX = 2000;
 /** 一度の呼び出しで使ってよい時間（これを超えたら、続きは次の呼び出しに回す） */
-export const SWEEP_BUDGET_MS = 6000;
+export const SWEEP_BUDGET_MS = 40000;
 /** 同時に聞く本数（倉庫に一度にぶつけすぎないため） */
-const SWEEP_PARALLEL = 8;
+const SWEEP_PARALLEL = 24;
 
 /**
  * 組み立てた名前を、公開の鍵で片っぱしから聞く。
@@ -272,7 +290,10 @@ export async function probeCopyTables(options?: {
     }
   }
 
-  const live = await probeLiveShelf();
+  const [live, tenantRows] = await Promise.all([
+    probeLiveShelf(),
+    probeTenantReadGuard(),
+  ]);
 
   const sum = summarizeCopyTables(tables);
   return {
@@ -283,7 +304,8 @@ export async function probeCopyTables(options?: {
     ...sum,
     sweep,
     live,
-    f34: f34Note(sum.allClosed, live),
+    tenantRows,
+    f34: f34Note(sum.allClosed, live, tenantRows),
     sheet: "/keiri/sql",
     check: "f3-4",
   };
@@ -340,26 +362,45 @@ export async function probeLiveShelf(): Promise<LiveShelfReport> {
   };
 }
 
-/** f3-4 全体の答え（写しだけでなく、本体の棚も見る） */
-export function f34Note(copiesClosed: boolean, live: LiveShelfReport): string {
-  if (live.readable === true) {
-    return (
-      (copiesClosed
-        ? "写しは閉まっていますが、"
-        : "写しがまだ開いていて、さらに ") +
-      "**いま使っている日報の棚そのものが公開の鍵で読めます**。" +
-      "貼り紙を1回 流しても f3-4 はここで閉まりません——" +
-      "棚の決まりを『自分のお店のぶんだけ』に締める一手（kp239 ③）が残っています。" +
-      "締めるには、よそのお店の数字をサーバー側で読める形（サーバー側の鍵の貼り直し＝kp241、" +
-      "または倉庫の窓口ごしに読む作り）が先に要ります"
-    );
+/**
+ * f3-4 全体の答え（写しだけでなく、本体の棚も見る）。
+ *
+ * ■ 2026-10-15 に見方を直しました（ここを取り違えると嘘の合否が出ます）
+ *   それまでは「日報の棚が公開の鍵で読めるか」だけを見ていました。
+ *   ところが **手羽屋の行（印が空）は、貼り紙⑧を流したあとも公開の鍵で読めます**。
+ *   それが正しい形です（ブラウザから倉庫を読む作りで、お店ごとの入室がまだ無いため。
+ *   CLAUDE.md 4-8。ここを締めるのは次の段で、f3-4 が聞いていることではありません）。
+ *   ＝ 古い見方だと、⑧を流したあとも「開いている」と出続けます。
+ *   f3-4 が聞いているのは「**よその店のデータが見えないか**」なので、
+ *   **印が付いた行だけ**を見て答えます（lib/keiri/tenantReadGuard.ts）。
+ */
+export function f34Note(
+  copiesClosed: boolean,
+  live: LiveShelfReport,
+  tenantRows?: TenantReadGuardReport,
+): string {
+  const copies = copiesClosed
+    ? "写しは閉まっています"
+    : "写しがまだ開いています（貼り紙⑦を1回 流すと閉まります）";
+
+  // ① よその店の行が見えてしまう＝ここが本題。まだ閉まっていない
+  if (tenantRows?.separated === false) {
+    return `${copies}。ただし **${tenantRows.note}**`;
   }
+  // ② 見えないことを、窓口ごしの読みと見比べて確かめられた
+  if (tenantRows?.separated === true) {
+    return copiesClosed
+      ? "写しも、よその店の日報も、公開の鍵では読めません" +
+          "（f3-4 のうち『棚の鍵』の分は閉まっています）。" +
+          `${tenantRows.note}`
+      : `よその店の日報は公開の鍵では読めません。ただし ${copies}`;
+  }
+  // ③ まだ試せていない（よその店の行が1行も無い）
+  const why = tenantRows?.note ?? "よその店の行があるかを聞けませんでした";
   if (live.readable === null) {
-    return "日報の棚が公開の鍵で読めるかを聞けませんでした。分からないまま合格にしないこと";
+    return `${copies}。日報の棚を聞けませんでした。分からないまま合格にしないこと`;
   }
-  return copiesClosed
-    ? "写しも、いま使っている日報の棚も、公開の鍵では読めません（f3-4 のうち『棚の鍵』の分は閉まっています）"
-    : "日報の棚は閉まっていますが、写しがまだ開いています（貼り紙⑦を1回 流すと閉まります）";
+  return `${copies}。${why}`;
 }
 
 /** 片っぱしから聞いた結果を1行で言う */

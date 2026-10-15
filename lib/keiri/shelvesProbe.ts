@@ -23,6 +23,7 @@ import {
 } from "@/lib/keiri/shelves";
 import { peekTestShop } from "@/lib/keiri/tenantTrialServer";
 import { decodeCashCountMemo } from "@/lib/keiri/cashCountMemo";
+import { probeTenantReadGuard } from "@/lib/keiri/tenantReadGuard";
 
 /** その棚（または欄）が1行 読めるかだけを見る。中身は捨てる */
 export async function probeShelf(table: string, column: string): Promise<ShelfProbe> {
@@ -86,18 +87,46 @@ export async function probeBackupLocked(): Promise<ShelfProbe> {
   }
 }
 
-/** 貼り紙の①〜⑦を、ぜんぶ読んで並べる */
+/**
+ * ⑧だけは「棚があるか」ではなく、**よその店の行が公開の鍵から隠れたか**を見る。
+ *
+ * ■ ここも読み方が逆です（⑦と同じ）
+ *   流したあとも、**手羽屋の行（印が空）は公開の鍵で読めます**。それが正しい形です。
+ *   見るのは「印が付いた行（よその店の行）が見えるか」だけで、
+ *   見えてしまったら まだ流れていません。
+ *   数え方は lib/keiri/tenantReadGuard.ts の1か所だけ（/api/keiri/copies と同じ）。
+ */
+async function probeTenantReadGuard_(): Promise<ShelfProbe> {
+  const g = await probeTenantReadGuard();
+  // 公開の鍵で よその店の行が見えた＝まだ流れていない
+  if (g.separated === false) return missingProbe(g.note);
+  // 窓口がまだ無い＝まだ流れていない（⑧は決まりと窓口を同じ1回で作る）
+  if (g.windowReady === false) return missingProbe(g.note);
+  if (g.windowReady === true) return { ok: true };
+  return { ok: false, code: null, message: g.note };
+}
+
+/** 貼り紙の①〜⑧を、ぜんぶ読んで並べる */
 export async function readShelfReports(): Promise<ShelfReport[]> {
-  const [cash, ignores, receiptFlag, advanceTenant, shiftsTenant, trialShop, backupLocked] =
-    await Promise.all([
-      probeShelf("keiri_cash_events", "id"),
-      probeShelf("keiri_expense_ignores", "id"),
-      probeShelf("keiri_reports", "receipt_count"),
-      probeShelf("advance_expenses", "tenant_id"),
-      probeShelf("shifts", "tenant_id"),
-      probeTrialShop(),
-      probeBackupLocked(),
-    ]);
+  const [
+    cash,
+    ignores,
+    receiptFlag,
+    advanceTenant,
+    shiftsTenant,
+    trialShop,
+    backupLocked,
+    tenantReadGuard,
+  ] = await Promise.all([
+    probeShelf("keiri_cash_events", "id"),
+    probeShelf("keiri_expense_ignores", "id"),
+    probeShelf("keiri_reports", "receipt_count"),
+    probeShelf("advance_expenses", "tenant_id"),
+    probeShelf("shifts", "tenant_id"),
+    probeTrialShop(),
+    probeBackupLocked(),
+    probeTenantReadGuard_(),
+  ]);
 
   const probes: Record<string, ShelfProbe> = {
     cash_events: cash,
@@ -107,6 +136,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     shifts_tenant: shiftsTenant,
     trial_shop: trialShop,
     backup_locked: backupLocked,
+    tenant_read_guard: tenantReadGuard,
   };
 
   return SHELF_STEPS.map((s) =>
