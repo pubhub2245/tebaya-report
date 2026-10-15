@@ -158,10 +158,40 @@ export type CopyProbeReport = {
    * ★手羽屋の行（印が空）は流したあとも読めます。それが正しい形です。
    */
   tenantRows: TenantReadGuardReport;
+  /**
+   * **f3-4 の合否を1回で読める形**（2026-10-15 18:3x・A の依頼）。
+   * 貼り紙が流れた日に、ここだけ見れば合否が付くようにしてあります。
+   */
+  verdict: F34Verdict;
   /** f3-4 全体の答え（写しだけでは閉まらない） */
   f34: string;
   sheet: string;
   check: string;
+  /** この窓口が答えるまでにかかった時間（ミリ秒・遅さの見張り用） */
+  tookMs: number;
+};
+
+/**
+ * f3-4 の合否を1回で読める形。
+ *
+ * ■ 2つ揃って初めて合格です（片方だけ見ると嘘の合否が出ます）
+ *   ① **よその店の行が、公開の鍵で読めない**（f3-4 の本題）
+ *   ② **手羽屋の行は、今までどおり読める**（ここが false になったら やりすぎ＝元に戻す）
+ *   ③ おまけに、写し（控え）も閉まっていること
+ *
+ * ★分からないときは null（「まだ試せていない」を「閉まった」にしない）
+ */
+export type F34Verdict = {
+  /** ①よその店の行が隠れたか */
+  foreignHidden: boolean | null;
+  /** ②手羽屋の行が今までどおり読めるか */
+  tebayaStillReadable: boolean | null;
+  /** ③写し（控え）が閉まっているか */
+  copiesClosed: boolean;
+  /** f3-4 の合否（全部そろったときだけ true・分からなければ null） */
+  pass: boolean | null;
+  /** 1行で分かる言い方 */
+  line: string;
 };
 
 /** 名前を組み立てて聞いた結果（外に出す形） */
@@ -193,8 +223,38 @@ export const SWEEP_LIMIT_DEFAULT = 1200;
 export const SWEEP_LIMIT_MAX = 2000;
 /** 一度の呼び出しで使ってよい時間（これを超えたら、続きは次の呼び出しに回す） */
 export const SWEEP_BUDGET_MS = 40000;
-/** 同時に聞く本数（倉庫に一度にぶつけすぎないため） */
-const SWEEP_PARALLEL = 24;
+/**
+ * 同時に聞く本数（倉庫に一度にぶつけすぎないため）。
+ *
+ * ■ 2026-10-15 18:3x に 24 → 64 へ上げました（f3-4）
+ *   24 本ずつだと 819 本を聞き終えるのに**毎回 15〜21 秒**かかっていて
+ *   （こちらで3回 実測：20.9秒・20.6秒・14.9秒）、
+ *   倉庫が少し遅い日には窓口の持ち時間（60秒）を超え、
+ *   **外から確かめる人には「サーバー側の誤り」に見えます**
+ *   （10/15 18:0x に A が2回 続けてそれに当たりました）。
+ *   聞いているのは「件数だけ・行の中身は1文字も読まない」軽い問い合わせなので、
+ *   本数を増やしても倉庫の負担はほとんど変わりません。
+ */
+const SWEEP_PARALLEL = 64;
+
+/**
+ * 窓口ぜんたいの持ち時間（f3-4・2026-10-15 18:3x）。
+ *
+ * ■ なぜ要るか（やさしい説明）
+ *   この窓口は「**写しが開いていないか**（名前を片っぱしから聞く）」と
+ *   「**よその店の行が見えないか**（f3-4 の本題）」の2つを返します。
+ *   前者は 819 本 聞くので時間がかかり、後者は1秒で終わります。
+ *   それまでは**前者を先に**やっていたので、倉庫が遅い日は
+ *   時間切れで**後者の答えまで丸ごと返らない**形でした。
+ *   ＝ いちばん要る答え（合否）が、いちばん落ちやすい作りでした。
+ *
+ *   そこで **①先に本題を答える ②残り時間で写しを聞く** に順番を変え、
+ *   残り時間が無ければ写しだけ「続きがあります」にします。
+ *   **合否は必ず返ります。**
+ */
+export const PROBE_DEADLINE_MS = 20000;
+/** 写しを聞くのに最低これだけは使う（0 秒だと一歩も進まないため） */
+export const SWEEP_MIN_MS = 2000;
 
 /**
  * 組み立てた名前を、公開の鍵で片っぱしから聞く。
@@ -248,8 +308,21 @@ export async function probeCopyTables(options?: {
   from?: number;
   /** 一度に聞く本数 */
   limit?: number;
+  /** 窓口ぜんたいの持ち時間（渡さなければ PROBE_DEADLINE_MS） */
+  deadlineMs?: number;
+  /** いまの時刻（試験で差し替えるため） */
+  now?: () => number;
 }): Promise<CopyProbeReport> {
-  const listed = await listExposedTables();
+  const clock = options?.now ?? (() => Date.now());
+  const startedAt = clock();
+  const deadline = options?.deadlineMs ?? PROBE_DEADLINE_MS;
+
+  // --- ①先に本題を答える（1秒で終わる所。ここは必ず返す） -----------------
+  const [listed, live, tenantRows] = await Promise.all([
+    listExposedTables(),
+    probeLiveShelf(),
+    probeTenantReadGuard(),
+  ]);
 
   const targets = new Set<string>(copyTablesOf(listed.names));
   for (const t of KNOWN_COPY_TABLES) {
@@ -260,15 +333,20 @@ export async function probeCopyTables(options?: {
   const tables: CopyTableVerdict[] = [];
   for (const t of [...targets].sort()) tables.push(await askAnon(t));
 
-  // 一覧が読めない倉庫では、ここが「全部か」を言えるかどうかの分かれ目になる
+  // --- ②残り時間で、名前を組み立てて片っぱしから聞く ----------------------
+  //     一覧が読めない倉庫では、ここが「全部か」を言えるかどうかの分かれ目になる。
+  //     ★残り時間が無ければ、ここは「続きがあります」で止める（合否は①で返っている）
   let sweep: CopySweepReport | null = null;
   if (options?.sweep !== false) {
     const already = new Set(tables.map((t) => t.table));
     const names = copyCandidateNames(KNOWN_COPY_TABLES).filter((n) => !already.has(n));
+    const left = deadline - (clock() - startedAt);
     const result = await sweepCandidates({
       names,
       from: options?.from,
       limit: options?.limit,
+      budgetMs: Math.max(SWEEP_MIN_MS, left),
+      now: clock,
     });
     sweep = {
       ...result,
@@ -290,11 +368,6 @@ export async function probeCopyTables(options?: {
     }
   }
 
-  const [live, tenantRows] = await Promise.all([
-    probeLiveShelf(),
-    probeTenantReadGuard(),
-  ]);
-
   const sum = summarizeCopyTables(tables);
   return {
     listed: listed.ok,
@@ -305,9 +378,11 @@ export async function probeCopyTables(options?: {
     sweep,
     live,
     tenantRows,
+    verdict: f34Verdict(sum.allClosed, live, tenantRows),
     f34: f34Note(sum.allClosed, live, tenantRows),
     sheet: "/keiri/sql",
     check: "f3-4",
+    tookMs: clock() - startedAt,
   };
 }
 
@@ -401,6 +476,89 @@ export function f34Note(
     return `${copies}。日報の棚を聞けませんでした。分からないまま合格にしないこと`;
   }
   return `${copies}。${why}`;
+}
+
+/**
+ * f3-4 の合否を1回で読める形にする（2026-10-15 18:3x・A の依頼）。
+ *
+ * ■ なぜ1か所にまとめたか（やさしい説明）
+ *   貼り紙が流れた日に見るものが3か所に散っていました
+ *   （写し＝tables／よその店の行＝tenantRows／手羽屋の行＝live）。
+ *   3か所のうち1つを読み落とすと、**やりすぎ（手羽屋まで読めなくなった）に気づけません**。
+ *   ここを1つの ○× にして、見落としようが無い形にします。
+ *
+ * ■ 判定（ここだけ見れば分かります）
+ *   合格 … よその店の行が読めない ＋ 手羽屋の行は読める ＋ 写しも閉まっている
+ *   不合格 … よその店の行が読める、または 手羽屋の行まで読めなくなった
+ *   分からない … まだ試せていない（よその店の行が1行も無い等）
+ *
+ * ★この関数は計算だけです（倉庫に聞きません）。試験で固定してあります。
+ */
+export function f34Verdict(
+  copiesClosed: boolean,
+  live: LiveShelfReport,
+  tenantRows?: TenantReadGuardReport,
+): F34Verdict {
+  const foreignHidden = tenantRows?.separated ?? null;
+  const tebayaStillReadable = live.readable;
+
+  // ①やりすぎ：手羽屋の行まで読めなくなった（毎日の画面が止まる＝すぐ元に戻す）
+  if (tebayaStillReadable === false) {
+    return {
+      foreignHidden,
+      tebayaStillReadable,
+      copiesClosed,
+      pass: false,
+      line:
+        "**不合格（やりすぎです）**：手羽屋の行まで公開の鍵で読めなくなりました。" +
+        "毎日の画面が止まるので、その一手を元に戻してください",
+    };
+  }
+  // ②本題：よその店の行が、公開の鍵でまだ読める
+  if (foreignHidden === false) {
+    return {
+      foreignHidden,
+      tebayaStillReadable,
+      copiesClosed,
+      pass: false,
+      line:
+        "**不合格**：よその店の行が、公開の鍵でまだ読めます" +
+        "（/keiri/sql の貼り紙⑧を1回 流すと閉まります）",
+    };
+  }
+  // ③まだ試せていない（よその店の行が1行も無い・聞けなかった）
+  if (foreignHidden === null || tebayaStillReadable === null) {
+    return {
+      foreignHidden,
+      tebayaStillReadable,
+      copiesClosed,
+      pass: null,
+      line:
+        "**まだ分かりません**（よその店の行で試せていません）。" +
+        "分からないまま合格にしないこと",
+    };
+  }
+  // ④よその店の行は隠れている。あとは写しだけ
+  if (!copiesClosed) {
+    return {
+      foreignHidden,
+      tebayaStillReadable,
+      copiesClosed,
+      pass: false,
+      line:
+        "**あと1つ**：よその店の行は読めません（手羽屋の行は今までどおり読めます）。" +
+        "ただし写し（控え）がまだ開いています（貼り紙⑦を1回 流すと閉まります）",
+    };
+  }
+  return {
+    foreignHidden,
+    tebayaStillReadable,
+    copiesClosed,
+    pass: true,
+    line:
+      "**合格**：よその店の行は公開の鍵では読めず、手羽屋の行は今までどおり読めます" +
+      "（写しも閉まっています）",
+  };
 }
 
 /** 片っぱしから聞いた結果を1行で言う */
