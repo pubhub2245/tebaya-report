@@ -2020,8 +2020,15 @@ function CashCountCard({
                 </p>
               </div>
             )}
-            <p className="pt-1 text-xs text-stone-400">
+            {/* ★ここで終わらせないための1行（2026-10-15・f1-4）。
+                   「比べる」だけでは記録に残らないので、残りの1回を名指しする。 */}
+            <p className="pt-1 text-xs text-stone-500 leading-relaxed">
               ここまでは記録に残していません（倉庫に1行も書いていません）。
+              <strong>
+                {" "}
+                下の［{shelfMissing ? "この結果を控えに残す" : "この結果を記録する"}
+                ］をもう1回 押すと残ります。
+              </strong>
             </p>
           </div>
         )}
@@ -2031,12 +2038,18 @@ function CashCountCard({
                  ここを「準備中です」で止めていたあいだ、1分で済む「数える」が
                  2分の「貼り紙」を待っていました。 */
           <div className="space-y-2">
+            {/* ★比べたあとは、ここが最後の1回。見落とすと記録が残らず、
+                   こちら側から「合っていたか」を確かめられない（2026-10-15・f1-4）。 */}
             <button
-              className="btn-secondary w-full"
+              className={(preview ? "btn-primary" : "btn-secondary") + " w-full"}
               onClick={() => void saveCountToMemo()}
               disabled={saving !== null}
             >
-              {saving === "count" ? "控えています…" : "この結果を控えに残す"}
+              {saving === "count"
+                ? "控えています…"
+                : preview
+                  ? "あと1回：この結果を控えに残す（これで終わりです）"
+                  : "この結果を控えに残す"}
             </button>
             <p className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-800 leading-relaxed">
               数えた記録を置く棚は準備中なので、いまは「いちばん新しい1回だけ」を
@@ -2046,11 +2059,15 @@ function CashCountCard({
           </div>
         ) : (
           <button
-            className="btn-secondary w-full"
+            className={(preview ? "btn-primary" : "btn-secondary") + " w-full"}
             onClick={() => void save("count")}
             disabled={saving !== null}
           >
-            {saving === "count" ? "保存中…" : "この結果を記録する"}
+            {saving === "count"
+              ? "保存中…"
+              : preview
+                ? "あと1回：この結果を記録する（これで終わりです）"
+                : "この結果を記録する"}
           </button>
         )}
       </div>

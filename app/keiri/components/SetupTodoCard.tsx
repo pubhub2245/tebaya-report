@@ -53,6 +53,13 @@ export default function SetupTodoCard({ here }: { here?: string } = {}) {
         🙋 のこりの手続き（じゅんだけ・{todo.remaining}件{here ? "／このほかに" : ""}）
       </h2>
       <p className="mt-1 text-sm leading-relaxed text-amber-900">{todo.summary}</p>
+      {/* ★「上が済むまで下は意味が無い」と読まれないように出す（2026-10-15・f1-4）。
+             実際にそう読まれて、1分で済む手続きが2分の手続きを待っていました。 */}
+      {todo.independentNote && (
+        <p className="mt-1 text-sm font-bold leading-relaxed text-amber-900">
+          {todo.independentNote}
+        </p>
+      )}
       <ol className="mt-3 space-y-3">
         {left.map((item, i) => (
           <li key={item.id}>
@@ -61,7 +68,8 @@ export default function SetupTodoCard({ here }: { here?: string } = {}) {
         ))}
       </ol>
       <p className="mt-3 text-xs leading-relaxed text-amber-800">
-        ※ どれも一度きりで、数分で終わります。順番はこのままで大丈夫です。
+        ※ どれも一度きりで、数分で終わります。<strong>どれから押しても大丈夫です</strong>
+        （並びはおすすめの順だけで、互いに待っていません）。
         済んだものはこの欄から消えます。
       </p>
     </section>
@@ -86,6 +94,19 @@ function Row({ item, no, here }: { item: SetupTodoItem; no: number; here?: strin
       </div>
       <p className="mt-1 text-sm leading-relaxed text-stone-700">{item.benefit}</p>
       <p className="mt-1 text-xs leading-relaxed text-stone-500">いまの状態：{item.detail}</p>
+      {/* ★押すボタンを順番どおりに出す（2026-10-15・f1-4）。
+             金庫の1分は2回 押して初めて記録に残るので、1回目で終わらせない。 */}
+      {item.presses && item.presses.length > 1 && (
+        <p className="mt-1 text-xs leading-relaxed text-stone-700">
+          押すのは{item.presses.length}回です：
+          {item.presses.map((t, i) => (
+            <span key={t}>
+              {i > 0 ? " → " : ""}
+              <strong>［{t}］</strong>
+            </span>
+          ))}
+        </p>
+      )}
       <div className="mt-2">
         {item.href === "/keiri" && here === "/keiri" ? (
           <a href="#kinko" className="btn-secondary text-sm">
