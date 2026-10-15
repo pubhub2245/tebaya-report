@@ -119,3 +119,38 @@ test("鍵・合言葉・金額の値は1文字も持たない", () => {
     assert.equal(dump.includes(banned), false, `${banned} が混ざっています`);
   }
 });
+
+/* ------------------------------------------------------------------ *
+ *  2026-10-15 追加（f1-4）：「互いに待っている」と読まれないようにする
+ *
+ *  10/15 に、のこりが順番に並んでいることから
+ *  「上（倉庫の貼り紙・2分）が済むまで、下（金庫を数える・1分）は押しても
+ *  意味が無い」と読まれ、1分で済む手続きが止まりました。
+ *  実際には金庫の1分は貼り紙を待ちません（棚がまだ無いあいだは控えに残ります）。
+ *  また、金庫は画面で2回 押して初めて記録に残るので、押すものを全部 持たせます。
+ * ------------------------------------------------------------------ */
+test("のこりが2件以上なら「互いに待っていない」と言う", () => {
+  const t = buildSetupTodo(ALL_UNDONE);
+  assert.ok(t.independentNote);
+  assert.match(t.independentNote!, /どれから押しても/);
+  assert.match(t.independentNote!, /貼り紙を待ちません/);
+});
+
+test("のこりが1件なら、互いに待っていないの1行は出さない", () => {
+  const t = buildSetupTodo({
+    shelves: { done: 6, total: 6 },
+    key: { configured: true, usable: true },
+    cash: { shelfMissing: true, counted: false },
+  });
+  assert.equal(t.remaining, 1);
+  assert.equal(t.independentNote, null);
+});
+
+test("金庫の手続きは、押すボタンを2つとも持つ（2回目を落とさない）", () => {
+  const cash = buildSetupTodo(ALL_UNDONE).items.find((i) => i.id === "cash")!;
+  assert.equal(cash.presses?.length, 2);
+  assert.match(cash.presses![0], /比べる/);
+  assert.match(cash.presses![1], /控えに残す/);
+  // 棚が無いあいだも「貼り紙を待たない」と言う
+  assert.match(cash.detail, /貼り紙を待ちません/);
+});
