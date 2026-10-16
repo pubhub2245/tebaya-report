@@ -44,7 +44,7 @@ test("数え始めより前に返した立替を1行だけ数える（E）", () 
   assert.equal(counted.csvRowDelta, 1);
 });
 
-test("数えた行数は、表の返金と金庫から引く額の食い違いと同じ行を指している", () => {
+test("そろえたあとは、表の返金と金庫から引く額が1円までそろう（数えた行数ぶん 表が減った）", () => {
   const rows = buildJournalRows({
     ym: "2026-09",
     reports: [],
@@ -62,13 +62,17 @@ test("数えた行数は、表の返金と金庫から引く額の食い違い�
     asOf: "2026-09-30",
   });
   const refundTotal = refunds.reduce((s, r) => s + r.creditAmount, 0);
-  // 表の返金は4行・金庫から引くのは3行ぶん＝差は1行（E）
-  assert.equal(refunds.length, 4);
-  assert.notEqual(refundTotal, cash.advancesSettled);
-  assert.equal(
-    countAdvanceReturnGap({ ym: "2026-09", openingDate: "2026-09-10", advances }).rows,
-    refunds.length - 3,
-  );
+  // 表の返金は3行（E を作らない）＝金庫から引く3件と同じ
+  assert.equal(refunds.length, 3);
+  assert.equal(refundTotal, cash.advancesSettled);
+  // この窓口が数える1行は、そろえる前に表だけに出ていた行（E）を指している
+  const counted = countAdvanceReturnGap({
+    ym: "2026-09",
+    openingDate: "2026-09-10",
+    advances,
+  });
+  assert.equal(counted.rows, 1);
+  assert.equal(refunds.length + counted.rows, 4);
 });
 
 test("数え始めが月初なら食い違いは0行（起点より前に返した分が無い）", () => {
