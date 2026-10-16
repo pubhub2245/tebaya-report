@@ -44,7 +44,7 @@ test("数え始めより前に返した立替を1行だけ数える（E）", () 
   assert.equal(counted.csvRowDelta, 1);
 });
 
-test("そろえたあとは、表の返金と金庫から引く額が1円までそろう（数えた行数ぶん 表が減った）", () => {
+test("数えた行数は、表には出るが金庫からは引かない行（E）を指している", () => {
   const rows = buildJournalRows({
     ym: "2026-09",
     reports: [],
@@ -62,20 +62,28 @@ test("そろえたあとは、表の返金と金庫から引く額が1円まで�
     asOf: "2026-09-30",
   });
   const refundTotal = refunds.reduce((s, r) => s + r.creditAmount, 0);
-  // 表の返金は3行（E を作らない）＝金庫から引く3件と同じ
-  assert.equal(refunds.length, 3);
-  assert.equal(refundTotal, cash.advancesSettled);
-  // この窓口が数える1行は、そろえる前に表だけに出ていた行（E）を指している
+  // 表は4行（E も残す）・金庫は3件ぶんしか引かない＝差が1行ある。これが正しい形（kp254）
+  assert.equal(refunds.length, 4);
+  assert.notEqual(refundTotal, cash.advancesSettled);
   const counted = countAdvanceReturnGap({
     ym: "2026-09",
     openingDate: "2026-09-10",
     advances,
   });
   assert.equal(counted.rows, 1);
-  assert.equal(refunds.length + counted.rows, 4);
+  // ★行を消してそろえない。数えるのは「金庫の画面にひとこと出すか」を決めるためだけ
+  assert.match(
+    advanceReturnGapWindow({
+      ym: "2026-09",
+      openingDate: "2026-09-10",
+      advances,
+      readable: true,
+    }).summary,
+    /行を消してそろえないこと/,
+  );
 });
 
-test("数え始めが月初なら食い違いは0行（起点より前に返した分が無い）", () => {
+test("数え始めが月初なら0行（起点より前に返した分が無い）", () => {
   const counted = countAdvanceReturnGap({
     ym: "2026-09",
     openingDate: "2026-09-01",
@@ -95,7 +103,7 @@ test("返した日が無い（印だけ付いている）行は、立て替え�
   );
 });
 
-test("金額0円の行は表に出ないので、減る行数には数えない", () => {
+test("金額0円の行は表に出ないので、表に出る行数には数えない", () => {
   const zero = [
     { date: "2026-09-02", amount: 0, description: "食材", settled: true, settled_date: "2026-09-05" },
   ].map(normalizeOwnerAdvance);
@@ -104,7 +112,7 @@ test("金額0円の行は表に出ないので、減る行数には数えない"
   assert.equal(counted.csvRowDelta, 0);
 });
 
-test("数え始めが決まっていなければ、食い違いは数えない", () => {
+test("数え始めが決まっていなければ、数えない", () => {
   assert.equal(
     countAdvanceReturnGap({ ym: "2026-09", openingDate: "", advances }).rows,
     0,
