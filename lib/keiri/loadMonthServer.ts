@@ -19,6 +19,10 @@
  */
 
 import { serverClient } from "@/lib/supabaseServer";
+import {
+  KEIRI_READ_BUDGET_MS,
+  raceWithDeadline,
+} from "@/lib/keiri/readBudget";
 import { isMissingFunction } from "@/lib/keiri/tenantAccess";
 import { TENANT_READ_WINDOW } from "@/lib/keiri/tenantReadGuard";
 import {
@@ -93,6 +97,12 @@ export type KeiriMonthServerData = {
   ignores: ExpenseIgnoreRow[];
   /** 印を置く棚の様子（ready／missing／unknown） */
   ignoreShelf: IgnoreShelfState;
+  /**
+   * 倉庫からの返事を**待つのをやめた**か（2026-10-16・kp255・f4-1・f5-1）。
+   * ★true のときは、ここから下の数字はぜんぶ「読めませんでした」の形です。
+   *   呼んだ側は今までどおり**手で確認した控え**に戻ります（数字は作りません）。
+   */
+  readTimedOut?: boolean;
 };
 
 /** YYYY-MM-DD を日数ぶんずらす */
@@ -160,7 +170,8 @@ export async function readTenantReportsViaWindow(
   }
 }
 
-export async function loadKeiriMonthServer(params: {
+/** 月の数字を読む本体。**線（待つのをやめる）は下の loadKeiriMonthServer が引く** */
+async function loadKeiriMonthServerInner(params: {
   /** 見る月（YYYY-MM） */
   ym: string;
   /** 業態コード（手羽屋は "tebaya"） */
@@ -190,6 +201,11 @@ export async function loadKeiriMonthServer(params: {
    * 渡さなければ、いつもどおりサーバー側の読み取り用でつなぐ。
    */
   db?: unknown;
+  /**
+   * 倉庫からの返事を待つのをやめる線（ミリ秒・2026-10-16・kp255）。
+   * 渡さなければ lib/keiri/readBudget.ts の既定（10秒）。0以下を渡すと線を引かない。
+   */
+  budgetMs?: number;
 }): Promise<KeiriMonthServerData> {
   const { ym, businessCode } = params;
   const scope: TenantScope = params.scope ?? TEBAYA_SCOPE;
@@ -415,6 +431,58 @@ export async function loadKeiriMonthServer(params: {
     ignores,
     ignoreShelf,
   };
+}
+
+/**
+ * 「読めませんでした」の形。**1円も作りません。**
+ *
+ * ★ここを「0件」「0円」と取り違えてはいけないので、読めなかった印を立てて返します
+ *   （呼んだ側は、手で確認した控えに戻ります）。
+ * ★金庫の棚は「まだ無い」にそろえます。確かめられていないものを「ある」とは言いません。
+ */
+function timedOutData(businessCode: string): KeiriMonthServerData {
+  return {
+    settings: defaultSettingsFor(businessCode),
+    settingsMissing: true,
+    reports: [],
+    reportsUnreadable: true,
+    payments: [],
+    advances: [],
+    advancesUnreadable: true,
+    advancesRepaidEarlier: [],
+    cashEvents: [],
+    cashShelfMissing: true,
+    registerCloses: [],
+    registerUnreadable: true,
+    advancesSkipped: false,
+    ignores: [],
+    ignoreShelf: "unknown",
+    readTimedOut: true,
+  };
+}
+
+/**
+ * 月の数字をサーバー側で読む（**読むだけ**）。
+ *
+ * ■ ここで引いている線（2026-10-16・kp255・f4-1・f5-1）
+ *   倉庫が応えない日、本体は **63.2秒** 待ってから返っていました
+ *   （倉庫をつなぐ部品が、1つの棚につき4回 試して 7.1秒。棚は9回ぶん）。
+ *   その間 紹介ページ・お試し版・見本は白いままなので、**10秒で待つのをやめます**。
+ *   やめたときは「読めませんでした」の形を返すので、呼んだ側は今までどおり
+ *   **手で確認した控え**に戻ります（**数字は作りません**）。
+ *   一瞬の不調で4回 試し直す仕組みはそのまま残してあるので（7.1秒＜10秒）、
+ *   ふだんの日の答えは1行も変わりません。
+ */
+export async function loadKeiriMonthServer(
+  params: Parameters<typeof loadKeiriMonthServerInner>[0],
+): Promise<KeiriMonthServerData> {
+  const budgetMs = params.budgetMs ?? KEIRI_READ_BUDGET_MS;
+  const got = await raceWithDeadline(
+    loadKeiriMonthServerInner(params),
+    budgetMs,
+    () => timedOutData(params.businessCode),
+  );
+  return got.value;
 }
 
 /**
