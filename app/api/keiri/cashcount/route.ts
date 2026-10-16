@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 
 import { calcCashPosition } from "@/lib/keiri/aggregate";
 import { depositsOf, latestCount, reconcileCash } from "@/lib/keiri/cashCheck";
-import { buildCashCountWindow, type CashCountPlace } from "@/lib/keiri/cashCountWindow";
+import {
+  buildCashCountReady,
+  buildCashCountWindow,
+  type CashCountPlace,
+} from "@/lib/keiri/cashCountWindow";
 import { buildCashVariants, pickCashVariant } from "@/lib/keiri/cashVariant";
 import { CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
@@ -78,10 +82,11 @@ export async function GET() {
       today: todayJst,
     });
 
+    const repaidRows = data.advancesRepaidEarlier ?? [];
+
     // 数え方が2通りに分かれている月だけ、どちらに合ったかも出す（kp250）
     let pick: ReturnType<typeof pickCashVariant> | null = null;
     if (last) {
-      const repaidRows = data.advancesRepaidEarlier ?? [];
       const variants = buildCashVariants({
         screenBalance: computedAtCount,
         withRepaidBalance: repaidRows.length > 0 ? balanceAt(last.happened_on, true) : null,
@@ -91,6 +96,19 @@ export async function GET() {
       pick = p.hasChoice ? p : null;
     }
 
+    // ★数える前でも「いま数えてもらえば合否が出るか」を答える（2026-10-16・kp245）。
+    //   金額は1円も出さない（相手の名前と数だけ）。
+    const floatToday = latestRegisterFloat(data.registerCloses ?? [], todayJst);
+    const ready = buildCashCountReady({
+      variants: buildCashVariants({
+        screenBalance: data.settingsMissing ? null : balanceAt(todayJst, false),
+        withRepaidBalance:
+          !data.settingsMissing && repaidRows.length > 0 ? balanceAt(todayJst, true) : null,
+        registerFloat: floatToday.total,
+      }),
+      registerFloatOn: floatToday.latestOn,
+    });
+
     // 記録がどこにあるか（置き場／おまけ欄の控え）。金額は見ません
     const place: CashCountPlace | null = last ? (data.cashShelfMissing ? "控え" : "棚") : null;
 
@@ -99,7 +117,9 @@ export async function GET() {
       ...buildCashCountWindow({ reconcile, pick, place }),
       shelfMissing: data.cashShelfMissing,
       // 数え方が2通りに分かれている月か（件数だけ・金額は返さない）
-      variantRows: (data.advancesRepaidEarlier ?? []).length,
+      variantRows: repaidRows.length,
+      // 数える前の用意（じゅんの1分が、ちゃんと合否になるか）
+      ready,
     });
   } catch (e: any) {
     return json({ ok: false, reason: String(e?.message ?? e).slice(0, 120) });

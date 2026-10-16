@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { reconcileCash, type CashEvent } from "../lib/keiri/cashCheck";
-import { buildCashCountWindow } from "../lib/keiri/cashCountWindow";
+import { buildCashCountReady, buildCashCountWindow } from "../lib/keiri/cashCountWindow";
 import { buildCashVariants, pickCashVariant } from "../lib/keiri/cashVariant";
 
 /**
@@ -101,4 +101,50 @@ test("④ 計算上の現金が出せないときは、合っていると言わ�
   assert.equal(w.counted, true);
   assert.equal(w.verdict, "合っていない");
   assert.equal(w.band, null);
+});
+
+/**
+ * 数える前の用意（2026-10-16・kp245・f1-4）。
+ *
+ * ■ ここで守りたいこと
+ *   ① 金額を1円も出さない（相手の名前と数だけ）
+ *   ② 「金庫だけを数えたとき」の相手が並ぶかを、頼む前に言う
+ *   ③ 計算上の現金が出せないときは、そう言う（「用意できています」と言わない）
+ */
+test("数える前の用意：金庫だけの相手が並ぶと、そう言う（金額は出さない）", () => {
+  const variants = buildCashVariants({
+    screenBalance: 1_004_399,
+    withRepaidBalance: 510_699,
+    registerFloat: 120_000,
+  });
+  const ready = buildCashCountReady({ variants, registerFloatOn: "2026-10-12" });
+  assert.equal(ready.canCompare, true);
+  assert.equal(ready.ways, 4);
+  assert.equal(ready.safeOnlyIncluded, true);
+  assert.equal(ready.registerFloatOn, "2026-10-12");
+  // 金額が1円も混ざっていないこと（3桁区切り・「円」どちらも出さない）
+  const text = [ready.line, ...ready.wayLabels].join(" ");
+  assert.ok(!/[0-9]{1,3},[0-9]{3}/.test(text), text);
+  assert.ok(!text.includes("1004399"));
+});
+
+test("数える前の用意：つり銭が読めないときは、食い違うおそれを言う", () => {
+  const variants = buildCashVariants({
+    screenBalance: 1_004_399,
+    withRepaidBalance: 510_699,
+    registerFloat: 0,
+  });
+  const ready = buildCashCountReady({ variants, registerFloatOn: null });
+  assert.equal(ready.ways, 2);
+  assert.equal(ready.safeOnlyIncluded, false);
+  assert.ok(ready.line.includes("つり銭"));
+});
+
+test("数える前の用意：計算上の現金が出せないときは「出ません」と言う", () => {
+  const variants = buildCashVariants({ screenBalance: null, withRepaidBalance: null });
+  const ready = buildCashCountReady({ variants, registerFloatOn: null });
+  assert.equal(ready.canCompare, false);
+  assert.equal(ready.ways, 0);
+  assert.deepEqual(ready.wayLabels, []);
+  assert.ok(ready.line.includes("合否が出ません"));
 });

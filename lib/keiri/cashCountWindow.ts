@@ -148,3 +148,66 @@ export function buildCashCountWindow(params: {
     note: NOTE,
   };
 }
+
+/**
+ * 「じゅんが1分 数えたら、その結果でちゃんと合否が出るか」を**数える前に**答える所
+ * （2026-10-16・kp245・f1-4）。**計算だけ**（倉庫は触りません・金額は1円も出しません）。
+ *
+ * ■ なぜ要るのか（やさしい説明）
+ *   比べる相手（数え方）は、いまの作りでは**数えたあとに初めて組み立てられます**。
+ *   ＝ じゅんが1分 使うまで、「金庫だけを数えたとき用の相手が並ぶのか」が
+ *   こちら側から分かりませんでした。
+ *   もし並ばないまま金庫だけを数えると、つり銭ぶん（号車ごとに数万円）だけ必ず食い違い、
+ *   **合っているのに「書き忘れた支払いを探してください」と出ます**（registerFloat.ts の経緯）。
+ *   1分 使ってもらったのに、無い探し物をさせることになります。
+ *
+ * ■ どうするか
+ *   数える前の時点で相手を組み立て、**名前と数だけ**を外に出します。
+ *   金額（計算上の現金・つり銭・差）は1円も出しません。
+ *   これで「いま数えてもらえば合否が出る」ことを、頼む前に確かめられます。
+ */
+export type CashCountReady = {
+  /** いま数えてもらえば、合否を出せるか */
+  canCompare: boolean;
+  /** 比べる相手の数（0なら比べられない） */
+  ways: number;
+  /** 比べる相手の名前（金額は出さない） */
+  wayLabels: string[];
+  /** 「金庫だけを数えたとき」の相手が並ぶか（つり銭を別に置いた相手） */
+  safeOnlyIncluded: boolean;
+  /** つり銭に使った日報の日付（金額ではない）。1件も無ければ null */
+  registerFloatOn: string | null;
+  /** 人が読む1行 */
+  line: string;
+};
+
+/**
+ * 数える前の用意ができているかを畳む。
+ *
+ * @param variants        いま数えたとして組み立てた相手（buildCashVariants の結果）
+ * @param registerFloatOn つり銭に使った日報のいちばん新しい日（latestRegisterFloat の latestOn）
+ */
+export function buildCashCountReady(params: {
+  variants: { key: string; label: string }[];
+  registerFloatOn: string | null;
+}): CashCountReady {
+  const { variants, registerFloatOn } = params;
+  const wayLabels = variants.map((v) => v.label);
+  const safeOnlyIncluded = variants.some(
+    (v) => v.key === "nowScreenSafeOnly" || v.key === "withEarlierRepaidSafeOnly",
+  );
+  const canCompare = variants.length > 0;
+
+  const line = !canCompare
+    ? "いま数えてもらっても、計算上の現金が出せないので合否が出ません（お店の設定が読めていません）"
+    : safeOnlyIncluded
+      ? `用意はできています。比べる相手が ${variants.length} 通り 並び、` +
+        "「金庫だけを数えたとき」の相手も入っています（レジのつり銭を入れ忘れても、" +
+        "そのぶんで食い違ったとは言いません）"
+      : `用意はできています（比べる相手は ${variants.length} 通り）。` +
+        "ただし**レジに残したつり銭の相手が並びません**" +
+        "（閉店後のレジ金が日報から読めていません）。" +
+        "金庫だけを数えると、つり銭ぶんだけ食い違って見えるおそれがあります";
+
+  return { canCompare, ways: variants.length, wayLabels, safeOnlyIncluded, registerFloatOn, line };
+}
