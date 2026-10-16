@@ -176,18 +176,19 @@ export function buildJournalRows(params: {
   }
 
   // 立替の返金（返した日）。この日に金庫からお金が出る
-  // ★数え始めの日より前に返した分は作らない（2026-10-16・kp254・f1-7／f1-4）。
-  //   数え始めより前のお金の出入りは「起点の金庫の金額」にもう含まれているので、
-  //   ここで返金の行を作ると、表にだけ出て金庫からは引かれない行になってしまう
-  //   （金庫の数え方＝lib/keiri/aggregate.ts と同じ決まりにそろえた）。
-  //   数え始めが決まっていない倉庫では、今までどおり全部作る。
-  const openingDate = String(settings.opening_date ?? "").trim();
-  const afterOpening = (ymd: string): boolean =>
-    !/^\d{4}-\d{2}-\d{2}$/.test(openingDate) || ymd >= openingDate;
+  //
+  // ★**数え始めの日より前に返した分も、ここでは作る**（2026-10-16・kp254・検査役 B2 の材料）。
+  //   表（会計ソフト向け）は「その月に起きたこと」の帳簿なので、9/05 に返した立替は
+  //   9月に本当に起きたお金の動き（未払金が減る／現金が出る）。ここから消すと、
+  //   会計ソフトのほうで未払金が残ったまま・現金が多いままになり、店主か税理士が手で直すことになる。
+  //   金庫の数え方（lib/keiri/aggregate.ts）が「数え始めの日より後に返した分だけ」を引くのは、
+  //   数え始めに**数えた金庫の金額**から始めるため＝そちらも正しい。
+  //   2つの差は誤りではなく「数え始めの日より前の動き」そのものなので、**そろえない**。
+  //   何件あるかは lib/keiri/advanceReturnGap.ts が数えており、
+  //   1件でもあれば金庫の画面にひとこと出す（＝行を消して合わせるのではない）。
   const refunded = advances
     .filter((a) => a.settled === true)
     .filter((a) => inMonth(a.settledDate || a.date, ym))
-    .filter((a) => afterOpening(String(a.settledDate || a.date)))
     .slice()
     .sort((a, b) =>
       (a.settledDate || a.date) < (b.settledDate || b.date) ? -1 : 1,
