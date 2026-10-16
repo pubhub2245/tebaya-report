@@ -25,6 +25,7 @@ import {
   registerFloatWindow,
 } from "@/lib/keiri/registerFloat";
 import { depositsOf } from "@/lib/keiri/cashCheck";
+import { advanceReturnGapWindow } from "@/lib/keiri/advanceReturnGap";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -102,6 +103,15 @@ export async function GET(req: NextRequest) {
         extraRows: (data.advancesRepaidEarlier ?? []).map((a) => ({
           settledInMonth: String(a.settledDate ?? "").startsWith(ym),
         })),
+        readable: !data.advancesUnreadable && !data.advancesSkipped,
+      }),
+      // 会計ソフト向けの表には出るのに、金庫からは引かない返金が何行あるか
+      // （2026-10-16・kp254・f1-7／f1-4）。
+      // ★金額は1円も返しません。返すのは行数と「食い違っているか」だけです。
+      advanceReturnGap: advanceReturnGapWindow({
+        ym,
+        openingDate: String(data.settings.opening_date ?? ""),
+        advances: data.advances,
         readable: !data.advancesUnreadable && !data.advancesSkipped,
       }),
       // レジに残してあるつり銭（金庫の外のお金）を見分けられる状態か（2026-10-12・f1-4）。
