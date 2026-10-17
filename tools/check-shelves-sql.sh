@@ -93,6 +93,17 @@ create table if not exists public.pkmn_entries_backup_20260823
 create table if not exists public.bakery_sales (id bigserial primary key, note text);
 create table if not exists public.shifts (id bigserial primary key, date date, staff_name text, location text);
 insert into public.shifts (date, staff_name, location) values ('2026-08-01','テスト','テスト広場');
+-- 本番の立替（経営・51行）に相当する手羽屋の行。⑩のあとも読める・直せる・消せるはず
+insert into public.advance_expenses (date, payer, amount, description, settled)
+  values ('2026-09-03','テスト太郎',3000,'テストの立替',false),
+         ('2026-09-04','テスト花子',4000,'テストの立替',false);
+-- 本番と同じ鍵のかけ方にそろえる（移行ファイルには残っていないが、本番は
+-- 「鍵は入っているが決まりは だれでも・条件なし 1本だけ」＝2026-10-17 A 実測）。
+-- ここをそろえないと、⑩で足す追い禁止の決まりが効かず「読めてしまう」ことに気づけない。
+alter table public.advance_expenses enable row level security;
+drop policy if exists "allow all advance_expenses" on public.advance_expenses;
+create policy "allow all advance_expenses" on public.advance_expenses
+  for all to public using (true) with check (true);
 insert into public.daily_reports (date, location, staff_name, shop, sales_amount, expenses) values
  ('2026-09-05','テスト広場','テスト','手羽屋', 34050,
   '[{"description":"仕入","amount":12000,"receipt_image_url":"https://example/x.jpg"},{"description":"場代","amount":3405}]'::jsonb);
@@ -123,6 +134,8 @@ BEFORE_TEBAYA="$(q "select count(*) from public.daily_reports where tenant_id is
 BEFORE_BACKUP="$(q "select count(*) from public.daily_reports_backup_20260902")"
 # 2026-10-17：⑨は欄を足すだけ。鍵の決まりが増えていないことを、流す前の本数と比べる
 BEFORE_PAYMENT_POLICIES="$(q "select count(*) from pg_policies where tablename='keiri_payments'")"
+# 2026-10-17：⑩は立替（経営）に読む決まりを1本 足すだけ（1本→2本になるはず）
+BEFORE_ADV_POLICIES="$(q "select count(*) from pg_policies where tablename='advance_expenses'")"
 
 # --- 貼り紙を3回 流す ---------------------------------------------------------
 for i in 1 2 3; do
@@ -136,6 +149,8 @@ for i in 1 2 3; do
       && say "⑥ テストのお店ができた" "OK" || say "⑥ テストのお店ができた" "NG"
     grep -q "⑦ 手羽屋のデータの写しに鍵をかけました" "$WORK/run$i.log" \
       && say "⑦ 写しに鍵をかけた" "OK" || say "⑦ 写しに鍵をかけた" "NG"
+    grep -q "⑩ よその店の立替を、公開の鍵では読めないようにしました" "$WORK/run$i.log" \
+      && say "⑩ 立替（経営）の読む決まりを足した" "OK" || say "⑩ 立替（経営）の読む決まりを足した" "NG"
   else
     grep -q "⑧ 読む決まりは、もうありました" "$WORK/run$i.log" \
       && say "⑧ $i 回目は何もしない" "OK" || say "⑧ $i 回目は何もしない" "NG"
@@ -143,6 +158,8 @@ for i in 1 2 3; do
       && say "$i 回目は増やさない" "OK" || say "$i 回目は増やさない" "NG"
     grep -q "⑦ 鍵をかける写しはありませんでした" "$WORK/run$i.log" \
       && say "⑦ $i 回目は何もしない" "OK" || say "⑦ $i 回目は何もしない" "NG"
+    grep -q "⑩ 立替（経営）の読む決まりは、もうありました" "$WORK/run$i.log" \
+      && say "⑩ $i 回目は何もしない" "OK" || say "⑩ $i 回目は何もしない" "NG"
   fi
 done
 
@@ -207,8 +224,36 @@ FOREIGN_BEFORE="$(q "select count(*) from public.daily_reports where tenant_id i
 psql -q -c "set role anon; delete from public.daily_reports where tenant_id is not null" >/dev/null 2>&1
 want "⑧ 公開の鍵では、印つきの日報を消せない（1行も減らない）" "$FOREIGN_BEFORE" "$(q "select count(*) from public.daily_reports where tenant_id is not null")"
 
+# --- ⑩ よその店の立替（経営）が、公開の鍵で読めないか（2026-10-17 追記・f3-4） ------
+#   ★いちばん大事なのは **手羽屋の立替が今までどおり読める・直せる・消せること**。
+#     ここが崩れたら、じゅんの /cash/advances（立替の画面）が止まる。
+want "⑩ 読む決まりが1本 付いた" "1" "$(q "select count(*) from pg_policies where tablename='advance_expenses' and policyname='keiri_only_tebaya_advances_readable'")"
+want "⑩ 立替（経営）の決まりは減らず2本" "$((BEFORE_ADV_POLICIES + 1))" "$(q "select count(*) from pg_policies where tablename='advance_expenses'")"
+want "⑩ いまある「だれでもOK」は消していない" "1" "$(q "select count(*) from pg_policies where tablename='advance_expenses' and policyname='allow all advance_expenses'")"
+want "⑩ 立替の印は空のまま" "0" "$(q "select count(tenant_id) from public.advance_expenses")"
+ADV_TEBAYA="$(q "select count(*) from public.advance_expenses where tenant_id is null")"
+want "⑩ 手羽屋の立替は、公開の鍵で今までどおり読める" "$ADV_TEBAYA" "$(q "set role anon; select count(*) from public.advance_expenses where tenant_id is null")"
+# よその店の立替を1行 入れて、公開の鍵で見えるかを試す（サーバー側の権限で入れる＝本番でお店が入る形）
+psql -q -c "insert into public.advance_expenses (date, payer, amount, description, settled, tenant_id) values ('2026-09-09','【テスト】立替',5000,'よその店の立替',false,'$TEST_TENANT')" >/dev/null 2>&1
+want "⑩ よその店の立替は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.advance_expenses where tenant_id is not null")"
+want "⑩ 書き換えて取り出す道でも読めない" "0" "$(q "set role anon; with u as (update public.advance_expenses set memo=memo where tenant_id is not null returning 1) select count(*) from u")"
+want "⑩ 窓口は、その店の立替を返す" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_advances_old(null,null,null,'test-b2-kensa-1006')")"
+want "⑩ 窓口は、知らない印には何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_advances_old(null,null,null,'test-knowhere')")"
+want "⑩ 窓口は、合言葉のかたちでなければ何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_advances_old('ちがう合言葉',null,null,null)")"
+want "⑩ 窓口はレシート写真の住所を返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_advances_old(null,null,null,'test-b2-kensa-1006') w where w ? 'receipt_image_url'")"
+# じゅんの立替の画面（/cash/advances）が今までどおり動くか＝入れる・直す・消すを公開の鍵で試す
+psql -tA -c "set role anon; insert into public.advance_expenses (date, payer, amount, description, settled, created_by) values ('2026-09-10','テスト三郎',1200,'画面からの登録',false,'管理者')" >/dev/null 2>&1 \
+  && say "⑩ 手羽屋の立替は、公開の鍵で今までどおり入れられる" "OK" \
+  || say "⑩ 手羽屋の立替は、公開の鍵で今までどおり入れられる" "NG（入れられなくなりました）"
+psql -q -c "set role anon; update public.advance_expenses set settled=true, settled_date='2026-09-20' where payer='テスト三郎'" >/dev/null 2>&1
+want "⑩ 手羽屋の立替は、公開の鍵で精算に直せる" "1" "$(q "select count(*) from public.advance_expenses where payer='テスト三郎' and settled")"
+psql -q -c "set role anon; delete from public.advance_expenses where payer='テスト三郎'" >/dev/null 2>&1
+want "⑩ 手羽屋の立替は、公開の鍵で消せる" "0" "$(q "select count(*) from public.advance_expenses where payer='テスト三郎'")"
+want "⑩ 手羽屋の立替の行数は、はじめと同じ" "$ADV_TEBAYA" "$(q "select count(*) from public.advance_expenses where tenant_id is null")"
+
 # 入れたテストの行は、確かめが済んだら取り消す（本番ではなく、このパソコンの中の倉庫）
 psql -q -c "delete from public.daily_reports where tenant_id is not null" >/dev/null 2>&1
+psql -q -c "delete from public.advance_expenses where tenant_id is not null" >/dev/null 2>&1
 
 # --- 止め木が効くか -----------------------------------------------------------
 psql -q -c "insert into public.keiri_cash_events(kind,happened_on,amount) values ('count','2026-10-13',-1)" >/dev/null 2>&1 \
@@ -221,7 +266,7 @@ psql -q -c "insert into public.keiri_expense_ignores(source,ref_id,line_index) v
 
 echo "----------------------------------------------"
 if [ "$NG" = "0" ]; then
-  echo "OK：貼り紙は9つぜんぶ通り、何度 流しても増えません（本番ではなく、同じ形の空の倉庫での結果です）"
+  echo "OK：貼り紙は10 ぜんぶ通り、何度 流しても増えません（本番ではなく、同じ形の空の倉庫での結果です）"
   exit 0
 fi
 echo "NG：直してから、じゅんに渡す1枚を更新してください"

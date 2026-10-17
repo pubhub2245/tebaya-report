@@ -34,16 +34,25 @@
 --        （2026-10-14 実測）。⑧で「**印が空の行だけ 読んでよい**」を足します。
 --        手羽屋の行は印が空なので**見え方は1行も変わりません**。
 --        よその店が自分の数字を読む道は、同じ⑧で作る**倉庫の窓口**を通します。
+--   ⑨ 払った記録の棚に「どの店のものか」の欄を足す（2026-10-17 追記）
+--      → 印の欄が無い棚は、数え直したらここ1つだけでした。欄が無いと締められません。
+--   ⑩ 立替（経営・51行＝本物の棚）を、よその店ぶんだけ公開の鍵で読めないようにする
+--      （2026-10-17 追記）
+--      → ⑧は日報だけを締めます。経理にはほかにも棚があり、**中身が入っている
+--        いちばん大きい棚が立替（経営）**でした。⑧と同じ形（決まり＋窓口を対で）
+--        で締めます。**手羽屋の51行は印が空なので、見え方は1行も変わりません。**
 --
 -- ■ 安全について（ここが大事）
 --   ・**足すだけ**です。消す・名前を変える・作り変えるものは1つもありません
 --     （drop / delete / truncate は1行も入っていません）。
---   ・2か所だけ「棚を足す」ではありません：
+--   ・3か所だけ「棚を足す」ではありません：
 --     ⑦で、手羽屋のデータの写しに**鍵をかけます**。
 --       消しません・中身は1行も触りません・1行（disable）で元に戻せます。
 --     ⑧で、日報の棚に「**印が空の行だけ 読んでよい**」という決まりを**1本 足します**。
 --       いまある決まりは触りません（消す・名前を変える・作り変えるをしません）。
 --       手羽屋の行は印が空なので見え方は変わりません。1行（drop policy）で元に戻せます。
+--     ⑩で、立替（経営）の棚に⑧と同じ決まりを**1本 足します**。
+--       手羽屋の51行は印が空なので見え方は変わりません。1行（drop policy）で元に戻せます。
 --   ・何度流しても同じ結果です（if not exists / create or replace）。
 --   ・手羽屋が毎日使う画面（日報・シフト・レジ・LINE・お金の計算）の棚は
 --     触っていません。④の欄を足す棚も、立替だけで日報ではありません。
@@ -681,6 +690,156 @@ end $$;
 
 
 -- ============================================================
+-- ⑩ 立替（経営・いま51行 入っている本物の棚）を、よその店ぶんだけ
+--    公開の鍵では読めないようにする（f3-4／2026-10-17 追記）
+--
+--   これを流すと：**お店が2軒になっても、ブラウザに配られている公開の鍵では
+--   よその店の立替が1行も読めなくなります。**
+--
+-- ■ なぜ「立替（経営）」から締めるのか（2026-10-17 に数え直して分かったこと）
+--   立替の棚は**2つ**あります。中身が入っているのは
+--   `advance_expenses`（経営側・51行）で、`keiri_advance_expenses`（現場・0行）は
+--   まだ空です。経理の窓口が「立替51件」と答える中身も前者で、件数が一致しました。
+--   ＝ **本物の棚はこちら**なので、空のほうを締めても意味がありません。
+--   （この1行の決め：**立替の本物は `advance_expenses` として扱う。**
+--     空の `keiri_advance_expenses` は、中身が入り始めてから同じ形で締めます。）
+--
+-- ■ 手羽屋は1行も変わりません（ここが大事）
+--   手羽屋の51行は**印が空**です。足す決まりは「**印が空の行だけ 読んでよい**」なので、
+--   じゅんが毎日見る画面（/cash・/cash/advances・/sales-report・経理）の見え方は
+--   **1行も変わりません**。読めなくなるのは、印が付いた行＝よその店の行だけです。
+--   書き込みも今までどおりです（足す決まりは**読むときだけ**に効きます）。
+--   立替の登録・精算・取り消し・削除は、どれも印が空の行なので通ります。
+--
+-- ■ 「欄が無い棚」について、ここで決めておきます（2026-10-17・B）
+--   印の欄が無い棚があと3つありますが、**どれも締める対象の外**と決めました。
+--   ・`keiri_account_mapping`（科目の対応表・12行）… 業態ごとの**全店共通の叩き台**で、
+--     お店の数字が1文字も入りません（科目名・税区分だけ）。＝ 分ける必要がありません。
+--   ・`cash_settings`（金庫の設定・1行）… 手羽屋の毎日の画面（/cash・/sales-report）
+--     だけが使う棚です。経理（/keiri）が読むのは `keiri_settings` のほうで、
+--     こちらには印の欄がもうあります。
+--   ・`pre_registered_expenses`（先に登録した経費・2行）… アプリのどこからも
+--     読み書きしていません（数えて0か所）。お店の数字が入る道がありません。
+--
+-- ■ 足すだけ・消しません（やり方は⑧と同じ）
+--   いまある「だれでもOK」の決まりは**触りません**。代わりに「**追い禁止**」の
+--   決まり（restrictive）を1本 足します。データベースは、ふつうの決まりと
+--   追い禁止の決まりの**両方を満たす行だけ**を見せます。
+--   ★元に戻すのは1行です：
+--     drop policy "keiri_only_tebaya_advances_readable" on public.advance_expenses;
+--
+-- ■ よその店は、どうやって自分の立替を見るのか
+--   下の(b)で**倉庫の窓口**（keiri_tenant_advances_old）を1つ作ります。
+--   窓口は**合言葉（戻せない形）からお店を決めます**。画面やブラウザが名乗った
+--   「お店の番号」は**受け取りません**（⑧と同じ決まり）。
+-- ============================================================
+
+-- (a) 「印が空の行だけ 読んでよい」という追い禁止の決まりを1本 足す
+do $$
+begin
+  if exists (
+       select 1 from pg_policies
+        where schemaname = 'public'
+          and tablename = 'advance_expenses'
+          and policyname = 'keiri_only_tebaya_advances_readable'
+     ) then
+    raise notice '⑩ 立替（経営）の読む決まりは、もうありました（何もしていません）';
+  else
+    create policy "keiri_only_tebaya_advances_readable" on public.advance_expenses
+      as restrictive for select to public
+      using (tenant_id is null);
+    raise notice '⑩ よその店の立替を、公開の鍵では読めないようにしました（手羽屋の51行＝印が空は今までどおり）';
+  end if;
+end $$;
+
+-- (b) よその店が自分の立替だけを読むための「倉庫の窓口」
+--
+--   ★返すのは**その店の立替だけ**です。合言葉・お店の名前・連絡先・鍵の値は
+--     1文字も返しません。レシート写真の住所も返しません（置き場の住所を外に出さないため）。
+--   ★入り口は⑧と同じ2つだけ：
+--     ・合言葉（戻せない形・16進64文字）… 本物のお店が自分の数字を読む道
+--     ・テストの印（test- で始まり、店名が【テスト】で始まるお店だけ）… 2軒目の手順を通す道
+--   ★当たったお店が1軒でないときは、**何も返しません**。
+create or replace function public.keiri_tenant_advances_old(
+  p_password_hash text default null,
+  p_from date default null,
+  p_to date default null,
+  p_test_mark text default null
+)
+returns setof jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_tenant uuid;
+  v_n int;
+begin
+  if p_test_mark is not null and btrim(p_test_mark) <> '' then
+    if btrim(p_test_mark) !~ '^test-' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%'
+     limit 1;
+  else
+    if p_password_hash is null or btrim(lower(p_password_hash)) !~ '^[0-9a-f]{64}$' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active'
+     limit 1;
+  end if;
+
+  if v_tenant is null then
+    return;
+  end if;
+
+  return query
+    select to_jsonb(x)
+      from (
+        select a.id,
+               a.date,
+               a.amount,
+               a.payer,
+               a.description,
+               a.settled,
+               a.settled_date
+          from public.advance_expenses a
+         where a.tenant_id = v_tenant
+           and (p_from is null or a.date >= p_from)
+           and (p_to is null or a.date <= p_to)
+         order by a.date
+      ) x;
+end $$;
+
+comment on function public.keiri_tenant_advances_old(text, date, date, text) is
+  '経理：よその店が自分の立替（経営）だけを読む窓口（f3-4）。お店は合言葉かテストの印から決め、画面が名乗った番号は受け取らない。読むだけ。';
+
+revoke all on function public.keiri_tenant_advances_old(text, date, date, text) from public;
+grant execute on function public.keiri_tenant_advances_old(text, date, date, text)
+  to anon, authenticated, service_role;
+
+
+-- ============================================================
 -- 確かめ方（流したあと、これを貼ると結果が1画面で見えます）
 --
 --   select 'keiri_cash_events'    as 棚, count(*) as 行数 from public.keiri_cash_events
@@ -733,4 +892,17 @@ end $$;
 --       その店が自分の数字を読むのは⑧の窓口ごしです）。
 --   → 本番の https://tebaya-report.vercel.app/api/keiri/copies を開くと、
 --     「よその店の行が、公開の鍵で見えるか」が日本語で出ます（こちら側から確かめられます）。
+--
+--   ⑩ 立替（経営）が締まったかは、これで分かります（2026-10-17 追記）：
+--   select count(*) as 読む決まりの本数
+--     from pg_policies
+--    where schemaname = 'public' and tablename = 'advance_expenses'
+--      and policyname = 'keiri_only_tebaya_advances_readable';
+--   → 1 なら付いています。手羽屋の立替が今までどおり読めることは、これで分かります：
+--   select count(*) as 立替の行, count(tenant_id) as 印がついている行
+--     from public.advance_expenses;
+--   → 「立替の行」が今までと同じ数（51前後）・「印がついている行」が 0 なら、
+--     じゅんが見る画面（/cash・/cash/advances・/sales-report・経理）は1行も変わっていません。
+--   → 本番の https://tebaya-report.vercel.app/api/keiri/copies の
+--     「日報いがいの棚」で、立替（経営）が○になります。
 -- ============================================================

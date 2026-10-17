@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   PENDING_SHELVES,
+  SHARED_SHELVES,
   decideShelfScoped,
   shelfNote,
   summarizeShelfScopes,
@@ -153,4 +154,39 @@ test("やさしい1行は、まだ締めていない棚に『2軒目の前に締
     scoped: false,
   });
   assert.match(note, /2軒目のお店に数字が入る前に締めること/);
+});
+
+/* ------------------------------------------------------------------ *
+ *  「お店ごとに分ける必要が無い」と決めた棚（2026-10-17・B／kp253 ③③）
+ * ------------------------------------------------------------------ */
+
+test("分けない棚は、理由つきで名前が残っている（合否には入れない）", () => {
+  const tables = SHARED_SHELVES.map((s) => s.table);
+  // 2026-10-17 に倉庫の台帳を数えて見つかった「印の欄が無い棚」のうち、
+  // お店の数字が1文字も入らないものだけがここに入る。
+  for (const t of ["keiri_account_mapping", "cash_settings", "pre_registered_expenses"]) {
+    assert.ok(tables.includes(t), `${t} の決めが残っていません`);
+  }
+  for (const s of SHARED_SHELVES) {
+    assert.ok(s.why.length > 10, `${s.table} の理由が書かれていません`);
+    // 締める棚と二重に並べない（どちらなのか分からなくなる）
+    assert.ok(
+      !PENDING_SHELVES.some((p) => p.table === s.table),
+      `${s.table} が「締める棚」と「分けない棚」の両方に入っています`,
+    );
+  }
+});
+
+test("立替は、中身が入っている経営側（advance_expenses）も締める棚に入っている", () => {
+  // 2026-10-17 実測：立替の棚は2つあり、51行 入っているのは advance_expenses の方。
+  // 空の keiri_advance_expenses だけ締めても意味がないので、両方を並べておく。
+  const tables = PENDING_SHELVES.map((p) => p.table);
+  assert.ok(tables.includes("advance_expenses"), "立替（経営・本物の棚）がありません");
+  assert.ok(tables.includes("keiri_advance_expenses"), "立替（現場）がありません");
+});
+
+test("まとめには、分けない棚が理由つきで入る", () => {
+  const r = summarizeShelfScopes([shelf({ table: "advance_expenses" })]);
+  assert.equal(r.shared.length, SHARED_SHELVES.length);
+  assert.ok(r.how.includes("shared"), "分けない棚の扱いが説明に書かれていません");
 });

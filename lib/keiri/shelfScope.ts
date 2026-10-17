@@ -43,8 +43,47 @@ export type ShelfPlan = {
 };
 
 /**
+ * 「お店ごとに分ける必要が無い」と決めた棚（2026-10-17・B／kp253 ③）。
+ *
+ * ■ なぜ名前を書いて残すのか（やさしい説明）
+ *   2026-10-17 に倉庫の台帳を数え直したところ、「どの店のものか」の印の欄が
+ *   無い棚が、立替（経営）のほかに3つ見つかりました。これを毎回 数え直すと、
+ *   「締め忘れ」と「そもそも分ける必要が無い」が区別できません。
+ *   そこで**理由つきで、ここに1回だけ書いて決め**ます。
+ *   ここに無い棚が見つかったら、それは締める対象です（PENDING_SHELVES に足す）。
+ */
+export const SHARED_SHELVES: { table: string; label: string; why: string }[] = [
+  {
+    table: "keiri_account_mapping",
+    label: "科目の対応表",
+    why:
+      "業態ごとの**全店共通の叩き台**で、お店の数字が1文字も入っていません" +
+      "（科目名・税区分・貸借だけ）。分けると、お店ごとに同じ表を持つことになります",
+  },
+  {
+    table: "cash_settings",
+    label: "金庫の設定（手羽屋の毎日の画面ぶん）",
+    why:
+      "手羽屋が毎日使う画面（/cash・/sales-report）だけが読む棚です。" +
+      "経理（/keiri）が読むのは keiri_settings のほうで、そちらには印の欄がもうあります",
+  },
+  {
+    table: "pre_registered_expenses",
+    label: "先に登録した経費",
+    why:
+      "アプリのどこからも読み書きしていません（2026-10-17 に数えて0か所）。" +
+      "お店の数字がここに入る道がありません",
+  },
+];
+
+/**
  * 日報のつぎに締める棚（kp253 ③ の6つ）。
  * **消さないこと。** 締め終わった棚もここに残し、窓口があるかで ○× を出します。
+ *
+ * ■ 立替の「本物」はどちらか（2026-10-17・B の決め・kp253 ③②）
+ *   立替の棚は2つありますが、**中身が入っているのは advance_expenses（経営・51行）**で、
+ *   keiri_advance_expenses（現場）は0行です（経理の窓口が答える「立替51件」と一致）。
+ *   ＝ **締める順番は advance_expenses が先**。空のほうは中身が入り始めてから同じ形で締めます。
  */
 export const PENDING_SHELVES: ShelfPlan[] = [
   {
@@ -113,6 +152,8 @@ export type ShelvesScopeReport = {
   pending: string[];
   /** 6つぜんぶ締まっているか（1つでも分からなければ false） */
   allScoped: boolean;
+  /** 「お店ごとに分ける必要が無い」と決めた棚（理由つき・2026-10-17） */
+  shared: { table: string; label: string; why: string }[];
   summary: string;
   check: string;
   how: string;
@@ -244,6 +285,7 @@ export function summarizeShelfScopes(shelves: ShelfScopeReport[]): ShelvesScopeR
     leaking: leaking.map((s) => s.table),
     pending: pending.map((s) => s.table),
     allScoped: pending.length === 0,
+    shared: SHARED_SHELVES,
     summary:
       leaking.length > 0
         ? `**よその店の行が、${leaking.length} つの棚で公開の鍵で読めます**：` +
@@ -257,6 +299,8 @@ export function summarizeShelfScopes(shelves: ShelfScopeReport[]): ShelvesScopeR
     how:
       "棚ごとに2つ聞いています：①公開の鍵で『印が付いた行』が読めるか（件数だけ）" +
       "②その棚の倉庫の窓口があるか。**窓口と読む決まりは対で足す決まり**なので、" +
-      "窓口があれば締まったと見ます（行が1行も無くても確かめられます）",
+      "窓口があれば締まったと見ます（行が1行も無くても確かめられます）。" +
+      "「お店ごとに分ける必要が無い」と決めた棚は shared に理由つきで並べてあり、" +
+      "合否には入れません（お店の数字が1文字も入らない棚だけです）",
   };
 }
