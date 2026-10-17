@@ -36,6 +36,10 @@ import {
   type SweepTally,
 } from "@/lib/keiri/copyCandidates";
 import {
+  probeShelfScopes,
+  type ShelvesScopeReport,
+} from "@/lib/keiri/shelfScope";
+import {
   probeTenantReadGuard,
   type TenantReadGuardReport,
 } from "@/lib/keiri/tenantReadGuard";
@@ -163,6 +167,11 @@ export type CopyProbeReport = {
    * 貼り紙が流れた日に、ここだけ見れば合否が付くようにしてあります。
    */
   verdict: F34Verdict;
+  /**
+   * **日報いがいの棚**も、お店ごとに分かれているか（f3-4・kp253 ③・2026-10-17）。
+   * 貼り紙⑧が締めるのは日報だけなので、ここが揃うまで f3-4 は合格になりません。
+   */
+  shelves: ShelvesScopeReport;
   /** f3-4 全体の答え（写しだけでは閉まらない） */
   f34: string;
   sheet: string;
@@ -188,6 +197,11 @@ export type F34Verdict = {
   tebayaStillReadable: boolean | null;
   /** ③写し（控え）が閉まっているか */
   copiesClosed: boolean;
+  /**
+   * ④**日報いがいの棚**も締まっているか（2026-10-17・kp253 ③）。
+   * 渡されなかったときは null（昔の呼び方をそのまま通すため）
+   */
+  otherShelvesScoped: boolean | null;
   /** f3-4 の合否（全部そろったときだけ true・分からなければ null） */
   pass: boolean | null;
   /** 1行で分かる言い方 */
@@ -318,10 +332,11 @@ export async function probeCopyTables(options?: {
   const deadline = options?.deadlineMs ?? PROBE_DEADLINE_MS;
 
   // --- ①先に本題を答える（1秒で終わる所。ここは必ず返す） -----------------
-  const [listed, live, tenantRows] = await Promise.all([
+  const [listed, live, tenantRows, shelves] = await Promise.all([
     listExposedTables(),
     probeLiveShelf(),
     probeTenantReadGuard(),
+    probeShelfScopes(),
   ]);
 
   const targets = new Set<string>(copyTablesOf(listed.names));
@@ -378,8 +393,9 @@ export async function probeCopyTables(options?: {
     sweep,
     live,
     tenantRows,
-    verdict: f34Verdict(sum.allClosed, live, tenantRows),
-    f34: f34Note(sum.allClosed, live, tenantRows),
+    verdict: f34Verdict(sum.allClosed, live, tenantRows, shelves),
+    shelves,
+    f34: `${f34Note(sum.allClosed, live, tenantRows)} ${shelves.summary}`,
     sheet: "/keiri/sql",
     check: "f3-4",
     tookMs: clock() - startedAt,
@@ -498,16 +514,26 @@ export function f34Verdict(
   copiesClosed: boolean,
   live: LiveShelfReport,
   tenantRows?: TenantReadGuardReport,
+  shelves?: ShelvesScopeReport,
 ): F34Verdict {
   const foreignHidden = tenantRows?.separated ?? null;
   const tebayaStillReadable = live.readable;
+  const otherShelvesScoped = shelves ? shelves.allScoped : null;
+  const base = { foreignHidden, tebayaStillReadable, copiesClosed, otherShelvesScoped };
+
+  // ⓪いますぐ漏れている棚がある（日報いがい）＝いちばん重い不合格
+  if (shelves && shelves.leaking.length > 0) {
+    return {
+      ...base,
+      pass: false,
+      line: `**不合格**：${shelves.summary}`,
+    };
+  }
 
   // ①やりすぎ：手羽屋の行まで読めなくなった（毎日の画面が止まる＝すぐ元に戻す）
   if (tebayaStillReadable === false) {
     return {
-      foreignHidden,
-      tebayaStillReadable,
-      copiesClosed,
+      ...base,
       pass: false,
       line:
         "**不合格（やりすぎです）**：手羽屋の行まで公開の鍵で読めなくなりました。" +
@@ -517,9 +543,7 @@ export function f34Verdict(
   // ②本題：よその店の行が、公開の鍵でまだ読める
   if (foreignHidden === false) {
     return {
-      foreignHidden,
-      tebayaStillReadable,
-      copiesClosed,
+      ...base,
       pass: false,
       line:
         "**不合格**：よその店の行が、公開の鍵でまだ読めます" +
@@ -529,9 +553,7 @@ export function f34Verdict(
   // ③まだ試せていない（よその店の行が1行も無い・聞けなかった）
   if (foreignHidden === null || tebayaStillReadable === null) {
     return {
-      foreignHidden,
-      tebayaStillReadable,
-      copiesClosed,
+      ...base,
       pass: null,
       line:
         "**まだ分かりません**（よその店の行で試せていません）。" +
@@ -541,23 +563,31 @@ export function f34Verdict(
   // ④よその店の行は隠れている。あとは写しだけ
   if (!copiesClosed) {
     return {
-      foreignHidden,
-      tebayaStillReadable,
-      copiesClosed,
+      ...base,
       pass: false,
       line:
         "**あと1つ**：よその店の行は読めません（手羽屋の行は今までどおり読めます）。" +
         "ただし写し（控え）がまだ開いています（貼り紙⑦を1回 流すと閉まります）",
     };
   }
+  // ⑤日報は閉まった。ただし日報いがいの棚がまだ締まっていない
+  //   （ここを見ないと、貼り紙を流した日に**嘘の合格**が出ます・2026-10-17）
+  if (shelves && !shelves.allScoped) {
+    return {
+      ...base,
+      pass: false,
+      line:
+        `**あと ${shelves.pending.length} つ**：日報の棚と写しは閉まりました` +
+        "（手羽屋の行は今までどおり読めます）。" +
+        `ただし ${shelves.summary}`,
+    };
+  }
   return {
-    foreignHidden,
-    tebayaStillReadable,
-    copiesClosed,
+    ...base,
     pass: true,
     line:
       "**合格**：よその店の行は公開の鍵では読めず、手羽屋の行は今までどおり読めます" +
-      "（写しも閉まっています）",
+      "（写しも、日報いがいの棚も閉まっています）",
   };
 }
 
