@@ -119,6 +119,7 @@ want() { # 期待する値と実際の値を比べる： want 名前 期待 実�
 }
 
 BEFORE_REPORTS="$(q "select count(*)||'/'||count(tenant_id) from public.daily_reports")"
+BEFORE_TEBAYA="$(q "select count(*) from public.daily_reports where tenant_id is null")"
 BEFORE_BACKUP="$(q "select count(*) from public.daily_reports_backup_20260902")"
 
 # --- 貼り紙を3回 流す ---------------------------------------------------------
@@ -153,7 +154,12 @@ want "④ 立替の古い棚に印の欄" "1" "$(q "select count(*) from informa
 want "⑤ シフトの棚に印の欄" "1" "$(q "select count(*) from information_schema.columns where table_name='shifts' and column_name='tenant_id'")"
 want "⑥ テストのお店が1軒だけ・active" "1/active" "$(q "select count(*)||'/'||max(status) from public.keiri_tenants where external_session_id='test-b2-kensa-1006'")"
 want "⑥ そのお店ぶんの設定が1行" "1" "$(q "select count(*) from public.keiri_settings where business_type_code like 't\_%'")"
-want "日報は1行も変わらない（件数／印つき）" "$BEFORE_REPORTS" "$(q "select count(*)||'/'||count(tenant_id) from public.daily_reports")"
+# 2026-10-17：⑥が手順5の日報1枚（印はテストの店）も入れるようになった。
+#   いちばん大事なのは **手羽屋の行（印が空）が1行も変わらないこと**。
+want "手羽屋の行（印が空）は1行も変わらない" "$BEFORE_TEBAYA" "$(q "select count(*) from public.daily_reports where tenant_id is null")"
+want "⑥ 手順5の日報が1枚 入った" "1" "$(q "select count(*) from public.daily_reports where tenant_id is not null")"
+want "⑥ その日報は3回 流しても1枚のまま" "1" "$(q "select count(*) from public.daily_reports r join public.keiri_tenants t on t.id=r.tenant_id where t.external_session_id='test-b2-kensa-1006'")"
+want "⑥ その日報の中身は固定値（売上／日当）" "30000/10000" "$(q "select sales_amount||'/'||labor from public.daily_reports where tenant_id is not null limit 1")"
 want "シフトの印も空のまま" "0" "$(q "select count(tenant_id) from public.shifts")"
 want "⑦ 日報の古い控えに鍵がかかった" "t" "$(q "select relrowsecurity from pg_class where relname='daily_reports_backup_20260902'")"
 want "⑦ その控えの決まりは0本（サーバー側の鍵だけ）" "0" "$(q "select count(*) from pg_policies where tablename='daily_reports_backup_20260902'")"
@@ -180,10 +186,21 @@ want "⑧ 手羽屋の行は、公開の鍵で今までどおり読める" "1" "
 want "⑧ よその店の行は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.daily_reports where tenant_id is not null")"
 want "⑧ 軽い日報（経理の見え方）も、よその店は読めない" "0" "$(q "set role anon; select count(*) from public.keiri_reports where tenant_id is not null")"
 want "⑧ 書き換えて取り出す道でも読めない" "0" "$(q "set role anon; with u as (update public.daily_reports set handover=handover where tenant_id is not null returning 1) select count(*) from u")"
-want "⑧ 窓口は、その店の日報を返す" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_reports(null,null,null,'test-b2-kensa-1006')")"
+want "⑧ 窓口は、その店の日報を返す" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_reports(null,'2026-09-07','2026-09-07','test-b2-kensa-1006')")"
+want "⑧ 窓口は、⑥で入れた手順5の日報も返す" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_reports(null,'2026-10-06','2026-10-06','test-b2-kensa-1006')")"
 want "⑧ 窓口は、知らない印には何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_reports(null,null,null,'test-knowhere')")"
 want "⑧ 窓口は、合言葉のかたちでなければ何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_reports('ちがう合言葉',null,null,null)")"
 want "⑧ 窓口はレシート写真の住所を返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_reports(null,null,null,'test-b2-kensa-1006') w, jsonb_array_elements(w -> 'expenses') x where x ? 'receipt_image_url'")"
+# --- ⑧のあと、アプリ側（公開の鍵）で何ができないか（2026-10-17 追記・f5-4） --------
+#   ここが「手順5を貼り紙⑥の中で入れる」理由そのものです。
+#   どちらかが OK に変わったら、⑥から日報を外してアプリ側に戻してよいという意味になります。
+psql -tA -c "set role anon; insert into public.daily_reports (date, location, staff_name, shop, sales_amount, tenant_id) values ('2026-09-08','【テスト】テスト広場','【テスト】テスト太郎','手羽屋',1000,'$TEST_TENANT') returning id" >/dev/null 2>&1 \
+  && say "⑧ 公開の鍵では、印つきの日報を入れて番号を受け取れない" "NG（入れられてしまいました）" \
+  || say "⑧ 公開の鍵では、印つきの日報を入れて番号を受け取れない" "OK"
+FOREIGN_BEFORE="$(q "select count(*) from public.daily_reports where tenant_id is not null")"
+psql -q -c "set role anon; delete from public.daily_reports where tenant_id is not null" >/dev/null 2>&1
+want "⑧ 公開の鍵では、印つきの日報を消せない（1行も減らない）" "$FOREIGN_BEFORE" "$(q "select count(*) from public.daily_reports where tenant_id is not null")"
+
 # 入れたテストの行は、確かめが済んだら取り消す（本番ではなく、このパソコンの中の倉庫）
 psql -q -c "delete from public.daily_reports where tenant_id is not null" >/dev/null 2>&1
 
