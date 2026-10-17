@@ -87,7 +87,7 @@ export async function POST() {
         ran: "何もしていません（テストの店がまだありません）",
         wrote: 0,
         summary: stepsSummary(state),
-        next: "/keiri/sql の貼り紙⑥を1回 流すと、手順1〜3がその中で終わります",
+        next: "/keiri/sql の貼り紙⑥を1回 流すと、手順1〜3と手順5（日報1枚）がその中で終わります",
         check: "f5-4・f3-4",
       }),
       { status: 200, headers: CHECK_WINDOW_HEADERS },
