@@ -169,7 +169,7 @@ export function stepsSummary(s: StepsState, rolledBack = false): string {
   if (!s.shopReady) {
     return (
       "テストの店がまだありません。手順4〜6はその後です" +
-      "（/keiri/sql の貼り紙⑥を1回 流すと、手順1〜3がその中で終わります）"
+      "（/keiri/sql の貼り紙⑥を1回 流すと、手順1〜3と手順5（日報1枚）がその中で終わります）"
     );
   }
   if (stepsAllDone(s)) {
