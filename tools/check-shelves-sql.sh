@@ -121,6 +121,8 @@ want() { # 期待する値と実際の値を比べる： want 名前 期待 実�
 BEFORE_REPORTS="$(q "select count(*)||'/'||count(tenant_id) from public.daily_reports")"
 BEFORE_TEBAYA="$(q "select count(*) from public.daily_reports where tenant_id is null")"
 BEFORE_BACKUP="$(q "select count(*) from public.daily_reports_backup_20260902")"
+# 2026-10-17：⑨は欄を足すだけ。鍵の決まりが増えていないことを、流す前の本数と比べる
+BEFORE_PAYMENT_POLICIES="$(q "select count(*) from pg_policies where tablename='keiri_payments'")"
 
 # --- 貼り紙を3回 流す ---------------------------------------------------------
 for i in 1 2 3; do
@@ -161,6 +163,10 @@ want "⑥ 手順5の日報が1枚 入った" "1" "$(q "select count(*) from publ
 want "⑥ その日報は3回 流しても1枚のまま" "1" "$(q "select count(*) from public.daily_reports r join public.keiri_tenants t on t.id=r.tenant_id where t.external_session_id='test-b2-kensa-1006'")"
 want "⑥ その日報の中身は固定値（売上／日当）" "30000/10000" "$(q "select sales_amount||'/'||labor from public.daily_reports where tenant_id is not null limit 1")"
 want "シフトの印も空のまま" "0" "$(q "select count(tenant_id) from public.shifts")"
+# 2026-10-17：⑨＝払った記録の棚に印の欄を足すだけ（決まりも読む所も変えない）
+want "⑨ 払った記録の棚に印の欄" "1" "$(q "select count(*) from information_schema.columns where table_name='keiri_payments' and column_name='tenant_id'")"
+want "⑨ 払った記録の印も空のまま" "0" "$(q "select count(tenant_id) from public.keiri_payments")"
+want "⑨ 払った記録の鍵の決まりは増えない" "$BEFORE_PAYMENT_POLICIES" "$(q "select count(*) from pg_policies where tablename='keiri_payments'")"
 want "⑦ 日報の古い控えに鍵がかかった" "t" "$(q "select relrowsecurity from pg_class where relname='daily_reports_backup_20260902'")"
 want "⑦ その控えの決まりは0本（サーバー側の鍵だけ）" "0" "$(q "select count(*) from pg_policies where tablename='daily_reports_backup_20260902'")"
 want "⑦ 控えの中身は1行も減らない" "$BEFORE_BACKUP" "$(q "select count(*) from public.daily_reports_backup_20260902")"
@@ -215,7 +221,7 @@ psql -q -c "insert into public.keiri_expense_ignores(source,ref_id,line_index) v
 
 echo "----------------------------------------------"
 if [ "$NG" = "0" ]; then
-  echo "OK：貼り紙は8つぜんぶ通り、何度 流しても増えません（本番ではなく、同じ形の空の倉庫での結果です）"
+  echo "OK：貼り紙は9つぜんぶ通り、何度 流しても増えません（本番ではなく、同じ形の空の倉庫での結果です）"
   exit 0
 fi
 echo "NG：直してから、じゅんに渡す1枚を更新してください"
