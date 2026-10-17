@@ -646,6 +646,41 @@ grant execute on function public.keiri_tenant_reports(text, date, date, text)
   to anon, authenticated, service_role;
 
 -- ============================================================
+-- ⑨ 払った記録の棚に「どの店のものか」の欄を足す（f3-4／2026-10-17 追記）
+--
+--   これを流すと：**お店が増えても、払った記録が混ざらなくなります。**
+--   2026-10-17 に外から数え直して分かったことです。お店を分ける印は
+--   日報・出店場所・担当者・商品・立替（新）・経理の設定 には もうありました。
+--   ④で立替（古）に、⑤でシフトに足します。**残っていたのは
+--   「払った記録（keiri_payments）」1つだけ**で、この棚には欄そのものがありません。
+--   欄が無いと、そもそも「どの店の行か」を見分けられないので、
+--   あとで締めることもできません（締める工事は、この欄がそろってからです）。
+--
+--   ★ 欄を足すだけです。いまある行は1行も書き換えません。
+--     空（null）＝手羽屋、という今までの決まりのままです。
+--   ★ 鍵（RLS）の決まりは1つも変えません。誰が何をできるかは今までどおりです。
+--   ★ 読む所も変えません。**流す前と後で、手羽屋の画面は1つも変わりません。**
+--   ★ 棚が見つからない倉庫でも途中で止まらないように、あるときだけ足します。
+-- ============================================================
+do $$
+begin
+  if exists (
+    select 1 from information_schema.tables
+    where table_schema = 'public' and table_name = 'keiri_payments'
+  ) then
+    alter table public.keiri_payments
+      add column if not exists tenant_id uuid references public.keiri_tenants (id);
+
+    execute $c$comment on column public.keiri_payments.tenant_id is
+      'どの店の払った記録か。空（null）＝手羽屋。値＝keiri_tenants.id。既存の行はすべて空のまま'$c$;
+
+    create index if not exists keiri_payments_tenant_idx
+      on public.keiri_payments (tenant_id);
+  end if;
+end $$;
+
+
+-- ============================================================
 -- 確かめ方（流したあと、これを貼ると結果が1画面で見えます）
 --
 --   select 'keiri_cash_events'    as 棚, count(*) as 行数 from public.keiri_cash_events

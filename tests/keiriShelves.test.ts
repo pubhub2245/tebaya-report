@@ -137,8 +137,8 @@ test("軽い日報の見え方は、レシート写真の住所を抜いたま�
   assert.ok(sql.includes("as receipt_count"));
 });
 
-test("貼り紙に入っているのは8つで、それぞれ仕上げ表の項目につながっている", () => {
-  assert.equal(SHELF_STEPS.length, 8);
+test("貼り紙に入っているのは9つで、それぞれ仕上げ表の項目につながっている", () => {
+  assert.equal(SHELF_STEPS.length, 9);
   const checks = SHELF_STEPS.map((s) => s.check);
   assert.deepEqual(checks, [
     "f1-4",
@@ -149,6 +149,8 @@ test("貼り紙に入っているのは8つで、それぞれ仕上げ表の項�
     "f5-4",
     "f3-4",
     // ⑧ よその店の日報を、公開の鍵では読めないようにする（2026-10-15）
+    "f3-4",
+    // ⑨ 払った記録の棚に「どの店のものか」の欄を足す（2026-10-17）
     "f3-4",
   ]);
   for (const s of SHELF_STEPS) {
@@ -362,4 +364,20 @@ test("下見の1行には、本番ではないことが書いてある", () => {
   const all = JSON.stringify(SHELF_SQL_DRYRUN);
   assert.ok(!/[0-9]{4,}円/.test(all), "下見に金額が入っています");
   assert.ok(!/eyJ|service_role|password/i.test(all), "下見に鍵・合言葉のたぐいが入っています");
+});
+
+test("⑨ 払った記録の棚に欄を足すところが貼り紙に入っている（2026-10-17・f3-4）", () => {
+  const sql = readFileSync(SQL_PATH, "utf8");
+  // 欄を足す（あるときだけ・何度 流しても同じ）
+  assert.match(sql, /alter table public\.keiri_payments\s+add column if not exists tenant_id/);
+  assert.ok(sql.includes("keiri_payments_tenant_idx"));
+  // ★欄を足すだけ。鍵の決まりも、読む所も触らない
+  assert.ok(
+    !/create policy[^;]*keiri_payments/is.test(sql),
+    "⑨ は決まりを作りません（締める工事は、欄がそろってから別に出します）",
+  );
+  assert.ok(
+    !/drop\s+policy[^;]*keiri_payments/is.test(sql),
+    "⑨ は決まりを消しません",
+  );
 });

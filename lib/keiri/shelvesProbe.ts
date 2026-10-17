@@ -117,6 +117,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     trialShop,
     backupLocked,
     tenantReadGuard,
+    paymentsTenant,
   ] = await Promise.all([
     probeShelf("keiri_cash_events", "id"),
     probeShelf("keiri_expense_ignores", "id"),
@@ -126,6 +127,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     probeTrialShop(),
     probeBackupLocked(),
     probeTenantReadGuard_(),
+    probeShelf("keiri_payments", "tenant_id"),
   ]);
 
   const probes: Record<string, ShelfProbe> = {
@@ -137,6 +139,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     trial_shop: trialShop,
     backup_locked: backupLocked,
     tenant_read_guard: tenantReadGuard,
+    payments_tenant: paymentsTenant,
   };
 
   return SHELF_STEPS.map((s) =>
