@@ -196,9 +196,15 @@ test("⑥ テストのお店1軒を貼り紙の中で作る（2026-10-09・f5-4 
   // 管理画面の合言葉は中で作って捨てる＝外から渡せない（誰も入れない）
   assert.ok(/v_hash\s+text\s*:=\s*md5\(/.test(body));
 
-  // 手羽屋のデータには触らない（日報・経費・申し込み・出店場所の行は作らない）
+  // 手羽屋のデータには触らない（経費・申し込み・出店場所の行は作らない）
+  //
+  // ★2026-10-17：**日報だけは外した。** ⑥はテストの店の日報を1枚 入れる（手順5）。
+  //   ⑧で足す読む決まり（印が空の行だけ 読んでよい）は「入れた行を読み返す」
+  //   「印つきの行を消す」にも効くので、公開の鍵ではアプリ側から入れられない
+  //   （PostgreSQL 16 で実測）。入れる行は**印がテストの店**で、
+  //   手羽屋の行（印が空）は1行も読み書きしない。中身は
+  //   tests/keiriShelvesSheet.test.ts で固定値と突き合わせてある。
   for (const forbidden of [
-    "daily_reports",
     "keiri_advance_expenses",
     "keiri_applications",
     "locations",
@@ -210,6 +216,17 @@ test("⑥ テストのお店1軒を貼り紙の中で作る（2026-10-09・f5-4 
       `貼り紙⑥が ${forbidden} に行を足しています`,
     );
   }
+  // 日報を入れるときは、必ずテストの店の印を付ける（印が空＝手羽屋の行を作らない）
+  const reportInsert = body.slice(body.indexOf("insert into public.daily_reports"));
+  assert.ok(
+    /insert\s+into\s+public\.daily_reports\s*\(\s*\n?\s*tenant_id/i.test(reportInsert),
+    "⑥の日報に『どの店か』の印を付けていません（手羽屋の行になってしまいます）",
+  );
+  assert.ok(
+    /where r\.tenant_id = v_id and r\.date = c_date/.test(body),
+    "⑥の日報が、何度 流すと増える形になっています",
+  );
+
   // 消す・書き換える命令は1つも無い
   for (const forbidden of ["drop ", "truncate ", "delete from"]) {
     assert.ok(!body.toLowerCase().includes(forbidden), `貼り紙に ${forbidden.trim()} が入っています`);

@@ -37,6 +37,14 @@ export const dynamic = "force-dynamic";
  *   それでも念のため、**入れる前と後で手羽屋に見える件数を数え、
  *   1件でも動いたら（または数えられなかったら）入れた行をその場で取り消します**。
  *   取り消すのは**この回で作った行だけ**で、番号を名指しして消します。ほかの行には触れません。
+ *   ★消えた件数まで数えます。⑧のあと、公開の鍵では印つきの日報は0行しか消えないため
+ *     （2026-10-17 実測）、消えなかったときは「残っています」と正直に書きます。
+ *
+ * ■ 手順5（日報1枚）は、いまは貼り紙⑥の中で入ります（2026-10-17）
+ *   ⑧で足す「印が空の行だけ 読んでよい」の決まりは、**入れた行を読み返すときにも効く**ので、
+ *   公開の鍵では印つきの日報を入れられません（PostgreSQL 16 で実測）。
+ *   そのため貼り紙⑥が日報1枚まで入れ、ここは「もう入っていました」と答えるのが
+ *   ふだんの形です。下の入れる道は、貼り紙より前の倉庫のための控えです。
  *
  * ■ テストの店がまだ無いときは何もしません
  *   手順1〜3（お店の行と初回設定）は /keiri/sql の貼り紙⑥が1回で済ませます。
@@ -151,7 +159,18 @@ export async function POST() {
         .insert(buildTestReport(tenantId, reportDate))
         .select("id")
         .maybeSingle();
-      if (error || !data) problems.push(`日報を入れられませんでした（${error?.message ?? "理由なし"}）`);
+      if (error || !data) {
+        const why = error?.message ?? "理由なし";
+        // ★⑧（印が空の行だけ 読んでよい）のあとは、公開の鍵では
+        //   印つきの日報を入れて番号を受け取ることができません（2026-10-17 実測）。
+        //   ここで黙って「入れられませんでした」と言うと、原因を探し直すことになります。
+        problems.push(
+          /row-level security|row level security/i.test(why)
+            ? "日報は公開の鍵では入れられません（⑧の読む決まりが、入れた行の読み返しにも効くため）。" +
+              "手順5は /keiri/sql の貼り紙⑥の中で入ります。貼り紙を1回 流してください"
+            : `日報を入れられませんでした（${why}）`,
+        );
+      }
       else {
         madeReportIds.push(String((data as { id: unknown }).id));
         reportReady = true;
@@ -167,20 +186,28 @@ export async function POST() {
   let rolledBack = false;
   if (wrote > 0 && rollbackNeeded(before, after)) {
     rolledBack = true;
-    for (const id of madeLocationIds) {
+    // ★消えた件数まで数えます（2026-10-17）。
+    //   ⑧のあと、公開の鍵では印つきの日報は**0行しか消えません**（エラーにならず、
+    //   黙って何も起きない）。件数を見ないと「取り消しました」と嘘を書くことになります。
+    const removeOne = async (table: string, id: string, label: string) => {
       try {
-        await db.from("locations").delete().eq("id", id).eq("tenant_id", tenantId);
+        const { error, count } = await db
+          .from(table)
+          .delete({ count: "exact" })
+          .eq("id", id)
+          .eq("tenant_id", tenantId);
+        if (error) problems.push(`取り消しに失敗した${label}があります（${error.message}）`);
+        else if (count === 0)
+          problems.push(
+            `${label}を取り消せませんでした（公開の鍵では、印が付いた行は消せません）。` +
+              "本番に1行 残っています。倉庫の画面から消してください",
+          );
       } catch {
-        problems.push("取り消しに失敗した出店場所があります");
+        problems.push(`取り消しに失敗した${label}があります`);
       }
-    }
-    for (const id of madeReportIds) {
-      try {
-        await db.from("daily_reports").delete().eq("id", id).eq("tenant_id", tenantId);
-      } catch {
-        problems.push("取り消しに失敗した日報があります");
-      }
-    }
+    };
+    for (const id of madeLocationIds) await removeOne("locations", id, "出店場所");
+    for (const id of madeReportIds) await removeOne("daily_reports", id, "日報");
     locationReady = false;
     reportReady = false;
   }
