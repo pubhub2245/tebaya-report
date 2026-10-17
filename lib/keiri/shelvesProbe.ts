@@ -24,6 +24,7 @@ import {
 import { peekTestShop } from "@/lib/keiri/tenantTrialServer";
 import { decodeCashCountMemo } from "@/lib/keiri/cashCountMemo";
 import { probeTenantReadGuard } from "@/lib/keiri/tenantReadGuard";
+import { PENDING_SHELVES, probeShelfScopes } from "@/lib/keiri/shelfScope";
 
 /** その棚（または欄）が1行 読めるかだけを見る。中身は捨てる */
 export async function probeShelf(table: string, column: string): Promise<ShelfProbe> {
@@ -106,7 +107,26 @@ async function probeTenantReadGuard_(): Promise<ShelfProbe> {
   return { ok: false, code: null, message: g.note };
 }
 
-/** 貼り紙の①〜⑧を、ぜんぶ読んで並べる */
+/**
+ * ⑩も「棚があるか」ではなく、**よその店の立替が公開の鍵から隠れたか**を見る（⑧と同じ逆の読み方）。
+ *
+ * ■ ここが大事（やさしい説明）
+ *   流したあとも、**手羽屋の51行（印が空）は公開の鍵で読めます**。それが正しい形です。
+ *   見るのは「印が付いた行が見えるか」と「その棚の倉庫の窓口があるか」の2つだけで、
+ *   数え方は lib/keiri/shelfScope.ts の1か所（/api/keiri/copies と同じ）を通します。
+ */
+async function probeAdvancesOldScoped(): Promise<ShelfProbe> {
+  const plan = PENDING_SHELVES.find((p) => p.table === "advance_expenses");
+  if (!plan) return { ok: false, code: null, message: "締める棚の一覧に立替（経営）がありません" };
+  const r = await probeShelfScopes([plan]);
+  const one = r.shelves[0];
+  if (!one) return { ok: false, code: null, message: "確かめられませんでした" };
+  if (one.scoped === true) return { ok: true };
+  if (one.scoped === false) return missingProbe(one.note);
+  return { ok: false, code: null, message: one.note };
+}
+
+/** 貼り紙の①〜⑩を、ぜんぶ読んで並べる */
 export async function readShelfReports(): Promise<ShelfReport[]> {
   const [
     cash,
@@ -118,6 +138,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     backupLocked,
     tenantReadGuard,
     paymentsTenant,
+    advancesOldScoped,
   ] = await Promise.all([
     probeShelf("keiri_cash_events", "id"),
     probeShelf("keiri_expense_ignores", "id"),
@@ -128,6 +149,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     probeBackupLocked(),
     probeTenantReadGuard_(),
     probeShelf("keiri_payments", "tenant_id"),
+    probeAdvancesOldScoped(),
   ]);
 
   const probes: Record<string, ShelfProbe> = {
@@ -140,6 +162,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     backup_locked: backupLocked,
     tenant_read_guard: tenantReadGuard,
     payments_tenant: paymentsTenant,
+    advances_old_scoped: advancesOldScoped,
   };
 
   return SHELF_STEPS.map((s) =>

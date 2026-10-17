@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 
 import { TEST_SHOP } from "../lib/keiri/tenantTrial";
 import { TEST_LOCATION, TEST_REPORT, testReportDate } from "../lib/keiri/tenantTrialSteps";
+import { PENDING_SHELVES, SHARED_SHELVES } from "../lib/keiri/shelfScope";
 
 const SHEET = "supabase/migrations/keiri_shelves_20261005.sql";
 const sql = readFileSync(SHEET, "utf8");
@@ -87,4 +88,66 @@ test("⑧の説明が「アプリ側からは入れられない・消せない�
     sql.includes("印つきの日報を入れて番号を受け取ることも、消すこともできません"),
     "⑧に、実測して分かったこと（入れられない・消せない）が書いてありません",
   );
+});
+
+/* ------------------------------------------------------------------ *
+ *  ⑩ 立替（経営）を締める（2026-10-17・f3-4・kp253 ③）
+ * ------------------------------------------------------------------ */
+
+/** ⑩の所だけを切り出す */
+function stepTen(): string {
+  const from = sql.indexOf("-- ⑩ 立替（経営・いま51行 入っている本物の棚）");
+  const to = sql.indexOf("-- 確かめ方（流したあと");
+  assert.ok(from > 0 && to > from, "⑩の区切りが見つかりません");
+  return sql.slice(from, to);
+}
+
+test("⑩の窓口と棚の名前が、コード側の一覧と同じ", () => {
+  const ten = stepTen();
+  const plan = PENDING_SHELVES.find((p) => p.table === "advance_expenses");
+  assert.ok(plan, "締める棚の一覧に立替（経営）がありません");
+  assert.ok(
+    ten.includes(`create or replace function public.${plan!.window}(`),
+    `⑩が作る窓口の名前が、コード側（${plan!.window}）とちがいます`,
+  );
+  assert.ok(
+    ten.includes(`on public.${plan!.table}`),
+    "⑩が締める棚の名前が、コード側とちがいます",
+  );
+});
+
+test("⑩は「読むときだけ」の追い禁止の決まりを1本 足すだけ（消さない）", () => {
+  const ten = stepTen();
+  assert.ok(ten.includes("as restrictive for select"), "読むときだけの決まりになっていません");
+  assert.ok(ten.includes("using (tenant_id is null)"), "「印が空の行だけ」になっていません");
+  // 説明文には「元に戻す1行」として drop policy が書いてあるので、**流れる所だけ**を見る
+  const runs = ten
+    .split("\n")
+    .filter((l) => !l.trimStart().startsWith("--"))
+    .join("\n")
+    .toLowerCase();
+  for (const bad of ["drop policy", "drop table", "delete from", "truncate", "alter column"]) {
+    assert.ok(!runs.includes(bad), `⑩の流れる所に ${bad} が入っています（消す操作は禁止）`);
+  }
+});
+
+test("⑩の窓口は、画面が名乗った番号を受け取らない（合言葉かテストの印だけ）", () => {
+  const ten = stepTen();
+  assert.ok(ten.includes("p_password_hash"), "合言葉の入り口がありません");
+  assert.ok(ten.includes("p_test_mark"), "テストの印の入り口がありません");
+  assert.ok(!ten.includes("p_tenant_id"), "お店の番号を受け取る入り口が付いています");
+  assert.ok(ten.includes("[0-9a-f]{64}"), "合言葉のかたちを確かめていません");
+});
+
+test("⑩の窓口は、レシート写真の住所を返さない", () => {
+  const ten = stepTen();
+  const body = ten.slice(ten.indexOf("return query"));
+  assert.ok(!body.includes("receipt_image_url"), "写真の住所を返しています");
+});
+
+test("分けないと決めた棚は、貼り紙の⑩に理由が書いてある", () => {
+  const ten = stepTen();
+  for (const s of SHARED_SHELVES) {
+    assert.ok(ten.includes(s.table), `⑩に ${s.table} の決めが書かれていません`);
+  }
 });
