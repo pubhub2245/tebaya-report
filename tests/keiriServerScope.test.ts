@@ -180,14 +180,17 @@ test("合言葉を渡すと、よその店の日報は窓口ごしに読む（�
     db,
   });
 
-  assert.equal(rpcCalls.length, 1, "窓口は1回だけ呼ぶ（日報とレジ金を同じ1回で受け取る）");
-  assert.equal(rpcCalls[0].fn, "keiri_tenant_reports");
+  const reportWindow = rpcCalls.filter((c) => c.fn === "keiri_tenant_reports");
+  assert.equal(reportWindow.length, 1, "日報の窓口は1回だけ呼ぶ（日報とレジ金を同じ1回で受け取る）");
   // ★窓口に渡すのは合言葉（戻せない形）だけ。**お店の番号は渡さない**（kp239 ②）
-  assert.equal(rpcCalls[0].args.p_password_hash, hash);
-  assert.ok(
-    !JSON.stringify(rpcCalls[0].args).includes(OTHER_SHOP),
-    "お店の番号を窓口に渡していない",
-  );
+  assert.equal(reportWindow[0].args.p_password_hash, hash);
+  for (const c of rpcCalls) {
+    assert.ok(
+      !JSON.stringify(c.args).includes(OTHER_SHOP),
+      `お店の番号を窓口（${c.fn}）に渡していない`,
+    );
+    assert.equal(c.args.p_password_hash, hash, `${c.fn} にも合言葉だけを渡している`);
+  }
 
   assert.equal(data.reports.length, 1);
   assert.equal(data.reports[0].date, "2026-09-07");
@@ -238,7 +241,146 @@ test("テストの店の印でも窓口ごしに読める（2軒目を入れる�
     tenantReadTestMark: "test-b2-kensa-1006",
     db,
   });
-  assert.equal(rpcCalls.length, 1);
-  assert.equal(rpcCalls[0].args.p_test_mark, "test-b2-kensa-1006");
-  assert.equal(rpcCalls[0].args.p_password_hash, null);
+  assert.equal(rpcCalls.filter((c) => c.fn === "keiri_tenant_reports").length, 1);
+  for (const c of rpcCalls) {
+    assert.equal(c.args.p_test_mark, "test-b2-kensa-1006");
+    assert.equal(c.args.p_password_hash, null);
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ *  日報いがいの棚も「倉庫の窓口ごし」に読む（2026-10-18・kp253 ③・f3-4）
+ *
+ *  貼り紙⑪⑫を流すと、経理の設定・払った記録・金庫の記録・
+ *  「数えない」の印も「印が空の行だけ 読んでよい」になる。
+ *  このとき**よその店が直に読むと、エラーではなく0件で返ってくる**。
+ *  ＝ 数え始めの日・期首残高・給与・金庫の記録が黙って消え、
+ *     現金残高と利益がずれる（CLAUDE.md の「0件と取り違えない」に反する）。
+ *  なので、よその店として読むときは窓口ごしに聞く。
+ * ------------------------------------------------------------------ */
+
+/** 窓口ごとに違う返事を作る（作り物。実在のお店の金額ではありません） */
+function windowImpl(byFn: Record<string, unknown[]>) {
+  return (fn: string) =>
+    fn in byFn
+      ? { data: byFn[fn], error: null }
+      : { data: null, error: { code: "PGRST202", message: "Could not find the function" } };
+}
+
+test("よその店の経理の設定・払った記録・金庫・「数えない」印も、窓口ごしに読む", async () => {
+  const hash = "d".repeat(64);
+  const { db, calls, rpcCalls } = fakeDb(
+    {},
+    windowImpl({
+      keiri_tenant_reports: [WINDOW_ROW],
+      keiri_tenant_settings: [
+        {
+          opening_date: "2026-09-01",
+          opening_balance: 50000,
+          outsourcing_rate: 0,
+          monthly_rent: 0,
+          rent_start_month: "",
+          memo: null,
+        },
+      ],
+      keiri_tenant_payments: [
+        { id: "p1", paid_on: "2026-09-10", amount: 20000, kind: "salary", memo: null },
+        { id: "p2", paid_on: "2026-09-20", amount: 30000, kind: "salary", memo: null },
+      ],
+      keiri_tenant_cash_events: [
+        { id: "c1", kind: "count", happened_on: "2026-09-30", amount: 70000, actor: null, note: null },
+      ],
+      keiri_tenant_expense_ignores: [
+        {
+          id: "i1",
+          source: "report",
+          ref_id: "r1",
+          line_index: 0,
+          amount: 1000,
+          paid_on: "2026-09-07",
+          reason: "二重",
+          undone_at: null,
+        },
+      ],
+    }),
+  );
+
+  const data = await loadKeiriMonthServer({
+    ym: "2026-09",
+    businessCode: "t_abc",
+    scope: OTHER_SHOP,
+    monthOnly: true,
+    tenantReadHash: hash,
+    db,
+  });
+
+  // 4つの棚には**直に聞いていない**（聞くと0件で返り、数字が黙って消える）
+  for (const shelf of [
+    "keiri_settings",
+    "keiri_payments",
+    "keiri_cash_events",
+    "keiri_expense_ignores",
+  ]) {
+    assert.equal(tableNames(calls).includes(shelf), false, `${shelf} に直に聞いていない`);
+  }
+  // 窓口はそれぞれ1回だけ
+  for (const fn of [
+    "keiri_tenant_settings",
+    "keiri_tenant_payments",
+    "keiri_tenant_cash_events",
+    "keiri_tenant_expense_ignores",
+  ]) {
+    assert.equal(rpcCalls.filter((c) => c.fn === fn).length, 1, `${fn} を1回だけ呼ぶ`);
+  }
+
+  // 窓口の返事が、そのまま数字になっている
+  assert.equal(data.settingsMissing, false);
+  assert.equal(data.settings.opening_balance, 50000);
+  assert.equal(data.settings.opening_date, "2026-09-01");
+  assert.equal(data.payments.length, 2);
+  assert.equal(data.payments[0].paid_on, "2026-09-20", "新しい順にそろえる（棚と同じ並び）");
+  assert.equal(data.cashEvents.length, 1);
+  assert.equal(data.cashEvents[0].amount, 70000);
+  assert.equal(data.cashShelfMissing, false);
+  assert.equal(data.ignores.length, 1);
+  assert.equal(data.ignoreShelf, "ready");
+});
+
+test("窓口がまだ無いあいだは、日報いがいの棚も今までどおり直に読む（流す前と同じ）", async () => {
+  const { db, calls } = fakeDb({}, windowImpl({}));
+  await loadKeiriMonthServer({
+    ym: "2026-09",
+    businessCode: "t_abc",
+    scope: OTHER_SHOP,
+    monthOnly: true,
+    tenantReadHash: "e".repeat(64),
+    db,
+  });
+  for (const shelf of [
+    "keiri_settings",
+    "keiri_payments",
+    "keiri_cash_events",
+    "keiri_expense_ignores",
+  ]) {
+    assert.ok(tableNames(calls).includes(shelf), `${shelf} に今までどおり聞く`);
+  }
+});
+
+test("手羽屋として読むときは、日報いがいの窓口も1回も呼ばない（読み方は今までどおり）", async () => {
+  const { db, rpcCalls, calls } = fakeDb({}, windowImpl({ keiri_tenant_settings: [] }));
+  await loadKeiriMonthServer({
+    ym: "2026-09",
+    businessCode: "tebaya",
+    tenantReadHash: "f".repeat(64),
+    db,
+  });
+  assert.equal(rpcCalls.length, 0, "手羽屋は窓口を1回も呼ばない");
+  for (const shelf of [
+    "keiri_settings",
+    "keiri_payments",
+    "keiri_cash_events",
+    "keiri_expense_ignores",
+  ]) {
+    assert.ok(tableNames(calls).includes(shelf), `手羽屋は ${shelf} を今までどおり直に読む`);
+  }
 });

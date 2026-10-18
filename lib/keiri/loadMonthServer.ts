@@ -26,6 +26,12 @@ import {
 import { isMissingFunction } from "@/lib/keiri/tenantAccess";
 import { TENANT_READ_WINDOW } from "@/lib/keiri/tenantReadGuard";
 import {
+  TENANT_CASH_EVENTS_WINDOW,
+  TENANT_IGNORES_WINDOW,
+  TENANT_PAYMENTS_WINDOW,
+  TENANT_SETTINGS_WINDOW,
+} from "@/lib/keiri/shelfScope";
+import {
   applyTenantScope,
   businessCodeForScope,
   isTebayaScope,
@@ -150,24 +156,54 @@ export type TenantWindowResult =
   /** 呼べたが失敗した。**0件と取り違えない** */
   | { outcome: "error" };
 
-/** 窓口に1回だけ聞く。読むだけ・書き込みはしない */
-export async function readTenantReportsViaWindow(
-  db: { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: any }> },
-  args: { passwordHash?: string; testMark?: string; from: string; to?: string | null },
-): Promise<TenantWindowResult> {
+/** 倉庫につなぐ物のうち、ここで使う所だけ */
+type RpcLike = {
+  rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: any }>;
+};
+
+/**
+ * 棚ひとつぶんの「倉庫の窓口」に1回だけ聞く（f3-4・2026-10-18・kp253 ③）。
+ * 読むだけ・書き込みはしない。
+ *
+ * ■ なぜ棚ごとに同じ形で聞けるようにしたか（やさしい説明）
+ *   貼り紙⑧⑩⑪⑫は、**どの棚にも同じ形の窓口**を作ります
+ *   （渡すのは「合言葉を戻せない形にしたもの」と期間だけ。どのお店かは倉庫が決める）。
+ *   そこで、聞き方もここ1か所にそろえます。棚ごとに書き写すと、
+ *   どれか1つだけ直し忘れて**よその店の数字が黙って0件になります**。
+ *
+ * ■ 返事の3通りを取り違えないこと（ここが肝です）
+ *   ok … 窓口ごしに読めた（0件でも「本当に0件」）
+ *   missing … 窓口がまだ無い＝**貼り紙を流す前**。今までどおり棚を直に読む
+ *   error … 呼べたが失敗した。**0件と取り違えない**
+ */
+export async function readTenantShelfViaWindow(
+  db: RpcLike,
+  windowName: string,
+  args: { passwordHash?: string; testMark?: string; from?: string | null; to?: string | null },
+): Promise<{ outcome: "ok"; rows: Record<string, unknown>[] } | { outcome: "missing" } | { outcome: "error" }> {
   try {
-    const { data, error } = await db.rpc(TENANT_READ_WINDOW, {
+    const { data, error } = await db.rpc(windowName, {
       p_password_hash: args.passwordHash ?? null,
-      p_from: args.from,
+      p_from: args.from ?? null,
       p_to: args.to ?? null,
       p_test_mark: args.testMark ?? null,
     });
     if (error) return isMissingFunction(error) ? { outcome: "missing" } : { outcome: "error" };
     if (!Array.isArray(data)) return { outcome: "error" };
-    return { outcome: "ok", rows: data as TenantWindowRow[] };
+    return { outcome: "ok", rows: data as Record<string, unknown>[] };
   } catch {
     return { outcome: "error" };
   }
+}
+
+/** 窓口に1回だけ聞く。読むだけ・書き込みはしない */
+export async function readTenantReportsViaWindow(
+  db: RpcLike,
+  args: { passwordHash?: string; testMark?: string; from: string; to?: string | null },
+): Promise<TenantWindowResult> {
+  const got = await readTenantShelfViaWindow(db, TENANT_READ_WINDOW, args);
+  if (got.outcome !== "ok") return got;
+  return { outcome: "ok", rows: got.rows as TenantWindowRow[] };
 }
 
 /** 月の数字を読む本体。**線（待つのをやめる）は下の loadKeiriMonthServer が引く** */
@@ -215,15 +251,43 @@ async function loadKeiriMonthServerInner(params: {
 
   const db = (params.db as ReturnType<typeof serverClient>) ?? serverClient();
 
+  // よその店として読むときに、倉庫の窓口ごしに聞けるか（f3-4・2026-10-18・kp253 ③）。
+  // ★手羽屋のときは false ＝ 読み方はこれまでと1行も変わりません。
+  const viaWindow = !tebaya && Boolean(params.tenantReadHash || params.tenantReadTestMark);
+  const windowArgs = {
+    passwordHash: params.tenantReadHash,
+    testMark: params.tenantReadTestMark,
+  };
+
   // 設定（数え始めの日・期首残高・外注費の率・家賃）
-  const { data: s } = await db
-    .from("keiri_settings")
-    .select(
-      // ★memo も取る：置き場がまだ無いあいだ、金庫を数えた1回をここに控えている（f1-4）
-      "opening_date, opening_balance, outsourcing_rate, monthly_rent, rent_start_month, memo",
-    )
-    .eq("business_type_code", businessCode)
-    .maybeSingle();
+  //
+  // ■ なぜ窓口ごしに聞くようになったか（2026-10-18・kp253 ③）
+  //   貼り紙⑫を流すと、この棚は「印が空の行だけ 読んでよい」になります。
+  //   手羽屋（印が空）は今までどおりですが、**よその店の行は公開の鍵では読めません**。
+  //   そのまま直に読むと、エラーではなく**0件**で返ってきます＝
+  //   数え始めの日と期首残高が当てずっぽうになり、現金残高が黙ってずれます。
+  //   ＝ よその店は、同じ貼り紙で作る**倉庫の窓口**ごしに読みます。
+  //   窓口がまだ無い倉庫（貼り紙を流す前）では、今までどおりの読み方に落ちます。
+  let s: any = null;
+  let settingsViaWindow = false;
+  if (viaWindow) {
+    const got = await readTenantShelfViaWindow(db as any, TENANT_SETTINGS_WINDOW, windowArgs);
+    if (got.outcome === "ok") {
+      settingsViaWindow = true;
+      s = got.rows[0] ?? null;
+    }
+  }
+  if (!settingsViaWindow) {
+    const { data } = await db
+      .from("keiri_settings")
+      .select(
+        // ★memo も取る：置き場がまだ無いあいだ、金庫を数えた1回をここに控えている（f1-4）
+        "opening_date, opening_balance, outsourcing_rate, monthly_rent, rent_start_month, memo",
+      )
+      .eq("business_type_code", businessCode)
+      .maybeSingle();
+    s = data ?? null;
+  }
   const settings: KeiriSettings = s
     ? {
         opening_date: (s as any).opening_date,
@@ -286,8 +350,22 @@ async function loadKeiriMonthServerInner(params: {
   }
 
   // 支払い記録（まだ払っていないお金を出すのに要る）
+  // ★ここには**給与の金額**が入ります。よその店として読むときは窓口ごしに聞きます
+  //   （貼り紙⑪のあと、直に読むと0件で返るため。kp253 ③）。
   let payments: KeiriPayment[] = [];
-  {
+  let paymentsViaWindow = false;
+  if (viaWindow) {
+    const got = await readTenantShelfViaWindow(db as any, TENANT_PAYMENTS_WINDOW, windowArgs);
+    if (got.outcome === "ok") {
+      paymentsViaWindow = true;
+      payments = (got.rows as unknown as KeiriPayment[]).slice().sort((a, b) => {
+        const x = String((a as any).paid_on ?? "");
+        const y = String((b as any).paid_on ?? "");
+        return x === y ? 0 : x < y ? 1 : -1;
+      });
+    }
+  }
+  if (!paymentsViaWindow) {
     const { data } = await db
       .from("keiri_payments")
       // ★id も取る。経理画面（サーバー側の窓口ごしに読むとき）が、
@@ -366,16 +444,30 @@ async function loadKeiriMonthServerInner(params: {
   let cashEvents: CashEvent[] = [];
   let cashShelfMissing = false;
   {
-    const { data, error } = await applyTenantScope<any>(
-      db
-        .from("keiri_cash_events")
-        .select("kind, happened_on, amount, actor, note") as any,
-      scope,
-    )
-      .gte("happened_on", from)
-      .order("happened_on", { ascending: false });
-    if (error) cashShelfMissing = true;
-    else cashEvents = normalizeCashEvents((data as unknown[]) ?? []);
+    // ★よその店は窓口ごしに（貼り紙⑫のあと、直に読むと0件で返るため。kp253 ③）
+    let cashViaWindow = false;
+    if (viaWindow) {
+      const got = await readTenantShelfViaWindow(db as any, TENANT_CASH_EVENTS_WINDOW, {
+        ...windowArgs,
+        from,
+      });
+      if (got.outcome === "ok") {
+        cashViaWindow = true;
+        cashEvents = normalizeCashEvents(got.rows as unknown[]);
+      }
+    }
+    if (!cashViaWindow) {
+      const { data, error } = await applyTenantScope<any>(
+        db
+          .from("keiri_cash_events")
+          .select("kind, happened_on, amount, actor, note") as any,
+        scope,
+      )
+        .gte("happened_on", from)
+        .order("happened_on", { ascending: false });
+      if (error) cashShelfMissing = true;
+      else cashEvents = normalizeCashEvents((data as unknown[]) ?? []);
+    }
     // ★置き場がまだ無いあいだ、経理の設定のおまけ欄に控えた「数えた1回」も読む（f1-4）。
     //   画面（/keiri）はこの窓口から読むので、ここを通さないと控えが画面に出ない。
     cashEvents = mergeCashEvents(cashEvents, decodeCashCountMemo((s as any)?.memo));
@@ -404,14 +496,27 @@ async function loadKeiriMonthServerInner(params: {
   let ignores: ExpenseIgnoreRow[] = [];
   let ignoreShelf: IgnoreShelfState = "unknown";
   {
-    const { data, error } = await applyTenantScope<any>(
-      db
-        .from("keiri_expense_ignores")
-        .select("id, source, ref_id, line_index, amount, paid_on, reason, undone_at") as any,
-      scope,
-    );
-    ignoreShelf = ignoreShelfStateOf({ error });
-    if (!error) ignores = (data as ExpenseIgnoreRow[]) ?? [];
+    // ★よその店は窓口ごしに（貼り紙⑫のあと、直に読むと0件で返るため。kp253 ③）
+    //   ここを読み落とすと「数えない」と決めた支払いが また経費に戻ります。
+    let ignoresViaWindow = false;
+    if (viaWindow) {
+      const got = await readTenantShelfViaWindow(db as any, TENANT_IGNORES_WINDOW, windowArgs);
+      if (got.outcome === "ok") {
+        ignoresViaWindow = true;
+        ignoreShelf = "ready";
+        ignores = got.rows as unknown as ExpenseIgnoreRow[];
+      }
+    }
+    if (!ignoresViaWindow) {
+      const { data, error } = await applyTenantScope<any>(
+        db
+          .from("keiri_expense_ignores")
+          .select("id, source, ref_id, line_index, amount, paid_on, reason, undone_at") as any,
+        scope,
+      );
+      ignoreShelf = ignoreShelfStateOf({ error });
+      if (!error) ignores = (data as ExpenseIgnoreRow[]) ?? [];
+    }
   }
 
   return {
