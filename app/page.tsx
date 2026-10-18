@@ -137,6 +137,15 @@ export default function MenuPage() {
             <span className="text-2xl">📅</span>
             <span>シフト・出店先問い合わせ</span>
           </Link>
+          {/* イベント・お祭りの段取り（2026-10-18）。発注本数・骨抜き担当・フライヤー・電源を
+              1枚にまとめ、LINEに貼る文をコピーできる（→ lib/eventPlan.ts）。 */}
+          <Link
+            href="/events"
+            className="flex items-center justify-center gap-3 w-full h-14 mt-3 rounded-2xl bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-white font-bold shadow-md transition"
+          >
+            <span className="text-xl">🎪</span>
+            <span>イベント段取り</span>
+          </Link>
         </section>
       </TebayaOnlyBlock>
 
