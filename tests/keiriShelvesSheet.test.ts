@@ -97,7 +97,9 @@ test("⑧の説明が「アプリ側からは入れられない・消せない�
 /** ⑩の所だけを切り出す */
 function stepTen(): string {
   const from = sql.indexOf("-- ⑩ 立替（経営・いま51行 入っている本物の棚）");
-  const to = sql.indexOf("-- 確かめ方（流したあと");
+  // ★2026-10-18：うしろに⑪が入ったので、区切りは⑪の見出しまで
+  //   （ここを「確かめ方」までにしておくと、⑪の中身まで⑩として数えてしまう）
+  const to = sql.indexOf("-- ⑪ 払った記録（給与・外注費）");
   assert.ok(from > 0 && to > from, "⑩の区切りが見つかりません");
   return sql.slice(from, to);
 }
@@ -150,4 +152,74 @@ test("分けないと決めた棚は、貼り紙の⑩に理由が書いてあ�
   for (const s of SHARED_SHELVES) {
     assert.ok(ten.includes(s.table), `⑩に ${s.table} の決めが書かれていません`);
   }
+});
+
+/* ------------------------------------------------------------------ *
+ *  ⑪ 払った記録（給与・外注費）を締める（2026-10-18・f3-4・kp253 ③）
+ *
+ *  ■ ここで縛っていること
+ *    ⑪は⑧⑩と**同じ形**（読む決まりと倉庫の窓口を対で足す）であること。
+ *    形が崩れると、手羽屋の経理画面（まだ払っていないお金・払った記録）が
+ *    止まるか、よその店の**給与の金額**が公開の鍵で読めたままになります。
+ * ------------------------------------------------------------------ */
+
+/** ⑪の所だけを切り出す */
+function stepEleven(): string {
+  const from = sql.indexOf("-- ⑪ 払った記録（給与・外注費）");
+  const to = sql.indexOf("-- 確かめ方（流したあと");
+  assert.ok(from > 0 && to > from, "⑪の区切りが見つかりません");
+  return sql.slice(from, to);
+}
+
+test("⑪の窓口と棚の名前が、コード側の一覧と同じ", () => {
+  const eleven = stepEleven();
+  const plan = PENDING_SHELVES.find((p) => p.table === "keiri_payments");
+  assert.ok(plan, "締める棚の一覧に払った記録がありません");
+  assert.ok(
+    eleven.includes(`create or replace function public.${plan!.window}(`),
+    `⑪が作る窓口の名前が、コード側（${plan!.window}）とちがいます`,
+  );
+  assert.ok(
+    eleven.includes(`on public.${plan!.table}`),
+    "⑪が締める棚の名前が、コード側とちがいます",
+  );
+});
+
+test("⑪は「読むときだけ」の追い禁止の決まりを1本 足すだけ（消さない）", () => {
+  const eleven = stepEleven();
+  assert.ok(eleven.includes("as restrictive for select"), "読むときだけの決まりになっていません");
+  assert.ok(eleven.includes("using (tenant_id is null)"), "「印が空の行だけ」になっていません");
+  const runs = eleven
+    .split("\n")
+    .filter((l) => !l.trimStart().startsWith("--"))
+    .join("\n")
+    .toLowerCase();
+  for (const bad of ["drop policy", "drop table", "delete from", "truncate", "alter column"]) {
+    assert.ok(!runs.includes(bad), `⑪の流れる所に ${bad} が入っています（消す操作は禁止）`);
+  }
+});
+
+test("⑪の窓口は、画面が名乗った番号を受け取らない（合言葉かテストの印だけ）", () => {
+  const eleven = stepEleven();
+  assert.ok(eleven.includes("p_password_hash"), "合言葉の入り口がありません");
+  assert.ok(eleven.includes("p_test_mark"), "テストの印の入り口がありません");
+  assert.ok(!eleven.includes("p_tenant_id"), "お店の番号を受け取る入り口が付いています");
+  assert.ok(eleven.includes("[0-9a-f]{64}"), "合言葉のかたちを確かめていません");
+});
+
+test("⑪の窓口は、お店の名前・合言葉・連絡先を返さない（返すのは払った記録だけ）", () => {
+  const eleven = stepEleven();
+  const body = eleven.slice(eleven.indexOf("return query"));
+  for (const bad of ["shop_name", "admin_password_hash", "contact", "setup_token"]) {
+    assert.ok(!body.includes(bad), `⑪の窓口が ${bad} を返しています`);
+  }
+  assert.ok(body.includes("p.amount") && body.includes("p.kind"), "払った記録を返していません");
+});
+
+test("⑪は棚が無い倉庫でも途中で止まらない（あるときだけ足す）", () => {
+  const eleven = stepEleven();
+  assert.ok(
+    eleven.includes("table_name = 'keiri_payments'"),
+    "棚があるかを見てから足す形になっていません",
+  );
 });

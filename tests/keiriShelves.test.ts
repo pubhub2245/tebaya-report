@@ -137,8 +137,8 @@ test("軽い日報の見え方は、レシート写真の住所を抜いたま�
   assert.ok(sql.includes("as receipt_count"));
 });
 
-test("貼り紙に入っているのは10 で、それぞれ仕上げ表の項目につながっている", () => {
-  assert.equal(SHELF_STEPS.length, 10);
+test("貼り紙に入っているのは11 で、それぞれ仕上げ表の項目につながっている", () => {
+  assert.equal(SHELF_STEPS.length, 11);
   const checks = SHELF_STEPS.map((s) => s.check);
   assert.deepEqual(checks, [
     "f1-4",
@@ -153,6 +153,8 @@ test("貼り紙に入っているのは10 で、それぞれ仕上げ表の項�
     // ⑨ 払った記録の棚に「どの店のものか」の欄を足す（2026-10-17）
     "f3-4",
     // ⑩ 立替（経営・本物の棚）を、よその店ぶんだけ読めないようにする（2026-10-17）
+    "f3-4",
+    // ⑪ 払った記録（給与・外注費）を、よその店ぶんだけ読めないようにする（2026-10-18）
     "f3-4",
   ]);
   for (const s of SHELF_STEPS) {
@@ -275,6 +277,8 @@ test("貼り紙は、いまある決まりを1本も消さない・取り上げ�
     'create policy "keiri_only_tebaya_rows_readable"',
     // ⑩ 立替（経営・本物の棚）を締める（2026-10-17）。⑧と同じ形
     'create policy "keiri_only_tebaya_advances_readable"',
+    // ⑪ 払った記録（給与・外注費）を締める（2026-10-18）。⑧⑩と同じ形
+    'create policy "keiri_only_tebaya_payments_readable"',
   ]);
 
   // ⑧の決まりは「読むときだけ」「印が空の行だけ」の追い禁止であること。
@@ -290,11 +294,18 @@ test("貼り紙は、いまある決まりを1本も消さない・取り上げ�
     /create policy "keiri_only_tebaya_advances_readable" on public\.advance_expenses\s*\n\s*as restrictive for select to public\s*\n\s*using \(tenant_id is null\)/,
   );
 
-  // ⑧⑩で作る窓口のぶんだけ、許可を渡す。渡す相手は anon / authenticated / service_role のみ
+  // ⑪の決まりも同じ形であること（★for all になると、払った記録の登録・取り消しまで止まる）
+  assert.match(
+    body,
+    /create policy "keiri_only_tebaya_payments_readable" on public\.keiri_payments\s*\n\s*as restrictive for select to public\s*\n\s*using \(tenant_id is null\)/,
+  );
+
+  // ⑧⑩⑪で作る窓口のぶんだけ、許可を渡す。渡す相手は anon / authenticated / service_role のみ
   const grants = body.match(/grant execute on function [^;]+/g) ?? [];
-  assert.equal(grants.length, 2, "許可を渡しているのは⑧と⑩の窓口2つだけであること");
+  assert.equal(grants.length, 3, "許可を渡しているのは⑧⑩⑪の窓口3つだけであること");
   assert.match(grants[0], /public\.keiri_tenant_reports\(text, date, date, text\)/);
   assert.match(grants[1], /public\.keiri_tenant_advances_old\(text, date, date, text\)/);
+  assert.match(grants[2], /public\.keiri_tenant_payments\(text, date, date, text\)/);
   for (const g of grants) assert.match(g, /to anon, authenticated, service_role/);
   // 渡す前に、だれでも実行できる状態を取り下げている（既存の窓口と同じ形）
   assert.match(
@@ -305,8 +316,24 @@ test("貼り紙は、いまある決まりを1本も消さない・取り上げ�
     body,
     /revoke all on function public\.keiri_tenant_advances_old\(text, date, date, text\) from public/,
   );
-  // security definer（棚の決まりを飛び越えて読む作り）は、その2つの窓口だけ
-  assert.equal((body.match(/security definer/g) ?? []).length, 2);
+  assert.match(
+    body,
+    /revoke all on function public\.keiri_tenant_payments\(text, date, date, text\) from public/,
+  );
+  // security definer（棚の決まりを飛び越えて読む作り）は、その3つの窓口だけ
+  assert.equal((body.match(/security definer/g) ?? []).length, 3);
+
+  // ⑪の窓口は、画面が名乗った「お店の番号」を受け取らない（入り口は合言葉とテストの印だけ）
+  const paymentsWindow =
+    body.split("create or replace function public.keiri_tenant_payments")[1] ?? "";
+  assert.ok(
+    paymentsWindow.includes("p_password_hash") && paymentsWindow.includes("p_test_mark"),
+    "⑪の窓口の入り口は、合言葉とテストの印の2つだけであること",
+  );
+  assert.ok(
+    !/p_tenant_id|p_tenant\b/.test(paymentsWindow),
+    "⑪の窓口が、お店の番号をそのまま受け取る形になっています",
+  );
 });
 
 test("⑦ 手羽屋のデータの写しに鍵をかける（2026-10-13・2026-10-14 拡大・f3-4）。消さない・決まりは作らない", () => {
@@ -386,13 +413,15 @@ test("⑨ 払った記録の棚に欄を足すところが貼り紙に入って�
   // 欄を足す（あるときだけ・何度 流しても同じ）
   assert.match(sql, /alter table public\.keiri_payments\s+add column if not exists tenant_id/);
   assert.ok(sql.includes("keiri_payments_tenant_idx"));
-  // ★欄を足すだけ。鍵の決まりも、読む所も触らない
+  // ★⑨は欄を足すだけ。鍵の決まりも、読む所も触らない。
+  //   （2026-10-18：締める工事は⑪として別に足したので、⑨の所だけを切り出して見る）
+  const from = sql.indexOf("-- ⑨ 払った記録の棚に「どの店のものか」の欄を足す");
+  const to = sql.indexOf("-- ⑩ 立替（経営・いま51行 入っている本物の棚）");
+  assert.ok(from > 0 && to > from, "⑨の区切りが見つかりません");
+  const nine = sql.slice(from, to);
   assert.ok(
-    !/create policy[^;]*keiri_payments/is.test(sql),
-    "⑨ は決まりを作りません（締める工事は、欄がそろってから別に出します）",
+    !/create policy/i.test(nine),
+    "⑨ は決まりを作りません（締める工事は⑪です）",
   );
-  assert.ok(
-    !/drop\s+policy[^;]*keiri_payments/is.test(sql),
-    "⑨ は決まりを消しません",
-  );
+  assert.ok(!/drop\s+policy/i.test(nine), "⑨ は決まりを消しません");
 });

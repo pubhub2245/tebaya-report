@@ -840,6 +840,149 @@ grant execute on function public.keiri_tenant_advances_old(text, date, date, tex
 
 
 -- ============================================================
+-- ⑪ 払った記録（給与・外注費）を、よその店ぶんだけ
+--    公開の鍵では読めないようにする（f3-4／2026-10-18 追記）
+--
+--   これを流すと：**お店が増えても、よその店の「払った記録」が
+--   ブラウザに配られている公開の鍵では1行も読めなくなります。**
+--
+-- ■ なぜ⑨の次がこれなのか（2026-10-18・B）
+--   ⑨で、この棚に「どの店のものか」の欄を足しました。欄だけでは
+--   **見分けが付くようになっただけ**で、読む所はまだ誰でも読めます。
+--   締める順番は「中身が入っている棚から」と決めてあり（⑩の所に書いたとおり）、
+--   立替（経営）のつぎに中身が入っているのが、この払った記録です。
+--   ★ここには**給与の金額**が入ります。よその店の給与が見えるのは、
+--     金額の間違いよりもまずいので、空の棚より先に締めます。
+--
+-- ■ 手羽屋は1行も変わりません（ここが大事）
+--   手羽屋の払った記録は**印が空（null）**です。足す決まりは
+--   「**印が空の行だけ 読んでよい**」なので、じゅんが見る経理画面
+--   （/keiri の「まだ払っていないお金」「払った記録」）は**1行も変わりません**。
+--   書き込みも今までどおりです（足す決まりは**読むときだけ**に効きます）。
+--   ＝ 画面からの登録・取り消しは、今までと同じように通ります。
+--
+-- ■ 足すだけ・消しません（やり方は⑧⑩と同じ）
+--   いまある「だれでもOK」の決まりは**触りません**。代わりに「**追い禁止**」の
+--   決まり（restrictive）を1本 足します。データベースは、ふつうの決まりと
+--   追い禁止の決まりの**両方を満たす行だけ**を見せます。
+--   ★元に戻すのは1行です：
+--     drop policy "keiri_only_tebaya_payments_readable" on public.keiri_payments;
+--
+-- ■ よその店は、どうやって自分の払った記録を見るのか
+--   下の(b)で**倉庫の窓口**（keiri_tenant_payments）を1つ作ります。
+--   窓口は**合言葉（戻せない形）からお店を決めます**。画面やブラウザが名乗った
+--   「お店の番号」は**受け取りません**（⑧⑩と同じ決まり）。
+-- ============================================================
+
+-- (a) 「印が空の行だけ 読んでよい」という追い禁止の決まりを1本 足す
+do $$
+begin
+  if not exists (
+       select 1 from information_schema.tables
+        where table_schema = 'public' and table_name = 'keiri_payments'
+     ) then
+    raise notice '⑪ 払った記録の棚がありませんでした（何もしていません）';
+  elsif exists (
+       select 1 from pg_policies
+        where schemaname = 'public'
+          and tablename = 'keiri_payments'
+          and policyname = 'keiri_only_tebaya_payments_readable'
+     ) then
+    raise notice '⑪ 払った記録の読む決まりは、もうありました（何もしていません）';
+  else
+    create policy "keiri_only_tebaya_payments_readable" on public.keiri_payments
+      as restrictive for select to public
+      using (tenant_id is null);
+    raise notice '⑪ よその店の払った記録を、公開の鍵では読めないようにしました（手羽屋の行＝印が空は今までどおり）';
+  end if;
+end $$;
+
+-- (b) よその店が自分の払った記録だけを読むための「倉庫の窓口」
+--
+--   ★返すのは**その店の払った記録だけ**です。合言葉・お店の名前・連絡先・鍵の値は
+--     1文字も返しません。
+--   ★入り口は⑧⑩と同じ2つだけ：
+--     ・合言葉（戻せない形・16進64文字）… 本物のお店が自分の数字を読む道
+--     ・テストの印（test- で始まり、店名が【テスト】で始まるお店だけ）… 2軒目の手順を通す道
+--   ★当たったお店が1軒でないときは、**何も返しません**。
+create or replace function public.keiri_tenant_payments(
+  p_password_hash text default null,
+  p_from date default null,
+  p_to date default null,
+  p_test_mark text default null
+)
+returns setof jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_tenant uuid;
+  v_n int;
+begin
+  if p_test_mark is not null and btrim(p_test_mark) <> '' then
+    if btrim(p_test_mark) !~ '^test-' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%'
+     limit 1;
+  else
+    if p_password_hash is null or btrim(lower(p_password_hash)) !~ '^[0-9a-f]{64}$' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active'
+     limit 1;
+  end if;
+
+  if v_tenant is null then
+    return;
+  end if;
+
+  return query
+    select to_jsonb(x)
+      from (
+        select p.id,
+               p.paid_on,
+               p.amount,
+               p.kind,
+               p.memo
+          from public.keiri_payments p
+         where p.tenant_id = v_tenant
+           and (p_from is null or p.paid_on >= p_from)
+           and (p_to is null or p.paid_on <= p_to)
+         order by p.paid_on desc
+      ) x;
+end $$;
+
+comment on function public.keiri_tenant_payments(text, date, date, text) is
+  '経理：よその店が自分の払った記録（給与・外注費）だけを読む窓口（f3-4）。お店は合言葉かテストの印から決め、画面が名乗った番号は受け取らない。読むだけ。';
+
+revoke all on function public.keiri_tenant_payments(text, date, date, text) from public;
+grant execute on function public.keiri_tenant_payments(text, date, date, text)
+  to anon, authenticated, service_role;
+
+
+-- ============================================================
 -- 確かめ方（流したあと、これを貼ると結果が1画面で見えます）
 --
 --   select 'keiri_cash_events'    as 棚, count(*) as 行数 from public.keiri_cash_events
@@ -905,4 +1048,18 @@ grant execute on function public.keiri_tenant_advances_old(text, date, date, tex
 --     じゅんが見る画面（/cash・/cash/advances・/sales-report・経理）は1行も変わっていません。
 --   → 本番の https://tebaya-report.vercel.app/api/keiri/copies の
 --     「日報いがいの棚」で、立替（経営）が○になります。
+--
+--   ⑪ 払った記録が締まったかは、これで分かります（2026-10-18 追記）：
+--   select count(*) as 読む決まりの本数
+--     from pg_policies
+--    where schemaname = 'public' and tablename = 'keiri_payments'
+--      and policyname = 'keiri_only_tebaya_payments_readable';
+--   → 1 なら付いています。手羽屋の払った記録が今までどおり読めることは、これで分かります：
+--   select count(*) as 払った記録の行, count(tenant_id) as 印がついている行
+--     from public.keiri_payments;
+--   → 「払った記録の行」が今までと同じ数・「印がついている行」が 0 なら、
+--     じゅんが見る経理画面（/keiri の「まだ払っていないお金」「払った記録」）は
+--     1行も変わっていません。
+--   → 本番の https://tebaya-report.vercel.app/api/keiri/copies の
+--     「日報いがいの棚」で、払った記録が○になります。
 -- ============================================================
