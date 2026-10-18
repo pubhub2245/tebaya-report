@@ -14,9 +14,12 @@ import {
   FRYER_LABEL,
   needsGasRefill,
   POWER_LABEL,
+  prepLabel,
   recommendFryer,
   roundUpToBags,
+  SALES_PRESETS,
   STATUS_LABEL,
+  SUPPLIER_OPTIONS,
   type EventPlan,
   type Fryer,
   type PlanStatus,
@@ -36,7 +39,7 @@ const STATUS_STYLE: Record<PlanStatus, string> = {
 
 const COLUMNS =
   "id,event_date,event_name,venue,venue_address,open_time,close_time,load_in,load_out," +
-  "expected_sales,chicken_count,supplier,order_date,prep_date,staff_prep,staff_event," +
+  "expected_sales,chicken_count,supplier,order_date,prep_date,prep_start,prep_end,staff_prep,staff_event," +
   "fryer,power,power_note,gas_refill,booth_fee,cautions,contact,memo,status";
 
 /** 決まっていない大事な項目（カードに赤字で出す） */
@@ -155,7 +158,6 @@ export default function EventsView() {
         {visible.map((p) => {
           const missing = missingItems(p);
           const bags = p.chicken_count ? roundUpToBags(p.chicken_count) : null;
-          const hours = boneHours(p.chicken_count);
           return (
             <div key={p.id} className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
               <div className="flex items-start justify-between gap-2">
@@ -178,8 +180,7 @@ export default function EventsView() {
                   {` ／ ${p.supplier} ／ ${dateLabel(p.order_date)}まで`}
                 </Row>
                 <Row label="🔪 骨抜き">
-                  {dateLabel(p.prep_date)}
-                  {hours ? `（約${hours}時間）` : ""} ／ {p.staff_prep || "担当未定"}
+                  {prepLabel(p)} ／ {p.staff_prep || "担当未定"}
                 </Row>
                 <Row label="👤 当日">{p.staff_event || "担当未定"}</Row>
                 <Row label="🔥 フライヤー">
@@ -260,13 +261,17 @@ function PlanForm({
   const est = estimateChicken(p.expected_sales);
   const rec = recommendFryer(p.expected_sales, p.power);
 
-  function applyRecommendation() {
-    setP((prev) => ({
-      ...prev,
-      chicken_count: est.pieces || prev.chicken_count,
-      fryer: rec.fryer,
-      gas_refill: needsGasRefill(rec.fryer),
-    }));
+  /**
+   * 売上の想定を変えたら、発注本数もいっしょに入れ直す（1本230円・袋の単位に切り上げ）。
+   * 本数はそのあと手で直してもよい。売上をもう一度変えると、また計算し直す。
+   */
+  function setSales(v: number | null) {
+    const e = estimateChicken(v);
+    setP((prev) => ({ ...prev, expected_sales: v, chicken_count: v ? e.pieces : prev.chicken_count }));
+  }
+
+  function applyFryer() {
+    setP((prev) => ({ ...prev, fryer: rec.fryer, gas_refill: needsGasRefill(rec.fryer) }));
   }
 
   function resetDates() {
@@ -341,23 +346,48 @@ function PlanForm({
         </Field>
         <div className="grid grid-cols-2 gap-2">
           <Field label="営業開始">
-            <input className={input} value={p.open_time ?? ""} onChange={text("open_time")} placeholder="09:00" />
+            <input type="time" className={input} value={(p.open_time ?? "").slice(0, 5)} onChange={text("open_time")} />
           </Field>
           <Field label="営業終了">
-            <input className={input} value={p.close_time ?? ""} onChange={text("close_time")} placeholder="13:00" />
+            <input type="time" className={input} value={(p.close_time ?? "").slice(0, 5)} onChange={text("close_time")} />
           </Field>
-          <Field label="搬入">
-            <input className={input} value={p.load_in ?? ""} onChange={text("load_in")} placeholder="8:00〜9:00" />
+          <Field label="搬入開始">
+            <input type="time" className={input} value={(p.load_in ?? "").slice(0, 5)} onChange={text("load_in")} />
           </Field>
-          <Field label="搬出">
-            <input className={input} value={p.load_out ?? ""} onChange={text("load_out")} placeholder="13:00〜" />
+          <Field label="搬出開始">
+            <input type="time" className={input} value={(p.load_out ?? "").slice(0, 5)} onChange={text("load_out")} />
           </Field>
         </div>
       </Section>
 
       <Section title="売上の想定と鳥の発注">
         <Field label="売上の想定（円）">
-          <input inputMode="numeric" className={input} value={p.expected_sales ?? ""} onChange={num("expected_sales")} placeholder="例：35000" />
+          <div className="grid grid-cols-3 gap-2 mb-2">
+            {SALES_PRESETS.map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setSales(v)}
+                className={`h-10 rounded-lg text-sm font-bold border ${
+                  p.expected_sales === v
+                    ? "bg-orange-500 text-white border-orange-500"
+                    : "bg-white text-stone-600 border-stone-300"
+                }`}
+              >
+                {v / 10000}万円
+              </button>
+            ))}
+          </div>
+          <input
+            inputMode="numeric"
+            className={input}
+            value={p.expected_sales ?? ""}
+            onChange={(e) => {
+              const v = e.target.value.replace(/[^\d]/g, "");
+              setSales(v === "" ? null : Number(v));
+            }}
+            placeholder="ほかの金額は直接入れる（例：35000）"
+          />
         </Field>
         <button type="button" onClick={lookupPast} className="text-sm text-blue-700 underline mb-2">
           同じ場所の過去の売上を見る
@@ -375,27 +405,30 @@ function PlanForm({
         )}
         {p.expected_sales ? (
           <div className="rounded-xl bg-orange-50 border border-orange-200 p-3 text-sm mb-3">
-            <p className="font-bold mb-1">おすすめ</p>
             <p>
-              🐔 手羽先 {est.pieces}本（2kg×{est.bags}袋＝{est.kg}kg）・骨抜き約{boneHours(est.pieces)}時間
+              🐔 {p.expected_sales.toLocaleString()}円 ÷ 230円 ＝ 約{Math.ceil(p.expected_sales / 230)}本
+              → 発注 {est.pieces}本（2kg×{est.bags}袋＝{est.kg}kg）
             </p>
-            <p>
-              🔥 {FRYER_LABEL[rec.fryer]}（{rec.reason}）
-            </p>
-            <button
-              type="button"
-              onClick={applyRecommendation}
-              className="mt-2 w-full h-10 rounded-lg bg-orange-500 text-white font-bold"
-            >
-              おすすめを入れる
-            </button>
+            <p>🔪 骨抜き 約{boneHours(p.chicken_count ?? est.pieces)}時間</p>
           </div>
         ) : null}
-        <Field label="発注本数">
+        <Field label="発注本数（売上の想定から自動。手で直してもOK）">
           <input inputMode="numeric" className={input} value={p.chicken_count ?? ""} onChange={num("chicken_count")} />
+          {p.chicken_count ? (
+            <p className="text-xs text-stone-500 mt-1">
+              2kg（30本）の袋で {roundUpToBags(p.chicken_count).bags}袋
+              {roundUpToBags(p.chicken_count).pieces !== p.chicken_count ? "（袋の数に合わせると端数が出ます）" : ""}
+            </p>
+          ) : null}
         </Field>
         <Field label="発注先">
-          <input className={input} value={p.supplier} onChange={(e) => set("supplier", e.target.value)} />
+          <OptionOrOther
+            value={p.supplier}
+            options={SUPPLIER_OPTIONS}
+            placeholder="発注先を入れる"
+            onChange={(v) => set("supplier", v ?? "")}
+            allowEmpty={false}
+          />
         </Field>
         <div className="grid grid-cols-2 gap-2">
           <Field label="発注日">
@@ -408,19 +441,33 @@ function PlanForm({
         <button type="button" onClick={resetDates} className="text-sm text-blue-700 underline">
           開催日から入れ直す（発注は4日前・仕込みは前日）
         </button>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="仕込み開始（なくてもOK）">
+            <input type="time" className={input} value={(p.prep_start ?? "").slice(0, 5)} onChange={text("prep_start")} />
+          </Field>
+          <Field label="仕込み終了（なくてもOK）">
+            <input type="time" className={input} value={(p.prep_end ?? "").slice(0, 5)} onChange={text("prep_end")} />
+          </Field>
+        </div>
+        <p className="text-xs text-stone-500">予定：{prepLabel(p)}</p>
       </Section>
 
       <Section title="誰が">
-        <datalist id="staff-names">
-          {staffNames.map((n) => (
-            <option key={n} value={n} />
-          ))}
-        </datalist>
         <Field label="骨抜き・仕込みの担当">
-          <input list="staff-names" className={input} value={p.staff_prep ?? ""} onChange={text("staff_prep")} />
+          <OptionOrOther
+            value={p.staff_prep}
+            options={staffNames}
+            placeholder="名前を入れる"
+            onChange={(v) => set("staff_prep", v)}
+          />
         </Field>
         <Field label="当日の担当">
-          <input list="staff-names" className={input} value={p.staff_event ?? ""} onChange={text("staff_event")} />
+          <OptionOrOther
+            value={p.staff_event}
+            options={staffNames}
+            placeholder="名前を入れる（2人なら「じゅん・イデ」）"
+            onChange={(v) => set("staff_event", v)}
+          />
         </Field>
       </Section>
 
@@ -444,10 +491,22 @@ function PlanForm({
             onChange={(v) => setP((prev) => ({ ...prev, fryer: v, gas_refill: needsGasRefill(v) }))}
           />
         </Field>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={p.gas_refill} onChange={(e) => set("gas_refill", e.target.checked)} />
-          ガスの補充が必要
-        </label>
+        <p className="text-xs text-stone-600">
+          おすすめ：{FRYER_LABEL[rec.fryer]}（{rec.reason}）
+          {p.fryer !== rec.fryer && (
+            <button type="button" onClick={applyFryer} className="ml-2 text-blue-700 underline">
+              おすすめにする
+            </button>
+          )}
+        </p>
+        <Field label="ガスの補充">
+          <Choice<"yes" | "no">
+            value={p.gas_refill ? "yes" : "no"}
+            options={["yes", "no"]}
+            label={(v) => (v === "yes" ? "必要" : "不要")}
+            onChange={(v) => set("gas_refill", v === "yes")}
+          />
+        </Field>
       </Section>
 
       <Section title="お金・注意点・連絡先">
@@ -531,6 +590,63 @@ function Choice<T extends string>({
           {label(o)}
         </button>
       ))}
+    </div>
+  );
+}
+
+/**
+ * 選択肢から選ぶ。無ければ「その他」を選んで手で入れる（担当・発注先など）。
+ * value が選択肢に無い値なら、最初から「その他」として開く。
+ */
+function OptionOrOther({
+  value,
+  options,
+  placeholder,
+  onChange,
+  allowEmpty = true,
+}: {
+  value: string | null;
+  options: string[];
+  placeholder: string;
+  onChange: (v: string | null) => void;
+  allowEmpty?: boolean;
+}) {
+  const OTHER = "__other__";
+  const isOther = !!value && !options.includes(value);
+  const [other, setOther] = useState(isOther);
+  const selectValue = other ? OTHER : value ?? "";
+  return (
+    <div className="space-y-2">
+      <select
+        className="w-full h-11 rounded-xl border border-stone-300 px-3 text-base bg-white"
+        value={selectValue}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === OTHER) {
+            setOther(true);
+            onChange(isOther ? value : null);
+          } else {
+            setOther(false);
+            onChange(v === "" ? null : v);
+          }
+        }}
+      >
+        {allowEmpty && <option value="">未定</option>}
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+        <option value={OTHER}>その他（入力する）</option>
+      </select>
+      {other && (
+        <input
+          className="w-full h-11 rounded-xl border border-stone-300 px-3 text-base"
+          value={value ?? ""}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
+        />
+      )}
     </div>
   );
 }

@@ -7,6 +7,8 @@ import {
   defaultDates,
   emptyPlan,
   estimateChicken,
+  hoursBetween,
+  prepLabel,
   needsGasRefill,
   recommendFryer,
   roundUpToBags,
@@ -14,12 +16,29 @@ import {
 } from "../lib/eventPlan";
 
 test("11/8 まるまる朝市（売上の想定35,000円）は180本＝2kg×6袋", () => {
-  // 35000 ÷ 270 × 1.2 ≒ 155.6本 → 30本単位に切り上げて180本
+  // 35000 ÷ 230 ≒ 152.2本 → 30本単位（1袋）に切り上げて180本
   assert.deepEqual(estimateChicken(35000), { pieces: 180, bags: 6, kg: 12 });
 });
 
-test("前回8/9の実績（33,000円・122本）なら、余裕2割で袋に切り上げる", () => {
-  assert.deepEqual(estimateChicken(33000), { pieces: 150, bags: 5, kg: 10 });
+test("売上の想定を4万円・5万円に変えると、本数も連動して変わる（1本230円）", () => {
+  // 40000 ÷ 230 ≒ 173.9本 → 180本
+  assert.deepEqual(estimateChicken(40000), { pieces: 180, bags: 6, kg: 12 });
+  // 50000 ÷ 230 ≒ 217.4本 → 240本
+  assert.deepEqual(estimateChicken(50000), { pieces: 240, bags: 8, kg: 16 });
+  // 23000 ÷ 230 ＝ 100本ちょうど → 120本（30本単位）
+  assert.deepEqual(estimateChicken(23000), { pieces: 120, bags: 4, kg: 8 });
+});
+
+test("仕込みの予定：時間を入れれば '11/7(土) 16:00〜18:00（2時間）'", () => {
+  const p = { ...emptyPlan("2026-11-08"), chicken_count: 180, prep_start: "16:00", prep_end: "18:00" };
+  assert.equal(prepLabel(p), "11/7(土) 16:00〜18:00（2時間）");
+  assert.equal(hoursBetween("16:00", "17:30"), 1.5);
+  assert.equal(hoursBetween("18:00", "16:00"), null);
+});
+
+test("仕込みの時間が空でも、日付と目安の時間は出る", () => {
+  const p = { ...emptyPlan("2026-11-08"), chicken_count: 180 };
+  assert.equal(prepLabel(p), "11/7(土)（約2時間）");
 });
 
 test("売上の想定が空・0・マイナスなら0本（勝手に数字を作らない）", () => {

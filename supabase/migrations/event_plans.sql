@@ -32,6 +32,8 @@ create table if not exists public.event_plans (
   supplier text not null default '恵比寿商事',
   order_date date,         -- 発注日
   prep_date date,          -- 骨抜き・仕込みの日
+  prep_start text,         -- 仕込みの開始時刻（例 16:00）。空でもよい
+  prep_end text,           -- 仕込みの終了時刻（例 18:00）
 
   -- 誰が
   staff_prep text,         -- 骨抜き・仕込みの担当

@@ -9,10 +9,9 @@
  *   のおすすめを出し、スタッフのLINEに貼る文章を組み立てます。
  *
  * ■ 数字の根拠（変えるときはここだけ直し、tests/eventPlan.test.ts も直す）
- *   ・1本あたりの売上 270円 …… 2026-08-09 まるまる朝市の日報
- *     （売上33,000円・手羽先122本・手羽餃子29個）。手羽先以外の売上も含めた
- *     「手羽先1本が出るごとに入ってくる売上」なので、餃子やポテトのぶんもこの中に入っている。
- *   ・余裕 2割 …… 売り切れで売上を逃すほうが、少し余るより痛いため。
+ *   ・1本あたりの売上 230円 …… 2026-10-18 じゅん決定。手羽先200円・手羽餃子300円を、
+ *     手羽先のほうがよく売れることを踏まえて平均した値。
+ *     「売上の想定 ÷ 230」が必要な手羽先の本数（それを袋の単位に切り上げて発注する）。
  *   ・1袋 2kg・約30本 …… 仕入れの実際（2026-09 じゅん確認）。
  *   ・骨抜きは100本で約1時間 …… 2026-09 じゅん確認。
  *   ・ガスフライヤーにする売上の目安 60,000円 …… ランクAの目標額（lib/locationRank.ts）。
@@ -43,6 +42,8 @@ export type EventPlan = {
   supplier: string;
   order_date: string | null;
   prep_date: string | null;
+  prep_start: string | null; // 骨抜き・仕込みの開始（例 16:00）。空でもよい
+  prep_end: string | null; // 終了（例 18:00）
   staff_prep: string | null;
   staff_event: string | null;
   fryer: Fryer;
@@ -59,14 +60,19 @@ export type EventPlan = {
 /** 発注先の初期値（2026-10-18 じゅん：発注先は恵比寿商事） */
 export const DEFAULT_SUPPLIER = "恵比寿商事";
 
-export const SALES_PER_PIECE = 270;
-export const BUFFER_RATE = 1.2;
+export const SALES_PER_PIECE = 230;
 export const PIECES_PER_BAG = 30;
 export const KG_PER_BAG = 2;
 export const BONE_PIECES_PER_HOUR = 100;
 export const GAS_FRYER_SALES = 60000;
 export const ORDER_LEAD_DAYS = 4;
 export const PREP_LEAD_DAYS = 1;
+
+/** 売上の想定をボタンで選べるようにする金額（円）。これ以外は手で入れられる */
+export const SALES_PRESETS = [30000, 40000, 50000, 60000, 80000, 100000];
+
+/** 発注先の選択肢（ここに無い発注先は「その他」から入れる） */
+export const SUPPLIER_OPTIONS = [DEFAULT_SUPPLIER];
 
 export const FRYER_LABEL: Record<Fryer, string> = {
   gas: "ガスフライヤー",
@@ -103,6 +109,8 @@ export function emptyPlan(eventDate: string): EventPlan {
     supplier: DEFAULT_SUPPLIER,
     order_date: d.orderDate,
     prep_date: d.prepDate,
+    prep_start: null,
+    prep_end: null,
     staff_prep: null,
     staff_event: null,
     fryer: "undecided",
@@ -124,7 +132,7 @@ export function roundUpToBags(pieces: number): { pieces: number; bags: number; k
   return { pieces: bags * PIECES_PER_BAG, bags, kg: bags * KG_PER_BAG };
 }
 
-/** 売上の想定から、頼む本数のおすすめを出す（余裕2割・袋単位に切り上げ） */
+/** 売上の想定から、頼む本数を出す（売上 ÷ 230 を袋の単位に切り上げ） */
 export function estimateChicken(expectedSales: number | null): {
   pieces: number;
   bags: number;
@@ -133,7 +141,7 @@ export function estimateChicken(expectedSales: number | null): {
   if (expectedSales == null || !Number.isFinite(expectedSales) || expectedSales <= 0) {
     return { pieces: 0, bags: 0, kg: 0 };
   }
-  const raw = (expectedSales / SALES_PER_PIECE) * BUFFER_RATE;
+  const raw = expectedSales / SALES_PER_PIECE;
   return roundUpToBags(raw);
 }
 
@@ -202,6 +210,43 @@ function timeRange(a: string | null, b: string | null): string | null {
   return `${a ?? ""}〜${b ?? ""}`;
 }
 
+/** 'HH:MM' 2つの間の時間（時間単位・0.5きざみ）。読めなければ null */
+export function hoursBetween(start: string | null, end: string | null): number | null {
+  const toMin = (t: string | null) => {
+    const m = t ? /^(\d{1,2}):(\d{2})/.exec(t.trim()) : null;
+    return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+  };
+  const a = toMin(start);
+  const b = toMin(end);
+  if (a == null || b == null || b <= a) return null;
+  return Math.round(((b - a) / 60) * 2) / 2;
+}
+
+/** 時刻だけ（例 08:00）なら『08:00〜』にする。文章で書いてあればそのまま */
+function fromTime(v: string): string {
+  return /^\d{1,2}:\d{2}(:\d{2})?$/.test(v.trim()) ? `${hhmm(v.trim())}〜` : v;
+}
+
+/** 'HH:MM:SS' でも 'HH:MM' に揃える */
+function hhmm(t: string | null): string | null {
+  return t ? t.slice(0, 5) : null;
+}
+
+/**
+ * 骨抜き・仕込みの予定を1行にする。
+ * 例：'11/7(土) 16:00〜18:00（2時間）'。時間が空なら '11/7(土)（約2時間）'。
+ */
+export function prepLabel(plan: EventPlan): string {
+  const day = dateLabel(plan.prep_date);
+  const span = hoursBetween(plan.prep_start, plan.prep_end);
+  if (plan.prep_start && plan.prep_end) {
+    return `${day} ${hhmm(plan.prep_start)}〜${hhmm(plan.prep_end)}` + (span ? `（${span}時間）` : "");
+  }
+  if (plan.prep_start) return `${day} ${hhmm(plan.prep_start)}〜`;
+  const h = boneHours(plan.chicken_count);
+  return day + (h ? `（約${h}時間）` : "");
+}
+
 /**
  * スタッフのLINEグループに貼る文章を作る。
  * ★ 送るのはボットではなく人（コピーして貼る）。ボットの月の送信数を使わないため。
@@ -215,10 +260,10 @@ export function buildLineText(plan: EventPlan): string {
   } else if (plan.venue || plan.venue_address) {
     lines.push(`📍 会場：${plan.venue ?? plan.venue_address}`);
   }
-  const open = timeRange(plan.open_time, plan.close_time);
+  const open = timeRange(hhmm(plan.open_time), hhmm(plan.close_time));
   if (open) lines.push(`⏰ 営業：${open}`);
-  if (plan.load_in) lines.push(`🚚 搬入：${plan.load_in}`);
-  if (plan.load_out) lines.push(`🚚 搬出：${plan.load_out}`);
+  if (plan.load_in) lines.push(`🚚 搬入：${fromTime(plan.load_in)}`);
+  if (plan.load_out) lines.push(`🚚 搬出：${fromTime(plan.load_out)}`);
   lines.push("");
 
   if (plan.expected_sales) {
@@ -235,11 +280,8 @@ export function buildLineText(plan: EventPlan): string {
     lines.push("🐔 発注：本数未定");
   }
   lines.push(`🛒 発注先：${orUndecided(plan.supplier)}／発注日：${dateLabel(plan.order_date)}`);
-  const h = boneHours(plan.chicken_count);
   lines.push(
-    `🔪 骨抜き・仕込み：${dateLabel(plan.prep_date)}` +
-      (h ? `（約${h}時間）` : "") +
-      `／担当：${orUndecided(plan.staff_prep)}`
+    `🔪 骨抜き・仕込み：${prepLabel(plan)}／担当：${orUndecided(plan.staff_prep)}`
   );
   lines.push(`👤 当日の担当：${orUndecided(plan.staff_event)}`);
   lines.push("");
