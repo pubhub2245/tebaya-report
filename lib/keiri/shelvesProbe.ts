@@ -126,7 +126,26 @@ async function probeAdvancesOldScoped(): Promise<ShelfProbe> {
   return { ok: false, code: null, message: one.note };
 }
 
-/** 貼り紙の①〜⑩を、ぜんぶ読んで並べる */
+/**
+ * ⑪も⑩と同じ逆の読み方で見る（**よその店の払った記録が公開の鍵から隠れたか**）。
+ *
+ * ■ ここが大事（やさしい説明）
+ *   流したあとも、**手羽屋の払った記録（印が空）は公開の鍵で読めます**。それが正しい形です。
+ *   見るのは「印が付いた行が見えるか」と「その棚の倉庫の窓口があるか」の2つだけで、
+ *   数え方は lib/keiri/shelfScope.ts の1か所（/api/keiri/copies と同じ）を通します。
+ */
+async function probePaymentsScoped(): Promise<ShelfProbe> {
+  const plan = PENDING_SHELVES.find((p) => p.table === "keiri_payments");
+  if (!plan) return { ok: false, code: null, message: "締める棚の一覧に払った記録がありません" };
+  const r = await probeShelfScopes([plan]);
+  const one = r.shelves[0];
+  if (!one) return { ok: false, code: null, message: "確かめられませんでした" };
+  if (one.scoped === true) return { ok: true };
+  if (one.scoped === false) return missingProbe(one.note);
+  return { ok: false, code: null, message: one.note };
+}
+
+/** 貼り紙の①〜⑪を、ぜんぶ読んで並べる */
 export async function readShelfReports(): Promise<ShelfReport[]> {
   const [
     cash,
@@ -139,6 +158,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     tenantReadGuard,
     paymentsTenant,
     advancesOldScoped,
+    paymentsScoped,
   ] = await Promise.all([
     probeShelf("keiri_cash_events", "id"),
     probeShelf("keiri_expense_ignores", "id"),
@@ -150,6 +170,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     probeTenantReadGuard_(),
     probeShelf("keiri_payments", "tenant_id"),
     probeAdvancesOldScoped(),
+    probePaymentsScoped(),
   ]);
 
   const probes: Record<string, ShelfProbe> = {
@@ -163,6 +184,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     tenant_read_guard: tenantReadGuard,
     payments_tenant: paymentsTenant,
     advances_old_scoped: advancesOldScoped,
+    payments_scoped: paymentsScoped,
   };
 
   return SHELF_STEPS.map((s) =>
