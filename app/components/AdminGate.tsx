@@ -11,6 +11,8 @@ import {
   TEBAYA_SCOPE,
   normalizeTenantScope,
   writeTenantScope,
+  readTenantName,
+  writeTenantName,
   type TenantScope,
 } from "@/lib/tenantScope";
 import {
@@ -104,15 +106,25 @@ export default function AdminGate({
     } catch {}
   }, [allowShops]);
 
-  // 入っているお店の名前だけ聞きに行く（画面の隅に出すため。売上も合言葉も返らない窓口）
+  // 入っているお店の名前を出す（画面の隅に出すため。売上も合言葉も返らない）
+  //
+  // ★2026-10-18（f3-4・kp253）：まず**入室したときに控えた名前**を出します。
+  //   お店の棚は鍵がかかっていて読む決まりが1本も無いので、窓口は
+  //   サーバー側の合鍵が使えないあいだ名前を答えられません（在っても「0件」で返る）。
+  //   控えがあれば、そのあいだも名前が出ます。窓口が答えられたら、そちらで上書きします。
   useEffect(() => {
     if (!authed || !shopScope) return;
     let cancelled = false;
+    const remembered = readTenantName(undefined, shopScope);
+    if (remembered) setShopName(remembered);
     (async () => {
       try {
         const res = await fetch(`/api/keiri/shop?id=${encodeURIComponent(shopScope)}`);
         const json = await res.json().catch(() => null);
-        if (!cancelled && json?.ok && json.shopName) setShopName(String(json.shopName));
+        if (!cancelled && json?.ok && json.shopName) {
+          setShopName(String(json.shopName));
+          writeTenantName(json.shopName, undefined, shopScope);
+        }
       } catch {}
     })();
     return () => {
@@ -139,6 +151,11 @@ export default function AdminGate({
                 } catch {}
                 // サーバー側の窓口に出す札も一緒に捨てる（kp239）
                 forgetKeiriSecret();
+                // ★ここで控え（どのお店か・お店の名前）は捨てません。
+                //   捨てると、この端末が「手羽屋」に戻ってしまい、
+                //   次に打つ日報が印の無い行＝手羽屋の行として保存されます。
+                //   控えた名前は、別のお店が入り直したときに自動で捨てられます
+                //   （lib/tenantScope.ts の writeTenantScope）。
                 setShopScope(TEBAYA_SCOPE);
                 setShopName(null);
                 setAuthed(false);
@@ -208,6 +225,11 @@ export default function AdminGate({
           }
           // この端末を「そのお店」として覚える（日報の印と経理画面の絞り込みに使う）
           writeTenantScope(scope);
+          // ★お店の名前も一緒に控える（2026-10-18・f3-4／kp253）。
+          //   お店の棚は公開の鍵では読めないので、ここで控えないと
+          //   そのお店は自分の名前を画面に出せない。
+          writeTenantName(scope ? json.shopName : null, undefined, scope);
+          setShopName(scope ? (readTenantName(undefined, scope) ?? null) : null);
           setShopScope(scope);
           setAuthed(true);
           setError(null);

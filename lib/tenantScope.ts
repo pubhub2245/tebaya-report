@@ -41,6 +41,21 @@ export const TENANT_COLUMN = "tenant_id";
 /** ブラウザに控えておく置き場所の名前（どのお店として開いているか） */
 export const TENANT_STORAGE_KEY = "keiri-tenant-id";
 
+/**
+ * ブラウザに控えておく置き場所の名前（そのお店の**名前**）。
+ *
+ * ★なぜ名前も控えるのか（2026-10-18・kp253／f3-4）
+ *   お店の名前は、いままで毎回 倉庫の棚（keiri_tenants）に聞いていました。
+ *   ところがこの棚は「鍵がかかっていて、読む決まりが1本も無い」形なので、
+ *   公開の鍵で聞くと **エラーではなく「0件」** で返ります
+ *   （2026-10-18 に A が倉庫の台帳を直接 数えて確かめました）。
+ *   ＝ 申し込んだお店は、自分の名前さえ画面に出せません。
+ *   名前は「入室したとき」と「初回設定を終えたとき」に、お店自身が
+ *   名乗った（または窓口が返した）ものが手元にあります。それを控えて使います。
+ *   ★控えるのは**名前だけ**です。合言葉・売上・よその店のことは控えません。
+ */
+export const TENANT_NAME_STORAGE_KEY = "keiri-tenant-name";
+
 /** 手羽屋が使う業態コード（今までどおり） */
 export const TEBAYA_BUSINESS_CODE = "tebaya";
 
@@ -123,17 +138,88 @@ export function readTenantScope(store?: Pick<Storage, "getItem">): TenantScope {
   }
 }
 
-/** ブラウザの控えに「このお店として開く」を書く。null を渡すと手羽屋に戻す */
+/**
+ * ブラウザの控えに「このお店として開く」を書く。null を渡すと手羽屋に戻す。
+ *
+ * ★お店が変わったら、控えてある**名前は必ず捨てます**（2026-10-18）。
+ *   残すと、別のお店の画面によその店の名前が出ます。手羽屋に戻すときも同じです。
+ */
 export function writeTenantScope(
   scope: TenantScope,
-  store?: Pick<Storage, "setItem" | "removeItem">,
+  store?: Pick<Storage, "setItem" | "removeItem" | "getItem">,
 ): void {
   try {
     const s = store ?? (typeof window === "undefined" ? null : window.localStorage);
     if (!s) return;
     const id = normalizeTenantScope(scope);
+    let before: TenantScope = TEBAYA_SCOPE;
+    try {
+      before = normalizeTenantScope(s.getItem?.(TENANT_STORAGE_KEY));
+    } catch {
+      before = TEBAYA_SCOPE;
+    }
     if (id) s.setItem(TENANT_STORAGE_KEY, id);
     else s.removeItem(TENANT_STORAGE_KEY);
+    // 同じお店のまま書き直したときだけ、控えた名前を残す
+    if (!id || before !== id) s.removeItem(TENANT_NAME_STORAGE_KEY);
+  } catch {
+    /* 控えが使えない環境でも落とさない */
+  }
+}
+
+/**
+ * 控えておく「お店の名前」のかたちを整える。
+ * 前後の空白を取り、長すぎるものは切る。空なら null
+ * （lib/keiri/tenants.ts の cleanShopName と同じ決まりにしてある）。
+ */
+export function cleanTenantName(raw: unknown): string | null {
+  const s = String(raw ?? "").trim().replace(/\s+/g, " ");
+  if (!s) return null;
+  return s.slice(0, 60);
+}
+
+/**
+ * ブラウザの控えから「いま開いているお店の名前」を読む。
+ * ★手羽屋（印が空）のときは必ず null。手羽屋の画面によその店の名前を出さないため。
+ */
+export function readTenantName(
+  store?: Pick<Storage, "getItem">,
+  scope?: TenantScope,
+): string | null {
+  try {
+    const s = store ?? (typeof window === "undefined" ? null : window.localStorage);
+    if (!s) return null;
+    const id =
+      scope === undefined ? normalizeTenantScope(s.getItem(TENANT_STORAGE_KEY)) : normalizeTenantScope(scope);
+    if (!id) return null;
+    return cleanTenantName(s.getItem(TENANT_NAME_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ブラウザの控えに「いま開いているお店の名前」を書く。
+ * ★印が空（手羽屋）のときは何も書かない。空の名前を渡したら控えを捨てる。
+ */
+export function writeTenantName(
+  name: unknown,
+  store?: Pick<Storage, "setItem" | "removeItem" | "getItem">,
+  scope?: TenantScope,
+): void {
+  try {
+    const s = store ?? (typeof window === "undefined" ? null : window.localStorage);
+    if (!s) return;
+    const id =
+      scope === undefined
+        ? normalizeTenantScope(s.getItem?.(TENANT_STORAGE_KEY))
+        : normalizeTenantScope(scope);
+    const clean = cleanTenantName(name);
+    if (!id || !clean) {
+      s.removeItem(TENANT_NAME_STORAGE_KEY);
+      return;
+    }
+    s.setItem(TENANT_NAME_STORAGE_KEY, clean);
   } catch {
     /* 控えが使えない環境でも落とさない */
   }
