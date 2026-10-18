@@ -85,41 +85,54 @@ export const SHARED_SHELVES: { table: string; label: string; why: string }[] = [
  *   keiri_advance_expenses（現場）は0行です（経理の窓口が答える「立替51件」と一致）。
  *   ＝ **締める順番は advance_expenses が先**。空のほうは中身が入り始めてから同じ形で締めます。
  */
+/**
+ * 棚ごとの「倉庫の窓口」の名前（貼り紙と字句をそろえる）。
+ * ★読む所（lib/keiri/loadMonthServer.ts）もここから引きます。
+ *   名前を2か所に書き写すと、どちらかを直し忘れて
+ *   **よその店の数字が黙って0件になります**（2026-10-18・kp253 ③）。
+ */
+export const TENANT_CASH_EVENTS_WINDOW = "keiri_tenant_cash_events";
+export const TENANT_IGNORES_WINDOW = "keiri_tenant_expense_ignores";
+export const TENANT_SETTINGS_WINDOW = "keiri_tenant_settings";
+export const TENANT_PAYMENTS_WINDOW = "keiri_tenant_payments";
+export const TENANT_FIELD_ADVANCES_WINDOW = "keiri_tenant_advance_expenses";
+export const TENANT_OWNER_ADVANCES_WINDOW = "keiri_tenant_advances_old";
+
 export const PENDING_SHELVES: ShelfPlan[] = [
   {
     table: "keiri_cash_events",
     label: "金庫の記録",
-    window: "keiri_tenant_cash_events",
+    window: TENANT_CASH_EVENTS_WINDOW,
     column: "tenant_id",
   },
   {
     table: "keiri_expense_ignores",
     label: "「この支払いは数えない」の印",
-    window: "keiri_tenant_expense_ignores",
+    window: TENANT_IGNORES_WINDOW,
     column: "tenant_id",
   },
   {
     table: "keiri_settings",
     label: "経理の設定",
-    window: "keiri_tenant_settings",
+    window: TENANT_SETTINGS_WINDOW,
     column: "tenant_id",
   },
   {
     table: "keiri_payments",
     label: "払った記録",
-    window: "keiri_tenant_payments",
+    window: TENANT_PAYMENTS_WINDOW,
     column: "tenant_id",
   },
   {
     table: "keiri_advance_expenses",
     label: "立替（現場）",
-    window: "keiri_tenant_advance_expenses",
+    window: TENANT_FIELD_ADVANCES_WINDOW,
     column: "tenant_id",
   },
   {
     table: "advance_expenses",
     label: "立替（経営）",
-    window: "keiri_tenant_advances_old",
+    window: TENANT_OWNER_ADVANCES_WINDOW,
     column: "tenant_id",
   },
 ];
