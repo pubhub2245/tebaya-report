@@ -145,7 +145,30 @@ async function probePaymentsScoped(): Promise<ShelfProbe> {
   return { ok: false, code: null, message: one.note };
 }
 
-/** 貼り紙の①〜⑪を、ぜんぶ読んで並べる */
+/**
+ * ⑫は**のこりの4つの棚がぜんぶ締まったか**を見る（1つでも残っていれば「まだ」）。
+ *
+ * ■ ここが大事（やさしい説明）
+ *   ⑫は1つの棚ではなく、経理の設定・金庫の記録・数えない印・立替（現場）の4つを
+ *   まとめて締めます。**4つぜんぶ揃って初めて f3-4 が閉じる**ので、
+ *   どれか1つでも窓口が無ければ「まだ流れていません」と出します。
+ */
+async function probeRestShelvesScoped(): Promise<ShelfProbe> {
+  const rest = PENDING_SHELVES.filter(
+    (p) => p.table !== "advance_expenses" && p.table !== "keiri_payments",
+  );
+  if (rest.length === 0) {
+    return { ok: false, code: null, message: "締める棚の一覧に のこりの棚がありません" };
+  }
+  const r = await probeShelfScopes(rest);
+  if (r.shelves.some((s) => s.scoped === null)) {
+    return { ok: false, code: null, message: r.summary };
+  }
+  if (r.allScoped) return { ok: true };
+  return missingProbe(r.summary);
+}
+
+/** 貼り紙の①〜⑫を、ぜんぶ読んで並べる */
 export async function readShelfReports(): Promise<ShelfReport[]> {
   const [
     cash,
@@ -159,6 +182,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     paymentsTenant,
     advancesOldScoped,
     paymentsScoped,
+    restShelvesScoped,
   ] = await Promise.all([
     probeShelf("keiri_cash_events", "id"),
     probeShelf("keiri_expense_ignores", "id"),
@@ -171,6 +195,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     probeShelf("keiri_payments", "tenant_id"),
     probeAdvancesOldScoped(),
     probePaymentsScoped(),
+    probeRestShelvesScoped(),
   ]);
 
   const probes: Record<string, ShelfProbe> = {
@@ -185,6 +210,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     payments_tenant: paymentsTenant,
     advances_old_scoped: advancesOldScoped,
     payments_scoped: paymentsScoped,
+    rest_shelves_scoped: restShelvesScoped,
   };
 
   return SHELF_STEPS.map((s) =>

@@ -983,6 +983,446 @@ grant execute on function public.keiri_tenant_payments(text, date, date, text)
 
 
 -- ============================================================
+-- ⑫ のこりの棚（経理の設定・金庫の記録・数えない印・立替（現場））を、
+--    よその店ぶんだけ公開の鍵では読めないようにする（f3-4／2026-10-18 追記）
+--
+--   これを流すと：**日報いがいの棚が、ぜんぶ お店ごとに分かれます。**
+--   ＝ 仕上げ表の f3-4（よその店のデータが見えないか）が、この1枚で閉じます。
+--
+-- ■ なぜ4つまとめてなのか（2026-10-18・B）
+--   ⑧（日報）・⑩（立替（経営））・⑪（払った記録）は、**中身が入っている棚**なので
+--   1つずつ出しました。のこりの4つは **どのお店の行も1行も入っていません**
+--   （2026-10-18 に外から数えて確認：経理の設定も立替（現場）も 印つき0行、
+--     金庫の記録と数えない印はこの貼り紙で作られる新しい棚）。
+--   入っていない棚は、締めても失うものがありません。
+--   ★ここを残すと、**2軒目のお店に数字が入った瞬間に公開の鍵で読めます**。
+--     先に閉めておくのが、いちばん安全で、じゅんの手も1回で済みます。
+--
+-- ■ 手羽屋は1行も変わりません（ここが大事）
+--   手羽屋の行は**印が空（null）**です。足す決まりは
+--   「**印が空の行だけ 読んでよい**」なので、じゅんが見る画面は1行も変わりません。
+--   書き込みも今までどおりです（足す決まりは**読むときだけ**に効きます）。
+--
+-- ■ 足すだけ・消しません（やり方は⑧⑩⑪と同じ）
+--   いまある「だれでもOK」の決まりは**触りません**。追い禁止（restrictive）の
+--   決まりを棚ごとに1本 足し、その棚の**倉庫の窓口**を対で作ります。
+--   ★元に戻すのは4行です：
+--     drop policy "keiri_only_tebaya_settings_readable"         on public.keiri_settings;
+--     drop policy "keiri_only_tebaya_cash_events_readable"      on public.keiri_cash_events;
+--     drop policy "keiri_only_tebaya_expense_ignores_readable"  on public.keiri_expense_ignores;
+--     drop policy "keiri_only_tebaya_advance_expenses_readable" on public.keiri_advance_expenses;
+-- ============================================================
+-- (a) 棚ごとに「印が空の行だけ 読んでよい」という追い禁止の決まりを1本ずつ 足す
+do $$
+begin
+  if not exists (
+       select 1 from information_schema.tables
+        where table_schema = 'public' and table_name = 'keiri_settings'
+     ) then
+    raise notice '⑫ 経理の設定の棚がありませんでした（何もしていません）';
+  elsif exists (
+       select 1 from pg_policies
+        where schemaname = 'public'
+          and tablename = 'keiri_settings'
+          and policyname = 'keiri_only_tebaya_settings_readable'
+     ) then
+    raise notice '⑫ 経理の設定の読む決まりは、もうありました（何もしていません）';
+  else
+    create policy "keiri_only_tebaya_settings_readable" on public.keiri_settings
+      as restrictive for select to public
+      using (tenant_id is null);
+    raise notice '⑫ よその店の経理の設定を、公開の鍵では読めないようにしました（手羽屋の行＝印が空は今までどおり）';
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+       select 1 from information_schema.tables
+        where table_schema = 'public' and table_name = 'keiri_cash_events'
+     ) then
+    raise notice '⑫ 金庫の記録の棚がありませんでした（何もしていません）';
+  elsif exists (
+       select 1 from pg_policies
+        where schemaname = 'public'
+          and tablename = 'keiri_cash_events'
+          and policyname = 'keiri_only_tebaya_cash_events_readable'
+     ) then
+    raise notice '⑫ 金庫の記録の読む決まりは、もうありました（何もしていません）';
+  else
+    create policy "keiri_only_tebaya_cash_events_readable" on public.keiri_cash_events
+      as restrictive for select to public
+      using (tenant_id is null);
+    raise notice '⑫ よその店の金庫の記録を、公開の鍵では読めないようにしました（手羽屋の行＝印が空は今までどおり）';
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+       select 1 from information_schema.tables
+        where table_schema = 'public' and table_name = 'keiri_expense_ignores'
+     ) then
+    raise notice '⑫ 「この支払いは数えない」の印の棚がありませんでした（何もしていません）';
+  elsif exists (
+       select 1 from pg_policies
+        where schemaname = 'public'
+          and tablename = 'keiri_expense_ignores'
+          and policyname = 'keiri_only_tebaya_expense_ignores_readable'
+     ) then
+    raise notice '⑫ 「この支払いは数えない」の印の読む決まりは、もうありました（何もしていません）';
+  else
+    create policy "keiri_only_tebaya_expense_ignores_readable" on public.keiri_expense_ignores
+      as restrictive for select to public
+      using (tenant_id is null);
+    raise notice '⑫ よその店の「この支払いは数えない」の印を、公開の鍵では読めないようにしました（手羽屋の行＝印が空は今までどおり）';
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+       select 1 from information_schema.tables
+        where table_schema = 'public' and table_name = 'keiri_advance_expenses'
+     ) then
+    raise notice '⑫ 立替（現場）の棚がありませんでした（何もしていません）';
+  elsif exists (
+       select 1 from pg_policies
+        where schemaname = 'public'
+          and tablename = 'keiri_advance_expenses'
+          and policyname = 'keiri_only_tebaya_advance_expenses_readable'
+     ) then
+    raise notice '⑫ 立替（現場）の読む決まりは、もうありました（何もしていません）';
+  else
+    create policy "keiri_only_tebaya_advance_expenses_readable" on public.keiri_advance_expenses
+      as restrictive for select to public
+      using (tenant_id is null);
+    raise notice '⑫ よその店の立替（現場）を、公開の鍵では読めないようにしました（手羽屋の行＝印が空は今までどおり）';
+  end if;
+end $$;
+
+-- (b) よその店が、自分のぶんだけを読むための「倉庫の窓口」を棚ごとに1つ
+--
+--   ★どれも⑧⑩⑪と同じ決まりです：
+--     ・お店は**合言葉（戻せない形・16進64文字）**か**テストの印**から決める
+--     ・画面やブラウザが名乗った「お店の番号」は**受け取りません**
+--     ・当たったお店が1軒でないときは**何も返しません**
+--     ・お店の名前・合言葉・連絡先・レシート写真の住所は1文字も返しません
+
+-- 経理の設定：お店が1軒につき1行（数え始めの日・そのときの現金・外注費の率・家賃）。期間では絞りません
+create or replace function public.keiri_tenant_settings(
+  p_password_hash text default null,
+  p_from date default null,
+  p_to date default null,
+  p_test_mark text default null
+)
+returns setof jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_tenant uuid;
+  v_n int;
+begin
+  if p_test_mark is not null and btrim(p_test_mark) <> '' then
+    if btrim(p_test_mark) !~ '^test-' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%'
+     limit 1;
+  else
+    if p_password_hash is null or btrim(lower(p_password_hash)) !~ '^[0-9a-f]{64}$' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active'
+     limit 1;
+  end if;
+
+  if v_tenant is null then
+    return;
+  end if;
+
+  return query
+    select to_jsonb(x)
+      from (
+        select s.opening_date,
+               s.opening_balance,
+               s.outsourcing_rate,
+               s.monthly_rent,
+               s.rent_start_month,
+               s.memo
+          from public.keiri_settings s
+         where s.tenant_id = v_tenant
+      ) x;
+end $$;
+
+comment on function public.keiri_tenant_settings(text, date, date, text) is
+  '経理：よその店が自分の経理の設定だけを読む窓口（f3-4）。お店は合言葉かテストの印から決め、画面が名乗った番号は受け取らない。読むだけ。';
+
+revoke all on function public.keiri_tenant_settings(text, date, date, text) from public;
+grant execute on function public.keiri_tenant_settings(text, date, date, text)
+  to anon, authenticated, service_role;
+
+-- 金庫の記録：金庫を数えた記録と、銀行に入れた記録
+create or replace function public.keiri_tenant_cash_events(
+  p_password_hash text default null,
+  p_from date default null,
+  p_to date default null,
+  p_test_mark text default null
+)
+returns setof jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_tenant uuid;
+  v_n int;
+begin
+  if p_test_mark is not null and btrim(p_test_mark) <> '' then
+    if btrim(p_test_mark) !~ '^test-' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%'
+     limit 1;
+  else
+    if p_password_hash is null or btrim(lower(p_password_hash)) !~ '^[0-9a-f]{64}$' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active'
+     limit 1;
+  end if;
+
+  if v_tenant is null then
+    return;
+  end if;
+
+  return query
+    select to_jsonb(x)
+      from (
+        select c.id,
+               c.kind,
+               c.happened_on,
+               c.amount,
+               c.actor,
+               c.note
+          from public.keiri_cash_events c
+         where c.tenant_id = v_tenant
+           and (p_from is null or c.happened_on >= p_from)
+           and (p_to is null or c.happened_on <= p_to)
+         order by c.happened_on
+      ) x;
+end $$;
+
+comment on function public.keiri_tenant_cash_events(text, date, date, text) is
+  '経理：よその店が自分の金庫の記録だけを読む窓口（f3-4）。お店は合言葉かテストの印から決め、画面が名乗った番号は受け取らない。読むだけ。';
+
+revoke all on function public.keiri_tenant_cash_events(text, date, date, text) from public;
+grant execute on function public.keiri_tenant_cash_events(text, date, date, text)
+  to anon, authenticated, service_role;
+
+-- 「この支払いは数えない」の印：同じ支払いが2か所にあるときの「こちらは数えない」の印
+create or replace function public.keiri_tenant_expense_ignores(
+  p_password_hash text default null,
+  p_from date default null,
+  p_to date default null,
+  p_test_mark text default null
+)
+returns setof jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_tenant uuid;
+  v_n int;
+begin
+  if p_test_mark is not null and btrim(p_test_mark) <> '' then
+    if btrim(p_test_mark) !~ '^test-' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%'
+     limit 1;
+  else
+    if p_password_hash is null or btrim(lower(p_password_hash)) !~ '^[0-9a-f]{64}$' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active'
+     limit 1;
+  end if;
+
+  if v_tenant is null then
+    return;
+  end if;
+
+  return query
+    select to_jsonb(x)
+      from (
+        select i.id,
+               i.source,
+               i.ref_id,
+               i.line_index,
+               i.amount,
+               i.paid_on,
+               i.reason,
+               i.marked_by,
+               i.undone_at
+          from public.keiri_expense_ignores i
+         where i.tenant_id = v_tenant
+           and (p_from is null or i.paid_on >= p_from)
+           and (p_to is null or i.paid_on <= p_to)
+         order by i.paid_on
+      ) x;
+end $$;
+
+comment on function public.keiri_tenant_expense_ignores(text, date, date, text) is
+  '経理：よその店が自分の「この支払いは数えない」の印だけを読む窓口（f3-4）。お店は合言葉かテストの印から決め、画面が名乗った番号は受け取らない。読むだけ。';
+
+revoke all on function public.keiri_tenant_expense_ignores(text, date, date, text) from public;
+grant execute on function public.keiri_tenant_expense_ignores(text, date, date, text)
+  to anon, authenticated, service_role;
+
+-- 立替（現場）：現場のスタッフが自分のお金で立て替えた記録。レシート写真の住所は返しません
+create or replace function public.keiri_tenant_advance_expenses(
+  p_password_hash text default null,
+  p_from date default null,
+  p_to date default null,
+  p_test_mark text default null
+)
+returns setof jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_tenant uuid;
+  v_n int;
+begin
+  if p_test_mark is not null and btrim(p_test_mark) <> '' then
+    if btrim(p_test_mark) !~ '^test-' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%'
+     limit 1;
+  else
+    if p_password_hash is null or btrim(lower(p_password_hash)) !~ '^[0-9a-f]{64}$' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active'
+     limit 1;
+  end if;
+
+  if v_tenant is null then
+    return;
+  end if;
+
+  return query
+    select to_jsonb(x)
+      from (
+        select a.id,
+               a.expense_date,
+               a.payer,
+               a.amount,
+               a.source_type,
+               a.memo
+          from public.keiri_advance_expenses a
+         where a.tenant_id = v_tenant
+           and (p_from is null or a.expense_date >= p_from)
+           and (p_to is null or a.expense_date <= p_to)
+         order by a.expense_date
+      ) x;
+end $$;
+
+comment on function public.keiri_tenant_advance_expenses(text, date, date, text) is
+  '経理：よその店が自分の立替（現場）だけを読む窓口（f3-4）。お店は合言葉かテストの印から決め、画面が名乗った番号は受け取らない。読むだけ。';
+
+revoke all on function public.keiri_tenant_advance_expenses(text, date, date, text) from public;
+grant execute on function public.keiri_tenant_advance_expenses(text, date, date, text)
+  to anon, authenticated, service_role;
+
+
+-- ============================================================
 -- 確かめ方（流したあと、これを貼ると結果が1画面で見えます）
 --
 --   select 'keiri_cash_events'    as 棚, count(*) as 行数 from public.keiri_cash_events
@@ -1062,4 +1502,22 @@ grant execute on function public.keiri_tenant_payments(text, date, date, text)
 --     1行も変わっていません。
 --   → 本番の https://tebaya-report.vercel.app/api/keiri/copies の
 --     「日報いがいの棚」で、払った記録が○になります。
+--
+--   ⑫ のこりの4つが締まったかは、これで分かります（2026-10-18 追記）：
+--   select tablename as 棚, count(*) as 読む決まりの本数
+--     from pg_policies
+--    where schemaname = 'public'
+--      and policyname in ('keiri_only_tebaya_settings_readable',
+--                         'keiri_only_tebaya_cash_events_readable',
+--                         'keiri_only_tebaya_expense_ignores_readable',
+--                         'keiri_only_tebaya_advance_expenses_readable')
+--    group by tablename;
+--   → 4棚ぶん 1 ずつ出れば付いています。手羽屋の行が今までどおり読めることは、これで分かります：
+--   select 'keiri_settings' as 棚, count(*) as 行, count(tenant_id) as 印がついている行
+--     from public.keiri_settings
+--   union all
+--   select 'keiri_advance_expenses', count(*), count(tenant_id) from public.keiri_advance_expenses;
+--   → 「印がついている行」が 0 なら、じゅんが見る画面は1行も変わっていません。
+--   → 本番の https://tebaya-report.vercel.app/api/keiri/copies の
+--     「日報いがいの棚」が**6つぜんぶ○**になり、f3-4 がここで閉じます。
 -- ============================================================

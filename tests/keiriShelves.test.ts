@@ -137,8 +137,8 @@ test("軽い日報の見え方は、レシート写真の住所を抜いたま�
   assert.ok(sql.includes("as receipt_count"));
 });
 
-test("貼り紙に入っているのは11 で、それぞれ仕上げ表の項目につながっている", () => {
-  assert.equal(SHELF_STEPS.length, 11);
+test("貼り紙に入っているのは12 で、それぞれ仕上げ表の項目につながっている", () => {
+  assert.equal(SHELF_STEPS.length, 12);
   const checks = SHELF_STEPS.map((s) => s.check);
   assert.deepEqual(checks, [
     "f1-4",
@@ -155,6 +155,8 @@ test("貼り紙に入っているのは11 で、それぞれ仕上げ表の項�
     // ⑩ 立替（経営・本物の棚）を、よその店ぶんだけ読めないようにする（2026-10-17）
     "f3-4",
     // ⑪ 払った記録（給与・外注費）を、よその店ぶんだけ読めないようにする（2026-10-18）
+    "f3-4",
+    // ⑫ のこりの4つの棚も、よその店ぶんだけ読めないようにする（2026-10-18）
     "f3-4",
   ]);
   for (const s of SHELF_STEPS) {
@@ -279,6 +281,11 @@ test("貼り紙は、いまある決まりを1本も消さない・取り上げ�
     'create policy "keiri_only_tebaya_advances_readable"',
     // ⑪ 払った記録（給与・外注費）を締める（2026-10-18）。⑧⑩と同じ形
     'create policy "keiri_only_tebaya_payments_readable"',
+    // ⑫ のこりの4つ（中身が1行も入っていない棚）を締める（2026-10-18）。同じ形
+    'create policy "keiri_only_tebaya_settings_readable"',
+    'create policy "keiri_only_tebaya_cash_events_readable"',
+    'create policy "keiri_only_tebaya_expense_ignores_readable"',
+    'create policy "keiri_only_tebaya_advance_expenses_readable"',
   ]);
 
   // ⑧の決まりは「読むときだけ」「印が空の行だけ」の追い禁止であること。
@@ -300,12 +307,16 @@ test("貼り紙は、いまある決まりを1本も消さない・取り上げ�
     /create policy "keiri_only_tebaya_payments_readable" on public\.keiri_payments\s*\n\s*as restrictive for select to public\s*\n\s*using \(tenant_id is null\)/,
   );
 
-  // ⑧⑩⑪で作る窓口のぶんだけ、許可を渡す。渡す相手は anon / authenticated / service_role のみ
+  // ⑧⑩⑪⑫で作る窓口のぶんだけ、許可を渡す。渡す相手は anon / authenticated / service_role のみ
   const grants = body.match(/grant execute on function [^;]+/g) ?? [];
-  assert.equal(grants.length, 3, "許可を渡しているのは⑧⑩⑪の窓口3つだけであること");
+  assert.equal(grants.length, 7, "許可を渡しているのは⑧⑩⑪⑫の窓口7つだけであること");
   assert.match(grants[0], /public\.keiri_tenant_reports\(text, date, date, text\)/);
   assert.match(grants[1], /public\.keiri_tenant_advances_old\(text, date, date, text\)/);
   assert.match(grants[2], /public\.keiri_tenant_payments\(text, date, date, text\)/);
+  assert.match(grants[3], /public\.keiri_tenant_settings\(text, date, date, text\)/);
+  assert.match(grants[4], /public\.keiri_tenant_cash_events\(text, date, date, text\)/);
+  assert.match(grants[5], /public\.keiri_tenant_expense_ignores\(text, date, date, text\)/);
+  assert.match(grants[6], /public\.keiri_tenant_advance_expenses\(text, date, date, text\)/);
   for (const g of grants) assert.match(g, /to anon, authenticated, service_role/);
   // 渡す前に、だれでも実行できる状態を取り下げている（既存の窓口と同じ形）
   assert.match(
@@ -320,8 +331,8 @@ test("貼り紙は、いまある決まりを1本も消さない・取り上げ�
     body,
     /revoke all on function public\.keiri_tenant_payments\(text, date, date, text\) from public/,
   );
-  // security definer（棚の決まりを飛び越えて読む作り）は、その3つの窓口だけ
-  assert.equal((body.match(/security definer/g) ?? []).length, 3);
+  // security definer（棚の決まりを飛び越えて読む作り）は、その7つの窓口だけ
+  assert.equal((body.match(/security definer/g) ?? []).length, 7);
 
   // ⑪の窓口は、画面が名乗った「お店の番号」を受け取らない（入り口は合言葉とテストの印だけ）
   const paymentsWindow =
