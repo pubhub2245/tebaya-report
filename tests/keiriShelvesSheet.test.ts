@@ -166,7 +166,8 @@ test("分けないと決めた棚は、貼り紙の⑩に理由が書いてあ�
 /** ⑪の所だけを切り出す */
 function stepEleven(): string {
   const from = sql.indexOf("-- ⑪ 払った記録（給与・外注費）");
-  const to = sql.indexOf("-- 確かめ方（流したあと");
+  // ★うしろに⑫が入ったので、区切りは⑫の見出しまで
+  const to = sql.indexOf("-- ⑫ のこりの棚（経理の設定");
   assert.ok(from > 0 && to > from, "⑪の区切りが見つかりません");
   return sql.slice(from, to);
 }
@@ -222,4 +223,91 @@ test("⑪は棚が無い倉庫でも途中で止まらない（あるときだ�
     eleven.includes("table_name = 'keiri_payments'"),
     "棚があるかを見てから足す形になっていません",
   );
+});
+
+/* ------------------------------------------------------------------ *
+ *  ⑫ のこりの4つの棚を締める（2026-10-18・f3-4・kp253 ③）
+ *
+ *  ■ ここで縛っていること
+ *    ⑫で f3-4 が閉じるので、**締める相手がコード側の一覧と1つもずれないこと**。
+ *    ずれると「窓口があるか」で合否を出している所が、嘘の合格を出します。
+ * ------------------------------------------------------------------ */
+
+/** ⑫の所だけを切り出す */
+function stepTwelve(): string {
+  const from = sql.indexOf("-- ⑫ のこりの棚（経理の設定");
+  const to = sql.indexOf("-- 確かめ方（流したあと");
+  assert.ok(from > 0 && to > from, "⑫の区切りが見つかりません");
+  return sql.slice(from, to);
+}
+
+test("⑫は、コード側の一覧に残っている棚ぜんぶを締める（1つも取りこぼさない）", () => {
+  const twelve = stepTwelve();
+  const rest = PENDING_SHELVES.filter(
+    (p) => p.table !== "advance_expenses" && p.table !== "keiri_payments",
+  );
+  assert.equal(rest.length, 4, "のこりの棚の数が変わっています（貼り紙を見直すこと）");
+  for (const plan of rest) {
+    assert.ok(
+      twelve.includes(`create or replace function public.${plan.window}(`),
+      `⑫に ${plan.label} の窓口（${plan.window}）がありません`,
+    );
+    assert.ok(twelve.includes(`on public.${plan.table}`), `⑫に ${plan.table} の決まりがありません`);
+  }
+});
+
+test("⑫の決まりは4つとも「読むときだけ」「印が空の行だけ」（消さない）", () => {
+  const twelve = stepTwelve();
+  assert.equal(
+    (twelve.match(/as restrictive for select to public/g) ?? []).length,
+    4,
+    "読むときだけの決まりが4本になっていません",
+  );
+  assert.equal(
+    (twelve.match(/using \(tenant_id is null\)/g) ?? []).length,
+    4,
+    "「印が空の行だけ」が4本になっていません",
+  );
+  const runs = twelve
+    .split("\n")
+    .filter((l) => !l.trimStart().startsWith("--"))
+    .join("\n")
+    .toLowerCase();
+  for (const bad of ["drop policy", "drop table", "delete from", "truncate", "alter column"]) {
+    assert.ok(!runs.includes(bad), `⑫の流れる所に ${bad} が入っています（消す操作は禁止）`);
+  }
+});
+
+test("⑫の窓口4つは、画面が名乗った番号を受け取らず、写真の住所も返さない", () => {
+  const twelve = stepTwelve();
+  assert.ok(!twelve.includes("p_tenant_id"), "お店の番号を受け取る入り口が付いています");
+  assert.equal(
+    (twelve.match(/\[0-9a-f\]\{64\}/g) ?? []).length,
+    4,
+    "合言葉のかたちを確かめていない窓口があります",
+  );
+  // ★「返す所」だけを見る（return query から end $$ まで）。
+  //   ここを窓口まるごとで見ると、お店を1軒だけ引く所に出てくる shop_name を
+  //   「返している」と読み違える（2026-10-18 に実際にやった）
+  const returned = twelve
+    .split("return query")
+    .slice(1)
+    .map((part) => part.split("end $$")[0] ?? "")
+    .join("\n");
+  for (const bad of ["receipt_image_url", "shop_name", "admin_password_hash", "setup_token"]) {
+    assert.ok(!returned.includes(bad), `⑫の窓口が ${bad} を返しています`);
+  }
+});
+
+test("⑫は棚が無い倉庫でも途中で止まらない（あるときだけ足す）", () => {
+  const twelve = stepTwelve();
+  const rest = PENDING_SHELVES.filter(
+    (p) => p.table !== "advance_expenses" && p.table !== "keiri_payments",
+  );
+  for (const plan of rest) {
+    assert.ok(
+      twelve.includes(`table_name = '${plan.table}'`),
+      `${plan.table} が、棚があるかを見てから足す形になっていません`,
+    );
+  }
 });
