@@ -42,6 +42,10 @@ import {
   tenantStamp,
   type TenantScope,
 } from "@/lib/tenantScope";
+import {
+  decideAdvanceRead,
+  type ShelfClosedState,
+} from "@/lib/keiri/advanceReadHonest";
 import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 import { effectiveKeiriScope } from "@/lib/keiri/readSource";
 import {
@@ -148,6 +152,12 @@ function AdvancesForm() {
 
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  /**
+   * 「最近の10件」を読めなかったときに出す1行（2026-10-19・f3-4）。
+   * よその店は、貼り紙⑫のあと公開の鍵では**エラーではなく0件**で返るため、
+   * 「まだありません」と取り違えないようにする（lib/keiri/advanceReadHonest.ts）。
+   */
+  const [readNotice, setReadNotice] = useState<string | null>(null);
 
   const loadRecent = useCallback(async () => {
     const cols =
@@ -164,7 +174,20 @@ function AdvancesForm() {
     const scoped = await applyTenantScope<any>(base() as any, scope);
     if (!scoped.error) {
       setHasTenantColumn(true);
-      setRecent((scoped.data as AdvanceRow[]) ?? []);
+      const rows = (scoped.data as AdvanceRow[]) ?? [];
+      // ★0件のときだけ、「本当に0件」か「読めなかった」かを見分ける（2026-10-19・f3-4）。
+      //   手羽屋（印が空）と、1行でも読めたときは、ここで1回も問い合わせません
+      //   ＝ 手羽屋の見え方も通信の回数も今までどおりです。
+      const verdict = decideAdvanceRead({
+        isTebaya: isTebayaScope(scope),
+        rows: rows.length,
+        shelfState:
+          isTebayaScope(scope) || rows.length > 0
+            ? "分からない"
+            : await restShelvesClosed(),
+      });
+      setRecent(verdict.showList ? rows : []);
+      setReadNotice(verdict.message);
       return;
     }
     // 欄がまだ無いときだけ、今までどおり絞らずに読む（手羽屋しかここへ来ない）
@@ -506,6 +529,15 @@ function AdvancesForm() {
         </section>
       )}
 
+      {/* 「読めなかった」のに「まだありません」と見せない（2026-10-19・f3-4）。
+             いま入れた分は記録に残っているので、二重に入れないよう名指しで書く。 */}
+      {!loading && readNotice && (
+        <section className="card py-3">
+          <h2 className="font-bold text-stone-700 text-sm">最近の登録</h2>
+          <p className="text-sm text-amber-800 leading-relaxed">{readNotice}</p>
+        </section>
+      )}
+
       {/* 直近の登録（入力できたか確認するための表示） */}
       {!loading && recent.length > 0 && (
         <section className="space-y-2">
@@ -537,6 +569,28 @@ function AdvancesForm() {
       )}
     </main>
   );
+}
+
+/**
+ * 貼り紙⑫（のこりの棚を店ごとに締める）が流れたかを、読むだけの窓口に1回 聞く
+ * （2026-10-19・f3-4）。**確かめられなかったら「分からない」**を返し、
+ * 画面は今までどおり一覧を出します（開かずに閉じないため）。
+ */
+async function restShelvesClosed(): Promise<ShelfClosedState> {
+  try {
+    const res = await fetch("/api/keiri/shelves", { cache: "no-store" });
+    if (!res.ok) return "分からない";
+    const body = (await res.json()) as {
+      shelves?: { step?: unknown; state?: unknown }[];
+    };
+    const row = (body.shelves ?? []).find((r) => r.step === "⑫");
+    if (!row) return "分からない";
+    if (row.state === "ある") return "締まっている";
+    if (row.state === "まだ無い") return "まだ";
+    return "分からない";
+  } catch {
+    return "分からない";
+  }
 }
 
 /**
