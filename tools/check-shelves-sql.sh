@@ -240,6 +240,27 @@ FOREIGN_BEFORE="$(q "select count(*) from public.daily_reports where tenant_id i
 psql -q -c "set role anon; delete from public.daily_reports where tenant_id is not null" >/dev/null 2>&1
 want "⑧ 公開の鍵では、印つきの日報を消せない（1行も減らない）" "$FOREIGN_BEFORE" "$(q "select count(*) from public.daily_reports where tenant_id is not null")"
 
+# --- ⑧のあと、手羽屋が毎日やることが1つも止まらないか（2026-10-19 追記・f3-3・f3-4） --
+#   ここが本当の肝です。⑧が足す決まりは「読むときだけ」に効くはずですが、
+#   **日報の保存は入れたあとに番号を読み返す形**（insert → select("id")）なので、
+#   読む決まりが書き込みの道にも効くなら、**手羽屋の日報の入力が止まります**。
+#   いままで試していなかったので、ここで固定します（1つでも NG なら貼ってはいけません）。
+psql -tA -c "set role anon; insert into public.daily_reports (date, location, staff_name, shop, sales_amount) values ('2026-09-21','テスト広場','テスト','手羽屋',5000) returning id" >/dev/null 2>&1 \
+  && say "⑧ 手羽屋の日報は、公開の鍵で入れて番号を読み返せる（毎日の保存）" "OK" \
+  || say "⑧ 手羽屋の日報は、公開の鍵で入れて番号を読み返せる（毎日の保存）" "NG（日報の入力が止まります）"
+want "⑧ 手羽屋の日報は、公開の鍵で直せる（日報の編集）" "1" "$(q "set role anon; with u as (update public.daily_reports set handover='なおした' where date='2026-09-21' and tenant_id is null returning 1) select count(*) from u")"
+psql -q -c "set role anon; delete from public.daily_reports where date='2026-09-21' and tenant_id is null" >/dev/null 2>&1
+want "⑧ 手羽屋の日報は、公開の鍵で消せる（管理の取り消し）" "0" "$(q "select count(*) from public.daily_reports where date='2026-09-21'")"
+want "⑧ 手羽屋の行の数は、はじめと同じ" "$BEFORE_TEBAYA" "$(q "select count(*) from public.daily_reports where tenant_id is null")"
+#   申し込んだお店は「番号を読み返さなければ入れられる」——アプリ側の直し
+#   （lib/keiri/tenantReportWrite.ts）が、この1点に乗っています。
+#   ★ここが NG に変わったら、申し込んだお店は画面から日報を出せません。
+psql -q -c "set role anon; insert into public.daily_reports (date, location, staff_name, shop, sales_amount, tenant_id) values ('2026-09-22','【テスト】テスト広場','【テスト】テスト太郎','手羽屋',1000,'$TEST_TENANT')" >/dev/null 2>&1 \
+  && say "⑧ 申し込んだお店の日報は、番号を読み返さなければ入れられる" "OK" \
+  || say "⑧ 申し込んだお店の日報は、番号を読み返さなければ入れられる" "NG（画面から日報を出せません）"
+want "⑧ その行は、ちゃんと棚に入っている（倉庫の側から数える）" "1" "$(q "select count(*) from public.daily_reports where date='2026-09-22'")"
+psql -q -c "delete from public.daily_reports where date='2026-09-22'" >/dev/null 2>&1
+
 # --- ⑩ よその店の立替（経営）が、公開の鍵で読めないか（2026-10-17 追記・f3-4） ------
 #   ★いちばん大事なのは **手羽屋の立替が今までどおり読める・直せる・消せること**。
 #     ここが崩れたら、じゅんの /cash/advances（立替の画面）が止まる。

@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import {
   TEBAYA_SCOPE,
   applyTenantScope,
+  isTebayaScope,
   normalizeTenantScope,
   readTenantScope,
   tenantStamp,
@@ -13,6 +14,13 @@ import {
   writeTenantName,
   type TenantScope,
 } from "@/lib/tenantScope";
+import {
+  decideCumulative,
+  decideDupCheck,
+  decideReportSave,
+  reportShelfStateOf,
+  type ReportShelfState,
+} from "@/lib/keiri/tenantReportWrite";
 import { yen } from "@/lib/format";
 import {
   FormState,
@@ -78,6 +86,8 @@ export default function Page() {
   /** 画面の上に出すお店の名前（手羽屋のときは出さない） */
   const [scopeName, setScopeName] = useState<string | null>(null);
   const [cumulative, setCumulative] = useState(0);
+  // これまでの売上を読めていないときに添える1行（手羽屋では必ず null）
+  const [cumulativeNote, setCumulativeNote] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [lineText, setLineText] = useState("");
   const [saving, setSaving] = useState(false);
@@ -304,11 +314,23 @@ export default function Page() {
           supabase.from("daily_reports").select("sales_amount") as any,
           scope,
         );
-        const sum = (data || []).reduce(
-          (s: number, r: any) => s + (r.sales_amount || 0),
-          0
-        );
-        setCumulative(sum + (form.sales_amount || 0));
+        const rows = (data || []) as { sales_amount?: number }[];
+        const sum = rows.reduce((s: number, r) => s + (r.sales_amount || 0), 0);
+        // ★「読めなかった」を「0円」と取り違えない（2026-10-19・f3-3）。
+        //   手羽屋と、1件でも読めたときは、ここで1回も問い合わせません
+        //   ＝ 手羽屋の見え方も通信の回数も今までどおりです。
+        const verdict = decideCumulative({
+          isTebaya: isTebayaScope(scope),
+          rowCount: rows.length,
+          sumFromShelf: sum,
+          typed: form.sales_amount || 0,
+          shelfState:
+            isTebayaScope(scope) || rows.length > 0
+              ? "分からない"
+              : await reportShelfClosed(),
+        });
+        setCumulative(verdict.value);
+        setCumulativeNote(verdict.note);
       } catch {}
     })();
   }, [form.sales_amount, scope]);
@@ -497,10 +519,19 @@ export default function Page() {
           .eq("staff_name", form.staff_name)
           .eq("shop", form.shop)
           .limit(1);
-        if (dup && dup.length > 0) {
-          const ok = window.confirm(
-            "同じ日付・担当・お店の日報がすでに登録されています。\n二重登録になるかもしれません。それでも提出しますか？",
-          );
+        // ★「読めなかった」を「0件」と取り違えない（2026-10-19・f3-3・f3-4）。
+        //   手羽屋と、1件でも読めたときは、ここで1回も問い合わせません。
+        const rows = (dup as unknown[] | null) ?? [];
+        const verdict = decideDupCheck({
+          isTebaya: isTebayaScope(readTenantScope()),
+          rows: rows.length,
+          shelfState:
+            isTebayaScope(readTenantScope()) || rows.length > 0
+              ? "分からない"
+              : await reportShelfClosed(),
+        });
+        if (verdict.message) {
+          const ok = window.confirm(verdict.message);
           if (!ok) {
             setSaving(false);
             return;
@@ -539,7 +570,10 @@ export default function Page() {
         no_receipt_reason: (e.no_receipt_reason ?? "").trim() || null,
       }));
 
-      const { data, error } = await supabase
+      // ★入れたあとに番号を読み返すかは lib/keiri/tenantReportWrite.ts の1か所で決める
+      //   （2026-10-19・f3-3・f3-4）。手羽屋は今までどおり読み返します。
+      const saveMode = decideReportSave({ isTebaya: isTebayaScope(readTenantScope()) });
+      const insertRow = supabase
         .from("daily_reports")
         .insert({
           // どの店の日報か。手羽屋は null（＝いままで保存していた中身と同じ）
@@ -584,11 +618,18 @@ export default function Page() {
           unit_number: form.unit_number || null,
           cleanup_inventory: form.cleanup_inventory,
           cleanup_tasks: form.cleanup_tasks,
-        })
-        .select("id")
-        .single();
-      if (error) throw error;
-      setSavedId(data.id);
+        });
+      if (saveMode.readBack) {
+        const { data, error } = await insertRow.select("id").single();
+        if (error) throw error;
+        setSavedId(data.id);
+      } else {
+        // 申し込んだお店は、入れた行を読み返せない形になっている（棚の読む決まり）。
+        // 読み返すと**行は入っているのに「保存に失敗」**と出て、二重に出されてしまう。
+        const { error } = await insertRow;
+        if (error) throw error;
+        setSavedId(null);
+      }
       sessionStorage.removeItem(STORAGE_KEY);
 
       // 出店先ランクの自動判定（直近8回の実績でマスタを見直す）。
@@ -803,7 +844,12 @@ export default function Page() {
         />
       )}
       {step === 2 && (
-        <Step2 form={form} update={update} cumulative={cumulative} />
+        <Step2
+          form={form}
+          update={update}
+          cumulative={cumulative}
+          cumulativeNote={cumulativeNote}
+        />
       )}
       {step === 3 && (
         <Step3
@@ -1090,15 +1136,33 @@ function Step1({
   );
 }
 
+/**
+ * 貼り紙⑧（申し込んだお店の日報を、公開の鍵では読めないようにする）が流れたかを、
+ * 読むだけの窓口に1回 聞く（2026-10-19・f3-3・f3-4）。
+ * **確かめられなかったら「分からない」**を返し、画面は今までどおりに倒します
+ * （確かめられないだけで、動いているお店を止めないため）。
+ */
+async function reportShelfClosed(): Promise<ReportShelfState> {
+  try {
+    const res = await fetch("/api/keiri/shelves", { cache: "no-store" });
+    if (!res.ok) return "分からない";
+    return reportShelfStateOf(await res.json());
+  } catch {
+    return "分からない";
+  }
+}
+
 /* ---------- STEP 2 ---------- */
 function Step2({
   form,
   update,
   cumulative,
+  cumulativeNote,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
   cumulative: number;
+  cumulativeNote?: string | null;
 }) {
   return (
     <section className="card space-y-4">
@@ -1126,6 +1190,9 @@ function Step2({
         <div className="text-xl font-bold text-brand-dark">
           {yen(cumulative)}
         </div>
+        {cumulativeNote && (
+          <div className="mt-2 text-xs text-stone-600">{cumulativeNote}</div>
+        )}
       </div>
     </section>
   );
