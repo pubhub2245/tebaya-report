@@ -64,7 +64,16 @@ export async function GET() {
       const ym = testReportDate().slice(0, 7);
       const [y, m] = ym.split("-");
       const businessCode = businessCodeForScope(tenantId);
-      const data = await loadKeiriMonthServer({ ym, businessCode, scope: tenantId, monthOnly: true });
+      // ★貼り紙⑧⑪⑫のあと、テストの店の行は公開の鍵では読めない（0件で返る）。
+      //   倉庫の窓口ごしに読むためのテストの印を渡す（lib/keiri/tenantTrialServer.ts と同じ）。
+      //   渡さないと、貼り紙を流した日に手順5・6 が「日報0件」で落ちる（2026-10-19・f5-4）。
+      const data = await loadKeiriMonthServer({
+        ym,
+        businessCode,
+        scope: tenantId,
+        monthOnly: true,
+        tenantReadTestMark: TEST_SHOP.mark,
+      });
       reportReady = data.reports.length > 0;
       if (reportReady) {
         const sheet = buildOneSheet({
