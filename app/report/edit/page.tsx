@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
+import { applyTenantScope, isTebayaScope, readTenantScope } from "@/lib/tenantScope";
+import {
+  decideReportListRead,
+  reportShelfStateOf,
+  type ReportShelfState,
+} from "@/lib/keiri/tenantReportWrite";
 import { yen, slashDate } from "@/lib/format";
 import EditReportModal, {
   type EditableReport,
@@ -28,6 +33,8 @@ export default function ReportEditPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 読めなかったときに添える1行（手羽屋では必ず null）
+  const [readNotice, setReadNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<Row | null>(null);
   const [q, setQ] = useState("");
 
@@ -46,7 +53,21 @@ export default function ReportEditPage() {
       .order("date", { ascending: false })
       .limit(60);
     if (error) setError(error.message);
-    setRows((data as Row[]) ?? []);
+    const got = (data as Row[]) ?? [];
+    // ★「読めなかった」を「1件もありません」と取り違えない（2026-10-19・f3-3・f3-4）。
+    //   手羽屋と、1件でも読めたときは、ここで1回も問い合わせません
+    //   ＝ 手羽屋の見え方も通信の回数も今までどおりです。
+    const scope = readTenantScope();
+    const verdict = decideReportListRead({
+      isTebaya: isTebayaScope(scope),
+      rows: got.length,
+      shelfState:
+        isTebayaScope(scope) || got.length > 0
+          ? "分からない"
+          : await reportShelfClosed(),
+    });
+    setRows(verdict.showList ? got : []);
+    setReadNotice(verdict.message);
     setLoading(false);
   }, []);
 
@@ -97,7 +118,12 @@ export default function ReportEditPage() {
       )}
       {loading && <p className="text-sm text-stone-500">読み込み中…</p>}
 
-      {!loading && filtered.length === 0 && (
+      {!loading && readNotice && (
+        <div className="card text-sm bg-amber-50 text-amber-900 border border-amber-200">
+          {readNotice}
+        </div>
+      )}
+      {!loading && !readNotice && filtered.length === 0 && (
         <p className="text-sm text-stone-400 py-4">該当する日報がありません。</p>
       )}
 
@@ -154,4 +180,19 @@ export default function ReportEditPage() {
       </p>
     </main>
   );
+}
+
+/**
+ * 貼り紙⑧（申し込んだお店の日報を、公開の鍵では読めないようにする）が流れたかを、
+ * 読むだけの窓口に1回 聞く（2026-10-19・f3-3・f3-4）。
+ * 確かめられなかったら「分からない」＝今までどおり一覧を出します。
+ */
+async function reportShelfClosed(): Promise<ReportShelfState> {
+  try {
+    const res = await fetch("/api/keiri/shelves", { cache: "no-store" });
+    if (!res.ok) return "分からない";
+    return reportShelfStateOf(await res.json());
+  } catch {
+    return "分からない";
+  }
 }

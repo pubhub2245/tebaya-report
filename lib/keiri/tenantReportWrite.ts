@@ -167,6 +167,95 @@ export function decideCumulative(params: {
   };
 }
 
+export type ListVerdict = {
+  /** 一覧を出してよいか */
+  showList: boolean;
+  /** 出さないときに画面へ出す1行（出すときは null） */
+  message: string | null;
+  why: string;
+};
+
+const LIST_UNKNOWN =
+  "このお店の日報の一覧は、この画面からは読めませんでした。" +
+  "**「1件もありません」という意味ではありません。** " +
+  "出した日報は記録に残っていますので、同じものをもう一度 出さないでください。";
+
+/**
+ * 日報の一覧（/report/edit）を出してよいかを決める。
+ * ★締めたあとの申し込んだお店は、必ず「0件」で返るので、
+ *   **「1件もありません」と見せてはいけない**（もう一度 出されて二重になる）。
+ */
+export function decideReportListRead(params: {
+  isTebaya: boolean;
+  rows: number;
+  shelfState: ReportShelfState;
+}): ListVerdict {
+  const { isTebaya, rows, shelfState } = params;
+  if (isTebaya) {
+    return { showList: true, message: null, why: "手羽屋（印が空）は締めても読める" };
+  }
+  if (rows > 0) {
+    return { showList: true, message: null, why: "行が読めている＝読む道は開いている" };
+  }
+  if (shelfState === "締まっている") {
+    return {
+      showList: false,
+      message: LIST_UNKNOWN,
+      why: "申し込んだお店・棚は締まっている・0件＝読めなかった（0件と取り違えない）",
+    };
+  }
+  return {
+    showList: true,
+    message: null,
+    why:
+      shelfState === "まだ"
+        ? "棚がまだ締まっていない＝0件は本当に0件"
+        : "締まったか確かめられない＝今までどおり出す",
+  };
+}
+
+export type EditVerdict = {
+  /** この画面から直してよいか */
+  canEdit: boolean;
+  /** 直せないときに出す1行（直せるときは null） */
+  message: string | null;
+  why: string;
+};
+
+const EDIT_BLOCKED =
+  "このお店の日報は、この画面からは直せない形になっています（棚の読む決まり）。" +
+  "押しても**何も変わらないのに「保存しました」と出てしまう**ため、ここでは止めています。" +
+  "直したい所をお知らせください。";
+
+/**
+ * 日報を直してよいかを決める（EditReportModal）。
+ *
+ * ★締めたあとの申し込んだお店では、書き換えが**黙って0行**になります
+ *   （下見で実測：`update … returning` は0行）。
+ *   「保存しました」と出て中身が変わらないのが一番よくないので、**先に止めます**。
+ *   手羽屋は印が空なので、今までどおり直せます（下見で実測）。
+ */
+export function decideReportEdit(params: {
+  isTebaya: boolean;
+  shelfState: ReportShelfState;
+}): EditVerdict {
+  if (params.isTebaya) {
+    return { canEdit: true, message: null, why: "手羽屋（印が空）は締めても直せる＝今までどおり" };
+  }
+  if (params.shelfState === "締まっている") {
+    return {
+      canEdit: false,
+      message: EDIT_BLOCKED,
+      why: "申し込んだお店・棚は締まっている＝書き換えが黙って0行になる",
+    };
+  }
+  return {
+    canEdit: true,
+    message: null,
+    why: "まだ締まっていない／確かめられない＝今までどおり直せる",
+  };
+}
+
 /** /api/keiri/shelves の答えから、貼り紙⑧が流れたかを決める（取り違えを1か所に閉じる） */
 export function reportShelfStateOf(body: {
   shelves?: { step?: unknown; state?: unknown }[];

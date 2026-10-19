@@ -5,6 +5,12 @@ import { supabase } from "@/lib/supabase";
 import { recalcRankForLocation } from "@/lib/locationRankUpdate";
 import { yen } from "@/lib/format";
 import { NO_RECEIPT_REASONS } from "@/lib/formState";
+import { isTebayaScope, readTenantScope } from "@/lib/tenantScope";
+import {
+  decideReportEdit,
+  reportShelfStateOf,
+  type ReportShelfState,
+} from "@/lib/keiri/tenantReportWrite";
 
 /**
  * 過去の日報を修正するためのモーダル（画面に重なる編集フォーム）。
@@ -234,6 +240,20 @@ export default function EditReportModal({
 
     if (Object.keys(changes).length === 0) {
       setError("変更点がありません");
+      return;
+    }
+
+    // ★申し込んだお店の日報は、棚が締まったあと**書き換えが黙って0行**になる
+    //   （下見で実測）。「保存しました」と出て中身が変わらないのが一番よくないので、
+    //   先に止める（2026-10-19・f3-3・f3-4）。手羽屋は今までどおり直せる
+    //   ＝ 手羽屋のときは、ここで1回も問い合わせない。
+    const scope = readTenantScope();
+    const editable = decideReportEdit({
+      isTebaya: isTebayaScope(scope),
+      shelfState: isTebayaScope(scope) ? "分からない" : await reportShelfClosed(),
+    });
+    if (!editable.canEdit) {
+      setError(editable.message ?? "この画面からは直せません");
       return;
     }
 
@@ -622,4 +642,19 @@ export default function EditReportModal({
       </div>
     </div>
   );
+}
+
+/**
+ * 貼り紙⑧（申し込んだお店の日報を、公開の鍵では読めないようにする）が流れたかを、
+ * 読むだけの窓口に1回 聞く（2026-10-19・f3-3・f3-4）。
+ * 確かめられなかったら「分からない」＝今までどおり直せます（開かずに閉じない）。
+ */
+async function reportShelfClosed(): Promise<ReportShelfState> {
+  try {
+    const res = await fetch("/api/keiri/shelves", { cache: "no-store" });
+    if (!res.ok) return "分からない";
+    return reportShelfStateOf(await res.json());
+  } catch {
+    return "分からない";
+  }
 }
