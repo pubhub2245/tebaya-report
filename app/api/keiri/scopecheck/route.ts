@@ -64,12 +64,30 @@ export async function GET() {
         reportCount: other.reports.length,
         advancesRead: !other.advancesSkipped,
         advanceCount: other.advances.length,
+        /**
+         * よその店として読んだとき、**日報いがいの4つの棚を勝手に読み直していないか**
+         * （2026-10-19・f3-3・f3-4）。
+         *
+         * 貼り紙⑪⑫のあと、よその店の行は公開の鍵では「0件」で返ります。
+         * 0件をそのまま使うと、数え始めの日・期首残高が既定値に、
+         * 給与・金庫・「数えない」の印が空になり、現金残高と利益が黙ってずれます。
+         * ＝ 読めなかったときは、読み直さずに「読めません」と返すのが正しい姿です。
+         */
+        shelvesNotReread:
+          other.settingsUnreadable &&
+          other.paymentsUnreadable &&
+          other.cashUnreadable &&
+          other.ignoresUnreadable,
       },
       separated,
       summary: separated
         ? `${label}：手羽屋として読むと日報 ${mine.reports.length}件、居ないお店として読むと 0件。` +
           "立替の棚は手羽屋のときだけ読み、よそのお店には読みません（混ざりません）"
         : "分かれていません。よそのお店として読んだのに行が出ています",
+      shelves:
+        "日報いがいの4つの棚（経理の設定・払った記録・金庫の記録・「数えない」の印）は、" +
+        "よその店として読んで答えが返らなかったとき、棚から読み直さずに「読めません」と返します" +
+        "（0件を「0円・無し」と取り違えないため）。otherShop.shelvesNotReread がその印です",
       remaining:
         "ブラウザから倉庫を直に読む道（いまの経理画面）は、まだ棚の鍵で守られていません。" +
         "そこは棚の決まりを変える必要があり、ここでは見ていません",
