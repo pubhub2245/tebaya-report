@@ -16,6 +16,8 @@ import {
   REPORT_SHELF_STEP,
   decideCumulative,
   decideDupCheck,
+  decideReportEdit,
+  decideReportListRead,
   decideReportSave,
   reportShelfStateOf,
 } from "../lib/keiri/tenantReportWrite";
@@ -115,4 +117,48 @@ test("貼り紙の答えの読み方（⑧の段だけを見る）", () => {
   );
   assert.equal(reportShelfStateOf(null), "分からない");
   assert.equal(reportShelfStateOf({}), "分からない");
+});
+
+test("一覧：手羽屋は、締めても今までどおり出す", () => {
+  const v = decideReportListRead({ isTebaya: true, rows: 0, shelfState: "締まっている" });
+  assert.equal(v.showList, true);
+  assert.equal(v.message, null);
+});
+
+test("一覧：申し込んだお店・締まっている・0件＝「1件もありません」と見せない", () => {
+  const v = decideReportListRead({ isTebaya: false, rows: 0, shelfState: "締まっている" });
+  assert.equal(v.showList, false);
+  assert.match(String(v.message), /1件もありませんという意味ではありません|意味ではありません/);
+});
+
+test("一覧：1件でも読めていれば出す／まだ・分からないときも出す", () => {
+  assert.equal(
+    decideReportListRead({ isTebaya: false, rows: 2, shelfState: "締まっている" }).showList,
+    true,
+  );
+  for (const shelfState of ["まだ", "分からない"] as const) {
+    const v = decideReportListRead({ isTebaya: false, rows: 0, shelfState });
+    assert.equal(v.showList, true);
+    assert.equal(v.message, null);
+  }
+});
+
+test("編集：手羽屋は、締めても今までどおり直せる", () => {
+  const v = decideReportEdit({ isTebaya: true, shelfState: "締まっている" });
+  assert.equal(v.canEdit, true);
+  assert.equal(v.message, null);
+});
+
+test("編集：申し込んだお店・締まっている＝先に止める（嘘の「保存しました」を出さない）", () => {
+  const v = decideReportEdit({ isTebaya: false, shelfState: "締まっている" });
+  assert.equal(v.canEdit, false);
+  assert.match(String(v.message), /直せない形/);
+});
+
+test("編集：まだ締まっていない・確かめられないときは、今までどおり直せる", () => {
+  for (const shelfState of ["まだ", "分からない"] as const) {
+    const v = decideReportEdit({ isTebaya: false, shelfState });
+    assert.equal(v.canEdit, true);
+    assert.equal(v.message, null);
+  }
 });
