@@ -63,6 +63,18 @@ export type KeiriMonthServerData = {
   settings: KeiriSettings;
   /** 設定の行が倉庫に見つからなかったか（家賃・外注費の率が当てずっぽうになる） */
   settingsMissing: boolean;
+  /**
+   * 経理の設定（数え始めの日・期首残高）を**読めなかった**か（2026-10-19・f3-3・f3-4）。
+   * ★「行が無い」（settingsMissing）と**区別します**。
+   *   読めなかったのに既定値で計算すると、そのお店の現金残高が黙ってずれます。
+   */
+  settingsUnreadable: boolean;
+  /** 払った記録（給与・外注費）を**読めなかった**か。**0円と取り違えない** */
+  paymentsUnreadable: boolean;
+  /** 金庫を数えた記録を**読めなかった**か。「まだ数えていない」と取り違えない */
+  cashUnreadable: boolean;
+  /** 「この支払いは数えない」の印を**読めなかった**か。「印が無い」と取り違えない */
+  ignoresUnreadable: boolean;
   reports: KeiriReport[];
   /** 日報が1件も読めなかったか（通信の失敗も含む） */
   reportsUnreadable: boolean;
@@ -196,6 +208,42 @@ export async function readTenantShelfViaWindow(
   }
 }
 
+/**
+ * 棚を窓口ごしに聞いた結果（まだ聞いていない場合も含む）。
+ *   ok       … 窓口が答えた
+ *   missing  … 窓口そのものが倉庫に無い（＝貼り紙がまだ流れていない）
+ *   error    … 窓口はあるかもしれないが、聞けなかった
+ *   notasked … そもそも聞いていない（合言葉もテストの印も無かった）
+ */
+export type ShelfReadOutcome = "ok" | "missing" | "error" | "notasked";
+
+/**
+ * よその店の棚を、窓口で読めなかったときに **棚から直に読み直してよいか**
+ * （2026-10-19・kp253 ③・f3-3・f3-4）。
+ *
+ * ■ なぜ要るのか（やさしい説明）
+ *   貼り紙⑪⑫を流すと、経理の設定・払った記録・金庫の記録・「数えない」の印は
+ *   「印が空の行だけ 読んでよい」になります。よその店の行をブラウザと同じ公開の鍵で
+ *   そのまま聞くと、**エラーではなく「0件」**で返ってきます。
+ *   0件をそのまま使うと、そのお店の画面には
+ *     ・数え始めの日と期首残高 … 当てずっぽうの既定値
+ *     ・給与・外注費（払った記録） … 0円
+ *     ・金庫を数えた記録 … 無し
+ *     ・「この支払いは数えない」の印 … 無し（同じ支払いを2回 数える）
+ *   が **黙って** 出ます。＝ 現金残高と利益が、まちがったまま出ます。
+ *
+ * ■ ここで引く線
+ *   窓口が「**まだ無い**」と答えたときだけ、棚は開いたままだと分かるので
+ *   今までどおり直に読みます（貼り紙を流す前の倉庫＝いまの本番がこれ）。
+ *   それ以外（聞けなかった・そもそも聞いていない）は、締まっているかもしれないので
+ *   **読み直さずに「読めませんでした」と返します**（CLAUDE.md 5-3・lib/keiri/loadMonth.ts と同じ決まり）。
+ *
+ * ★手羽屋（印が空）はこの関数を通りません。手羽屋の読み方は1行も変わりません。
+ */
+export function tenantFallbackAllowed(outcome: ShelfReadOutcome): boolean {
+  return outcome === "missing";
+}
+
 /** 窓口に1回だけ聞く。読むだけ・書き込みはしない */
 export async function readTenantReportsViaWindow(
   db: RpcLike,
@@ -270,14 +318,20 @@ async function loadKeiriMonthServerInner(params: {
   //   窓口がまだ無い倉庫（貼り紙を流す前）では、今までどおりの読み方に落ちます。
   let s: any = null;
   let settingsViaWindow = false;
+  let settingsOutcome: ShelfReadOutcome = "notasked";
+  let settingsUnreadable = false;
   if (viaWindow) {
     const got = await readTenantShelfViaWindow(db as any, TENANT_SETTINGS_WINDOW, windowArgs);
+    settingsOutcome = got.outcome;
     if (got.outcome === "ok") {
       settingsViaWindow = true;
       s = got.rows[0] ?? null;
     }
   }
-  if (!settingsViaWindow) {
+  // ★よその店は、締まっているかもしれない棚を直に読み直さない（0件を「無い」と取り違えないため）
+  if (!settingsViaWindow && !tebaya && !tenantFallbackAllowed(settingsOutcome)) {
+    settingsUnreadable = true;
+  } else if (!settingsViaWindow) {
     const { data } = await db
       .from("keiri_settings")
       .select(
@@ -354,8 +408,11 @@ async function loadKeiriMonthServerInner(params: {
   //   （貼り紙⑪のあと、直に読むと0件で返るため。kp253 ③）。
   let payments: KeiriPayment[] = [];
   let paymentsViaWindow = false;
+  let paymentsOutcome: ShelfReadOutcome = "notasked";
+  let paymentsUnreadable = false;
   if (viaWindow) {
     const got = await readTenantShelfViaWindow(db as any, TENANT_PAYMENTS_WINDOW, windowArgs);
+    paymentsOutcome = got.outcome;
     if (got.outcome === "ok") {
       paymentsViaWindow = true;
       payments = (got.rows as unknown as KeiriPayment[]).slice().sort((a, b) => {
@@ -365,7 +422,10 @@ async function loadKeiriMonthServerInner(params: {
       });
     }
   }
-  if (!paymentsViaWindow) {
+  // ★よその店は、締まっているかもしれない棚を直に読み直さない（0件を「0円」と取り違えないため）
+  if (!paymentsViaWindow && !tebaya && !tenantFallbackAllowed(paymentsOutcome)) {
+    paymentsUnreadable = true;
+  } else if (!paymentsViaWindow) {
     const { data } = await db
       .from("keiri_payments")
       // ★id も取る。経理画面（サーバー側の窓口ごしに読むとき）が、
@@ -443,20 +503,26 @@ async function loadKeiriMonthServerInner(params: {
   // 金庫を数えた記録。棚がまだ無い倉庫でも落とさずに先へ進む。
   let cashEvents: CashEvent[] = [];
   let cashShelfMissing = false;
+  let cashUnreadable = false;
   {
     // ★よその店は窓口ごしに（貼り紙⑫のあと、直に読むと0件で返るため。kp253 ③）
     let cashViaWindow = false;
+    let cashOutcome: ShelfReadOutcome = "notasked";
     if (viaWindow) {
       const got = await readTenantShelfViaWindow(db as any, TENANT_CASH_EVENTS_WINDOW, {
         ...windowArgs,
         from,
       });
+      cashOutcome = got.outcome;
       if (got.outcome === "ok") {
         cashViaWindow = true;
         cashEvents = normalizeCashEvents(got.rows as unknown[]);
       }
     }
-    if (!cashViaWindow) {
+    // ★よその店は、締まっているかもしれない棚を直に読み直さない（0件を「数えていない」と取り違えないため）
+    if (!cashViaWindow && !tebaya && !tenantFallbackAllowed(cashOutcome)) {
+      cashUnreadable = true;
+    } else if (!cashViaWindow) {
       const { data, error } = await applyTenantScope<any>(
         db
           .from("keiri_cash_events")
@@ -495,19 +561,27 @@ async function loadKeiriMonthServerInner(params: {
   // 「同じ支払いが2か所にある」ときの印（kp230）。棚がまだ無い倉庫でも落とさずに先へ進む。
   let ignores: ExpenseIgnoreRow[] = [];
   let ignoreShelf: IgnoreShelfState = "unknown";
+  let ignoresUnreadable = false;
   {
     // ★よその店は窓口ごしに（貼り紙⑫のあと、直に読むと0件で返るため。kp253 ③）
     //   ここを読み落とすと「数えない」と決めた支払いが また経費に戻ります。
     let ignoresViaWindow = false;
+    let ignoresOutcome: ShelfReadOutcome = "notasked";
     if (viaWindow) {
       const got = await readTenantShelfViaWindow(db as any, TENANT_IGNORES_WINDOW, windowArgs);
+      ignoresOutcome = got.outcome;
       if (got.outcome === "ok") {
         ignoresViaWindow = true;
         ignoreShelf = "ready";
         ignores = got.rows as unknown as ExpenseIgnoreRow[];
       }
     }
-    if (!ignoresViaWindow) {
+    // ★よその店は、締まっているかもしれない棚を直に読み直さない
+    //   （印が0件になると、同じ支払いをまた2回 数えて経費が多く出ます）
+    if (!ignoresViaWindow && !tebaya && !tenantFallbackAllowed(ignoresOutcome)) {
+      ignoresUnreadable = true;
+      ignoreShelf = "unknown";
+    } else if (!ignoresViaWindow) {
       const { data, error } = await applyTenantScope<any>(
         db
           .from("keiri_expense_ignores")
@@ -522,6 +596,10 @@ async function loadKeiriMonthServerInner(params: {
   return {
     settings,
     settingsMissing: !s,
+    settingsUnreadable,
+    paymentsUnreadable,
+    cashUnreadable,
+    ignoresUnreadable,
     reports,
     reportsUnreadable,
     payments,
@@ -549,6 +627,10 @@ function timedOutData(businessCode: string): KeiriMonthServerData {
   return {
     settings: defaultSettingsFor(businessCode),
     settingsMissing: true,
+    settingsUnreadable: true,
+    paymentsUnreadable: true,
+    cashUnreadable: true,
+    ignoresUnreadable: true,
     reports: [],
     reportsUnreadable: true,
     payments: [],
