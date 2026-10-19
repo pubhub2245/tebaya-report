@@ -384,3 +384,98 @@ test("手羽屋として読むときは、日報いがいの窓口も1回も呼�
     assert.ok(tableNames(calls).includes(shelf), `手羽屋は ${shelf} を今までどおり直に読む`);
   }
 });
+
+/* ------------------------------------------------------------------ *
+ *  窓口で読めなかったとき、**棚から直に読み直さない**
+ *  （2026-10-19・kp253 ③・f3-3・f3-4）
+ *
+ *  貼り紙⑪⑫のあと、よその店の行を公開の鍵で聞くと
+ *  **エラーではなく「0件」**で返ります。0件をそのまま使うと、
+ *  数え始めの日・期首残高が既定値に、給与・金庫・「数えない」印が空になり、
+ *  そのお店の**現金残高と利益がまちがったまま**出ます。
+ * ------------------------------------------------------------------ */
+
+/** 窓口はあるが答えられない（＝「まだ無い」ではない）ときの返事 */
+function windowBroken() {
+  return () => ({ data: null, error: { code: "57014", message: "canceling statement" } });
+}
+
+test("よその店：窓口が答えられないときは、棚を直に読み直さず「読めません」と返す", async () => {
+  const { db, calls } = fakeDb({}, windowBroken());
+  const data = await loadKeiriMonthServer({
+    ym: "2026-09",
+    businessCode: "t_abc",
+    scope: OTHER_SHOP,
+    monthOnly: true,
+    tenantReadHash: "a".repeat(64),
+    db,
+  });
+
+  for (const shelf of [
+    "keiri_settings",
+    "keiri_payments",
+    "keiri_cash_events",
+    "keiri_expense_ignores",
+  ]) {
+    assert.equal(
+      tableNames(calls).includes(shelf),
+      false,
+      `${shelf} を直に読み直さない（0件で返るため）`,
+    );
+  }
+
+  assert.equal(data.settingsUnreadable, true, "数え始めと期首残高は「読めません」");
+  assert.equal(data.paymentsUnreadable, true, "払った記録は「読めません」（0円にしない）");
+  assert.equal(data.cashUnreadable, true, "金庫の記録は「読めません」（数えていないにしない）");
+  assert.equal(data.ignoresUnreadable, true, "「数えない」の印は「読めません」");
+  assert.equal(data.payments.length, 0);
+  assert.equal(data.cashEvents.length, 0);
+  assert.equal(data.ignores.length, 0);
+  assert.equal(data.ignoreShelf, "unknown", "印の棚を「ある」と言い切らない");
+});
+
+test("よその店：合言葉もテストの印も無いときは、棚を直に読み直さない", async () => {
+  const { db, calls, rpcCalls } = fakeDb({}, windowImpl({}));
+  const data = await loadKeiriMonthServer({
+    ym: "2026-09",
+    businessCode: "t_abc",
+    scope: OTHER_SHOP,
+    monthOnly: true,
+    db,
+  });
+  assert.equal(rpcCalls.length, 0, "聞く相手が無いので窓口も呼ばない");
+  for (const shelf of [
+    "keiri_settings",
+    "keiri_payments",
+    "keiri_cash_events",
+    "keiri_expense_ignores",
+  ]) {
+    assert.equal(tableNames(calls).includes(shelf), false, `${shelf} を直に読み直さない`);
+  }
+  assert.equal(data.settingsUnreadable, true);
+  assert.equal(data.paymentsUnreadable, true);
+  assert.equal(data.cashUnreadable, true);
+  assert.equal(data.ignoresUnreadable, true);
+});
+
+test("手羽屋：窓口が答えられなくても「読めません」は立たない（読み方は今までどおり）", async () => {
+  const { db, calls } = fakeDb({}, windowBroken());
+  const data = await loadKeiriMonthServer({
+    ym: "2026-09",
+    businessCode: "tebaya",
+    tenantReadHash: "b".repeat(64),
+    db,
+  });
+  for (const shelf of [
+    "keiri_settings",
+    "keiri_payments",
+    "keiri_cash_events",
+    "keiri_expense_ignores",
+  ]) {
+    assert.ok(tableNames(calls).includes(shelf), `手羽屋は ${shelf} を今までどおり直に読む`);
+  }
+  assert.equal(data.settingsUnreadable, false);
+  assert.equal(data.paymentsUnreadable, false);
+  assert.equal(data.cashUnreadable, false);
+  assert.equal(data.ignoresUnreadable, false);
+});

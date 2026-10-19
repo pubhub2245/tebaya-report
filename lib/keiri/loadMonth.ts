@@ -147,6 +147,15 @@ async function loadViaServerWindow(params: {
   if (d.advancesUnreadable) {
     throw new Error("立替の記録を読めませんでした。少し待ってから開き直してください。");
   }
+  // ★日報・立替いがいの棚（数え始めと期首残高・給与・金庫の記録・「数えない」の印）も同じ決まりで止めます
+  //   （2026-10-19・f3-3・f3-4）。読めなかったのに既定値や0件で計算すると、
+  //   そのお店の**現金残高と利益がまちがったまま**画面に出ます。
+  if (d.settingsUnreadable || d.paymentsUnreadable || d.cashUnreadable || d.ignoresUnreadable) {
+    throw new Error(
+      "帳簿の一部（数え始めの日・給与・金庫の記録・「数えない」の印）を読めませんでした。" +
+        "まちがった金額を出さないために、ここでは何も出しません。少し待ってから開き直してください。",
+    );
+  }
 
   return {
     settings: d.settingsMissing ? params.fallbackSettings : (d.settings as KeiriSettings),
