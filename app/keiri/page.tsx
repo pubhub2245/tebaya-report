@@ -95,6 +95,7 @@ import {
   type CashReconcile,
 } from "@/lib/keiri/cashCheck";
 import { encodeCashCountMemo } from "@/lib/keiri/cashCountMemo";
+import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
 import {
   buildCashVariants,
   pickCashVariant,
@@ -1028,6 +1029,7 @@ function KeiriInner() {
         computedAsOfWithRepaid={computedAsOfWithRepaid}
         repaidEarlierRows={advancesRepaidEarlier.length}
         registerCloses={registerCloses}
+        openingDate={effective.opening_date}
       />
 
       {/* 毎月お渡しする1枚（2026-10-04・kp231）。
@@ -1661,6 +1663,7 @@ function CashCountCard({
   computedAsOfWithRepaid,
   repaidEarlierRows,
   registerCloses,
+  openingDate,
 }: {
   reconcile: ReturnType<typeof reconcileCash>;
   balanceNow: number;
@@ -1679,6 +1682,8 @@ function CashCountCard({
   repaidEarlierRows: number;
   /** 閉店後にレジに残したつり銭の実測（号車ごと・2026-10-12・f1-4） */
   registerCloses: RegisterCloseRow[];
+  /** 経理の数え始めの日（keiri_settings）。どの金額と比べているのかを画面に出すため */
+  openingDate: string;
 }) {
   const [countOn, setCountOn] = useState(todayStr());
   const [countYen, setCountYen] = useState("");
@@ -1858,6 +1863,14 @@ function CashCountCard({
   };
 
   const lines = reconcileLines(reconcile);
+  /** どの数え始めから数えた金額と比べているのか（1行・2026-10-19・f1-4） */
+  const openingSourceLine = buildCashOpeningSource({
+    openingDate: openingDate || null,
+    // 画面はもう一方の棚（手羽屋の毎日の画面ぶん）を読みません。
+    // 日のちがいを名指しするのは外からの窓口（/api/keiri/cashcount）の役です。
+    otherOpeningDate: null,
+    otherShelfExists: false,
+  }).line;
 
   return (
     <section id="kinko" className="card space-y-3 scroll-mt-4">
@@ -1906,6 +1919,12 @@ function CashCountCard({
         {depositsTotal > 0 ? `（うち銀行に入れた ${yen(depositsTotal)} は引いてあります）` : ""}。
         数えた日の時点までで比べているので、数えたあとの売上や支払いは上の差には入りません。
       </p>
+
+      {/* ★どの数え始めから数えた金額と比べているのかを、はっきり出す（2026-10-19・f1-4）。
+             現金の数え始めの記録は倉庫に2か所あり（経理＝keiri_settings／
+             手羽屋が毎日使う現金の画面＝cash_settings）、どちらを読むかで金額が丸ごと変わります。
+             経理が読むのは keiri_settings だけ。迷わせないよう、ここに1行で書きます。 */}
+      <p className="text-xs text-stone-500 leading-relaxed">{openingSourceLine}</p>
 
       {/* ① 金庫を数えた */}
       <div className="pt-3 border-t border-stone-200 space-y-2">

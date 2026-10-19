@@ -7,6 +7,7 @@ import {
   buildCashCountWindow,
   type CashCountPlace,
 } from "@/lib/keiri/cashCountWindow";
+import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
 import { buildCashVariants, pickCashVariant } from "@/lib/keiri/cashVariant";
 import { CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
@@ -112,6 +113,15 @@ export async function GET() {
     // 記録がどこにあるか（置き場／おまけ欄の控え）。金額は見ません
     const place: CashCountPlace | null = last ? (data.cashShelfMissing ? "控え" : "棚") : null;
 
+    // ★「どの数え始めと比べているのか」を外にも出す（2026-10-19・f1-4）。
+    //   数え始めの記録は倉庫に2か所あり（経理＝keiri_settings／手羽屋の毎日の画面＝cash_settings）、
+    //   どちらを読むかで「今の現金」が丸ごと変わります。経理が読むのは keiri_settings だけ
+    //   という事実を、外から1回で読める形にしておきます。**金額は1円も出しません**（日付と棚の名前だけ）。
+    const openingSource = buildCashOpeningSource({
+      openingDate: data.settingsMissing ? null : (settings.opening_date ?? null),
+      ...(await readDailyScreenOpening(db)),
+    });
+
     return json({
       ok: true,
       ...buildCashCountWindow({ reconcile, pick, place }),
@@ -120,9 +130,38 @@ export async function GET() {
       variantRows: repaidRows.length,
       // 数える前の用意（じゅんの1分が、ちゃんと合否になるか）
       ready,
+      // どの数え始めと比べているのか（棚の名前と日付だけ・金額は出さない）
+      openingSource,
     });
   } catch (e: any) {
     return json({ ok: false, reason: String(e?.message ?? e).slice(0, 120) });
+  }
+}
+
+/**
+ * 手羽屋が毎日使う現金の画面（/cash）が読む棚の「数え始めの日」だけを読む。
+ * **読むだけ**で、金額（期首残高）は読みません。読めなかったら「無い」ではなく
+ * 日付なしとして扱います（0件と取り違えないため）。
+ */
+async function readDailyScreenOpening(
+  db: ReturnType<typeof serverClient>,
+): Promise<{ otherOpeningDate: string | null; otherShelfExists: boolean }> {
+  try {
+    const { data, error } = await db
+      .from("cash_settings")
+      .select("start_date")
+      .order("updated_at", { ascending: false })
+      .limit(1);
+    if (error) return { otherOpeningDate: null, otherShelfExists: false };
+    const row = (data as Array<{ start_date?: unknown }> | null)?.[0] ?? null;
+    if (!row) return { otherOpeningDate: null, otherShelfExists: false };
+    const d = row.start_date;
+    return {
+      otherOpeningDate: typeof d === "string" && d ? d : null,
+      otherShelfExists: true,
+    };
+  } catch {
+    return { otherOpeningDate: null, otherShelfExists: false };
   }
 }
 
