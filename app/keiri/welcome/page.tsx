@@ -27,7 +27,7 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { normalizeTenantScope, writeTenantScope } from "@/lib/tenantScope";
+import { normalizeTenantScope, writeTenantScope, writeTenantName } from "@/lib/tenantScope";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
 import { paidPendingMailto } from "@/lib/keiri/paidPending";
 import { KEIRI_FIRST_DAY_INTRO, KEIRI_FIRST_DAY_STEPS } from "@/lib/keiri/support";
@@ -99,6 +99,9 @@ function WelcomeForm() {
       // これ以降、日報はこのお店の印で保存され、経理画面もこのお店のぶんだけを出す
       // （手羽屋の画面とデータは混ざらない。lib/tenantScope.ts）。
       writeTenantScope(json.tenantId ?? null);
+      // ★店名も控える（2026-10-18・f3-4／kp253）。お店の棚は公開の鍵では読めないので、
+      //   ここで控えないと、このお店は明日から自分の名前を画面に出せない。
+      writeTenantName(shopName, undefined, normalizeTenantScope(json.tenantId));
       setTenantId(normalizeTenantScope(json.tenantId));
       setAdminPassword(String(json.adminPassword ?? ""));
       if (json.warning) setWarning(String(json.warning));

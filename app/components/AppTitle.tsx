@@ -17,7 +17,7 @@
 
 import { useEffect, useState } from "react";
 
-import { isTebayaScope, readTenantScope } from "@/lib/tenantScope";
+import { isTebayaScope, readTenantScope, readTenantName, writeTenantName } from "@/lib/tenantScope";
 
 /** 手羽屋の題（これまでと同じ文字） */
 const TEBAYA_TITLE = "手羽屋 業務システム";
@@ -32,12 +32,17 @@ export default function AppTitle() {
     // 手羽屋（印が空）は、これまでと1つも変えない
     if (isTebayaScope(scope) || !scope) return;
 
-    setTitle(FALLBACK_TITLE);
+    // 控えた名前があれば、まずそれを出す（2026-10-18・f3-4／kp253）
+    const remembered = readTenantName(undefined, scope);
+    setTitle(remembered ? `${remembered} 業務システム` : FALLBACK_TITLE);
     (async () => {
       try {
         const res = await fetch(`/api/keiri/shop?id=${encodeURIComponent(scope)}`);
         const json = await res.json().catch(() => null);
-        if (json?.ok && json.shopName) setTitle(`${String(json.shopName)} 業務システム`);
+        if (json?.ok && json.shopName) {
+          setTitle(`${String(json.shopName)} 業務システム`);
+          writeTenantName(json.shopName, undefined, scope);
+        }
       } catch {
         // 名前が引けなくても画面は出す（「業務システム」のまま）
       }

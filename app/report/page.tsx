@@ -9,6 +9,8 @@ import {
   readTenantScope,
   tenantStamp,
   writeTenantScope,
+  readTenantName,
+  writeTenantName,
   type TenantScope,
 } from "@/lib/tenantScope";
 import { yen } from "@/lib/format";
@@ -153,12 +155,19 @@ export default function Page() {
     const current = readTenantScope();
     setScope(current);
     if (!current) return;
-    // お店の名前だけ聞きに行く（売上も合言葉も返らない窓口）
+    // まず入室したときに控えた名前を出す（2026-10-18・f3-4／kp253）。
+    // お店の棚は公開の鍵では読めず、窓口が答えられないことがあるため。
+    const remembered = readTenantName(undefined, current);
+    if (remembered) setScopeName(remembered);
+    // そのうえで、お店の名前だけ聞きに行く（売上も合言葉も返らない窓口）
     (async () => {
       try {
         const res = await fetch(`/api/keiri/shop?id=${encodeURIComponent(current)}`);
         const json = await res.json().catch(() => null);
-        if (json?.ok && json.shopName) setScopeName(String(json.shopName));
+        if (json?.ok && json.shopName) {
+          setScopeName(String(json.shopName));
+          writeTenantName(json.shopName, undefined, current);
+        }
       } catch {}
     })();
   }, []);
