@@ -8,13 +8,14 @@ import {
   type CashCountPlace,
 } from "@/lib/keiri/cashCountWindow";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
+import { buildCashCountPress } from "@/lib/keiri/cashCountPress";
 import { buildCashVariants, pickCashVariant } from "@/lib/keiri/cashVariant";
 import { CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 import { defaultSettingsFor } from "@/lib/keiri/index";
 import { loadKeiriMonthServer } from "@/lib/keiri/loadMonthServer";
 import { latestRegisterFloat } from "@/lib/keiri/registerFloat";
-import { serverClient } from "@/lib/supabaseServer";
+import { anonClient, serverClient } from "@/lib/supabaseServer";
 import { TEBAYA_SCOPE } from "@/lib/tenantScope";
 
 export const runtime = "nodejs";
@@ -122,10 +123,20 @@ export async function GET() {
       ...(await readDailyScreenOpening(db)),
     });
 
+    // ★「いま じゅんが押したら、ちゃんと記録に残るか」を 頼む前に答える（2026-10-20・kp245）。
+    //   控えの道は、先に経理の設定の行を読んでから足す作りなので、
+    //   **その行が公開の鍵（画面と同じ鍵）で読めるか**が、1分が実るかどうかそのものです。
+    const press = buildCashCountPress({
+      shelfMissing: data.cashShelfMissing,
+      ...(await probeMemoRow(data.cashShelfMissing)),
+    });
+
     return json({
       ok: true,
       ...buildCashCountWindow({ reconcile, pick, place }),
       shelfMissing: data.cashShelfMissing,
+      // じゅんが押す回数と、いま押したら残るか（金額は出さない）
+      press,
       // 数え方が2通りに分かれている月か（件数だけ・金額は返さない）
       variantRows: repaidRows.length,
       // 数える前の用意（じゅんの1分が、ちゃんと合否になるか）
@@ -135,6 +146,32 @@ export async function GET() {
     });
   } catch (e: any) {
     return json({ ok: false, reason: String(e?.message ?? e).slice(0, 120) });
+  }
+}
+
+/**
+ * 控えを置く場所（経理の設定の行）が、**公開の鍵**で読めるかだけを確かめる
+ * （2026-10-20・kp245・f1-4）。**読むだけ**で、ひとことの中身も金額も読みません。
+ *
+ * ★ここはサーバー側の鍵ではなく、**画面と同じ公開の鍵**で聞きます。
+ *   じゅんが押すのはブラウザなので、ブラウザの鍵で読めるかどうかが答えになります。
+ * ★画面と同じ聞き方（business_type_code で1行・maybeSingle）をそのまま真似ます。
+ *   聞き方を変えると、画面では止まるのに ここでは通る、という食い違いが出ます。
+ */
+async function probeMemoRow(
+  shelfMissing: boolean,
+): Promise<{ rowReadable: boolean; readError: string | null }> {
+  if (!shelfMissing) return { rowReadable: false, readError: null };
+  try {
+    const { data, error } = await anonClient()
+      .from("keiri_settings")
+      .select("business_type_code")
+      .eq("business_type_code", CASE_BUSINESS_CODE)
+      .maybeSingle();
+    if (error) return { rowReadable: false, readError: String(error.message).slice(0, 120) };
+    return { rowReadable: !!data, readError: null };
+  } catch (e: any) {
+    return { rowReadable: false, readError: String(e?.message ?? e).slice(0, 120) };
   }
 }
 
