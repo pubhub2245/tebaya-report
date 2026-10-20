@@ -21,19 +21,21 @@ const ALL_UNDONE = {
   cash: { shelfMissing: true, counted: false },
 };
 
-test("まだ何も済んでいない：3件のこり・貼り紙が先頭", () => {
+test("まだ何も済んでいない：3件のこり・金庫（1分・1押し）が先頭", () => {
   const t = buildSetupTodo(ALL_UNDONE);
   assert.equal(t.remaining, 3);
   assert.equal(t.unknown, 0);
   assert.equal(t.allDone, false);
-  assert.equal(t.items[0].id, "shelves");
+  // ★2026-10-20：いちばん短い手続き（1分・1押し・ほかを待たない）を先頭にした
+  assert.equal(t.items[0].id, "cash");
   assert.deepEqual(
     t.items.map((i) => i.id),
-    ["shelves", "cash", "key"],
+    ["cash", "shelves", "key"],
   );
   assert.match(t.summary, /のこりの手続きは 3 件/);
   // 貼り紙が止めている仕上げの項目を、取りこぼさず名指しする
-  assert.deepEqual(t.items[0].checks, ["f1-4", "f1-5", "f1-6", "f3-4", "f5-4"]);
+  const shelves = t.items.find((i) => i.id === "shelves")!;
+  assert.deepEqual(shelves.checks, ["f1-4", "f1-5", "f1-6", "f3-4", "f5-4"]);
 });
 
 test("貼り紙が全部 流れたら「済み」になり、のこりから外れる", () => {
@@ -146,11 +148,29 @@ test("のこりが1件なら、互いに待っていないの1行は出さない
   assert.equal(t.independentNote, null);
 });
 
-test("金庫の手続きは、押すボタンを2つとも持つ（2回目を落とさない）", () => {
+test("棚がまだ無いあいだは、押すボタンは1つ（比べた1押しで控えに残る）", () => {
   const cash = buildSetupTodo(ALL_UNDONE).items.find((i) => i.id === "cash")!;
-  assert.equal(cash.presses?.length, 2);
+  assert.equal(cash.presses?.length, 1);
   assert.match(cash.presses![0], /比べる/);
-  assert.match(cash.presses![1], /控えに残す/);
+  assert.match(cash.presses![0], /この1回だけ/);
   // 棚が無いあいだも「貼り紙を待たない」と言う
   assert.match(cash.detail, /貼り紙を待ちません/);
+});
+
+test("棚ができたあとは、押すボタンを2つとも持つ（2回目を落とさない）", () => {
+  const cash = buildSetupTodo({
+    ...ALL_UNDONE,
+    cash: { shelfMissing: false, counted: false },
+  }).items.find((i) => i.id === "cash")!;
+  assert.equal(cash.presses?.length, 2);
+  assert.match(cash.presses![0], /比べる/);
+  assert.match(cash.presses![1], /記録する|控えに残す/);
+});
+
+test("のこりが3件のときは、金庫（1分・1押し）をいちばん上に出す", () => {
+  const t = buildSetupTodo(ALL_UNDONE);
+  assert.equal(t.remaining, 3);
+  assert.equal(t.items[0].id, "cash");
+  assert.equal(t.items[1].id, "shelves");
+  assert.equal(t.items[2].id, "key");
 });

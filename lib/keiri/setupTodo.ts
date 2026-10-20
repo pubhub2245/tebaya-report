@@ -29,6 +29,8 @@
  *   ・手羽屋の日報・シフト・レジ・LINE・お金の計算とは関係しない
  */
 
+import { compareAlsoKeeps } from "./cashCountPress";
+
 /** その手続きが済んでいるか */
 export type SetupTodoState = "のこり" | "済み" | "分からない";
 
@@ -104,7 +106,8 @@ const CASH_SHEET = "/keiri";
 function shelvesItem(input: SetupTodoInput["shelves"]): SetupTodoItem {
   const base = {
     id: "shelves" as const,
-    order: 1,
+    // ★2026-10-20：金庫（1分・1押し）を先にした（下の cashItem の覚え書き）。
+    order: 2,
     title: "倉庫に貼り紙を1回 貼る",
     minutes: "2分",
     benefit:
@@ -132,15 +135,30 @@ function shelvesItem(input: SetupTodoInput["shelves"]): SetupTodoItem {
 function cashItem(input: SetupTodoInput["cash"]): SetupTodoItem {
   const base = {
     id: "cash" as const,
-    order: 2,
+    /**
+     * ★2026-10-20：いちばん上に出す（kp245・f1-4）。
+     *   いまは **1分・押すのは1回**で、ほかの手続きを1つも待ちません。
+     *   貼り紙（2分）が17日 動いていないあいだ、その後ろに置いていると
+     *   「上が済むまで押しても意味が無い」と読まれます。短いほうを先に出します。
+     */
+    order: 1,
     title: "金庫を数えて、金額を1回 入れる",
     minutes: "1分",
     benefit: "「計算上の現金」と「実際の金庫」が合っているかが、その場で分かります",
     href: CASH_SHEET,
     checks: ["f1-4"],
-    // ★2回目を書き忘れると、押しても記録が残らない（f1-4 が確かめられない）
+    // ★押すボタンは、下で「控えの道か棚の道か」によって入れ替えます。
+    //   控えの道（置き場がまだ無いあいだ）は、比べた1押しで控えまで残ります。
     presses: ["この金額で比べる", "この結果を控えに残す（これで終わりです）"],
   };
+  /**
+   * 押すボタンの並び。**決まりは lib/keiri/cashCountPress.ts の1か所**に合わせる。
+   * ここだけ古いままだと、画面のボタンは1回なのに お願いの文は2回と書く食い違いになる。
+   */
+  const pressesFor = (shelfMissing: boolean): string[] =>
+    compareAlsoKeeps(shelfMissing)
+      ? ["この金額で比べる（これで控えに残ります。押すのはこの1回だけです）"]
+      : ["この金額で比べる", "この結果を控えに残す（これで終わりです）"];
   if (!input) {
     return { ...base, state: "分からない", detail: "いま確かめられませんでした" };
   }
@@ -149,6 +167,7 @@ function cashItem(input: SetupTodoInput["cash"]): SetupTodoItem {
   if (input.counted) {
     return {
       ...base,
+      presses: pressesFor(input.shelfMissing),
       state: "済み",
       detail: input.countedInMemo
         ? "数えた記録が控えに残っています（棚ができたら、そのまま記録に移ります）"
@@ -158,13 +177,20 @@ function cashItem(input: SetupTodoInput["cash"]): SetupTodoItem {
   if (input.shelfMissing) {
     return {
       ...base,
+      presses: pressesFor(true),
       state: "のこり",
       detail:
         "棚は準備中ですが、いま入れれば控えに残ります" +
-        "（貼り紙を待ちません。画面にその場で答えも出ます）",
+        "（貼り紙を待ちません。押すのは［この金額で比べる］の1回だけで、" +
+        "答えがその場に出て、そのまま控えに残ります）",
     };
   }
-  return { ...base, state: "のこり", detail: "数えた記録がまだ1件もありません" };
+  return {
+    ...base,
+    presses: pressesFor(false),
+    state: "のこり",
+    detail: "数えた記録がまだ1件もありません",
+  };
 }
 
 function keyItem(input: SetupTodoInput["key"]): SetupTodoItem {
