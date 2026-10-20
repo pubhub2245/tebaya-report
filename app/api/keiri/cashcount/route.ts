@@ -9,6 +9,7 @@ import {
 } from "@/lib/keiri/cashCountWindow";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
 import { buildCashCountPress } from "@/lib/keiri/cashCountPress";
+import { planCashCountNoteKeep, type NoteKeepPlan } from "@/lib/keiri/cashCountMemo";
 import { buildCashVariants, pickCashVariant } from "@/lib/keiri/cashVariant";
 import { CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
@@ -150,28 +151,48 @@ export async function GET() {
 }
 
 /**
- * 控えを置く場所（経理の設定の行）が、**公開の鍵**で読めるかだけを確かめる
- * （2026-10-20・kp245・f1-4）。**読むだけ**で、ひとことの中身も金額も読みません。
+ * 控えを置く場所（経理の設定の行）が、**公開の鍵**で読めるかを確かめ、あわせて
+ * **いま書いてある ひとこと が、控えを足しても残るか**を答える
+ * （2026-10-20・kp245・f1-4）。**読むだけ**です（1行も書き込みません）。
  *
  * ★ここはサーバー側の鍵ではなく、**画面と同じ公開の鍵**で聞きます。
  *   じゅんが押すのはブラウザなので、ブラウザの鍵で読めるかどうかが答えになります。
  * ★画面と同じ聞き方（business_type_code で1行・maybeSingle）をそのまま真似ます。
  *   聞き方を変えると、画面では止まるのに ここでは通る、という食い違いが出ます。
+ * ★ひとことは**残るかどうかを見るためだけ**に読み、**文そのものは窓口に返しません**
+ *   （返すのは「入っているか・何文字か・そのまま残るか」だけ。だれでも読める窓口のため）。
  */
 async function probeMemoRow(
   shelfMissing: boolean,
-): Promise<{ rowReadable: boolean; readError: string | null }> {
-  if (!shelfMissing) return { rowReadable: false, readError: null };
+): Promise<{
+  rowReadable: boolean;
+  readError: string | null;
+  existingNote: NoteKeepPlan | null;
+}> {
+  if (!shelfMissing) return { rowReadable: false, readError: null, existingNote: null };
   try {
     const { data, error } = await anonClient()
       .from("keiri_settings")
-      .select("business_type_code")
+      .select("business_type_code, memo")
       .eq("business_type_code", CASE_BUSINESS_CODE)
       .maybeSingle();
-    if (error) return { rowReadable: false, readError: String(error.message).slice(0, 120) };
-    return { rowReadable: !!data, readError: null };
+    if (error)
+      return {
+        rowReadable: false,
+        readError: String(error.message).slice(0, 120),
+        existingNote: null,
+      };
+    return {
+      rowReadable: !!data,
+      readError: null,
+      existingNote: data ? planCashCountNoteKeep((data as any).memo ?? null) : null,
+    };
   } catch (e: any) {
-    return { rowReadable: false, readError: String(e?.message ?? e).slice(0, 120) };
+    return {
+      rowReadable: false,
+      readError: String(e?.message ?? e).slice(0, 120),
+      existingNote: null,
+    };
   }
 }
 

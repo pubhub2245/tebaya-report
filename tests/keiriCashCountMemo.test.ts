@@ -7,8 +7,10 @@ import {
   decodeCashCountMemo,
   encodeCashCountMemo,
   mergeCashEvents,
+  planCashCountNoteKeep,
   stripCashCountMemo,
 } from "../lib/keiri/cashCountMemo";
+import { buildCashCountPress } from "../lib/keiri/cashCountPress";
 import { latestCount, type CashEvent } from "../lib/keiri/cashCheck";
 import { buildSetupTodo } from "../lib/keiri/setupTodo";
 
@@ -136,4 +138,81 @@ test("⑤ 棚も控えも無ければ「のこり」。ただし『残りませ�
   const cash = todo.items.find((i) => i.id === "cash");
   assert.equal(cash?.state, "のこり");
   assert.ok((cash?.detail ?? "").includes("控えに残ります"));
+});
+
+/**
+ * ⑥ 「いま書いてある ひとこと は、控えを足しても残るか」を外から言える形にする
+ *    （2026-10-20・kp245・f1-4）。
+ *
+ *    控えを置く場所は『経理の設定』の ひとこと欄 1つだけで、そこには
+ *    じゅんが 2026-09-10 に書いた「数え始めの説明」が入っています。
+ *    押したときにその文が上書きで消えないことを、**文を見せずに**言えるようにする。
+ */
+
+test("⑥ ひとことが入っているとき：文字数だけを返し、1文字も消えないと言う", () => {
+  const plan = planCashCountNoteKeep(ORIGINAL);
+  assert.equal(plan.has, true);
+  assert.equal(plan.chars, ORIGINAL.length);
+  assert.equal(plan.keptExactly, true);
+  assert.equal(plan.tidied, false);
+  // ★文そのものは返さない（だれでも読める窓口に出すため）
+  assert.ok(!plan.line.includes(ORIGINAL));
+  assert.ok(plan.line.includes("1文字も消えません"));
+});
+
+test("⑥ ひとことが空のとき：消える文は無いと言う", () => {
+  for (const empty of [null, undefined, "", "   \n  "]) {
+    const plan = planCashCountNoteKeep(empty);
+    assert.equal(plan.has, false);
+    assert.equal(plan.chars, 0);
+    assert.equal(plan.keptExactly, true);
+  }
+});
+
+test("⑥ すでに控えが入っている欄でも、ひとことはそのまま残ると言う", () => {
+  const withBlock = encodeCashCountMemo(ORIGINAL, {
+    happened_on: "2026-10-20",
+    amount: 1004399,
+  });
+  const plan = planCashCountNoteKeep(withBlock);
+  assert.equal(plan.has, true);
+  assert.equal(plan.chars, ORIGINAL.length);
+  assert.equal(plan.keptExactly, true);
+  // もう1回 押しても ひとことは残り、控えは1組だけ
+  const next = encodeCashCountMemo(withBlock, { happened_on: "2026-10-21", amount: 5 });
+  assert.equal(stripCashCountMemo(next), ORIGINAL);
+  assert.equal(decodeCashCountMemo(next).length, 1);
+});
+
+test("⑥ 前後の空白・空行だけそろえるときは、そう正直に言う（文は消さない）", () => {
+  const messy = `  ${ORIGINAL}\n\n\n\n`;
+  const plan = planCashCountNoteKeep(messy);
+  assert.equal(plan.has, true);
+  assert.equal(plan.keptExactly, true);
+  assert.equal(plan.tidied, true);
+  assert.ok(plan.line.includes("空行だけ"));
+});
+
+test("⑥ 外から読む窓口に、ひとことの中身は乗らない（文字数と可否だけ）", () => {
+  const press = buildCashCountPress({
+    shelfMissing: true,
+    rowReadable: true,
+    readError: null,
+    existingNote: planCashCountNoteKeep(ORIGINAL),
+  });
+  assert.equal(press.willKeep, true);
+  assert.equal(press.presses, 1);
+  assert.equal(press.existingNote?.keptExactly, true);
+  assert.equal(press.existingNote?.chars, ORIGINAL.length);
+  assert.ok(!JSON.stringify(press).includes(ORIGINAL));
+});
+
+test("⑥ 控えを置く場所が読めないときは、ひとことの話をしない（null）", () => {
+  const press = buildCashCountPress({
+    shelfMissing: true,
+    rowReadable: false,
+    readError: null,
+  });
+  assert.equal(press.willKeep, false);
+  assert.equal(press.existingNote, null);
 });
