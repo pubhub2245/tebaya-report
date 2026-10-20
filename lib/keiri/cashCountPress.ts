@@ -25,6 +25,8 @@
  *   ・手羽屋の日報・シフト・レジ・LINE・お金の計算（lib/money.ts）には触らない。
  */
 
+import type { NoteKeepPlan } from "./cashCountMemo";
+
 /** 数えた1回を、どこに残す道か */
 export type CashCountPath =
   /** 置き場（keiri_cash_events）に1行 足す道。押すたびに行が増える */
@@ -109,19 +111,28 @@ export type CashCountPress = {
   reason: string | null;
   /** 人が読む1行 */
   line: string;
+  /**
+   * いま おまけ欄に書いてある ひとこと（人が書いた文）が、控えを足しても残るか
+   * （null＝控えの道ではない／確かめていない）。**文そのものは返しません**
+   */
+  existingNote: NoteKeepPlan | null;
   /** この窓口が何を返さないか */
   note: string;
 };
 
 const PRESS_NOTE =
-  "金額は1円も返しません。返すのは「押す回数」と「いま押したら残るか」だけです。1行も書き込みません。";
+  "金額は1円も返しません。返すのは「押す回数」と「いま押したら残るか」、" +
+  "そして「いま書いてある ひとこと が残るか（文字数だけ・文そのものは返しません）」です。1行も書き込みません。";
 
 export function buildCashCountPress(params: {
   shelfMissing: boolean;
   rowReadable: boolean;
   readError: string | null;
+  /** いま書いてある ひとこと が残るか（読めなかったときは null） */
+  existingNote?: NoteKeepPlan | null;
 }): CashCountPress {
   const { shelfMissing, rowReadable, readError } = params;
+  const existingNote = params.existingNote ?? null;
   const path = cashCountPathOf(shelfMissing);
   const presses = pressesNeeded(shelfMissing);
 
@@ -134,6 +145,7 @@ export function buildCashCountPress(params: {
       line:
         "置き場（keiri_cash_events）ができています。数えた1回は棚に1行ずつ足す道で残ります" +
         `（押すのは ${presses} 回：比べる → 記録する）。この道は外から確かめていません。`,
+      existingNote: null,
       note: PRESS_NOTE,
     };
   }
@@ -147,6 +159,7 @@ export function buildCashCountPress(params: {
       line:
         "いま押しても記録が残りません（控えを置く場所＝経理の設定の行が、画面と同じ鍵で読めません）。" +
         "金庫を数えてもらう前に、ここを直すこと。",
+      existingNote: null,
       note: PRESS_NOTE,
     };
   }
@@ -160,6 +173,7 @@ export function buildCashCountPress(params: {
       line:
         "いま押しても記録が残りません（控えを置く場所＝経理の設定の行が1つも読めません）。" +
         "金庫を数えてもらう前に、ここを直すこと。",
+      existingNote: null,
       note: PRESS_NOTE,
     };
   }
@@ -173,7 +187,9 @@ export function buildCashCountPress(params: {
       `用意はできています。押すのは ${presses} 回だけです` +
       "（［この金額で比べる］を押すと、答えが出て、そのまま控えに残ります）。" +
       "置き場（keiri_cash_events）はまだ無いので、経理の設定のおまけ欄に" +
-      "「いちばん新しい1回だけ」を控えます。貼り紙は待ちません。",
+      "「いちばん新しい1回だけ」を控えます。貼り紙は待ちません。" +
+      (existingNote ? `${existingNote.line}` : ""),
+    existingNote,
     note: PRESS_NOTE,
   };
 }

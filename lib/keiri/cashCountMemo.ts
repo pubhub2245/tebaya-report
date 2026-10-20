@@ -141,3 +141,83 @@ export function mergeCashEvents(shelf: CashEvent[], memo: CashEvent[]): CashEven
   }
   return out;
 }
+
+/**
+ * 「いま おまけ欄に書いてある ひとこと（人が書いた文）は、控えを足しても残るか」を
+ * **中身を返さずに**答える（2026-10-20・kp245・f1-4）。**計算だけ**（倉庫は触りません）。
+ *
+ * ■ なぜ要るのか（やさしい説明）
+ *   控えを置く場所は、いま『経理の設定』の ひとこと欄 1つだけです。
+ *   そこには じゅんが 2026-09-10 に書いた「数え始めの説明」が入っています。
+ *   金庫を数えて押したときに **その説明が上書きで消えないか**——これが
+ *   押す前に いちばん気になる所です（2026-10-20 18:04 A の申し送り）。
+ *   コードは「印の中だけに書く」作りですが、**外から1回で確かめられる形**にしておきます。
+ *
+ * ■ どう答えるか
+ *   実際に書くのと同じ手順を**試しに1回だけ頭の中でやって**（倉庫には1行も書きません）、
+ *   足したあとに ひとことが そのまま残るかを見ます。
+ *   **返すのは「入っているか・何文字か・そのまま残るか」だけで、文そのものは返しません**
+ *   （確かめ窓口は だれでも読めるため）。
+ */
+export type NoteKeepPlan = {
+  /** 人が書いた ひとこと が入っているか */
+  has: boolean;
+  /** その文字数（中身は返さない） */
+  chars: number;
+  /** 控えを足したあとも、ひとことが1文字も消えずに残るか */
+  keptExactly: boolean;
+  /** 前後の空白・3行以上の空行だけ そろえるか（文は消さない） */
+  tidied: boolean;
+  /** 人が読む1行 */
+  line: string;
+};
+
+export function planCashCountNoteKeep(memo: string | null | undefined): NoteKeepPlan {
+  const raw = String(memo ?? "");
+  const before = stripCashCountMemo(raw);
+  // 試し書き（倉庫には1行も書きません）。日付と金額は、結果に影響しない当たり障りのない値
+  const next = encodeCashCountMemo(raw, {
+    happened_on: "2026-01-01",
+    amount: 0,
+    saved_at: "1970-01-01T00:00:00.000Z",
+  });
+  const after = next === null ? "" : stripCashCountMemo(next);
+  const keptExactly = next !== null && after === before && next.includes(before);
+  const hasBlock = raw.indexOf(CASH_MEMO_BEGIN) >= 0;
+  const tidied = !hasBlock && raw !== before;
+
+  if (before === "") {
+    return {
+      has: false,
+      chars: 0,
+      keptExactly: true,
+      tidied: false,
+      line: "ひとことは入っていません（控えの印だけが入ります）。消える文はありません。",
+    };
+  }
+
+  if (!keptExactly) {
+    return {
+      has: true,
+      chars: before.length,
+      keptExactly: false,
+      tidied,
+      line:
+        `ひとこと（${before.length}文字）が、控えを足したあとに そのままの形で残りません。` +
+        "金庫を数えてもらう前に、ここを直すこと（文を失うため）。",
+    };
+  }
+
+  return {
+    has: true,
+    chars: before.length,
+    keptExactly: true,
+    tidied,
+    line:
+      `いま書いてある ひとこと（${before.length}文字）は、控えを足しても1文字も消えません` +
+      "（控えは印から印までの中だけに書き、印ごと外せば ひとことだけが残ります）。" +
+      (tidied
+        ? "前後の空白と3行以上の空行だけ そろえます（文は1文字も消しません）。"
+        : ""),
+  };
+}
