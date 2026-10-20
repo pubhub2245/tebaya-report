@@ -104,8 +104,9 @@ function Row({ item, no, here }: { item: SetupTodoItem; no: number; here?: strin
       <p className="mt-1 text-sm leading-relaxed text-stone-700">{item.benefit}</p>
       <p className="mt-1 text-xs leading-relaxed text-stone-500">いまの状態：{item.detail}</p>
       {/* ★押すボタンを順番どおりに出す（2026-10-15・f1-4）。
-             金庫の1分は2回 押して初めて記録に残るので、1回目で終わらせない。 */}
-      {item.presses && item.presses.length > 1 && (
+             2026-10-20：控えの道は1押しで残るようになったので、**1つのときも出す**
+             （「押すのは1回です」と言い切るため。出さないと何回 押すのか分からない）。 */}
+      {item.presses && item.presses.length > 0 && (
         <p className="mt-1 text-xs leading-relaxed text-stone-700">
           押すのは{item.presses.length}回です：
           {item.presses.map((t, i) => (
