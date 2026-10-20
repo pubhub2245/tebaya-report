@@ -100,6 +100,11 @@ import {
   type CashReconcile,
 } from "@/lib/keiri/cashCheck";
 import { encodeCashCountMemo } from "@/lib/keiri/cashCountMemo";
+import {
+  compareAlsoKeeps,
+  compareResultLine,
+  keepButtonLabel,
+} from "@/lib/keiri/cashCountPress";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
 import {
   buildCashVariants,
@@ -1709,6 +1714,12 @@ function CashCountCard({
   const [preview, setPreview] = useState<CashReconcile | null>(null);
   /** 2通りの数え方のどちらに合ったか（2026-10-12・kp250・f1-4） */
   const [variantPick, setVariantPick] = useState<CashVariantPick | null>(null);
+  /**
+   * いま比べた1回が、もう控えに残っているか（2026-10-20・kp245・f1-4）。
+   * ★控えの道は「いちばん新しい1回だけ」を書き換えるので、比べた1押しで残します。
+   *   残ったことを画面に出すためだけの印で、金額は持ちません。
+   */
+  const [keptByCompare, setKeptByCompare] = useState(false);
   /** 比べたときに使った「レジに残してあるつり銭」（2026-10-12・f1-4） */
   const [variantFloat, setVariantFloat] = useState(0);
   /** いま入れている「数えた日」の時点で、レジに残してあるつり銭（画面に出すため） */
@@ -1747,16 +1758,26 @@ function CashCountCard({
     return Math.round(n);
   };
 
-  /** 「この金額で比べる」。**保存はしません**（倉庫に1行も書きません） */
-  const compare = () => {
+  /**
+   * 「この金額で比べる」。
+   *
+   * ★置き場（keiri_cash_events）がまだ無いあいだは、**この1押しで控えまで残します**
+   *   （2026-10-20・kp245・f1-4）。控えは「いちばん新しい1回だけ」を書き換える形なので、
+   *   何回 押しても行は増えません。＝ 押し忘れで1分が無駄になることがなくなります。
+   * ★置き場ができたあとは、押すたびに行が増えるので**今までどおり保存しません**
+   *   （比べる → 記録する の2回）。
+   */
+  const compare = async () => {
     const amount = readYen(countYen);
     if (!countOn || amount === null) {
       setMsg("数えた日と金額を入れてください（金額は0以上）");
       setPreview(null);
       setVariantPick(null);
+      setKeptByCompare(false);
       return;
     }
     setMsg("");
+    setKeptByCompare(false);
     const screenBalance = computedAsOf(countOn);
     setPreview(
       previewCashCount({
@@ -1778,6 +1799,13 @@ function CashCountCard({
     });
     const pick = pickCashVariant({ variants, counted: amount });
     setVariantPick(pick.hasChoice ? pick : null);
+
+    // ★ここまでで答えは画面に出ています。控えの道なら、そのまま残します。
+    //   残せなかったときは、残したと言わずに理由を出します（押し直せます）。
+    if (compareAlsoKeeps(shelfMissing)) {
+      const kept = await saveCountToMemo({ keepPreview: true });
+      setKeptByCompare(kept);
+    }
   };
 
   const save = async (kind: "count" | "deposit") => {
@@ -1829,11 +1857,12 @@ function CashCountCard({
    *   ・控えるのは **いちばん新しい1回だけ**。金額は1円も直しません。
    *   ・棚ができたあとは棚のほうが正で、同じ日・同じ金額は1件として数えます。
    */
-  const saveCountToMemo = async () => {
+  const saveCountToMemo = async (opts?: { keepPreview?: boolean }): Promise<boolean> => {
+    const keepPreview = opts?.keepPreview === true;
     const amount = readYen(countYen);
     if (!countOn || amount === null) {
       setMsg("数えた日と金額を入れてください（金額は0以上）");
-      return;
+      return false;
     }
     setSaving("count");
     setMsg("");
@@ -1854,7 +1883,7 @@ function CashCountCard({
     if (!pre.proceed) {
       setSaving(null);
       if (pre.message) setMsg(pre.message);
-      return;
+      return false;
     }
     const next = encodeCashCountMemo((data as any)?.memo ?? null, {
       happened_on: countOn,
@@ -1864,7 +1893,7 @@ function CashCountCard({
     if (next === null) {
       setSaving(null);
       setMsg("数えた日と金額を入れてください（金額は0以上）");
-      return;
+      return false;
     }
     const { data: changed, error } = await supabase
       .from("keiri_settings")
@@ -1880,14 +1909,20 @@ function CashCountCard({
     });
     if (!verdict.ok) {
       setMsg(verdict.message);
-      return;
+      return false;
     }
-    setCountYen("");
-    setCountNote("");
-    setPreview(null);
-    setVariantPick(null);
+    // ★比べた1押しで残したときは、**答えを画面に残す**（入れた金額も消さない）。
+    //   消すと、1押しで残したのに答えが見えなくなってしまう。
+    if (!keepPreview) {
+      setCountYen("");
+      setCountNote("");
+      setPreview(null);
+      setVariantPick(null);
+      setKeptByCompare(false);
+    }
     setMsg(verdict.message);
     onSaved();
+    return true;
   };
 
   const lines = reconcileLines(reconcile);
@@ -2009,10 +2044,16 @@ function CashCountCard({
             />
           </div>
         </div>
-        {/* ★「比べる」と「記録に残す」を分けています（2026-10-09・kp233）。
-               比べるのに倉庫の置き場は要らないので、置き場が準備中でもここは使えます。 */}
-        <button className="btn-primary w-full" onClick={compare} disabled={saving !== null}>
-          この金額で比べる
+        {/* ★「比べる」と「記録に残す」を分けていました（2026-10-09・kp233）。
+               2026-10-20：置き場がまだ無いあいだ＝控えの道は、この1押しで控えまで残します
+               （控えは いちばん新しい1回だけを書き換えるので、押しても行は増えません）。
+               置き場ができたあとは、押すたびに行が増えるので今までどおり2回です。 */}
+        <button
+          className="btn-primary w-full"
+          onClick={() => void compare()}
+          disabled={saving !== null}
+        >
+          {shelfMissing ? "この金額で比べる（そのまま控えに残します）" : "この金額で比べる"}
         </button>
 
         {preview && (
@@ -2068,14 +2109,15 @@ function CashCountCard({
               </div>
             )}
             {/* ★ここで終わらせないための1行（2026-10-15・f1-4）。
-                   「比べる」だけでは記録に残らないので、残りの1回を名指しする。 */}
-            <p className="pt-1 text-xs text-stone-500 leading-relaxed">
-              ここまでは記録に残していません（倉庫に1行も書いていません）。
-              <strong>
-                {" "}
-                下の［{shelfMissing ? "この結果を控えに残す" : "この結果を記録する"}
-                ］をもう1回 押すと残ります。
-              </strong>
+                   2026-10-20：控えの道は1押しで残るようになったので、
+                   残ったときは「残りました」と言い切る（言葉は cashCountPress.ts の1か所）。 */}
+            <p
+              className={
+                "pt-1 text-xs leading-relaxed " +
+                (keptByCompare ? "text-emerald-700 font-bold" : "text-stone-500")
+              }
+            >
+              {compareResultLine({ shelfMissing, kept: keptByCompare })}
             </p>
           </div>
         )}
@@ -2085,23 +2127,28 @@ function CashCountCard({
                  ここを「準備中です」で止めていたあいだ、1分で済む「数える」が
                  2分の「貼り紙」を待っていました。 */
           <div className="space-y-2">
-            {/* ★比べたあとは、ここが最後の1回。見落とすと記録が残らず、
-                   こちら側から「合っていたか」を確かめられない（2026-10-15・f1-4）。 */}
+            {/* ★2026-10-20：比べた1押しで控えに残るようになったので、ここは
+                   「残らなかったときに押し直す所」になりました（言葉は cashCountPress.ts）。 */}
             <button
-              className={(preview ? "btn-primary" : "btn-secondary") + " w-full"}
+              className={
+                (preview && !keptByCompare ? "btn-primary" : "btn-secondary") + " w-full"
+              }
               onClick={() => void saveCountToMemo()}
               disabled={saving !== null}
             >
-              {saving === "count"
-                ? "控えています…"
-                : preview
-                  ? "あと1回：この結果を控えに残す（これで終わりです）"
-                  : "この結果を控えに残す"}
+              {keepButtonLabel({
+                shelfMissing,
+                compared: preview !== null,
+                kept: keptByCompare,
+                saving: saving === "count",
+              })}
             </button>
             <p className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-800 leading-relaxed">
               数えた記録を置く棚は準備中なので、いまは「いちばん新しい1回だけ」を
-              経理の設定のひとこと欄に控えます。棚ができたら、そのまま記録に移ります
-              （二重には数えません）。金額はこちらで1円も直しません。
+              経理の設定のひとこと欄に控えます。上の［この金額で比べる］を押すと、
+              答えが出て、そのまま控えに残ります（押すのは1回だけです）。
+              棚ができたら、そのまま記録に移ります（二重には数えません）。
+              金額はこちらで1円も直しません。
             </p>
           </div>
         ) : (
