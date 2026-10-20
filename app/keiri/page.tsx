@@ -23,6 +23,7 @@ import {
 
 import { supabase } from "@/lib/supabase";
 import {
+  TEBAYA_BUSINESS_CODE,
   businessCodeForScope,
   tenantStamp,
   type TenantScope,
@@ -59,6 +60,10 @@ import {
   type CsvEncoding,
 } from "@/lib/keiri/moneyforward";
 import { toYayoiCsv, yayoiFileName } from "@/lib/keiri/yayoi";
+import {
+  decideMemoPreread,
+  decideSettingsWriteResult,
+} from "@/lib/keiri/keiriSettingsWrite";
 import {
   buildTrialBalance,
   checkTrialBalance,
@@ -1532,7 +1537,11 @@ function SettingsSection({
       return setMsg("❌ 家賃を数え始める月は「2026-08」の形で入れてください");
     setSaving(true);
     setMsg(null);
-    const { error } = await supabase
+    // ★「変えた行」を返してもらう（2026-10-20・f3-3・f3-4）。
+    //   書き換える相手が1行も見つからないとき、倉庫はエラーを返さず成功で返るので、
+    //   エラーの有無だけを見ていると「何も変わっていないのに ✅ 保存しました」が出ます。
+    //   手羽屋（印が空）の行は締めたあとも読めるので、必ず1行 返ります＝今までどおりです。
+    const { data: changed, error } = await supabase
       .from("keiri_settings")
       .update({
         opening_date: openingDate,
@@ -1542,13 +1551,17 @@ function SettingsSection({
         rent_start_month: rentStart || null,
         updated_at: new Date().toISOString(),
       })
-      .eq("business_type_code", currentBusinessCode());
+      .eq("business_type_code", currentBusinessCode())
+      .select("business_type_code");
     setSaving(false);
-    if (error) {
-      setMsg(`❌ 保存できませんでした：${error.message}`);
-      return;
-    }
-    setMsg("✅ 保存しました");
+    const verdict = decideSettingsWriteResult({
+      isTebaya: currentBusinessCode() === TEBAYA_BUSINESS_CODE,
+      errorMessage: error ? error.message : null,
+      changedRows: Array.isArray(changed) ? changed.length : null,
+      target: "設定",
+    });
+    setMsg(verdict.message);
+    if (!verdict.ok) return;
     onSaved();
   };
 
@@ -1830,9 +1843,17 @@ function CashCountCard({
       .select("memo")
       .eq("business_type_code", businessCode)
       .maybeSingle();
-    if (rErr) {
+    // ★行が1つも返らなかったときに、そのまま書き込むと「0行 変えて成功」になり
+    //   「✅ 控えに残しました」と嘘が出ます（2026-10-20・f3-3・f3-4）。
+    //   手羽屋は行が必ずあるので、ここは今までどおり通ります。
+    const pre = decideMemoPreread({
+      isTebaya: businessCode === TEBAYA_BUSINESS_CODE,
+      rowFound: !!data,
+      errorMessage: rErr ? rErr.message : null,
+    });
+    if (!pre.proceed) {
       setSaving(null);
-      setMsg(`控えを残せませんでした：${rErr.message}`);
+      if (pre.message) setMsg(pre.message);
       return;
     }
     const next = encodeCashCountMemo((data as any)?.memo ?? null, {
@@ -1845,20 +1866,27 @@ function CashCountCard({
       setMsg("数えた日と金額を入れてください（金額は0以上）");
       return;
     }
-    const { error } = await supabase
+    const { data: changed, error } = await supabase
       .from("keiri_settings")
       .update({ memo: next })
-      .eq("business_type_code", businessCode);
+      .eq("business_type_code", businessCode)
+      .select("business_type_code");
     setSaving(null);
-    if (error) {
-      setMsg(`控えを残せませんでした：${error.message}`);
+    const verdict = decideSettingsWriteResult({
+      isTebaya: businessCode === TEBAYA_BUSINESS_CODE,
+      errorMessage: error ? error.message : null,
+      changedRows: Array.isArray(changed) ? changed.length : null,
+      target: "金庫の控え",
+    });
+    if (!verdict.ok) {
+      setMsg(verdict.message);
       return;
     }
     setCountYen("");
     setCountNote("");
     setPreview(null);
     setVariantPick(null);
-    setMsg("✅ 控えに残しました（置き場ができたら、そのまま記録に移ります）");
+    setMsg(verdict.message);
     onSaved();
   };
 
