@@ -252,10 +252,29 @@ test("日報を読む所には必ず『どの店か』の絞り込みが付い�
   );
 });
 
+/**
+ * 「印を付けている」と認める書き方（2026-10-21 に1つ足した）。
+ *
+ * ★`readTenantScope()` は**端末の控え**だけを見ます。日報（/report）は
+ *   入室の印と食い違ったときに手羽屋のほうへ倒れると、よその店の売上が
+ *   手羽屋の帳簿とLINEに流れるので、安全側の決め方（`reportScope()`＝
+ *   lib/keiri/readSource.ts の effectiveKeiriScope）にそろえました。
+ *   どちらも「印を付けている」ことは変わらないので、両方を認めます。
+ *   **印そのものを外したら、ここで止まります。**
+ */
+const STAMP_FORMS = [
+  "tenantStamp(readTenantScope())",
+  "tenantStamp(reportScope())",
+];
+
+function stamped(src: string): boolean {
+  return STAMP_FORMS.some((f) => src.includes(f));
+}
+
 test("日報を保存する所では「どの店か」の印を付けている", () => {
   const src = readFileSync("app/report/page.tsx", "utf8");
   assert.ok(
-    src.includes("tenantStamp(readTenantScope())"),
+    stamped(src),
     "app/report/page.tsx の insert に tenantStamp が付いていません",
   );
 });
@@ -307,7 +326,7 @@ test("選択肢を足す所では「どの店か」の印を付けている", ()
   ]) {
     const src = readFileSync(file, "utf8");
     assert.ok(
-      src.includes("tenantStamp(readTenantScope())"),
+      stamped(src),
       `${file} の insert に tenantStamp が付いていません`,
     );
   }

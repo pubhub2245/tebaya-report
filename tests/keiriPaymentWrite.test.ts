@@ -19,6 +19,7 @@ import {
   planWhenTenantColumnMissing,
 } from "../lib/keiri/paymentWrite";
 import { decideIgnoreUndo } from "../lib/keiri/expenseIgnoreWrite";
+import { effectiveKeiriScope } from "../lib/keiri/readSource";
 
 const TENANT = "11111111-1111-1111-1111-111111111111";
 
@@ -81,4 +82,24 @@ test("「元に戻す」：よその店は押す前に止め、「戻しまし�
   assert.ok(v.message);
   assert.match(v.message ?? "", /元に戻せません/);
   assert.match(v.message ?? "", /印は消えていません/);
+});
+
+/* ------------------------------------------------------------------ *
+ *  日報（/report）が「どのお店か」を決めるときの安全側の決め方
+ *  （lib/keiri/readSource.ts の effectiveKeiriScope を日報でも使う・2026-10-21・f3-4）
+ * ------------------------------------------------------------------ */
+
+test("日報：手羽屋は、入室の印が無いので端末の控えのまま（今までと同じ）", () => {
+  const store = { getItem: () => null };
+  assert.equal(effectiveKeiriScope(null, store), null);
+});
+
+test("日報：入室の印がお店なら、端末の控えが空でもお店として扱う", () => {
+  const store = { getItem: () => TENANT };
+  assert.equal(effectiveKeiriScope(null, store), TENANT);
+});
+
+test("日報：端末の控えがお店なら、入室の印が無くてもお店として扱う", () => {
+  const store = { getItem: () => null };
+  assert.equal(effectiveKeiriScope(TENANT, store), TENANT);
 });
