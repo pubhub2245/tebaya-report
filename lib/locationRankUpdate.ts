@@ -24,12 +24,8 @@ import {
   type RankPlan,
   type RankReport,
 } from "@/lib/locationRank";
-import {
-  applyTenantScope,
-  readTenantScope,
-  type TenantScope,
-} from "@/lib/tenantScope";
-import { effectiveKeiriScope } from "@/lib/keiri/readSource";
+import { applyTenantScope, type TenantScope } from "@/lib/tenantScope";
+import { currentShopScope } from "@/lib/keiri/readSource";
 import { decideRankHistoryWrite } from "@/lib/locationRankScope";
 
 // 判定そのもの（純粋な計算）は lib/locationRank.ts にある。
@@ -48,7 +44,7 @@ export type { RankLocationRow, RankPlan } from "@/lib/locationRank";
  *   よその店のランクが手羽屋の売上で決まる／逆に手羽屋のランクがよその店の保存で動く。
  */
 export function currentRankScope(): TenantScope {
-  return effectiveKeiriScope(readTenantScope());
+  return currentShopScope();
 }
 
 /** 出店場所マスタを読む（ランク判定に必要な列だけ） */

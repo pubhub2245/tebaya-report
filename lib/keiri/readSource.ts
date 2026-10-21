@@ -28,7 +28,12 @@
  *   置き場を外から渡せる形にしてあるので、テストで作り物を渡して確かめられます。
  */
 
-import { normalizeTenantScope, TEBAYA_SCOPE, type TenantScope } from "../tenantScope";
+import {
+  normalizeTenantScope,
+  readTenantScope,
+  TEBAYA_SCOPE,
+  type TenantScope,
+} from "../tenantScope";
 
 /**
  * 「合言葉を入れて、このお店として入った」という入室の印。
@@ -124,6 +129,27 @@ export function readWindowOutcome(status: number, body: unknown): WindowOutcome 
   if (status >= 200 && status < 300 && ok) return { kind: "ok" };
   if (status === 401 || status === 403) return { kind: "denied" };
   return { kind: "unavailable" };
+}
+
+/**
+ * いま開いているお店を、**安全側**で1か所から取り出す（2026-10-21・f3-4）。
+ *
+ * ■ なぜ要るのか（やさしい説明）
+ *   日報の保存は 2026-10-21 から この安全側の決め方を使っています（PR #276）。
+ *   ところが、その日報に入る**お金の元になる値**を読む所は、
+ *   端末の控え（localStorage）だけを見ていました：
+ *     ・日当（staff_members.daily_wage → 人件費）
+ *     ・場代（locations の決まり → 経費の行が自動で1つ入る）
+ *   控えだけが空になっていると（プライベート表示・控えを部分的に消した等）、
+ *   **お店として入っているのに 手羽屋の日当と場代が、そのお店の日報に入ります。**
+ *   金額が入ってしまう所なので、決め方は保存と1つにそろえます。
+ *
+ * ■ 手羽屋は1文字も変わりません
+ *   手羽屋には入室の印が付かない（手羽屋の合言葉で入ると必ず捨てられる）ので、
+ *   答えは端末の控えをそのまま返すだけ＝今までと同じです。
+ */
+export function currentShopScope(device?: Reader, session?: Reader): TenantScope {
+  return effectiveKeiriScope(readTenantScope(device), session);
 }
 
 /* ------------------------------------------------------------------ *
