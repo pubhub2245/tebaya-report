@@ -13,7 +13,6 @@ import ShiftFormModal, {
 import {
   TENANT_COLUMN,
   applyTenantScope,
-  readTenantScope,
 } from "@/lib/tenantScope";
 import {
   scopeShiftsQuery,
@@ -21,6 +20,8 @@ import {
   withShiftTenant,
   type ShiftsTenantState,
 } from "@/lib/shiftScope";
+// ★「いまどのお店か」は日報の保存と同じ安全側の決め方（2026-10-21・f3-4）
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -67,7 +68,7 @@ export default function ShiftsView({
 
   const load = async () => {
     setLoading(true);
-    const scope = readTenantScope();
+    const scope = currentShopScope();
     // 印の欄ができているかを先に1回だけ確かめる（できていなければ今までどおり）
     const state = await shiftsTenantState(async () => {
       const { error } = await supabase
@@ -246,7 +247,7 @@ export default function ShiftsView({
               updated_at: new Date().toISOString(),
             })
             .eq("id", editingShift.id) as any,
-          readTenantScope(),
+          currentShopScope(),
           tenantState,
         );
         if (error) throw error;
@@ -255,7 +256,7 @@ export default function ShiftsView({
         // 印の欄ができていれば、どのお店の予定かを1つ足す（手羽屋は空＝今までと同じ）
         const { error } = await supabase
           .from("shifts")
-          .insert(withShiftTenant(data, readTenantScope(), tenantState));
+          .insert(withShiftTenant(data, currentShopScope(), tenantState));
         if (error) throw error;
         setActionResult("✅ 出店予定を登録しました");
       }
@@ -280,7 +281,7 @@ export default function ShiftsView({
       // 自分のお店の行だけを取り消せるようにする（印の欄が無いあいだは今までどおり）
       const { error } = await scopeShiftsQuery<any>(
         supabase.from("shifts").delete().eq("id", editingShift.id) as any,
-        readTenantScope(),
+        currentShopScope(),
         tenantState,
       );
       if (error) throw error;

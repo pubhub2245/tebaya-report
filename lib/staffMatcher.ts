@@ -1,5 +1,7 @@
 import { supabase } from "./supabase";
-import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
+import { applyTenantScope } from "@/lib/tenantScope";
+// ★「いまどのお店か」は日報の保存と同じ安全側の決め方（2026-10-21・f3-4）
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 export type StaffInfo = {
   name: string;
@@ -37,7 +39,7 @@ const fetchAll = async (): Promise<StaffRow[]> => {
     supabase
       .from("staff_members")
       .select("name, aliases, unit_number, daily_wage, is_active") as any,
-    readTenantScope(),
+    currentShopScope(),
   );
   if (error || !data) return [];
   return data as StaffRow[];

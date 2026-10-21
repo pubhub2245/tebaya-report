@@ -30,7 +30,9 @@ import {
   stripFreeVenueFromNote,
 } from "@/app/components/ShiftFormModal";
 import type { VenueInquiry, InquiryStatus } from "@/lib/venueInquiries";
-import { TENANT_COLUMN, readTenantScope } from "@/lib/tenantScope";
+import { TENANT_COLUMN } from "@/lib/tenantScope";
+// ★「いまどのお店か」は日報の保存と同じ安全側の決め方（2026-10-21・f3-4）
+import { currentShopScope } from "@/lib/keiri/readSource";
 import {
   scopeShiftsQuery,
   shiftsTenantState,
@@ -127,7 +129,7 @@ async function findShiftByInquiry(inquiryId: number): Promise<ShiftRow | null> {
       )
       .eq("inquiry_id", inquiryId)
       .limit(1) as any,
-    readTenantScope(),
+    currentShopScope(),
     await shiftTenantReady(),
   );
   if (error) throw error;
@@ -142,7 +144,7 @@ export async function syncShiftForInquiry(
 ): Promise<void> {
   const nowIso = new Date().toISOString();
   const targetStatus = STATUS_TO_SHIFT[inq.status];
-  const scope = readTenantScope();
+  const scope = currentShopScope();
   const tenantState = await shiftTenantReady();
   const existing = await findShiftByInquiry(inq.id);
 
@@ -234,7 +236,7 @@ export async function cancelShiftForInquiry(inquiryId: number): Promise<void> {
       .from("shifts")
       .update({ status: "cancelled", updated_at: new Date().toISOString() })
       .eq("inquiry_id", inquiryId) as any,
-    readTenantScope(),
+    currentShopScope(),
     await shiftTenantReady(),
   );
   if (error) throw error;

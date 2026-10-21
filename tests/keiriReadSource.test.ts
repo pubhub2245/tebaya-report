@@ -19,6 +19,7 @@ import {
   readWindowOutcome,
   currentShopScope,
 } from "../lib/keiri/readSource";
+import { isTebayaScope, tenantStamp } from "../lib/tenantScope";
 
 /** 作り物の置き場（sessionStorage のかわり） */
 function store(entries: Record<string, string>) {
@@ -142,4 +143,43 @@ test("控えだけがお店のとき＝そのお店（今までと同じ答え�
 test("入室の印だけがお店のとき＝そのお店（安全側。手羽屋の日当や場代を入れない）", () => {
   const shop = "33333333-3333-4333-8333-333333333333";
   assert.equal(currentShopScope(fakeStore(null), fakeStore(shop)), shop);
+});
+
+/* ------------------------------------------------------------------ *
+ *  門（手羽屋だけに見せる画面）と マスタの印（2026-10-21・f3-4）
+ *
+ *  ■ ここが狂うと何が起きるか
+ *    ① 門（TebayaOnlyGate）… 端末の控えだけで決めていたため、お店として
+ *       入っているのに控えが空だと **手羽屋として門が開き**、よその店の
+ *       スタッフに手羽屋の出店予定・立替・売上がそのまま出ていました。
+ *    ② マスタ（出店場所・担当者・商品）… 同じ理由で、お店が足した場所や
+ *       商品が **印なし＝手羽屋の行** として入り、手羽屋の日報の選択肢に
+ *       出てしまいます（CLAUDE.md 4-4）。
+ * ------------------------------------------------------------------ */
+
+const GATE_SHOP = "44444444-4444-4444-8444-444444444444";
+
+test("門：入室の印だけがお店なら、手羽屋とは見なさない（手羽屋の画面を開けない）", () => {
+  assert.equal(
+    isTebayaScope(currentShopScope(fakeStore(null), fakeStore(GATE_SHOP))),
+    false,
+  );
+});
+
+test("門：手羽屋（印なし・控えも空）は今までどおり開く", () => {
+  assert.equal(isTebayaScope(currentShopScope(fakeStore(null), fakeStore(null))), true);
+});
+
+test("マスタに足す行の印：入室の印だけがお店でも、そのお店の行として入る", () => {
+  assert.deepEqual(
+    tenantStamp(currentShopScope(fakeStore(null), fakeStore(GATE_SHOP))),
+    { tenant_id: GATE_SHOP },
+  );
+});
+
+test("マスタに足す行の印：手羽屋は今までどおり印が空", () => {
+  assert.deepEqual(
+    tenantStamp(currentShopScope(fakeStore(null), fakeStore(null))),
+    { tenant_id: null },
+  );
 });

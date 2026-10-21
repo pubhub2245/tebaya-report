@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { ShiftStore } from "@/lib/shift-engine/types";
-import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
+import { applyTenantScope } from "@/lib/tenantScope";
+// ★「いまどのお店か」は日報の保存と同じ安全側の決め方（2026-10-21・f3-4）
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 type Location = {
   id: number;
@@ -65,7 +67,7 @@ export default function EditStoreModal({
       try {
         const { data, error: err } = await applyTenantScope<any>(
           supabase.from("locations").select("id, name, rank, target") as any,
-          readTenantScope(),
+          currentShopScope(),
         )
           .eq("is_active", true)
           .order("name");

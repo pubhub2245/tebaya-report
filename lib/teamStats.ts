@@ -1,6 +1,8 @@
 import { supabase } from "./supabase";
 import { normalizeLocationName } from "./locationMatcher";
-import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
+import { applyTenantScope } from "@/lib/tenantScope";
+// ★「いまどのお店か」は日報の保存と同じ安全側の決め方（2026-10-21・f3-4）
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 export type UnitKey = 1 | 2 | null;
 
@@ -86,7 +88,7 @@ async function fetchReportsAndLocations(startDate: string, endDate: string) {
       .lte("date", endDate),
     applyTenantScope<any>(
       supabase.from("locations").select("name, target") as any,
-      readTenantScope(),
+      currentShopScope(),
     ),
   ]);
   if (r.error) throw r.error;

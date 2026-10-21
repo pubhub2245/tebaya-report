@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
+import { applyTenantScope } from "@/lib/tenantScope";
+// ★「いまどのお店か」は日報の保存と同じ安全側の決め方（2026-10-21・f3-4）
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 type RateRow = {
   location_id: string | null;
@@ -50,7 +52,7 @@ export default function AchievementRateDashboard() {
           .limit(1),
         applyTenantScope<any>(
           supabase.from("locations").select("id, name") as any,
-          readTenantScope(),
+          currentShopScope(),
         ),
       ]);
       if (ratesRes.error) throw ratesRes.error;

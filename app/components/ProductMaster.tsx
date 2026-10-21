@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { applyTenantScope, readTenantScope, tenantStamp } from "@/lib/tenantScope";
+import { applyTenantScope, tenantStamp } from "@/lib/tenantScope";
+// ★「いまどのお店か」は日報の保存と同じ安全側の決め方（2026-10-21・f3-4）。
+//   端末の控えだけを見ると、お店として入っているのに控えが空のとき
+//   **そのお店が足した商品と単価が手羽屋の商品として入り**、手羽屋の日報の
+//   売上の内訳チェック（単価×本数）に混ざります。
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 /**
  * 販売商品マスタ管理（管理者ページ）。
@@ -62,7 +67,7 @@ export default function ProductMaster() {
       supabase
         .from("sale_products")
         .select("id, shop, name, price, kind, is_active, sort_order") as any,
-      readTenantScope(),
+      currentShopScope(),
     )
       .eq("shop", shop)
       .order("sort_order")
@@ -95,7 +100,7 @@ export default function ProductMaster() {
     const nextSort =
       rows.reduce((m, r) => Math.max(m, r.sort_order), 0) + 1;
     const { error } = await supabase.from("sale_products").insert({
-      ...tenantStamp(readTenantScope()),
+      ...tenantStamp(currentShopScope()),
       shop,
       name: newName.trim(),
       price: newKind === "count_only" ? 0 : Math.max(0, newPrice),
