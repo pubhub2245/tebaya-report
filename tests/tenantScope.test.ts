@@ -475,13 +475,14 @@ test("isTebayaScope: 手羽屋だけ true。よそのお店は false", () => {
   assert.equal(isTebayaScope(SHOP_A.toUpperCase()), false);
 });
 
-test("印の欄がまだ無い棚の一覧は、いまこの5つ", () => {
+test("印の欄がまだ無い棚の一覧は、いまこの6つ", () => {
   assert.deepEqual([...TABLES_WITHOUT_TENANT_COLUMN], [
     "shifts",
     "keiri_advance_expenses",
     "feedback_box",
     "feedback_replies",
     "agenda_items",
+    "event_plans",
   ]);
 });
 
@@ -492,6 +493,9 @@ const GATED_SCREENS: { file: string; table: string }[] = [
   { file: "app/keiri/advances/page.tsx", table: "keiri_advance_expenses" },
   // 入り口を外してある画面（2026-08-27）。URL を直接開けば今も動くので門が要る
   { file: "app/report/cancel/page.tsx", table: "shifts" },
+  // イベント段取り（2026-10-21・f3-4）。発注本数・担当・注意点が入る棚で、
+  // 印の欄がまだ無い。過去の売上の参考（daily_reports）も手羽屋で固定している。
+  { file: "app/events/EventsView.tsx", table: "event_plans" },
 ];
 
 test("印の欄が無い棚の画面には、手羽屋だけに開く門が掛かっている", () => {
