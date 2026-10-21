@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { applyTenantScope, TEBAYA_SCOPE } from "@/lib/tenantScope";
+import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 import {
   boneHours,
   buildLineText,
@@ -55,7 +56,35 @@ function missingItems(p: EventPlan): string[] {
 
 type PastSale = { date: string; location: string; sales_amount: number };
 
+/**
+ * イベント段取り（2026-10-21・f3-4）。
+ *
+ * ■ なぜ門を掛けるのか（やさしい説明）
+ *   この画面が使う棚（event_plans）には「どのお店のものか」の印の欄が
+ *   **まだありません**。そのため、経理パッケージを申し込んだお店のスタッフが
+ *   この画面を開くと
+ *   ・**手羽屋の段取り表**（発注本数・担当・注意点）がそのまま見える
+ *   ・そのお店が入れた段取りが、**手羽屋の画面に混ざる**
+ *   ・過去の売上の参考（daily_reports）も、手羽屋の売上が出る
+ *   の3つが起きます。絞りようが無いので、出店予定（shifts）や現場の立替と
+ *   同じ門（TebayaOnlyGate）で、手羽屋以外には開かないようにします。
+ *
+ * ■ 手羽屋への影響：ありません
+ *   手羽屋は印が空（null）なので、今までどおり中身がそのまま出ます
+ *   （門が控えを読むひと呼吸だけ「読み込み中…」と出ます）。
+ *
+ * ★ event_plans に印の欄を足したら、この門を外して
+ *   ふつうに applyTenantScope で絞る形に直してください。
+ */
 export default function EventsView() {
+  return (
+    <TebayaOnlyGate title="🎪 イベント段取り">
+      <EventsViewInner />
+    </TebayaOnlyGate>
+  );
+}
+
+function EventsViewInner() {
   const [plans, setPlans] = useState<EventPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,14 +111,19 @@ export default function EventsView() {
 
   useEffect(() => {
     load();
-    // 担当の候補は、在籍中のスタッフだけ（退職した人は出さない）
-    supabase
-      .from("staff_members")
-      .select("name,is_active")
-      .eq("is_active", true)
-      .then(({ data }) => {
-        setStaffNames(((data ?? []) as { name: string }[]).map((r) => r.name));
-      });
+    // 担当の候補は、在籍中のスタッフだけ（退職した人は出さない）。
+    // ★印は手羽屋（空）で固定する（2026-10-21・f3-4）。この画面は門の内側＝
+    //   必ず手羽屋だが、絞りを書いておかないと、よその店の担当者名が混ざる
+    //   書き方が1本 残り続ける（下の過去の売上の参考と同じ形にそろえた）。
+    applyTenantScope<any>(
+      supabase
+        .from("staff_members")
+        .select("name,is_active")
+        .eq("is_active", true) as any,
+      TEBAYA_SCOPE,
+    ).then(({ data }: { data: { name: string }[] | null }) => {
+      setStaffNames((data ?? []).map((r) => r.name));
+    });
   }, [load]);
 
   const today = todayJst();
