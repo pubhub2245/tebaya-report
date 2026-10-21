@@ -24,7 +24,13 @@ import {
   type RankPlan,
   type RankReport,
 } from "@/lib/locationRank";
-import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
+import {
+  applyTenantScope,
+  readTenantScope,
+  type TenantScope,
+} from "@/lib/tenantScope";
+import { effectiveKeiriScope } from "@/lib/keiri/readSource";
+import { decideRankHistoryWrite } from "@/lib/locationRankScope";
 
 // 判定そのもの（純粋な計算）は lib/locationRank.ts にある。
 // これまで通りここから使えるよう、型と関数をそのまま通しておく。
@@ -35,14 +41,26 @@ export type { RankLocationRow, RankPlan } from "@/lib/locationRank";
 // ここから下はデータベースとのやりとり
 // -----------------------------------------------------------------------------
 
+/**
+ * いま「どのお店として開いているか」（2026-10-21・f3-4）。
+ * ★日報を保存するときとまったく同じ決め方にそろえてある
+ *   （app/report/page.tsx の reportScope()）。どちらかだけが手羽屋に倒れると、
+ *   よその店のランクが手羽屋の売上で決まる／逆に手羽屋のランクがよその店の保存で動く。
+ */
+export function currentRankScope(): TenantScope {
+  return effectiveKeiriScope(readTenantScope());
+}
+
 /** 出店場所マスタを読む（ランク判定に必要な列だけ） */
-export async function fetchRankLocations(): Promise<RankLocationRow[]> {
+export async function fetchRankLocations(
+  scope: TenantScope = currentRankScope(),
+): Promise<RankLocationRow[]> {
   // 開いているお店のぶんだけ（手羽屋は印が空＝今までどおり）
   const { data, error } = await applyTenantScope<any>(
     supabase
       .from("locations")
       .select("id, name, rank, target, is_active, rank_locked") as any,
-    readTenantScope(),
+    scope,
   ).order("name");
   if (error) throw error;
   return (data as RankLocationRow[]) || [];
@@ -52,31 +70,43 @@ export async function fetchRankLocations(): Promise<RankLocationRow[]> {
  * 判定に使う日報を読む。
  * ★ 集計に要るのは日付・場所・売上だけ。経費の明細は絶対に取らない（→ CLAUDE.md 4-2）。
  * ★「集計から外す」がONの日報も取ってくるが、判定では数えない（→ lib/locationRank.ts）。
+ * ★**開いているお店のぶんだけ**読む（2026-10-21・f3-4）。
+ *   ここが手羽屋に固定されていたため、申し込んだお店のランクと目標額が
+ *   手羽屋の売上から決まっていた（→ lib/locationRankScope.ts）。
+ *   手羽屋（印が空）のときの条件は今までと1文字も変わらない。
+ *   締めたあとの申し込んだお店では印つきの行が公開の鍵では読めず 0件で返るので、
+ *   判定は「回数が足りない」となり**何も変えない**（→ lib/locationRank.ts の
+ *   MIN_VISITS_FOR_JUDGE）。でたらめなランクを付けるより、動かさないほうが安全。
  */
-async function fetchRankReports(): Promise<
-  (RankReport & { location: string | null })[]
-> {
-  const { data, error } = await supabase
-    .from("daily_reports")
-    .select("date, location, sales_amount, exclude_from_stats")
-    // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
-    .is("tenant_id", null)
-    .order("date", { ascending: false });
+async function fetchRankReports(
+  scope: TenantScope = currentRankScope(),
+): Promise<(RankReport & { location: string | null })[]> {
+  const { data, error } = await applyTenantScope<any>(
+    supabase
+      .from("daily_reports")
+      .select("date, location, sales_amount, exclude_from_stats") as any,
+    scope,
+  ).order("date", { ascending: false });
   if (error) throw error;
   return (data as (RankReport & { location: string | null })[]) || [];
 }
 
 /** 全出店先ぶんの「こう変えます」一覧を作る（まだ書き換えない） */
-export async function planAllRankUpdates(): Promise<RankPlan[]> {
+export async function planAllRankUpdates(
+  scope: TenantScope = currentRankScope(),
+): Promise<RankPlan[]> {
   const [locations, reports] = await Promise.all([
-    fetchRankLocations(),
-    fetchRankReports(),
+    fetchRankLocations(scope),
+    fetchRankReports(scope),
   ]);
   return buildRankPlans(locations, reports);
 }
 
 /** 1件ぶん、マスタを書き換えて履歴を残す */
-async function applyPlan(plan: RankPlan): Promise<void> {
+async function applyPlan(
+  plan: RankPlan,
+  scope: TenantScope = currentRankScope(),
+): Promise<void> {
   if (!plan.changed || !plan.newRank || plan.newTarget === null) return;
 
   const { error } = await supabase
@@ -87,6 +117,9 @@ async function applyPlan(plan: RankPlan): Promise<void> {
 
   // 履歴は「ランクが変わったとき」だけ残す（目標額だけの直しは履歴にしない）
   if (plan.currentRank === plan.newRank) return;
+  // ★この棚には「どの店か」の欄がまだ無い（→ lib/locationRankScope.ts）。
+  //   手羽屋は今までどおり残す。
+  if (!decideRankHistoryWrite(scope).write) return;
   const { error: histError } = await supabase
     .from("location_rank_history")
     .insert({
@@ -100,11 +133,14 @@ async function applyPlan(plan: RankPlan): Promise<void> {
 }
 
 /** 予定の一覧をまとめて反映する。反映した件数を返す */
-export async function applyRankPlans(plans: RankPlan[]): Promise<number> {
+export async function applyRankPlans(
+  plans: RankPlan[],
+  scope: TenantScope = currentRankScope(),
+): Promise<number> {
   let applied = 0;
   for (const p of plans) {
     if (!p.changed) continue;
-    await applyPlan(p);
+    await applyPlan(p, scope);
     applied += 1;
   }
   return applied;
@@ -117,22 +153,23 @@ export async function applyRankPlans(plans: RankPlan[]): Promise<number> {
  */
 export async function recalcRankForLocation(
   rawLocationName: string,
+  scope: TenantScope = currentRankScope(),
 ): Promise<RankPlan | null> {
   try {
     const key = canonicalLocationName(rawLocationName);
     if (!key) return null;
 
-    const locations = await fetchRankLocations();
+    const locations = await fetchRankLocations(scope);
     const target = locations.find(
       (l) => canonicalLocationName(l.name) === key && l.is_active,
     );
     if (!target) return null; // マスタに無い場所（単発のお祭りなど）は何もしない
 
-    const reports = await fetchRankReports();
+    const reports = await fetchRankReports(scope);
     const [plan] = buildRankPlans([target], reports);
     if (!plan) return null;
 
-    await applyPlan(plan);
+    await applyPlan(plan, scope);
     return plan;
   } catch (e) {
     console.warn("ランクの自動判定に失敗しました（日報の保存には影響しません）", e);
