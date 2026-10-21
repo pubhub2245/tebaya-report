@@ -288,6 +288,10 @@ export const TABLES_WITHOUT_TENANT_COLUMN = [
   "feedback_box",
   "feedback_replies",
   "agenda_items",
+  // 2026-10-21 追加（f3-4）。イベント段取り（/events）の棚。
+  // 発注本数・発注日・仕込みの担当・注意点が入る＝手羽屋の段取りがそのまま見え、
+  // よその店が入れた段取りも手羽屋の画面に混ざるので、門（TebayaOnlyGate）を掛けた。
+  "event_plans",
 ] as const;
 
 /** いま手羽屋として開いているか（印が空＝手羽屋） */
