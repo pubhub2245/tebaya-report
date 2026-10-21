@@ -29,7 +29,9 @@ import {
   toDailySales,
   type RankCode,
 } from "@/lib/locationRank";
-import { applyTenantScope, isTebayaScope, readTenantScope } from "@/lib/tenantScope";
+import { applyTenantScope, isTebayaScope } from "@/lib/tenantScope";
+// ★「いまどのお店か」は日報の保存と同じ安全側の決め方（2026-10-21・f3-4）
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 // -----------------------------------------------------------------------------
 // 定数（あとで変えたくなる数字はここに集約）
@@ -368,7 +370,7 @@ export async function getOutletAnalytics(): Promise<OutletStats[]> {
    *   なので、手羽屋以外のときは何も読まずに空で返します
    *   （画面に出さないだけでなく、取りにも行きません）。
    */
-  if (!isTebayaScope(readTenantScope())) return [];
+  if (!isTebayaScope(currentShopScope())) return [];
 
   const now = new Date();
   const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -389,7 +391,7 @@ export async function getOutletAnalytics(): Promise<OutletStats[]> {
     // 出店場所マスタ（ランク・目標はここが正）
     applyTenantScope<any>(
       supabase.from("locations").select("name, rank, target, rank_locked") as any,
-      readTenantScope(),
+      currentShopScope(),
     ),
   ]);
   if (repRes.error) throw repRes.error;

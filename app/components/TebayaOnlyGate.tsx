@@ -34,9 +34,13 @@ import Link from "next/link";
 import {
   TEBAYA_SCOPE,
   isTebayaScope,
-  readTenantScope,
   type TenantScope,
 } from "@/lib/tenantScope";
+// ★「いまどのお店か」は、日報の保存とまったく同じ安全側の決め方を使います
+//   （2026-10-21・f3-4）。端末の控えだけを見ると、お店として入っているのに
+//   控えが空のときに**手羽屋として門が開いてしまい**、よそのお店のスタッフに
+//   手羽屋の出店予定・立替・売上がそのまま出ます。→ lib/keiri/readSource.ts
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 
 /**
@@ -54,7 +58,7 @@ export function useIsTebaya(): { checking: boolean; isTebaya: boolean } {
   const [checking, setChecking] = useState(true);
   const [tebaya, setTebaya] = useState(true);
   useEffect(() => {
-    setTebaya(isTebayaScope(readTenantScope()));
+    setTebaya(isTebayaScope(currentShopScope()));
     setChecking(false);
   }, []);
   return { checking, isTebaya: tebaya };
@@ -113,7 +117,7 @@ export default function TebayaOnlyGate({
   const [probed, setProbed] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const s = readTenantScope();
+    const s = currentShopScope();
     setScope(s);
     // 手羽屋は今までどおり。よそのお店のときだけ、開いてよいかを確かめる
     if (probe && !isTebayaScope(s)) {

@@ -11,7 +11,6 @@ import ShiftFormModal, {
 import {
   TENANT_COLUMN,
   applyTenantScope,
-  readTenantScope,
 } from "@/lib/tenantScope";
 import {
   scopeShiftsQuery,
@@ -19,6 +18,8 @@ import {
   withShiftTenant,
   type ShiftsTenantState,
 } from "@/lib/shiftScope";
+// ★「いまどのお店か」は日報の保存と同じ安全側の決め方（2026-10-21・f3-4）
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 // TODO: 将来追加予定の機能
 // - 希望休申請（shift_change_requestsテーブル）
@@ -97,7 +98,7 @@ export default function ShiftsPage() {
     setLoading(true);
     setError(null);
     try {
-      const scope = readTenantScope();
+      const scope = currentShopScope();
       // 印の欄ができているかを先に1回だけ確かめる（できていなければ今までどおり）
       const state = await shiftsTenantState(async () => {
         const { error } = await supabase
@@ -286,7 +287,7 @@ export default function ShiftsPage() {
       // 自分のお店の行だけを消せるようにする（印の欄が無いあいだは今までどおり）
       const { error } = await scopeShiftsQuery<any>(
         supabase.from("shifts").delete().eq("id", id) as any,
-        readTenantScope(),
+        currentShopScope(),
         tenantState,
       );
       if (error) throw error;
@@ -309,7 +310,7 @@ export default function ShiftsPage() {
           .from("shifts")
           .update({ status: "cancelled", updated_at: new Date().toISOString() })
           .eq("id", id) as any,
-        readTenantScope(),
+        currentShopScope(),
         tenantState,
       );
       if (error) throw error;
@@ -567,7 +568,7 @@ export default function ShiftsPage() {
                         updated_at: new Date().toISOString(),
                       })
                       .eq("id", editingShift.id) as any,
-                    readTenantScope(),
+                    currentShopScope(),
                     tenantState,
                   );
                   if (error) throw error;
@@ -575,7 +576,7 @@ export default function ShiftsPage() {
                   const { error } = await supabase
                     .from("shifts")
                     .insert(
-                      withShiftTenant(data, readTenantScope(), tenantState),
+                      withShiftTenant(data, currentShopScope(), tenantState),
                     );
                   if (error) throw error;
                 }

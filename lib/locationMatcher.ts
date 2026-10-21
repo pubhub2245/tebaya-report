@@ -17,7 +17,9 @@
 
 import { supabase } from "./supabase";
 import { canonicalLocationName, normalizeKey } from "./locationName";
-import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
+import { applyTenantScope } from "@/lib/tenantScope";
+// ★「いまどのお店か」は日報の保存と同じ安全側の決め方（2026-10-21・f3-4）
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 export type LocationRow = {
   id: number;
@@ -61,7 +63,7 @@ async function fetchLocations(): Promise<LocationRow[]> {
   // 開いているお店のぶんだけ（手羽屋は印が空＝今までどおり）
   const { data, error } = await applyTenantScope<any>(
     supabase.from("locations").select("id, name, rank, target") as any,
-    readTenantScope(),
+    currentShopScope(),
   ).eq("is_active", true);
   if (error) {
     throw new Error(`locations 取得失敗: ${error.message}`);

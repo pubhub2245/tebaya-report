@@ -12,7 +12,12 @@ import {
   type RankHistoryRow,
   type RankPlan,
 } from "@/lib/locationRankUpdate";
-import { applyTenantScope, readTenantScope, tenantStamp } from "@/lib/tenantScope";
+import { applyTenantScope, tenantStamp } from "@/lib/tenantScope";
+// ★「いまどのお店か」は日報の保存と同じ安全側の決め方（2026-10-21・f3-4）。
+//   端末の控えだけを見ると、お店として入っているのに控えが空のとき
+//   **そのお店が足した出店場所が手羽屋の場所として入り**、手羽屋の日報の
+//   選択肢に出てしまいます（CLAUDE.md 4-4 の「選択肢はマスタだけから」に反する）。
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 /**
  * 出店場所マスタ管理（設定センター）。
@@ -81,7 +86,7 @@ export default function LocationMaster() {
         .select(
           "id, name, rank, target, is_active, rank_locked, booth_fee_type, booth_fee_rate, booth_fee_amount",
         ) as any,
-      readTenantScope(),
+      currentShopScope(),
     )
       .order("is_active", { ascending: false })
       .order("name");
@@ -103,7 +108,7 @@ export default function LocationMaster() {
     if (!newName.trim()) return flash("err", "場所名を入力してください");
     setSaving(true);
     const { error } = await supabase.from("locations").insert({
-      ...tenantStamp(readTenantScope()),
+      ...tenantStamp(currentShopScope()),
       name: newName.trim(),
       rank: newRank,
       target: newTarget || 0,
