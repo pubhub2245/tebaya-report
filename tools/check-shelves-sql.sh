@@ -313,6 +313,20 @@ psql -tA -c "set role anon; insert into public.keiri_payments (business_type_cod
 psql -q -c "set role anon; delete from public.keiri_payments where memo='画面からの登録'" >/dev/null 2>&1
 want "⑪ 手羽屋の払った記録は、公開の鍵で消せる" "0" "$(q "select count(*) from public.keiri_payments where memo='画面からの登録'")"
 want "⑪ 手羽屋の払った記録の行数は、入れた1行ぶんだけ" "$((PAY_TEBAYA_BEFORE + 1))" "$(q "select count(*) from public.keiri_payments where tenant_id is null")"
+# ★アプリ（公開の鍵）から「よその店の払った記録」を入れる道が、本当に通るか
+#   （2026-10-21・f3-4）。ここを試していなかったので、画面が印を付けずに
+#   入れていたことに気づけなかった：入った行は印が空＝手羽屋の行になり、
+#   そのお店の窓口には1行も出ないので、「記録しました」と出たのに
+#   未払いが1円も減らない（お店は何度も入れ直す）。
+psql -tA -c "set role anon; insert into public.keiri_payments (business_type_code, paid_on, amount, kind, memo, tenant_id) values ('t_test','2026-09-28',77000,'payroll','お店の画面から（印つき）','$TEST_TENANT')" >/dev/null 2>&1 \
+  && say "⑪ よその店は、公開の鍵で印つきの払った記録を入れられる" "OK" \
+  || say "⑪ よその店は、公開の鍵で印つきの払った記録を入れられる" "NG（入れられません）"
+want "⑪ 入れた印つきの1行は、その店の窓口から読める" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_payments(null,null,null,'test-b2-kensa-1006') w where (w->>'memo')='お店の画面から（印つき）'")"
+# 印を付けずに入れると、どのお店の帳簿にも出てこない（＝画面が印を付けなければならない理由）
+psql -q -c "set role anon; insert into public.keiri_payments (business_type_code, paid_on, amount, kind, memo) values ('t_test','2026-09-29',66000,'payroll','お店の画面から（印なし）')" >/dev/null 2>&1
+want "⑪ 印なしで入れた行は、その店の窓口には出てこない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_payments(null,null,null,'test-b2-kensa-1006') w where (w->>'memo')='お店の画面から（印なし）'")"
+want "⑪ 印なしで入れた行は、手羽屋の帳簿に紛れ込む" "1" "$(q "set role anon; select count(*) from public.keiri_payments where tenant_id is null and memo='お店の画面から（印なし）'")"
+psql -q -c "delete from public.keiri_payments where memo in ('お店の画面から（印つき）','お店の画面から（印なし）')" >/dev/null 2>&1
 
 # --- ⑫ のこりの4つの棚が、公開の鍵から隠れたか（2026-10-18 追記・f3-4） ----------
 #   ★いちばん大事なのは **手羽屋の行が今までどおり読める・入れられること**。
@@ -361,6 +375,14 @@ psql -q -c "set role anon; update public.keiri_settings set memo=memo where tena
   || say "⑫ 手羽屋の経理の設定は、公開の鍵で直せる" "NG（直せなくなりました）"
 psql -q -c "set role anon; delete from public.keiri_cash_events where actor='画面から'" >/dev/null 2>&1
 want "⑫ 手羽屋の金庫の記録は、公開の鍵で消せる" "0" "$(q "select count(*) from public.keiri_cash_events where actor='画面から'")"
+# ★よその店の行を「直す・消す」と、どうなるか（2026-10-21・f3-4）。
+#   読む決まりは**どの行を直すかを選ぶところにも効く**ので、
+#   エラーも出ないまま **0行** だけ直ります。
+#   ＝ 画面が「できました」と出すと嘘になる（lib/keiri/expenseIgnoreWrite.ts で止めている）。
+want "⑫ よその店の数えない印は、公開の鍵で直しても0行" "0" "$(q "set role anon; with u as (update public.keiri_expense_ignores set undone_at=now() where tenant_id is not null returning 1) select count(*) from u")"
+want "⑫ よその店の数えない印は、公開の鍵で消しても0行" "0" "$(q "set role anon; with d as (delete from public.keiri_expense_ignores where tenant_id is not null returning 1) select count(*) from d")"
+want "⑫ よその店の数えない印は、直そうとしても残っている" "1" "$(q "select count(*) from public.keiri_expense_ignores where tenant_id is not null and undone_at is null")"
+want "⑫ 手羽屋の数えない印は、公開の鍵で今までどおり直せる" "1" "$(q "set role anon; with u as (update public.keiri_expense_ignores set reason=reason where tenant_id is null returning 1) select count(*) from u")"
 
 # 入れたテストの行は、確かめが済んだら取り消す（本番ではなく、このパソコンの中の倉庫）
 psql -q -c "delete from public.daily_reports where tenant_id is not null" >/dev/null 2>&1

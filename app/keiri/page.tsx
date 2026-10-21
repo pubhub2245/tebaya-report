@@ -25,12 +25,19 @@ import { supabase } from "@/lib/supabase";
 import {
   TEBAYA_BUSINESS_CODE,
   businessCodeForScope,
+  isTebayaScope,
   tenantStamp,
   type TenantScope,
 } from "@/lib/tenantScope";
 import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
 import { keiriLoginNoScriptHtml } from "@/lib/keiri/noscriptFallback";
+import {
+  paymentRowForScope,
+  planWhenTenantColumnMissing,
+} from "@/lib/keiri/paymentWrite";
+import { decideIgnoreUndo } from "@/lib/keiri/expenseIgnoreWrite";
+import { isMissingTenantColumn } from "@/lib/keiri/advanceScope";
 import {
   DISPLAY_EXPENSE_ACCOUNTS,
   buildJournalRows,
@@ -471,6 +478,15 @@ function KeiriInner() {
     const keys = suspectKeys(suspect);
     const key = `${keys.report}/${keys.advance}`;
     const targets = suspectTargets(suspect);
+    // ★「元に戻す」は印の行を直すので、締めたあと（貼り紙⑫）は
+    //   申し込んだお店では **エラーも出ないまま0行**しか直りません。
+    //   「↩ 元に戻しました」と嘘を出さないよう、押す前に止めます
+    //   （決まりは lib/keiri/expenseIgnoreWrite.ts の1か所。手羽屋は今までどおり）。
+    const undoVerdict = decideIgnoreUndo({ isTebaya: isTebayaScope(scope) });
+    if (!undoVerdict.allowed) {
+      setIgnoreMsg(undoVerdict.message);
+      return;
+    }
     setIgnoreBusy(key);
     setIgnoreMsg(null);
     const problems: string[] = [];
@@ -1200,6 +1216,7 @@ function KeiriInner() {
       <PaymentSection
         payments={payments}
         onSaved={load}
+        scope={scope}
         outsourcingLabel={outsourcingLabel}
         unpaidPayroll={unpaid.payroll}
         unpaidOutsourcing={unpaid.outsourcing}
@@ -1359,6 +1376,7 @@ function UnmatchedNote({
 function PaymentSection({
   payments,
   onSaved,
+  scope,
   unpaidPayroll,
   unpaidOutsourcing,
   unpaidRent,
@@ -1366,6 +1384,13 @@ function PaymentSection({
 }: {
   payments: (KeiriPayment & { id: number })[];
   onSaved: () => void;
+  /**
+   * いまどのお店として開いているか（null＝手羽屋）。
+   * ★入れる1行に「どのお店のものか」の印を付けるために要ります
+   *   （2026-10-21・f3-4。それまで印を付けていなかったため、
+   *     申し込んだお店が入れた給与が、どのお店の帳簿にも出ませんでした）。
+   */
+  scope: TenantScope;
   unpaidPayroll: number;
   unpaidOutsourcing: number;
   unpaidRent: number;
@@ -1386,13 +1411,33 @@ function PaymentSection({
     if (!n || n <= 0) return setMsg("❌ 金額を入れてください");
     setSaving(true);
     setMsg(null);
-    const { error } = await supabase.from("keiri_payments").insert({
-      business_type_code: currentBusinessCode(),
+    // ★入れる1行に「どのお店のものか」の印を付ける（2026-10-21・kp253 ③・f3-4）。
+    //   手羽屋の印は空なので、入る行は今までと1文字も変わりません。
+    //   業態コードと印は**同じ scope から**作ります（片方だけ別のお店になると、
+    //   よその店の給与が手羽屋の帳簿に紛れ込みます）。決まりは
+    //   lib/keiri/paymentWrite.ts の1か所。
+    const base = {
+      business_type_code: businessCodeForScope(scope),
       paid_on: paidOn,
       amount: n,
       kind,
       memo: memo.trim() || null,
-    });
+    };
+    const isTebaya = isTebayaScope(scope);
+    let { error } = await supabase
+      .from("keiri_payments")
+      .insert(paymentRowForScope(base, scope));
+    // 棚に印の欄がまだ無い倉庫（貼り紙⑨の前）だけ、ここに来ます。
+    // 断られた入れ方は1行も書き込んでいないので、入れ直しても二重になりません。
+    if (error && isMissingTenantColumn(error)) {
+      const plan = planWhenTenantColumnMissing({ isTebaya });
+      if (plan.action === "入れない") {
+        setSaving(false);
+        setMsg(`❌ ${plan.message}`);
+        return;
+      }
+      ({ error } = await supabase.from("keiri_payments").insert(base));
+    }
     setSaving(false);
     if (error) {
       setMsg(`❌ 保存できませんでした：${error.message}`);
