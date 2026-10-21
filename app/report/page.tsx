@@ -14,6 +14,7 @@ import {
   writeTenantName,
   type TenantScope,
 } from "@/lib/tenantScope";
+import { effectiveKeiriScope } from "@/lib/keiri/readSource";
 import {
   decideCumulative,
   decideDupCheck,
@@ -74,6 +75,30 @@ const COINS: { key: keyof FormState["coins"]; label: string; value: number }[] =
   { key: "b5000", label: "5,000円", value: 5000 },
   { key: "b10000", label: "10,000円", value: 10000 },
 ];
+
+/**
+ * この画面で「どのお店の日報か」を決める、安全側の決め方（2026-10-21・f3-4）。
+ *
+ * ■ なぜ端末の控えだけで決めないのか（やさしい説明）
+ *   お店の印の置き場は2つあります。**入室の印**（このタブ）と
+ *   **端末の控え**（この端末）です。別の置き場なので食い違うことがあり、
+ *   食い違ったときに「手羽屋」のほうへ倒れるのが危ない形です。日報は
+ *   **売上そのもの**なので、倒れると
+ *     ・申し込んだお店の売上が、**手羽屋の帳簿に混ざる**
+ *     ・その売上が、**手羽屋のスタッフのLINEグループに流れる**
+ *   の2つが同時に起きます。
+ *   そこで経理の画面（/keiri・/keiri/advances）と同じ決め方にそろえます：
+ *   **どちらかが「お店」だと言っているなら、お店として扱う**（締める側にしか倒れない）。
+ *
+ * ■ 手羽屋は1つも変わりません（ここが大事）
+ *   手羽屋には入室の印が付きません（手羽屋の合言葉で入ると必ず捨てられます）。
+ *   印が無いときの答えは端末の控えをそのまま返すだけなので、
+ *   出店場所の選び方・担当者・保存される中身・LINEの送り先は今までと同じです
+ *   （決まりは lib/keiri/readSource.ts の1か所・tests/keiriReadSource.test.ts で固定）。
+ */
+function reportScope(): TenantScope {
+  return effectiveKeiriScope(readTenantScope());
+}
 
 export default function Page() {
   const [step, setStep] = useState(1);
@@ -162,7 +187,7 @@ export default function Page() {
       }
     } catch {}
 
-    const current = readTenantScope();
+    const current = reportScope();
     setScope(current);
     if (!current) return;
     // まず入室したときに控えた名前を出す（2026-10-18・f3-4／kp253）。
@@ -499,7 +524,7 @@ export default function Page() {
       try {
         await applyTenantScope<any>(
           supabase.from("daily_reports").delete() as any,
-          readTenantScope(),
+          reportScope(),
         )
           .eq("date", form.date)
           .eq("staff_name", form.staff_name)
@@ -513,7 +538,7 @@ export default function Page() {
       try {
         const { data: dup } = await applyTenantScope<any>(
           supabase.from("daily_reports").select("id") as any,
-          readTenantScope(),
+          reportScope(),
         )
           .eq("date", form.date)
           .eq("staff_name", form.staff_name)
@@ -523,10 +548,10 @@ export default function Page() {
         //   手羽屋と、1件でも読めたときは、ここで1回も問い合わせません。
         const rows = (dup as unknown[] | null) ?? [];
         const verdict = decideDupCheck({
-          isTebaya: isTebayaScope(readTenantScope()),
+          isTebaya: isTebayaScope(reportScope()),
           rows: rows.length,
           shelfState:
-            isTebayaScope(readTenantScope()) || rows.length > 0
+            isTebayaScope(reportScope()) || rows.length > 0
               ? "分からない"
               : await reportShelfClosed(),
         });
@@ -572,12 +597,12 @@ export default function Page() {
 
       // ★入れたあとに番号を読み返すかは lib/keiri/tenantReportWrite.ts の1か所で決める
       //   （2026-10-19・f3-3・f3-4）。手羽屋は今までどおり読み返します。
-      const saveMode = decideReportSave({ isTebaya: isTebayaScope(readTenantScope()) });
+      const saveMode = decideReportSave({ isTebaya: isTebayaScope(reportScope()) });
       const insertRow = supabase
         .from("daily_reports")
         .insert({
           // どの店の日報か。手羽屋は null（＝いままで保存していた中身と同じ）
-          ...tenantStamp(readTenantScope()),
+          ...tenantStamp(reportScope()),
           date: form.date,
           shop: form.shop,
           location: form.location,
@@ -643,7 +668,9 @@ export default function Page() {
       // LINE自動送信（失敗しても提出は成功とする）
       // ★送り先は手羽屋のスタッフのグループなので、手羽屋の日報のときだけ送る。
       //   よそのお店の売上が手羽屋のグループに流れないようにするため。
-      if (!readTenantScope()) {
+      //   どのお店かは reportScope()（安全側の決め方）で見る＝印の置き場が
+      //   食い違っても、よその店の売上が手羽屋のグループへ流れない。
+      if (isTebayaScope(reportScope())) {
         try {
           const res = await fetch("/api/line/send-report", {
             method: "POST",
@@ -1337,7 +1364,7 @@ function QuickAddProduct({
     // 足した商品は「いま開いているお店のもの」として残す
     // （手羽屋は印が空＝今までどおり。よその店の商品は手羽屋の日報に出ない）
     const { error } = await supabase.from("sale_products").insert({
-      ...tenantStamp(readTenantScope()),
+      ...tenantStamp(reportScope()),
       shop,
       name: nm,
       price: priceN,
