@@ -17,6 +17,7 @@ import {
   effectiveKeiriScope,
   readAuthedKeiriScope,
   readWindowOutcome,
+  currentShopScope,
 } from "../lib/keiri/readSource";
 
 /** 作り物の置き場（sessionStorage のかわり） */
@@ -121,4 +122,24 @@ test("締める側にしか倒れない（手羽屋として入っている端�
   for (const dev of [null, SHOP, OTHER]) {
     assert.equal(effectiveKeiriScope(dev, store({})), dev);
   }
+});
+
+/* ------------------------------------------------------------------ *
+ *  いま開いているお店を、安全側で1か所から取り出す（2026-10-21・f3-4）
+ * ------------------------------------------------------------------ */
+
+const fakeStore = (value: string | null) => ({ getItem: () => value });
+
+test("手羽屋のとき（入室の印なし・控えも空）＝今までどおり手羽屋", () => {
+  assert.equal(currentShopScope(fakeStore(null), fakeStore(null)), null);
+});
+
+test("控えだけがお店のとき＝そのお店（今までと同じ答え）", () => {
+  const shop = "22222222-2222-4222-8222-222222222222";
+  assert.equal(currentShopScope(fakeStore(shop), fakeStore(null)), shop);
+});
+
+test("入室の印だけがお店のとき＝そのお店（安全側。手羽屋の日当や場代を入れない）", () => {
+  const shop = "33333333-3333-4333-8333-333333333333";
+  assert.equal(currentShopScope(fakeStore(null), fakeStore(shop)), shop);
 });

@@ -5,7 +5,8 @@ import { supabase } from "@/lib/supabase";
 import { recalcRankForLocation } from "@/lib/locationRankUpdate";
 import { yen } from "@/lib/format";
 import { NO_RECEIPT_REASONS } from "@/lib/formState";
-import { isTebayaScope, readTenantScope } from "@/lib/tenantScope";
+import { isTebayaScope } from "@/lib/tenantScope";
+import { currentShopScope } from "@/lib/keiri/readSource";
 import {
   decideReportEdit,
   reportShelfStateOf,
@@ -247,7 +248,7 @@ export default function EditReportModal({
     //   （下見で実測）。「保存しました」と出て中身が変わらないのが一番よくないので、
     //   先に止める（2026-10-19・f3-3・f3-4）。手羽屋は今までどおり直せる
     //   ＝ 手羽屋のときは、ここで1回も問い合わせない。
-    const scope = readTenantScope();
+    const scope = currentShopScope();
     const editable = decideReportEdit({
       isTebaya: isTebayaScope(scope),
       shelfState: isTebayaScope(scope) ? "分からない" : await reportShelfClosed(),

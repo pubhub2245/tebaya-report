@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { applyTenantScope, isTebayaScope, readTenantScope } from "@/lib/tenantScope";
+import { currentShopScope } from "@/lib/keiri/readSource";
+import { applyTenantScope, isTebayaScope } from "@/lib/tenantScope";
 import {
   decideReportListRead,
   reportShelfStateOf,
@@ -48,7 +49,7 @@ export default function ReportEditPage() {
         .select(
           "id, date, location, staff_name, shop, sales_amount, labor, register_diff, exclude_from_stats",
         ) as any,
-      readTenantScope(),
+      currentShopScope(),
     )
       .order("date", { ascending: false })
       .limit(60);
@@ -57,7 +58,7 @@ export default function ReportEditPage() {
     // ★「読めなかった」を「1件もありません」と取り違えない（2026-10-19・f3-3・f3-4）。
     //   手羽屋と、1件でも読めたときは、ここで1回も問い合わせません
     //   ＝ 手羽屋の見え方も通信の回数も今までどおりです。
-    const scope = readTenantScope();
+    const scope = currentShopScope();
     const verdict = decideReportListRead({
       isTebaya: isTebayaScope(scope),
       rows: got.length,

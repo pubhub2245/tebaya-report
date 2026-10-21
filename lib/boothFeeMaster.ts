@@ -8,7 +8,8 @@
 import { supabase } from "@/lib/supabase";
 import { buildBoothFeeRules, type BoothFeeLocation } from "@/lib/boothFee";
 import type { BoothFeeRule } from "@/lib/money";
-import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
+import { applyTenantScope } from "@/lib/tenantScope";
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 /** 出店場所マスタから場代の決まりを読む。読めなければ空の表（＝自動では入れない） */
 export async function fetchBoothFeeRules(): Promise<Map<string, BoothFeeRule>> {
@@ -18,7 +19,9 @@ export async function fetchBoothFeeRules(): Promise<Map<string, BoothFeeRule>> {
       supabase
         .from("locations")
         .select("name, booth_fee_type, booth_fee_rate, booth_fee_amount") as any,
-      readTenantScope(),
+      // ★日報の保存とまったく同じ安全側の決め方（2026-10-21・f3-4）。
+      //   場代は経費の行として金額が入る所なので、保存と決め方を1つにする。
+      currentShopScope(),
     );
     if (error) throw error;
     return buildBoothFeeRules((data as BoothFeeLocation[]) || []);
