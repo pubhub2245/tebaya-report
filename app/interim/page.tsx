@@ -5,8 +5,10 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { yen } from "@/lib/format";
 import { STAFF_OPTIONS } from "@/lib/formState";
-import { applyTenantScope, readTenantScope } from "@/lib/tenantScope";
+import { applyTenantScope } from "@/lib/tenantScope";
 import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
+// ★「いまどのお店か」は日報の保存と同じ安全側の決め方（2026-10-21・f3-4）
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 type Location = {
   id: string | number;
@@ -103,7 +105,7 @@ function InterimPageInner() {
     (async () => {
       const { data, error } = await applyTenantScope<any>(
         supabase.from("locations").select("id, name, rank, target, is_active") as any,
-        readTenantScope(),
+        currentShopScope(),
       )
         .eq("is_active", true)
         .order("name", { ascending: true });

@@ -265,7 +265,28 @@ test("日報を読む所には必ず『どの店か』の絞り込みが付い�
 const STAMP_FORMS = [
   "tenantStamp(readTenantScope())",
   "tenantStamp(reportScope())",
+  // 2026-10-21（f3-4）：マスタ（出店場所・担当者・商品）も、日報の保存と
+  // 同じ安全側の決め方にそろえた（lib/keiri/readSource.ts の currentShopScope）
+  "tenantStamp(currentShopScope())",
 ];
+
+/**
+ * 「いまどのお店か」を読んでいると認める書き方。
+ *
+ * ★端末の控えだけを見る `readTenantScope()` は、入室の印と食い違ったときに
+ *   手羽屋のほうへ倒れます。倒れると門が開き、よその店のスタッフに手羽屋の
+ *   中身が出るので、安全側の `currentShopScope()` にそろえました（2026-10-21）。
+ *   **読むのをやめたら、ここで止まります。**
+ */
+const SHOP_SCOPE_FORMS = [
+  "readTenantScope()",
+  "reportScope()",
+  "currentShopScope()",
+];
+
+function readsShopScope(src: string): boolean {
+  return SHOP_SCOPE_FORMS.some((f) => src.includes(f));
+}
 
 function stamped(src: string): boolean {
   return STAMP_FORMS.some((f) => src.includes(f));
@@ -494,7 +515,7 @@ test("門そのものは、手羽屋のときだけ中身をそのまま出す�
     "TebayaOnlyGate が isTebayaScope で出し分けていません",
   );
   assert.ok(
-    src.includes("readTenantScope()"),
+    readsShopScope(src),
     "TebayaOnlyGate が「いまどのお店か」を読んでいません",
   );
 });
@@ -730,7 +751,7 @@ test("出店先ごとの売上は、よそのお店が呼んでも何も読ま�
    */
   const src = readFileSync("lib/analytics/outletAnalytics.ts", "utf8");
   assert.ok(
-    /if\s*\(!isTebayaScope\(readTenantScope\(\)\)\)\s*return \[\];/.test(src),
+    /if\s*\(!isTebayaScope\((?:readTenantScope|currentShopScope)\(\)\)\)\s*return \[\];/.test(src),
     "getOutletAnalytics が、よそのお店のときに空で返す形になっていません",
   );
 });
@@ -873,7 +894,7 @@ test("トップは、手羽屋だけの画面へのリンクを、よそのお�
  */
 test("トップの題は、いまどのお店として開いているかで決まる", () => {
   const src = readFileSync("app/components/AppTitle.tsx", "utf8");
-  assert.ok(src.includes("readTenantScope()"), "AppTitle が「いまどのお店か」を読んでいません");
+  assert.ok(readsShopScope(src), "AppTitle が「いまどのお店か」を読んでいません");
   assert.ok(
     /if\s*\(isTebayaScope\(scope\)\s*\|\|\s*!scope\)\s*return;/.test(src),
     "AppTitle が、手羽屋のときは何も変えない形になっていません",

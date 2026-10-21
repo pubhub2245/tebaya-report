@@ -17,7 +17,9 @@
 
 import { useEffect, useState } from "react";
 
-import { isTebayaScope, readTenantScope, readTenantName, writeTenantName } from "@/lib/tenantScope";
+import { isTebayaScope, readTenantName, writeTenantName } from "@/lib/tenantScope";
+// ★「いまどのお店か」は日報の保存と同じ安全側の決め方（2026-10-21・f3-4）
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 /** 手羽屋の題（これまでと同じ文字） */
 const TEBAYA_TITLE = "手羽屋 業務システム";
@@ -28,7 +30,7 @@ export default function AppTitle() {
   const [title, setTitle] = useState(TEBAYA_TITLE);
 
   useEffect(() => {
-    const scope = readTenantScope();
+    const scope = currentShopScope();
     // 手羽屋（印が空）は、これまでと1つも変えない
     if (isTebayaScope(scope) || !scope) return;
 

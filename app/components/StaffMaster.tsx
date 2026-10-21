@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { applyTenantScope, readTenantScope, tenantStamp } from "@/lib/tenantScope";
+import { applyTenantScope, tenantStamp } from "@/lib/tenantScope";
+// ★「いまどのお店か」は日報の保存と同じ安全側の決め方（2026-10-21・f3-4）。
+//   端末の控えだけを見ると、お店として入っているのに控えが空のとき
+//   **そのお店が足した担当者が手羽屋の担当者として入り**、手羽屋の日報の
+//   選択肢に出てしまいます（逆に手羽屋の4人がそのお店に出ます）。
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 /**
  * 担当者マスタ管理（設定センター）。
@@ -41,7 +46,7 @@ export default function StaffMaster() {
       supabase
         .from("staff_members")
         .select("id, name, daily_wage, unit_number, is_active") as any,
-      readTenantScope(),
+      currentShopScope(),
     )
       .order("is_active", { ascending: false })
       .order("name");
@@ -58,7 +63,7 @@ export default function StaffMaster() {
     if (!newName.trim()) return flash("err", "名前を入力してください");
     setSaving(true);
     const { error } = await supabase.from("staff_members").insert({
-      ...tenantStamp(readTenantScope()),
+      ...tenantStamp(currentShopScope()),
       name: newName.trim(),
       daily_wage: newWage || 0,
       unit_number: newUnit ? parseInt(newUnit, 10) : null,
