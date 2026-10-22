@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { loadKeiriMonthServer } from "@/lib/keiri/loadMonthServer";
 import { buildOneSheet } from "@/lib/keiri/oneSheet";
 import { readIgnoreMarks } from "@/lib/keiri/expenseIgnores";
+import { ignoreStoreOf } from "@/lib/keiri/expenseIgnoreMemo";
 import { buildSelfCheck, unreadableSelfCheck } from "@/lib/keiri/selfCheck";
 import { previousMonthRange, CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import { templateFor } from "@/lib/keiri/index";
@@ -92,6 +93,12 @@ export async function GET(req: NextRequest) {
     // 「同じ支払いが2か所にある」ときに、どちらを数えるかを決められる状態か（kp230・f1-5）。
     // ★金額は1円も返しません。返すのは「置き場があるか」と「決めた件数」だけです。
     const marked = marks.ignored.size + marks.bothCounted.size;
+    // 決めた内容をどこに残せるか（棚／ひとこと欄の控え／残せない）。
+    // ★画面と同じ関数で決めるので、窓口の答えと画面の見え方がずれません。
+    const duplicateStore = ignoreStoreOf({
+      shelf: data.ignoreShelf,
+      settingsRowExists: !data.settingsMissing,
+    });
     return jsonWindow({
       ...buildSelfCheck({ month: label, ym, sheet }),
       // 金庫を数えた記録と、計算上の現金が合っていたか（2026-10-11・f1-4）。
@@ -120,12 +127,18 @@ export async function GET(req: NextRequest) {
       duplicateMarks: {
         shelf: data.ignoreShelf,
         decided: marked,
+        // どこに残せるか（2026-10-22・kp230・f1-5）。
+        // ★棚がまだ無くても、経理の設定のひとこと欄に控えて先に決められます
+        //   （金庫を数えた1回で先にうまくいった形と同じ）。
+        store: duplicateStore,
         shelfNote:
-          data.ignoreShelf === "ready"
+          duplicateStore === "shelf"
             ? "決めた内容を残す置き場があります（画面で押して片付けられます）"
-            : data.ignoreShelf === "missing"
-              ? "決めた内容を残す置き場がまだありません（/keiri/sql の貼り紙②を1回 流すと使えます）。いまは疑いを出すだけです"
-              : "置き場があるか確かめられませんでした（今までどおり、疑いを出すだけにしています）",
+            : duplicateStore === "memo"
+              ? "決めた内容を残す置き場（keiri_expense_ignores）はまだありませんが、経理の設定のひとこと欄に控えるので、いま画面で押して片付けられます（貼り紙②を待ちません）"
+              : data.ignoreShelf === "missing"
+                ? "決めた内容を残す置き場がまだありません（/keiri/sql の貼り紙②を1回 流すと使えます）。いまは疑いを出すだけです"
+                : "置き場があるか確かめられませんでした（今までどおり、疑いを出すだけにしています）",
       },
     });
   } catch {

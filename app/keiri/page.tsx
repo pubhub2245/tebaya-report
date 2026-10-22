@@ -88,7 +88,13 @@ import {
   type ExpenseIgnoreRow,
   type IgnoreChoice,
   type IgnoreShelfState,
+  IGNORE_WORDS,
 } from "@/lib/keiri/expenseIgnores";
+import {
+  addIgnoreWritesToMemo,
+  ignoreStoreOf,
+  undoIgnoresInMemo,
+} from "@/lib/keiri/expenseIgnoreMemo";
 import DuplicateChoices from "@/app/keiri/components/DuplicateChoices";
 import SetupTodoCard from "@/app/keiri/components/SetupTodoCard";
 import type { DuplicateSuspect } from "@/lib/keiri/duplicates";
@@ -309,6 +315,18 @@ function KeiriInner() {
   /** いま効いている「数えない」の印（kp230） */
   const ignoreMarks = useMemo(() => readIgnoreMarks(ignores), [ignores]);
 
+  /**
+   * 決めた内容をどこに残すか（2026-10-22・kp230・f1-5）。
+   *   棚（keiri_expense_ignores）があれば今までどおり棚へ。
+   *   棚がまだ無くても、経理の設定の行があれば**ひとこと欄に控えて先に決められます**
+   *   （金庫を数えた1回で先にうまくいった形と同じ・lib/keiri/cashCountMemo.ts）。
+   *   どちらもできなければ、今までどおり「出すだけ」。
+   */
+  const ignoreStore = useMemo(
+    () => ignoreStoreOf({ shelf: ignoreShelf, settingsRowExists: !settingsMissing }),
+    [ignoreShelf, settingsMissing],
+  );
+
   const summary = useMemo(
     () =>
       summarizeMonth({ ym, reports, template, settings: effective, advances, ignoreMarks }),
@@ -442,6 +460,66 @@ function KeiriInner() {
   );
 
   /**
+   * 棚（keiri_expense_ignores）がまだ無いあいだ、決めた内容を
+   * **経理の設定のひとこと欄**に控える（2026-10-22・kp230・f1-5）。
+   *
+   * ■ なぜこうするのか（やさしい説明）
+   *   印を置く棚は、倉庫に貼り紙を1回 貼ると できます。貼るまでのあいだ
+   *   押せないままだと、9月の「同じ支払いかもしれない29件」を**決められません**。
+   *   もうある設定の行のひとこと欄に控えれば、貼る前でも決められます。
+   *
+   * ■ 守っていること
+   *   ・いま書いてあるひとことは消しません（印の中だけに書きます）。
+   *   ・金庫の控えとは別の印なので、2つが同じ欄に並んでも壊れません。
+   *   ・**1行も変わっていなければ「残しました」と言いません**
+   *     （lib/keiri/keiriSettingsWrite.ts の決まり）。
+   */
+  const saveIgnoreToMemo = async (
+    build: (memo: string | null) => string | null,
+    /** 控えの文が作れなかったときに出す1行（渡さなければ既定の言い方） */
+    cannotBuildMessage?: string,
+  ): Promise<boolean> => {
+    // いま書いてあるひとことを消さないよう、先に読んでから足す
+    const { data, error: rErr } = await supabase
+      .from("keiri_settings")
+      .select("memo")
+      .eq("business_type_code", BUSINESS_CODE)
+      .maybeSingle();
+    const pre = decideMemoPreread({
+      isTebaya: BUSINESS_CODE === TEBAYA_BUSINESS_CODE,
+      rowFound: !!data,
+      errorMessage: rErr ? rErr.message : null,
+      target: "数えない印の控え",
+    });
+    if (!pre.proceed) {
+      if (pre.message) setIgnoreMsg(pre.message);
+      return false;
+    }
+    const next = build(((data as any)?.memo as string | null) ?? null);
+    if (next === null) {
+      setIgnoreMsg(
+        cannotBuildMessage ??
+          "決めた内容を控えられませんでした（控えに置ける数を超えているか、中身が読めません）。" +
+            "記録は1行も消していません。",
+      );
+      return false;
+    }
+    const { data: changed, error } = await supabase
+      .from("keiri_settings")
+      .update({ memo: next })
+      .eq("business_type_code", BUSINESS_CODE)
+      .select("business_type_code");
+    const verdict = decideSettingsWriteResult({
+      isTebaya: BUSINESS_CODE === TEBAYA_BUSINESS_CODE,
+      errorMessage: error ? error.message : null,
+      changedRows: Array.isArray(changed) ? changed.length : null,
+      target: "数えない印の控え",
+    });
+    setIgnoreMsg(verdict.message);
+    return verdict.ok;
+  };
+
+  /**
    * 「どちらを数えるか」を押して決めたときの保存（kp230・f1-5）。
    *
    * ★足すだけです。元の日報の行・立替の行は1文字も書き換えません。
@@ -455,8 +533,24 @@ function KeiriInner() {
       setIgnoreMsg("この組は元の記録の番号が読めないので、ここでは決められません。");
       return;
     }
+    if (ignoreStore === "none") {
+      setIgnoreMsg(IGNORE_WORDS.notReady);
+      return;
+    }
     setIgnoreBusy(key);
     setIgnoreMsg(null);
+    // ★棚がまだ無いあいだは、経理の設定のひとこと欄に控える（2026-10-22・kp230）
+    if (ignoreStore === "memo") {
+      // ★押し替え（日報のほう → 立て替えのほう）で**両方 数えないことにならない**よう、
+      //   その組のもう片方に効いている印は、足す前に効かなくする（印は消さない）。
+      const pair = suspectTargets(suspect);
+      const ok = await saveIgnoreToMemo((memo) =>
+        addIgnoreWritesToMemo(memo, rows, [pair.report, pair.advance]),
+      );
+      setIgnoreBusy(null);
+      if (ok) await load();
+      return;
+    }
     const { error } = await supabase
       .from("keiri_expense_ignores")
       .insert(rows.map((r) => ({ ...r, ...tenantStamp(scope) })));
@@ -489,6 +583,25 @@ function KeiriInner() {
     }
     setIgnoreBusy(key);
     setIgnoreMsg(null);
+    // ★棚がまだ無いあいだの印は、ひとこと欄の控えの中で効かなくする（消さない）
+    if (ignoreStore === "memo") {
+      const ok = await saveIgnoreToMemo(
+        (memo) => {
+          const { memo: next, changed } = undoIgnoresInMemo(memo, [
+            targets.report,
+            targets.advance,
+          ]);
+          return changed > 0 ? next : null;
+        },
+        "この組の印は、控えの中に見つかりませんでした（1つも戻していません）。画面を開き直して、いまの状態を確かめてください。",
+      );
+      setIgnoreBusy(null);
+      if (ok) {
+        setIgnoreMsg("↩ 元に戻しました（記録は消していません）");
+        await load();
+      }
+      return;
+    }
     const problems: string[] = [];
     for (const t of [targets.report, targets.advance]) {
       if (!t) continue;
@@ -887,6 +1000,7 @@ function KeiriInner() {
               suspects={duplicates.suspects}
               marks={ignoreMarks}
               shelf={ignoreShelf}
+              store={ignoreStore}
               busy={ignoreBusy}
               message={ignoreMsg}
               onChoose={chooseDuplicate}

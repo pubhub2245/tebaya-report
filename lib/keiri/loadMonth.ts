@@ -35,6 +35,7 @@ import {
 } from "./expenseIgnores";
 import { normalizeCashEvents, type CashEvent } from "./cashCheck";
 import { decodeCashCountMemo, mergeCashEvents } from "./cashCountMemo";
+import { decodeExpenseIgnoreMemo, mergeIgnoreRows } from "./expenseIgnoreMemo";
 import { normalizeRegisterCloses, type RegisterCloseRow } from "./registerFloat";
 import type {
   KeiriAdvance,
@@ -387,6 +388,9 @@ export async function loadKeiriMonthDirect(
     const { data: rows, error: iErr } = await applyTenantScope<any>(ignoreQuery as any, scope);
     ignoreShelf = ignoreShelfStateOf({ error: iErr });
     if (!iErr) ignores = ((rows as ExpenseIgnoreRow[]) ?? []);
+    // ★棚がまだ無いあいだ、経理の設定のおまけ欄に控えた印も読む（2026-10-22・kp230・f1-5）。
+    //   棚ができたあとも読むが、**同じ行を指す印は棚のほうが正**（二重に数えない）。
+    ignores = mergeIgnoreRows(ignores, decodeExpenseIgnoreMemo((s as any)?.memo));
   }
 
   return {

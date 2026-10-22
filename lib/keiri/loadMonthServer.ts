@@ -48,6 +48,10 @@ import {
 import { normalizeCashEvents, type CashEvent } from "@/lib/keiri/cashCheck";
 import { decodeCashCountMemo, mergeCashEvents } from "@/lib/keiri/cashCountMemo";
 import {
+  decodeExpenseIgnoreMemo,
+  mergeIgnoreRows,
+} from "@/lib/keiri/expenseIgnoreMemo";
+import {
   normalizeRegisterCloses,
   type RegisterCloseRow,
 } from "@/lib/keiri/registerFloat";
@@ -590,6 +594,13 @@ async function loadKeiriMonthServerInner(params: {
       );
       ignoreShelf = ignoreShelfStateOf({ error });
       if (!error) ignores = (data as ExpenseIgnoreRow[]) ?? [];
+    }
+    // ★棚がまだ無いあいだ、経理の設定のおまけ欄に控えた印も読む（2026-10-22・kp230・f1-5）。
+    //   ブラウザ直読みと**同じ関数**を通すので、2つの道が同じ答えを出します
+    //   （/api/keiri/readpaths でそこを突き合わせています）。
+    //   読めなかった（ignoresUnreadable）ときは足さない＝0件と取り違えないため。
+    if (!ignoresUnreadable) {
+      ignores = mergeIgnoreRows(ignores, decodeExpenseIgnoreMemo((s as any)?.memo));
     }
   }
 
