@@ -668,17 +668,33 @@ export type LocationSummary = {
  *
  * ★出店場所の書き方のゆれは lib/locationName.ts で揃えます（CLAUDE.md 4-4）。
  *   過去の日報は書き換えません。
+ *
+ * ★名寄せは **手羽屋の表だけ**（2026-10-22・f3-4）
+ *   lib/locationName.ts の決まりは、手羽屋の日報 151件に出てきた34通りの
+ *   書き方を揃えるために作ったもので、中身は**手羽屋の出店先の名前**です
+ *   （「山田」→ ながやま山田・「高城」→ PASIO高城・「イオン」→ イオンモール …）。
+ *   よそのお店の帳簿にこれを当てると、そのお店の出店場所が
+ *   **手羽屋の取引先の名前に書き換わって**出ます（別の場所がひとまとめにもなります）。
+ *   そこで `canonicalize: false` のときは、日報に書いてある名前をそのまま使います。
+ *   既定は true＝手羽屋の見え方は今までと1文字も変わりません。
  */
 export function summarizeByLocation(params: {
   ym: string;
   reports: KeiriReport[];
+  /** 手羽屋の名寄せを当てるか。既定 true（＝今までどおり） */
+  canonicalize?: boolean;
 }): LocationSummary[] {
   const { ym, reports } = params;
+  const canonicalize = params.canonicalize ?? true;
   const map = new Map<string, LocationSummary>();
 
   for (const r of reports.filter((x) => inMonth(x.date, ym))) {
     const raw = (r.location || "").trim();
-    const name = raw ? canonicalLocationName(raw) : UNSET_LOCATION;
+    const name = raw
+      ? canonicalize
+        ? canonicalLocationName(raw)
+        : raw
+      : UNSET_LOCATION;
     let row = map.get(name);
     if (!row) {
       row = {
