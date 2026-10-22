@@ -435,8 +435,15 @@ function KeiriInner() {
   );
 
   const byLocation = useMemo(
-    () => summarizeByLocation({ ym, reports }),
-    [ym, reports],
+    () =>
+      summarizeByLocation({
+        ym,
+        reports,
+        // ★名寄せの表は手羽屋の出店先の名前なので、よそのお店には当てない
+        //   （2026-10-22・f3-4）。手羽屋は今までどおり揃えて出す。
+        canonicalize: isTebayaScope(scope),
+      }),
+    [ym, reports, scope],
   );
 
   /**
