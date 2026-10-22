@@ -827,3 +827,45 @@ test("outsourcingAccountLabelFor: 手羽屋は「外注費（Alpha）」のま�
   const fromAccounts = accountLabelForCsv("outsourcing");
   assert.equal(outsourcingAccountLabelFor("tebaya"), fromAccounts);
 });
+
+/**
+ * 名寄せ（出店場所の書き方を揃える表）は、**手羽屋のものだけ**（2026-10-22・f3-4）。
+ * よそのお店の帳簿に当てると、そのお店の場所が手羽屋の取引先の名前に書き換わる。
+ */
+test("summarizeByLocation: よそのお店には名寄せを当てない（canonicalize:false）", () => {
+  const reports = [
+    { date: "2026-08-01", location: "山田のひろば", sales_amount: 10000, expenses: [] },
+    { date: "2026-08-02", location: "高城ふれあい市", sales_amount: 20000, expenses: [] },
+  ] as any;
+
+  // 手羽屋（既定）… 今までどおり手羽屋の名前に揃う
+  const tebaya = summarizeByLocation({ ym: "2026-08", reports });
+  assert.deepEqual(
+    tebaya.map((r) => r.location).sort(),
+    ["PASIO高城", "ながやま山田"],
+  );
+
+  // よそのお店 … 日報に書いてある名前がそのまま出る
+  const other = summarizeByLocation({ ym: "2026-08", reports, canonicalize: false });
+  assert.deepEqual(
+    other.map((r) => r.location).sort(),
+    ["山田のひろば", "高城ふれあい市"],
+  );
+  // 金額は名寄せの有無で変わらない
+  assert.equal(
+    tebaya.reduce((t, r) => t + r.sales, 0),
+    other.reduce((t, r) => t + r.sales, 0),
+  );
+});
+
+test("summarizeByLocation: よそのお店でも、別の場所がひとまとめにならない", () => {
+  const reports = [
+    { date: "2026-08-01", location: "山田店", sales_amount: 10000, expenses: [] },
+    { date: "2026-08-02", location: "東山田店", sales_amount: 20000, expenses: [] },
+  ] as any;
+  // 手羽屋の表では両方「ながやま山田」に寄ってしまう（手羽屋にとっては正しい）
+  assert.equal(summarizeByLocation({ ym: "2026-08", reports }).length, 1);
+  // よそのお店では2件のまま
+  const other = summarizeByLocation({ ym: "2026-08", reports, canonicalize: false });
+  assert.equal(other.length, 2);
+});
