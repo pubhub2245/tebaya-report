@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import Link from "next/link";
 
 import SetupTodoCard from "@/app/keiri/components/SetupTodoCard";
 
-import { SHELF_STEPS, SHELF_SQL_DRYRUN, dryRunLine } from "@/lib/keiri/shelves";
+import { SHELF_STEPS, SHELF_SQL_DRYRUN, dryRunLine, dryRunSheetState } from "@/lib/keiri/shelves";
 import { sqlEditorUrl } from "@/lib/keiri/warehouseLinks";
 import { CopyButton, ShelfStatus } from "./SqlSheet";
 
@@ -39,13 +40,22 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+/** 組み立てのときに、ファイルの中身をそのまま読む（指紋を取るのに使う） */
+function readSqlRaw(file: string): string | null {
+  try {
+    return readFileSync(join(process.cwd(), "supabase", "migrations", file), "utf8");
+  } catch {
+    return null;
+  }
+}
+
 /** 組み立てのときに読む（出来上がったページの中に文が入る） */
 function readSql(file: string): string {
-  try {
-    return readFileSync(join(process.cwd(), "supabase", "migrations", file), "utf8").trim();
-  } catch {
+  const raw = readSqlRaw(file);
+  if (raw === null) {
     return `-- ${file} が読めませんでした。倉庫の supabase/migrations/${file} を直接ご覧ください。`;
   }
+  return raw.trim();
 }
 
 const SHEET_FILE = "keiri_shelves_20261005.sql";
@@ -53,6 +63,15 @@ const APPLICATIONS_FILE = "keiri_applications_optional_contact.sql";
 
 export default function KeiriSqlPage() {
   const sheet = readSql(SHEET_FILE);
+  // 下見を通したときの貼り紙と、いまここに出している文が同じかを見る（2026-10-22）。
+  // ★違っていたら「確かめていない1枚」なので、押す前にそう言う。
+  //   指紋（SHA-256）だけを比べる。貼り紙の文はこのページにそのまま出しているので公開情報。
+  const sheetRaw = readSqlRaw(SHEET_FILE);
+  const sheetState = dryRunSheetState(
+    sheetRaw === null
+      ? null
+      : createHash("sha256").update(sheetRaw, "utf8").digest("hex"),
+  );
   const applications = readSql(APPLICATIONS_FILE);
   // 倉庫の SQL Editor への行き先（lib/keiri/warehouseLinks.ts）。
   // 読めなければリンクを出さず、今までどおり文だけ残す（間違った所へ送らないため）
@@ -87,6 +106,12 @@ export default function KeiriSqlPage() {
           ))}
         </ul>
         <p className="text-xs text-emerald-800 leading-relaxed">{SHELF_SQL_DRYRUN.caveat}</p>
+        {sheetState.matches === false ? (
+          <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-bold text-amber-900 leading-relaxed">
+            ⚠ 下の文は、上の下見のあとに変わっています。押す前に、もう一度 下見を通してください
+            （tools/check-shelves-sql.sh）。
+          </p>
+        ) : null}
       </section>
 
       <section className="rounded-2xl border border-stone-200 bg-white p-4 space-y-3">
