@@ -38,7 +38,13 @@ import { generateLineText } from "@/lib/lineText";
 import { calcGrossProfit, sumExpenses } from "@/lib/money";
 import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
 import { NO_RECEIPT_REASONS } from "@/lib/formState";
-import { fetchStaffWages, makeLaborFor, type StaffWageMap } from "@/lib/staffWage";
+import {
+  fetchStaffWages,
+  laborKnown,
+  laborToSave,
+  makeLaborFor,
+  type StaffWageMap,
+} from "@/lib/staffWage";
 import { getUnitFromStaff } from "@/lib/teamMapping";
 import { getLimitedProductForMonth } from "@/lib/limitedProduct";
 import { recalcRankForLocation } from "@/lib/locationRankUpdate";
@@ -126,7 +132,22 @@ export default function Page() {
   const [masterStaff, setMasterStaff] = useState<string[]>([]);
   // 日当はスタッフマスタが正。マスタに無い人だけコード側の保険値を使う
   const [staffWages, setStaffWages] = useState<StaffWageMap>(new Map());
-  const laborForStaff = useMemo(() => makeLaborFor(staffWages), [staffWages]);
+  /**
+   * 担当者を選んだときに入る日当。
+   * ★コードの中の保険の表（イデ ¥9,000・じゅん ¥10,000 …）は**手羽屋の日当**なので、
+   *   よそのお店では使わない（2026-10-22・f3-4）。よそのお店でマスタに無い人は 0 のままにして、
+   *   画面が「スタッフマスタに入っていません」と言う。→ lib/staffWage.ts
+   */
+  const laborForStaff = useMemo(
+    () => makeLaborFor(staffWages, scope),
+    [staffWages, scope],
+  );
+  /** その日当に根拠があるか（手羽屋では必ず true＝今までどおり） */
+  const laborKnownFor = useMemo(
+    () => (staff: string, isOther = false) =>
+      laborKnown(staffWages, staff, isOther, scope),
+    [staffWages, scope],
+  );
 
   // 出店料（場代）の決まり。出店場所マスタが正（→ CLAUDE.md 4-15）
   const [boothFeeRules, setBoothFeeRules] = useState<Map<string, BoothFeeRule>>(
@@ -190,6 +211,11 @@ export default function Page() {
     const current = reportScope();
     setScope(current);
     if (!current) return;
+    // ★よそのお店では、はじめから入っている日当（手羽屋の既定 ¥10,000）を空にする
+    //   （2026-10-22・f3-4）。そのお店が1円も入れていない金額を、
+    //   最初から人件費として置いておかないため。下書きがあれば下書きが勝つ
+    //   （下書きを読む処理はこのあとに動く）。
+    setForm((f) => (f.labor ? { ...f, labor: 0 } : f));
     // まず入室したときに控えた名前を出す（2026-10-18・f3-4／kp253）。
     // お店の棚は公開の鍵では読めず、窓口が答えられないことがあるため。
     const remembered = readTenantName(undefined, current);
@@ -501,7 +527,7 @@ export default function Page() {
   };
 
   const handleGenerate = () => {
-    const text = generateLineText(form, cumulative, breakdown);
+    const text = generateLineText(form, cumulative, breakdown, laborToSave(form.labor, reportScope()));
     setLineText(text);
   };
 
@@ -516,7 +542,9 @@ export default function Page() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const text = lineText || generateLineText(form, cumulative, breakdown);
+      const text =
+        lineText ||
+        generateLineText(form, cumulative, breakdown, laborToSave(form.labor, reportScope()));
       if (!lineText) setLineText(text);
 
       // 代理INSERT（line_textに「【代理INSERT】」マーカー付き）が同じ
@@ -612,7 +640,9 @@ export default function Page() {
           register_total: registerTotal,
           register_ok: form.register_ok,
           register_diff: form.register_diff || 0,
-          labor: form.labor || 10000,
+          // ★空のときに入れる金額は lib/staffWage.ts の1か所で決める（2026-10-22・f3-4）。
+          //   手羽屋は今までどおり ¥10,000。よそのお店には手羽屋の金額を入れない
+          labor: laborToSave(form.labor, reportScope()),
           // 手羽屋・もも屋とも商品マスタ連動。本数は product_counts(jsonb) に保存し、
           // 既知商品は互換のため従来カラムにも保存（仕込み計算が remaining_tebasaki/gyoza を参照）
           remaining_tebasaki:
@@ -707,7 +737,7 @@ export default function Page() {
   if (step === 9) {
     const sales = form.sales_amount || 0;
     if (!lineText) {
-      const text = generateLineText(form, cumulative, breakdown);
+      const text = generateLineText(form, cumulative, breakdown, laborToSave(form.labor, scope));
       setLineText(text);
     }
     return (
@@ -866,6 +896,7 @@ export default function Page() {
                 ]
           }
           laborForStaff={laborForStaff}
+          laborKnownFor={laborKnownFor}
           // 屋号の2択は手羽屋だけのもの。よそのお店には出さない。
           showShopPicker={!scope}
         />
@@ -920,6 +951,9 @@ export default function Page() {
           breakdown={breakdown}
           onSave={handleSave}
           saving={saving}
+          // 確認画面の粗利に使う日当。保存する金額とまったく同じ決め方にする
+          // （2026-10-22・f3-4。よそのお店に手羽屋の ¥10,000 を見せない）
+          laborAmount={laborToSave(form.labor, scope)}
           // 屋号の行も、2択を出していないお店には出さない
           showShop={!scope}
         />
@@ -957,6 +991,7 @@ function Step1({
   locationsLoaded,
   staffOptions,
   laborForStaff,
+  laborKnownFor,
   showShopPicker,
 }: {
   form: FormState;
@@ -967,6 +1002,11 @@ function Step1({
   staffOptions: string[];
   /** 担当者を選んだときの日当。スタッフマスタの値が優先される */
   laborForStaff: (staff: string, isOther?: boolean) => number;
+  /**
+   * その日当に根拠があるか（false＝そのお店のスタッフマスタに日当が無い）。
+   * 手羽屋では必ず true なので、手羽屋の画面は今までどおり何も出ない。
+   */
+  laborKnownFor: (staff: string, isOther?: boolean) => boolean;
   /**
    * 「🍗 手羽屋 / 🍖 もも屋」の2択を出すか。
    * 手羽屋だけの屋号なので、経理パッケージを申し込んだお店には出さない。
@@ -1157,6 +1197,16 @@ function Step1({
         <p className="text-[11px] text-stone-400 mt-1">
           担当者に応じて自動で入ります。金額はここで手入力に書き換えられます（担当者を変えると自動の金額に戻ります）。
         </p>
+        {/* よそのお店で、そのお店のスタッフマスタに日当が入っていないとき。
+            勝手な金額を入れない代わりに、どうすれば自動で入るかを伝える
+            （手羽屋では出ない＝laborKnownFor が必ず true）。 */}
+        {form.staff_name.length > 0 && !laborKnownFor(form.staff_name, isStaffOther) && (
+          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-2 leading-relaxed">
+            この方の日当は、まだスタッフマスタに入っていません。こちらで金額を作ることはしないので、
+            今日の日当をこの欄に入れてください。管理者ページのスタッフマスタに日当を入れておくと、
+            次からは自動で入ります。
+          </p>
+        )}
       </div>
     </section>
     </>
@@ -2165,6 +2215,7 @@ function Step7({
   breakdown,
   onSave,
   saving,
+  laborAmount,
   showShop,
 }: {
   form: FormState;
@@ -2174,6 +2225,8 @@ function Step7({
   breakdown: SalesBreakdown;
   onSave: () => void;
   saving: boolean;
+  /** 粗利に使う日当（保存する金額と同じ。lib/staffWage.ts の laborToSave で決める） */
+  laborAmount: number;
   /** 確認画面に「お店（🍗 手羽屋 / 🍖 もも屋）」の行を出すか。手羽屋のときだけ true */
   showShop: boolean;
 }) {
@@ -2181,7 +2234,7 @@ function Step7({
   // 粗利の計算は lib/money.ts に集約（tests/money.test.ts で検証済み）
   const { food, rent, labor, costTotal, profit } = calcGrossProfit(
     sales,
-    form.labor || 10000,
+    laborAmount,
   );
 
   return (

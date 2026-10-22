@@ -9,12 +9,23 @@ export function generateLineText(
   f: FormState,
   cumulative: number,
   breakdown?: SalesBreakdown,
+  /**
+   * 粗利に使う日当（円）。渡さないときは今までどおり「入っていなければ ¥10,000」。
+   *
+   * ★なぜ渡せるようにしたか（2026-10-22・f3-4）
+   *   ¥10,000 は**手羽屋の既定の日当**です。経理パッケージを申し込んだお店が
+   *   日当を空のまま出すと、保存した金額（0円）とこの文の金額（¥10,000）が
+   *   食い違い、そのお店の文に手羽屋の金額が出ます。
+   *   保存する金額（lib/staffWage.ts の laborToSave）をそのまま渡せば、
+   *   文と帳簿が必ず同じになります。手羽屋は渡しても答えが変わりません。
+   */
+  laborAmount?: number,
 ): string {
   const sales = f.sales_amount || 0;
   // 粗利の計算は lib/money.ts に集約（tests/money.test.ts で検証済み）
   const { food, rent, labor, costTotal, profit } = calcGrossProfit(
     sales,
-    f.labor || 10000,
+    typeof laborAmount === "number" ? laborAmount : f.labor || 10000,
   );
   const expensesTotal = sumExpenses(f.expenses);
 

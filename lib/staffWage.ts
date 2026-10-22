@@ -14,12 +14,22 @@
  */
 
 import { supabase } from "./supabase";
-import { laborFor as fallbackLaborFor } from "./formState";
 import { applyTenantScope } from "@/lib/tenantScope";
 import { currentShopScope } from "@/lib/keiri/readSource";
 
-/** スタッフ名 → 日当（円）。マスタに日当が入っている人だけが入る */
-export type StaffWageMap = Map<string, number>;
+// 日当の決まりそのものは lib/laborRule.ts の1か所（倉庫を読まないので試験で固定できる）。
+// 画面からは今までどおりこのファイルを読めばよいように、そのまま配り直している。
+export {
+  laborKnown,
+  laborToSave,
+  makeLaborFor,
+  resolveLabor,
+  resolveLaborDetail,
+  type LaborResolution,
+  type LaborSource,
+  type StaffWageMap,
+} from "./laborRule";
+import type { StaffWageMap } from "./laborRule";
 
 /**
  * スタッフマスタから日当を読み込む。
@@ -48,27 +58,8 @@ export async function fetchStaffWages(): Promise<StaffWageMap> {
 }
 
 /**
- * その人の日当を決める。
- *
- * ① スタッフマスタに日当があればそれを使う（＝管理画面で変えられる）
- * ② 無ければコードの表（保険）を使う
- *
- * isOther＝選択肢に無い「その他」の人。保険の表では ¥8,500 扱い。
+ * その日当は、どこから出た金額か。
+ *   master         … そのお店のスタッフマスタに入っていた値（いちばん正しい）
+ *   tebaya-fallback … コードの中の表（手羽屋の日当）。**手羽屋のときだけ使う**
+ *   none           … 分からない（金額を作らない）。よそのお店でマスタに無いとき
  */
-export function resolveLabor(
-  wages: StaffWageMap,
-  staff: string,
-  isOther = false,
-): number {
-  const fromMaster = wages.get(staff);
-  if (typeof fromMaster === "number" && fromMaster > 0) return fromMaster;
-  return fallbackLaborFor(staff, isOther);
-}
-
-/**
- * 日当を返す関数を作る。画面側は `const laborFor = makeLaborFor(wages)` として
- * これまでと同じ書き方で使える。
- */
-export function makeLaborFor(wages: StaffWageMap) {
-  return (staff: string, isOther = false) => resolveLabor(wages, staff, isOther);
-}
