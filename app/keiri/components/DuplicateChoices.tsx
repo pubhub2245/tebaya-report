@@ -24,6 +24,7 @@
  */
 
 import type { DuplicateSuspect } from "@/lib/keiri/duplicates";
+import type { IgnoreStore } from "@/lib/keiri/expenseIgnoreMemo";
 import {
   IGNORE_WORDS,
   canChoose,
@@ -40,6 +41,7 @@ export default function DuplicateChoices({
   suspects,
   marks,
   shelf,
+  store,
   busy,
   message,
   onChoose,
@@ -49,6 +51,14 @@ export default function DuplicateChoices({
   marks: IgnoreMarks;
   /** 印を置く棚があるか（まだ無いときはボタンを出さず「準備中です」と出す） */
   shelf: IgnoreShelfState;
+  /**
+   * 決めた内容をどこに残せるか（2026-10-22・kp230）。
+   *   shelf … 棚に残す（今までどおり）
+   *   memo  … 棚はまだ無いが、経理の設定のひとこと欄に控えて先に決められる
+   *   none  … どこにも残せない＝今までどおり「出すだけ」
+   * ★渡さなければ棚の有無だけで決める（＝今までとまったく同じ見え方）。
+   */
+  store?: IgnoreStore;
   /** いま書き込み中の組（合言葉）。二度押しを防ぐため */
   busy?: string | null;
   message?: string | null;
@@ -63,7 +73,9 @@ export default function DuplicateChoices({
 
   const pending = suspects.filter((s) => suspectDecision(s, marks) === "pending");
   const pendingTotal = pending.reduce((t, s) => t + s.amount, 0);
-  const ready = shelf === "ready";
+  // ★どこに残せるか。渡されなければ棚の有無だけで決める（今までどおり）
+  const where: IgnoreStore = store ?? (shelf === "ready" ? "shelf" : "none");
+  const ready = where !== "none";
 
   return (
     <div className="rounded-lg border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900 space-y-3">
@@ -74,9 +86,14 @@ export default function DuplicateChoices({
       </p>
       {pending.length > 0 && <p className="leading-relaxed">{IGNORE_WORDS.lead}</p>}
 
-      {!ready && (
+      {where === "none" && (
         <p className="rounded bg-white/70 px-2 py-1 leading-relaxed text-amber-800">
           {IGNORE_WORDS.notReady}
+        </p>
+      )}
+      {where === "memo" && (
+        <p className="rounded bg-white/70 px-2 py-1 leading-relaxed text-amber-800">
+          {IGNORE_WORDS.memoKeep}
         </p>
       )}
 

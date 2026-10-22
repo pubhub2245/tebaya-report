@@ -31,7 +31,12 @@ export type SettingsWriteTarget =
   /** 経理の設定（数え始めの日・期首残高・率・家賃） */
   | "設定"
   /** 金庫を数えた1回の控え（置き場ができるまでの仮置き） */
-  | "金庫の控え";
+  | "金庫の控え"
+  /**
+   * 「同じ支払いなので こちらは数えない」と決めた印の控え
+   * （置き場ができるまでの仮置き・2026-10-22・kp230）
+   */
+  | "数えない印の控え";
 
 export type SettingsWriteVerdict = {
   /** 画面で「できました」と言ってよいか */
@@ -46,18 +51,27 @@ export type SettingsWriteVerdict = {
 const DONE: Record<SettingsWriteTarget, string> = {
   設定: "✅ 保存しました",
   金庫の控え: "✅ 控えに残しました（置き場ができたら、そのまま記録に移ります）",
+  数えない印の控え:
+    "✅ 決めた内容を残しました（記録は消していません。置き場ができたら、そのまま記録に移ります）",
 };
 
 /** 書き込みがエラーで返ったときに今まで出していた言葉（1文字も変えない） */
 function failedBy(target: SettingsWriteTarget, reason: string): string {
-  return target === "設定"
-    ? `❌ 保存できませんでした：${reason}`
-    : `控えを残せませんでした：${reason}`;
+  if (target === "設定") return `❌ 保存できませんでした：${reason}`;
+  if (target === "数えない印の控え") return `保存できませんでした：${reason}`;
+  return `控えを残せませんでした：${reason}`;
+}
+
+/** 画面に出すときの呼び名（言葉は今までのものを1文字も変えない） */
+function whatOf(target: SettingsWriteTarget): string {
+  if (target === "設定") return "設定";
+  if (target === "数えない印の控え") return "決めた内容";
+  return "金庫の控え";
 }
 
 /** 1行も変わらなかったときの言い方（「0行でした」とは言わず、やることを書く） */
 function changedNothing(target: SettingsWriteTarget): string {
-  const what = target === "設定" ? "設定" : "金庫の控え";
+  const what = whatOf(target);
   return (
     `この画面からは、このお店の${what}を書き換えられませんでした（1行も変わっていません）。` +
     "入れていただいた中身は、まだどこにも残っていません。" +
@@ -67,7 +81,7 @@ function changedNothing(target: SettingsWriteTarget): string {
 
 /** 変えた行を数えられなかったときの言い方（「保存しました」とは言わない） */
 function changedUnknown(target: SettingsWriteTarget): string {
-  const what = target === "設定" ? "設定" : "金庫の控え";
+  const what = whatOf(target);
   return (
     `${what}を書き換えたかどうかを、いま確かめられませんでした。` +
     "いちど画面を開き直して、入れた中身が残っているかを見てください" +
@@ -116,10 +130,13 @@ export function decideMemoPreread(params: {
   isTebaya: boolean;
   rowFound: boolean;
   errorMessage: string | null;
+  /** どちらの控えか（渡さなければ金庫の控え＝今までと同じ言葉） */
+  target?: SettingsWriteTarget;
 }): { proceed: boolean; message: string | null } {
   const { rowFound, errorMessage } = params;
+  const target = params.target ?? "金庫の控え";
   if (errorMessage) {
-    return { proceed: false, message: failedBy("金庫の控え", errorMessage) };
+    return { proceed: false, message: failedBy(target, errorMessage) };
   }
   if (!rowFound) {
     return {
