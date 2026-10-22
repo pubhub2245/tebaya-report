@@ -1,6 +1,10 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { NextResponse } from "next/server";
 
-import { SHELF_SQL_DRYRUN, summarizeShelves } from "@/lib/keiri/shelves";
+import { SHELF_SQL_DRYRUN, dryRunSheetState, summarizeShelves } from "@/lib/keiri/shelves";
 import { readShelfReports } from "@/lib/keiri/shelvesProbe";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 
@@ -37,6 +41,10 @@ export async function GET() {
     // 流す前の下見（2026-10-13・B）。じゅんが押す前に、同じ形の空の倉庫で3回 通した結果。
     // ★本番の金額・お店の名前・鍵の値は1文字も入っていません。
     dry_run: SHELF_SQL_DRYRUN,
+    // 下見が「いま出している貼り紙そのもの」を通した結果かどうか（2026-10-22）。
+    // ★指紋（SHA-256）だけを比べます。貼り紙の文は /keiri/sql にそのまま出しているので、
+    //   ここに出る指紋は公開情報です（鍵・合言葉・金額は1文字も入りません）。
+    dry_run_sheet: sheetState(),
     shelves: reports,
     // 申し込みの控えの決まり（貼り紙の0番）は、ここではなく診断の窓口で分かる
     applications_policy: {
@@ -44,6 +52,34 @@ export async function GET() {
       note: "申し込みの控えが残るかは records.applications に出ます（この窓口では見ません）",
     },
   });
+}
+
+/**
+ * いまの貼り紙の指紋を取って、下見がそれを通したものかを返す。
+ *
+ * ■ 読めなかったときは「分からない」と正直に返す（2026-10-22）
+ *   組み立てたあとの入れ物に貼り紙の文が入っていないことがあります。
+ *   そのときは **合否を作りません**（試験のほうで必ず縛っているので、
+ *   ここが分からなくても「直したのに下見を走らせていない」状態は本番に出ません）。
+ */
+function sheetState(): { sha256: string | null; matches: boolean | null; note: string } {
+  try {
+    const text = readFileSync(
+      join(process.cwd(), "supabase/migrations/keiri_shelves_20261005.sql"),
+      "utf8",
+    );
+    const sha = createHash("sha256").update(text, "utf8").digest("hex");
+    const state = dryRunSheetState(sha);
+    return { sha256: sha, ...state };
+  } catch {
+    return {
+      sha256: null,
+      matches: null,
+      note:
+        "いまの貼り紙の文がこの窓口から読めませんでした（指紋は比べられません）。" +
+        "貼り紙を直したら下見を走らせ直すことは、試験（tests/keiriShelvesDryRun.test.ts）で縛っています",
+    };
+  }
 }
 
 /** 窓口の返事（保存させない・検索結果には載せない。lib/keiri/checkWindow.ts） */

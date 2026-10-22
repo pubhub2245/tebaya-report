@@ -256,10 +256,29 @@ export function summarizeShelves(reports: ShelfReport[]): {
  */
 export const SHELF_SQL_DRYRUN = {
   /** 下見をした日 */
-  at: "2026-10-18",
+  at: "2026-10-22",
   by: "B",
   /** 続けて何回 流したか（2回目以降は「何も起きない」ことを見るため） */
   runs: 3,
+  /** その回に「OK」が出た確かめの数（NG は0件） */
+  checks: 127,
+  /**
+   * 下見を通した**そのときの貼り紙の指紋**（SHA-256）。
+   *
+   * ★なぜ指紋を控えるのか（2026-10-22・f1-4・f3-4・f5-4）
+   *   この1枚は、仕上げの残り3つが全部 待っている1枚です。
+   *   ところが下見は手で走らせる道具なので、**貼り紙だけ直して下見を走らせ忘れる**と、
+   *   /keiri/sql には「○月○日に3回 通してあります」と出たまま、
+   *   中身は確かめていないものに変わります（実際 2026-10-19 に貼り紙を直したとき、
+   *   日付は 10-18 のままでした＝そのときは説明文だけの直しで無事でしたが、
+   *   次に中身を直したときは分かりません）。
+   *   じゅんが押すのは**1回**で、途中で止まれば2分がむだになり、気づくのは翌日です。
+   *   そこで指紋を控え、**合わなければ試験（npm test）が落ちる**ようにしました。
+   *   ＝ 貼り紙を直したら、下見を走らせてこの指紋を書き直すまで本番に出せません。
+   *   ★指紋は公開情報です（文そのものは /keiri/sql にそのまま出しています）。
+   */
+  sheetSha256:
+    "29d2c1dd6d49e227a2bd8b2eac89979387d43be879250a2188148dfdfb98658f",
   /** どこで通したか。**本番ではありません** */
   where: "同じ形に組み立てた、空の倉庫（PostgreSQL 16.15）",
   /** 通した貼り紙の番号 */
@@ -267,6 +286,7 @@ export const SHELF_SQL_DRYRUN = {
   /** 通して分かったこと（外に出してよい事実だけ） */
   findings: [
     "12 ぜんぶ最後まで通りました。途中で止まる所はありません（⑪⑫を足した 2026-10-18 も同じ道具で3回）",
+    "2026-10-22 にもう一度、同じ道具で通し直しました（続けて2セット・どちらも確かめ 127 件すべて OK・NG は0件）。10-18 のあと貼り紙に足した説明文と、10-19〜10-21 に本番へ出した直し6本のあとでも、止まる所はありません",
     "3回 続けて流しても増えません（2回目・3回目は「もうありました」と言って何もしません）",
     "⑥のテストのお店は1軒できて、初回設定まで1秒かからずに終わりました（状態は active）",
     "③の軽い日報は、レシート写真の住所を今までどおり抜いたまま、「写真があるか」の印だけが増えました",
@@ -297,11 +317,57 @@ export const SHELF_SQL_DRYRUN = {
   tool: "tools/check-shelves-sql.sh",
 } as const;
 
+/**
+ * いまの貼り紙が、**下見を通したそのもの**かどうかを見る（2026-10-22）。
+ *
+ * ■ やさしい説明
+ *   上の `sheetSha256` は、下見を通したときの貼り紙の「指紋」です。
+ *   いまの貼り紙の指紋と比べて、同じなら「確かめたそのもの」、
+ *   違うなら「直したあと下見を走らせていない」ということです。
+ *
+ * ■ ここは通信も倉庫も要りません（文字列を1つ渡すだけ）
+ *   そのため試験（tests/keiriShelvesDryRun.test.ts）で縛れます。
+ *
+ * @param sheetSha256 いまの貼り紙の SHA-256（16進・大文字小文字は問わない）
+ */
+export function dryRunCoversSheet(sheetSha256: unknown): boolean {
+  const got = String(sheetSha256 ?? "").trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(got)) return false;
+  return got === SHELF_SQL_DRYRUN.sheetSha256;
+}
+
+/**
+ * 外から1行で読める「下見は、いまの貼り紙のものか」の答え。
+ * 指紋が読めなかったときは、分かったふりをせず null を返す。
+ */
+export function dryRunSheetState(sheetSha256: unknown): {
+  matches: boolean | null;
+  note: string;
+} {
+  const got = String(sheetSha256 ?? "").trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(got)) {
+    return {
+      matches: null,
+      note: "いまの貼り紙の指紋が読めませんでした（下見が今の文のものかは、ここでは確かめられません）",
+    };
+  }
+  return dryRunCoversSheet(got)
+    ? {
+        matches: true,
+        note: `下見（${SHELF_SQL_DRYRUN.at}）は、いま出している貼り紙そのものを通した結果です`,
+      }
+    : {
+        matches: false,
+        note: "貼り紙が、下見を通したあとに変わっています（流す前に tools/check-shelves-sql.sh をもう一度 通してください）",
+      };
+}
+
 /** 下見の結果を、画面に出す1行にする */
 export function dryRunLine(): string {
   const d = SHELF_SQL_DRYRUN;
   return (
     `この貼り紙は、${d.at} に${d.where}で${d.runs}回 続けて流して確かめてあります。` +
-    `${d.steps.length}つぜんぶ最後まで通り、何度 流しても増えません。`
+    `${d.steps.length}つぜんぶ最後まで通り、何度 流しても増えません` +
+    `（確かめ ${d.checks} 件すべて OK・NG は0件）。`
   );
 }
