@@ -175,6 +175,10 @@ export default function LocationMaster() {
     if (p.skipReason === "locked") return "🔒 固定（自動判定しない）";
     if (p.skipReason === "notEnoughData")
       return `データ不足（直近${p.sampleCount}回・3回未満）`;
+    // よそのお店（経理パッケージを申し込んだお店）では自動判定しない。
+    // 目標額 S=80,000〜D=30,000 円は手羽屋の決めごとのため（2026-10-23・f3-4）
+    if (p.skipReason === "otherShop")
+      return "自動判定しません（目標額は手羽屋の決めごと）";
     return "変更なし";
   };
 
