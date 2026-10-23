@@ -23,6 +23,13 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  decideReceiptScopeCheck,
+  keepIdsInScope,
+  reportIdsInScope,
+} from "@/lib/receiptAdminScope";
+import { applyTenantScope, TEBAYA_SCOPE, type TenantScope } from "@/lib/tenantScope";
+
 /** 置き場（バケット）の名前。lib/receiptStorage.ts と同じ */
 const BUCKET = "receipts";
 
@@ -85,10 +92,13 @@ function extOf(mime: string): string {
  */
 export async function migrateReceipts(
   db: SupabaseClient,
-  opts: { dryRun?: boolean; limit?: number } = {},
+  opts: { dryRun?: boolean; limit?: number; scope?: TenantScope } = {},
 ): Promise<MigrationResult> {
   const dryRun = opts.dryRun ?? false;
   const limit = opts.limit ?? 5;
+  // ★f3-4：手羽屋の管理画面から動かす引っ越しなので、手羽屋の日報だけを相手にする。
+  //   いまある日報は印が空なので、手羽屋の対象件数は1件も変わらない。
+  const scope = opts.scope ?? TEBAYA_SCOPE;
 
   const result: MigrationResult = {
     ok: true,
@@ -122,19 +132,33 @@ export async function migrateReceipts(
     bytes: number;
   }[];
 
-  result.targetReports = indexRows.length;
-  result.targetPhotos = indexRows.reduce((s, r) => s + (Number(r.photo_count) || 0), 0);
-  result.targetBytes = indexRows.reduce((s, r) => s + (Number(r.bytes) || 0), 0);
+  // 1.5) ★f3-4：一覧は棚ぜんぶを見るので、ここで「このお店の日報だけ」に絞り直す。
+  //      確かめられなかったときは、1行も書き換えずに止まる（lib/receiptAdminScope.ts）。
+  const scopedRows = await reportIdsInScope(db, indexRows.map((r) => r.id), scope);
+  const verdict = decideReceiptScopeCheck({
+    errorMessage: scopedRows.errorMessage,
+    what: "レシート写真の引っ越し",
+  });
+  if (!verdict.proceed) {
+    result.ok = false;
+    if (verdict.message) result.errors.push(verdict.message);
+    return result;
+  }
+  const scopedIndex = keepIdsInScope(indexRows, scopedRows.ids);
+
+  result.targetReports = scopedIndex.length;
+  result.targetPhotos = scopedIndex.reduce((s, r) => s + (Number(r.photo_count) || 0), 0);
+  result.targetBytes = scopedIndex.reduce((s, r) => s + (Number(r.bytes) || 0), 0);
 
   // 下見だけなら、ここで件数と容量を返して終わり（何も書き換えない）
-  if (dryRun || indexRows.length === 0) return result;
+  if (dryRun || scopedIndex.length === 0) return result;
 
   // 2) 今回の分だけ、中身を読み込む（時間切れを避けるため limit 件ずつ）
-  const batchIds = indexRows.slice(0, limit).map((r) => r.id);
-  const { data: rows, error } = await db
-    .from("daily_reports")
-    .select("id, date, expenses")
-    .in("id", batchIds);
+  const batchIds = scopedIndex.slice(0, limit).map((r) => r.id);
+  const { data: rows, error } = (await applyTenantScope<any>(
+    (db.from("daily_reports") as any).select("id, date, expenses").in("id", batchIds),
+    scope,
+  )) as { data: any[] | null; error: { message?: string } | null };
 
   if (error) {
     result.ok = false;
@@ -221,10 +245,10 @@ export async function migrateReceipts(
 
     if (!changed) continue;
 
-    const { error: updErr } = await db
-      .from("daily_reports")
-      .update({ expenses: next })
-      .eq("id", row.id);
+    const { error: updErr } = (await applyTenantScope<any>(
+      (db.from("daily_reports") as any).update({ expenses: next }).eq("id", row.id),
+      scope,
+    )) as { error: { message?: string } | null };
     if (updErr) {
       result.errors.push(`日報 ${row.date} の書き換えに失敗: ${updErr.message}`);
       result.ok = false;
