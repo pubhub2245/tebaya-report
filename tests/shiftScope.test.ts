@@ -15,6 +15,7 @@ import {
   canSeparateShifts,
   describeShiftsTenantColumn,
   forgetShiftsTenantState,
+  probeShiftsTenantState,
   scopeShiftsQuery,
   shiftTenantStamp,
   shiftsTenantState,
@@ -189,4 +190,74 @@ test("貼り紙の置き場所は、すでにある1枚と同じ（新しい紙�
     SHIFTS_TENANT_MIGRATION,
     "supabase/migrations/keiri_shelves_20261005.sql",
   );
+});
+
+/* ------------------------------------------------------------------ *
+ *  2026-10-23（kp242／f3-4）：聞き方を1か所にまとめた分の固定
+ * ------------------------------------------------------------------ */
+
+/** 倉庫の代わり。1行 読んでみる所だけを真似る */
+function fakeDb(error: { code?: string; message?: string } | null) {
+  const asked: string[] = [];
+  return {
+    asked,
+    from(table: string) {
+      asked.push(table);
+      return {
+        select(col: string) {
+          asked.push(`select:${col}`);
+          return {
+            async limit(n: number) {
+              asked.push(`limit:${n}`);
+              return { error };
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+test("聞き方：欄がまだ無い倉庫では missing になり、読む所は1つも絞らない", async () => {
+  forgetShiftsTenantState();
+  const db = fakeDb({ code: "42703", message: "column shifts.tenant_id does not exist" });
+  const state = await probeShiftsTenantState(db as any);
+  assert.equal(state, "missing");
+  assert.deepEqual(db.asked, ["shifts", "select:tenant_id", "limit:1"]);
+  // ＝手羽屋の毎日の画面は、絞り込みが1つも足されない（今までと同じ結果）
+  const q = fakeQuery();
+  assert.equal(scopeShiftsQuery(q, null, state), q);
+  assert.deepEqual(q.calls, []);
+  forgetShiftsTenantState();
+});
+
+test("聞き方：欄がある倉庫では ready になり、手羽屋は「印が空のものだけ」", async () => {
+  forgetShiftsTenantState();
+  const state = await probeShiftsTenantState(fakeDb(null) as any);
+  assert.equal(state, "ready");
+  const q = fakeQuery();
+  scopeShiftsQuery(q, null, state);
+  assert.deepEqual(q.calls, ["is:tenant_id:null"]);
+  forgetShiftsTenantState();
+});
+
+test("聞き方：読みに行けなかっただけのときは unknown（守りは緩めない＝絞らない）", async () => {
+  forgetShiftsTenantState();
+  const state = await probeShiftsTenantState(fakeDb({ message: "fetch failed" }) as any);
+  assert.equal(state, "unknown");
+  const q = fakeQuery();
+  assert.equal(scopeShiftsQuery(q, null, state), q);
+  assert.deepEqual(q.calls, []);
+  forgetShiftsTenantState();
+});
+
+test("聞き方：倉庫が落ちていても例外を外に出さない（手羽屋の画面を止めない）", async () => {
+  forgetShiftsTenantState();
+  const brokenDb = {
+    from() {
+      throw new Error("倉庫に行けません");
+    },
+  };
+  assert.equal(await probeShiftsTenantState(brokenDb as any), "unknown");
+  forgetShiftsTenantState();
 });

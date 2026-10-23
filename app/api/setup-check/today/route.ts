@@ -2,6 +2,8 @@ import { serverClient } from "@/lib/supabaseServer";
 import { NextRequest, NextResponse } from "next/server";
 import { inferTeamUnit } from "@/lib/setupCheck/teamUnit";
 import type { TodaySetupContext, TodayShiftEntry } from "@/lib/setupCheck/types";
+import { probeShiftsTenantState, scopeShiftsQuery } from "@/lib/shiftScope";
+import { TEBAYA_SCOPE } from "@/lib/tenantScope";
 
 export const runtime = "nodejs";
 
@@ -19,13 +21,18 @@ export async function GET(request: NextRequest) {
   const dateStr = searchParams.get("date") ?? getTodayJST();
 
   // 1. 当日のシフト取得（中止以外）
-  const { data: shifts, error: shiftError } = await supabase
-    .from("shifts")
-    .select(
-      "date, location_id, staff_name, target, rank, status, locations(id, name, target)",
-    )
-    .eq("date", dateStr)
-    .neq("status", "cancelled");
+  // 手羽屋のぶんだけ（印が空＝手羽屋。欄がまだ無い倉庫では何も足さない。lib/shiftScope.ts）
+  const { data: shifts, error: shiftError } = await scopeShiftsQuery<any>(
+    supabase
+      .from("shifts")
+      .select(
+        "date, location_id, staff_name, target, rank, status, locations(id, name, target)",
+      )
+      .eq("date", dateStr)
+      .neq("status", "cancelled") as any,
+    TEBAYA_SCOPE,
+    await probeShiftsTenantState(supabase),
+  );
 
   if (shiftError) {
     return NextResponse.json(

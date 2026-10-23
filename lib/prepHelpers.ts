@@ -10,6 +10,8 @@
 
 import { supabase } from "./supabase";
 import { PRODUCT_PRICES } from "./productPrices";
+import { probeShiftsTenantState, scopeShiftsQuery } from "./shiftScope";
+import { TEBAYA_SCOPE } from "./tenantScope";
 
 export type SpeedBasis = "per_100" | "per_session" | "per_unit";
 
@@ -261,11 +263,16 @@ export async function calculateTheoreticalPrepQuantity(
   const tomorrow = shiftDays(iso, 1);
 
   // 1. 明日のシフト
-  const { data: shiftRows } = await supabase
-    .from("shifts")
-    .select("rank, target, locations(name)")
-    .eq("date", tomorrow)
-    .eq("status", "published");
+  // 手羽屋のぶんだけ（印が空＝手羽屋。欄がまだ無い倉庫では何も足さない。lib/shiftScope.ts）
+  const { data: shiftRows } = await scopeShiftsQuery<any>(
+    supabase
+      .from("shifts")
+      .select("rank, target, locations(name)")
+      .eq("date", tomorrow)
+      .eq("status", "published") as any,
+    TEBAYA_SCOPE,
+    await probeShiftsTenantState(supabase),
+  );
   const shifts: TheoreticalPrepShift[] = ((shiftRows as Array<{
     rank: string | null;
     target: number | null;

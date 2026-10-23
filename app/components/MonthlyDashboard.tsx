@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { probeShiftsTenantState, scopeShiftsQuery } from "@/lib/shiftScope";
+import { currentShopScope } from "@/lib/keiri/readSource";
 import { yen } from "@/lib/format";
 import MonthlySummary from "./MonthlySummary";
 import SalesBreakdown from "./SalesBreakdown";
@@ -93,11 +95,16 @@ export default function MonthlyDashboard() {
       setError(null);
       try {
         const [s, r] = await Promise.all([
-          supabase
-            .from("shifts")
-            .select("date, target, location_id, locations(name)")
-            .gte("date", start)
-            .lte("date", end),
+          // 手羽屋のぶんだけ（印が空＝手羽屋。欄がまだ無い倉庫では何も足さない。lib/shiftScope.ts）
+          scopeShiftsQuery<any>(
+            supabase
+              .from("shifts")
+              .select("date, target, location_id, locations(name)")
+              .gte("date", start)
+              .lte("date", end) as any,
+            currentShopScope(),
+            await probeShiftsTenantState(supabase),
+          ),
           supabase
             .from("daily_reports")
             .select("date, location, sales_amount")

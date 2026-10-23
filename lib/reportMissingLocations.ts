@@ -1,5 +1,7 @@
 import { serverClient } from "@/lib/supabaseServer";
 import { normalizeLocationName } from "./locationMatcher";
+import { probeShiftsTenantState, scopeShiftsQuery } from "@/lib/shiftScope";
+import { TEBAYA_SCOPE } from "@/lib/tenantScope";
 
 const supabase = serverClient();
 
@@ -30,11 +32,18 @@ export type MissingReportSummary = {
 export const getMissingReportLocations = async (
   date: string,
 ): Promise<MissingReportSummary> => {
-  const { data: shifts } = await supabase
-    .from("shifts")
-    .select("staff_name, locations(name)")
-    .eq("date", date)
-    .eq("status", "published");
+  // 手羽屋のぶんだけ（印が空＝手羽屋。欄がまだ無い倉庫では何も足さない。lib/shiftScope.ts）
+  // ★ここを絞らないと、よその店の出店予定が「日報がまだです」として
+  //   手羽屋のLINEグループに、その店の出店場所と担当者の名前のまま流れます。
+  const { data: shifts } = await scopeShiftsQuery<any>(
+    supabase
+      .from("shifts")
+      .select("staff_name, locations(name)")
+      .eq("date", date)
+      .eq("status", "published") as any,
+    TEBAYA_SCOPE,
+    await probeShiftsTenantState(supabase),
+  );
 
   if (!shifts || shifts.length === 0) {
     return { missing: [], total: 0, submitted: 0, cancelled: 0 };
