@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { probeShiftsTenantState, scopeShiftsQuery } from "@/lib/shiftScope";
+import { currentShopScope } from "@/lib/keiri/readSource";
 import { yen } from "@/lib/format";
 import { useIsTebaya } from "@/app/components/TebayaOnlyGate";
 
@@ -58,18 +60,27 @@ export default function MonthlySummary({
       setError(null);
       try {
         const [shiftsAll, shiftsToDate, reports] = await Promise.all([
-          supabase
-            .from("shifts")
-            .select("target")
-            .eq("status", "published")
-            .gte("date", start)
-            .lte("date", end),
-          supabase
-            .from("shifts")
-            .select("target")
-            .eq("status", "published")
-            .gte("date", start)
-            .lte("date", upTo),
+          // 手羽屋のぶんだけ（印が空＝手羽屋。欄がまだ無い倉庫では何も足さない。lib/shiftScope.ts）
+          scopeShiftsQuery<any>(
+            supabase
+              .from("shifts")
+              .select("target")
+              .eq("status", "published")
+              .gte("date", start)
+              .lte("date", end) as any,
+            currentShopScope(),
+            await probeShiftsTenantState(supabase),
+          ),
+          scopeShiftsQuery<any>(
+            supabase
+              .from("shifts")
+              .select("target")
+              .eq("status", "published")
+              .gte("date", start)
+              .lte("date", upTo) as any,
+            currentShopScope(),
+            await probeShiftsTenantState(supabase),
+          ),
           supabase
             .from("daily_reports")
             .select("sales_amount")

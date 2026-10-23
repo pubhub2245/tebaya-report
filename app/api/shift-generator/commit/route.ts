@@ -1,6 +1,8 @@
 import { serverClient } from "@/lib/supabaseServer";
 import { NextRequest, NextResponse } from "next/server";
 import type { MonthlyShift } from "@/lib/shift-engine/types";
+import { probeShiftsTenantState, scopeShiftsQuery, withShiftTenant } from "@/lib/shiftScope";
+import { TEBAYA_SCOPE } from "@/lib/tenantScope";
 
 export const runtime = "nodejs";
 
@@ -82,13 +84,20 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. 既存draftを削除（条件: status=draft かつ 当該月）
-    const { data: deletedRows, error: deleteError } = await supabase
-      .from("shifts")
-      .delete()
-      .eq("status", "draft")
-      .gte("date", startDate)
-      .lte("date", endDate)
-      .select();
+    // 手羽屋のぶんだけ（印が空＝手羽屋。欄がまだ無い倉庫では何も足さない。lib/shiftScope.ts）
+    // ★消す所も絞る。絞らないと、よその店の下書きまで一緒に消えます。
+    const shiftTenantState = await probeShiftsTenantState(supabase);
+    const { data: deletedRows, error: deleteError } = await scopeShiftsQuery<any>(
+      supabase
+        .from("shifts")
+        .delete()
+        .eq("status", "draft")
+        .gte("date", startDate)
+        .lte("date", endDate)
+        .select() as any,
+      TEBAYA_SCOPE,
+      shiftTenantState,
+    );
 
     if (deleteError) {
       return NextResponse.json(
@@ -103,7 +112,8 @@ export async function POST(request: NextRequest) {
     // 3. 新規 INSERT
     const { data: insertedRows, error: insertError } = await supabase
       .from("shifts")
-      .insert(records)
+      // 保存するときに「どの店のものか」の印を付ける（欄がまだ無いときは1つも足さない）
+      .insert(records.map((r) => withShiftTenant(r, TEBAYA_SCOPE, shiftTenantState)))
       .select();
 
     if (insertError) {

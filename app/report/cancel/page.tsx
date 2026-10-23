@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { probeShiftsTenantState, scopeShiftsQuery } from "@/lib/shiftScope";
+import { currentShopScope } from "@/lib/keiri/readSource";
 import { businessDateStr, slashDate } from "@/lib/format";
 import { STAFF_OPTIONS } from "@/lib/formState";
 import { getUnitFromStaff } from "@/lib/teamMapping";
@@ -67,10 +69,15 @@ function CancelPageInner() {
     let cancelled = false;
     (async () => {
       setShiftsLoaded(false);
-      const { data, error: shiftErr } = await supabase
-        .from("shifts")
-        .select("staff_name, locations(name)")
-        .eq("date", businessDate);
+      // 手羽屋のぶんだけ（印が空＝手羽屋。欄がまだ無い倉庫では何も足さない。lib/shiftScope.ts）
+      const { data, error: shiftErr } = await scopeShiftsQuery<any>(
+        supabase
+          .from("shifts")
+          .select("staff_name, locations(name)")
+          .eq("date", businessDate) as any,
+        currentShopScope(),
+        await probeShiftsTenantState(supabase),
+      );
       if (cancelled) return;
       if (shiftErr) {
         console.warn("[cancel] shifts fetch error:", shiftErr);

@@ -1,5 +1,7 @@
 import { serverClient } from "@/lib/supabaseServer";
 import { NextRequest, NextResponse } from "next/server";
+import { probeShiftsTenantState, scopeShiftsQuery } from "@/lib/shiftScope";
+import { TEBAYA_SCOPE } from "@/lib/tenantScope";
 import { sendLineGroupMessage } from "@/lib/line/sendMessage";
 import { getCurrentCharacter, getCharacterByMonth } from "@/lib/characters";
 import {
@@ -30,13 +32,18 @@ async function fetchMonthlyTarget(ym: string): Promise<MonthlyTarget> {
   const start = `${ym}-01`;
   const lastDay = new Date(y, m, 0).getDate();
   const end = `${ym}-${String(lastDay).padStart(2, "0")}`;
-  const { data } = await supabase
-    .from("shifts")
-    .select("target")
-    .eq("status", "published")
-    .gte("date", start)
-    .lte("date", end);
-  const list = data || [];
+  // 手羽屋のぶんだけ（印が空＝手羽屋。欄がまだ無い倉庫では何も足さない。lib/shiftScope.ts）
+  const { data } = await scopeShiftsQuery<any>(
+    supabase
+      .from("shifts")
+      .select("target")
+      .eq("status", "published")
+      .gte("date", start)
+      .lte("date", end) as any,
+    TEBAYA_SCOPE,
+    await probeShiftsTenantState(supabase),
+  );
+  const list: any[] = data || [];
   return {
     shiftCount: list.length,
     totalSalesTarget: list.reduce((s, r: any) => s + (r.target || 0), 0),

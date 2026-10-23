@@ -1,6 +1,8 @@
 import { supabase } from "./supabase";
 import { normalizeLocationName } from "./locationMatcher";
 import { applyTenantScope } from "@/lib/tenantScope";
+import { probeShiftsTenantState, scopeShiftsQuery } from "@/lib/shiftScope";
+import { TEBAYA_SCOPE } from "@/lib/tenantScope";
 // ★「いまどのお店か」は日報の保存と同じ安全側の決め方（2026-10-21・f3-4）
 import { currentShopScope } from "@/lib/keiri/readSource";
 
@@ -296,12 +298,17 @@ export const getActualShiftTargetSumForPeriod = async (
   canceledDates: string[];
 }> => {
   const [shiftsRes, reportsRes] = await Promise.all([
-    supabase
-      .from("shifts")
-      .select("date, target")
-      .eq("status", "published")
-      .gte("date", startDate)
-      .lte("date", endDate),
+    // 手羽屋のぶんだけ（印が空＝手羽屋。欄がまだ無い倉庫では何も足さない。lib/shiftScope.ts）
+    scopeShiftsQuery<any>(
+      supabase
+        .from("shifts")
+        .select("date, target")
+        .eq("status", "published")
+        .gte("date", startDate)
+        .lte("date", endDate) as any,
+      TEBAYA_SCOPE,
+      await probeShiftsTenantState(supabase),
+    ),
     supabase
       .from("daily_reports")
       .select("date")
@@ -356,12 +363,17 @@ export const getShiftMonthlyTargetForPeriod = async (
   startDate: string,
   endDate: string,
 ): Promise<{ totalTarget: number; shiftCount: number }> => {
-  const { data, error } = await supabase
-    .from("shifts")
-    .select("target")
-    .eq("status", "published")
-    .gte("date", startDate)
-    .lte("date", endDate);
+  // 手羽屋のぶんだけ（印が空＝手羽屋。欄がまだ無い倉庫では何も足さない。lib/shiftScope.ts）
+  const { data, error } = await scopeShiftsQuery<any>(
+    supabase
+      .from("shifts")
+      .select("target")
+      .eq("status", "published")
+      .gte("date", startDate)
+      .lte("date", endDate) as any,
+    TEBAYA_SCOPE,
+    await probeShiftsTenantState(supabase),
+  );
   if (error) throw error;
   const list = data || [];
   const totalTarget = list.reduce(

@@ -1,6 +1,8 @@
 import { serverClient } from "@/lib/supabaseServer";
 import { NextRequest, NextResponse } from "next/server";
 import { sendLineGroupMessage } from "@/lib/line/sendMessage";
+import { probeShiftsTenantState, scopeShiftsQuery } from "@/lib/shiftScope";
+import { TEBAYA_SCOPE } from "@/lib/tenantScope";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -36,28 +38,40 @@ export async function POST(req: NextRequest) {
 
     // draftシフトをpublishedに更新
     const now = new Date().toISOString();
-    const { data: updated, error: updateErr } = await supabase
-      .from("shifts")
-      .update({
-        status: "published",
-        published_at: now,
-        updated_at: now,
-      })
-      .eq("status", "draft")
-      .gte("date", `${target_month}-01`)
-      .lte("date", `${target_month}-${lastDay}`)
-      .select();
+    // 手羽屋のぶんだけ（印が空＝手羽屋。欄がまだ無い倉庫では何も足さない。lib/shiftScope.ts）
+    // ★直す所・LINEで流す所も絞る。絞らないと、よその店の予定まで公開し、
+    //   その店の出店場所と担当者が手羽屋のLINEグループに流れます。
+    const shiftTenantState = await probeShiftsTenantState(supabase);
+    const { data: updated, error: updateErr } = await scopeShiftsQuery<any>(
+      supabase
+        .from("shifts")
+        .update({
+          status: "published",
+          published_at: now,
+          updated_at: now,
+        })
+        .eq("status", "draft")
+        .gte("date", `${target_month}-01`)
+        .lte("date", `${target_month}-${lastDay}`)
+        .select() as any,
+      TEBAYA_SCOPE,
+      shiftTenantState,
+    );
 
     if (updateErr) throw updateErr;
 
     // 該当月の全publishedシフトを取得（通知用）
-    const { data: allShifts, error: fetchErr } = await supabase
-      .from("shifts")
-      .select("*, locations(name)")
-      .eq("status", "published")
-      .gte("date", `${target_month}-01`)
-      .lte("date", `${target_month}-${lastDay}`)
-      .order("date", { ascending: true });
+    const { data: allShifts, error: fetchErr } = await scopeShiftsQuery<any>(
+      supabase
+        .from("shifts")
+        .select("*, locations(name)")
+        .eq("status", "published")
+        .gte("date", `${target_month}-01`)
+        .lte("date", `${target_month}-${lastDay}`)
+        .order("date", { ascending: true }) as any,
+      TEBAYA_SCOPE,
+      shiftTenantState,
+    );
 
     if (fetchErr) throw fetchErr;
 
@@ -70,11 +84,11 @@ export async function POST(req: NextRequest) {
     }
 
     // 月間サマリー
-    const totalTarget = allShifts.reduce(
-      (s, sh) => s + (sh.target || 0),
+    const totalTarget = (allShifts as any[]).reduce(
+      (s: number, sh: any) => s + (sh.target || 0),
       0,
     );
-    const uniqueDates = new Set(allShifts.map((s) => s.date));
+    const uniqueDates = new Set((allShifts as any[]).map((s) => s.date));
 
     // 担当別出勤日数
     const staffDays = new Map<string, Set<string>>();
@@ -158,12 +172,16 @@ export async function POST(req: NextRequest) {
 
     // 通知時刻を記録
     if (allSent) {
-      await supabase
-        .from("shifts")
-        .update({ line_notified_at: now })
-        .eq("status", "published")
-        .gte("date", `${target_month}-01`)
-        .lte("date", `${target_month}-${lastDay}`);
+      await scopeShiftsQuery<any>(
+        supabase
+          .from("shifts")
+          .update({ line_notified_at: now })
+          .eq("status", "published")
+          .gte("date", `${target_month}-01`)
+          .lte("date", `${target_month}-${lastDay}`) as any,
+        TEBAYA_SCOPE,
+        shiftTenantState,
+      );
     }
 
     return NextResponse.json({

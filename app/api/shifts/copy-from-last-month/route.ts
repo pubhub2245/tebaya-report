@@ -1,5 +1,7 @@
 import { serverClient } from "@/lib/supabaseServer";
 import { NextRequest, NextResponse } from "next/server";
+import { probeShiftsTenantState, scopeShiftsQuery, withShiftTenant } from "@/lib/shiftScope";
+import { TEBAYA_SCOPE } from "@/lib/tenantScope";
 
 export const runtime = "nodejs";
 
@@ -32,15 +34,21 @@ export async function POST(req: NextRequest) {
     const prevMonthStr = `${prevYear}-${String(prevMonth).padStart(2, "0")}`;
 
     // 先月のシフトを取得
-    const { data: prevShifts, error: fetchErr } = await supabase
-      .from("shifts")
-      .select("*")
-      .gte("date", `${prevMonthStr}-01`)
-      .lte(
-        "date",
-        `${prevMonthStr}-${new Date(prevYear, prevMonth, 0).getDate()}`,
-      )
-      .neq("status", "cancelled");
+    // 手羽屋のぶんだけ（印が空＝手羽屋。欄がまだ無い倉庫では何も足さない。lib/shiftScope.ts）
+    const shiftTenantState = await probeShiftsTenantState(supabase);
+    const { data: prevShifts, error: fetchErr } = await scopeShiftsQuery<any>(
+      supabase
+        .from("shifts")
+        .select("*")
+        .gte("date", `${prevMonthStr}-01`)
+        .lte(
+          "date",
+          `${prevMonthStr}-${new Date(prevYear, prevMonth, 0).getDate()}`,
+        )
+        .neq("status", "cancelled") as any,
+      TEBAYA_SCOPE,
+      shiftTenantState,
+    );
 
     if (fetchErr) throw fetchErr;
     if (!prevShifts || prevShifts.length === 0) {
@@ -53,14 +61,18 @@ export async function POST(req: NextRequest) {
 
     // 今月の既存シフトを取得（重複チェック用）
     const lastDay = new Date(year, month, 0).getDate();
-    const { data: existingShifts } = await supabase
-      .from("shifts")
-      .select("date, location_id")
-      .gte("date", `${target_month}-01`)
-      .lte("date", `${target_month}-${lastDay}`);
+    const { data: existingShifts } = await scopeShiftsQuery<any>(
+      supabase
+        .from("shifts")
+        .select("date, location_id")
+        .gte("date", `${target_month}-01`)
+        .lte("date", `${target_month}-${lastDay}`) as any,
+      TEBAYA_SCOPE,
+      shiftTenantState,
+    );
 
     const existingSet = new Set(
-      (existingShifts || []).map((s) => `${s.date}_${s.location_id}`),
+      ((existingShifts || []) as any[]).map((s) => `${s.date}_${s.location_id}`),
     );
 
     // 先月の各シフトについて、同じ曜日の今月の日付にコピー
@@ -114,7 +126,8 @@ export async function POST(req: NextRequest) {
 
     const { error: insertErr } = await supabase
       .from("shifts")
-      .insert(toInsert);
+      // 保存するときに「どの店のものか」の印を付ける（欄がまだ無いときは1つも足さない）
+      .insert(toInsert.map((r) => withShiftTenant(r, TEBAYA_SCOPE, shiftTenantState)));
     if (insertErr) throw insertErr;
 
     return NextResponse.json({

@@ -30,6 +30,8 @@ import {
   type RankCode,
 } from "@/lib/locationRank";
 import { applyTenantScope, isTebayaScope } from "@/lib/tenantScope";
+import { probeShiftsTenantState, scopeShiftsQuery } from "@/lib/shiftScope";
+import { TEBAYA_SCOPE } from "@/lib/tenantScope";
 // ★「いまどのお店か」は日報の保存と同じ安全側の決め方（2026-10-21・f3-4）
 import { currentShopScope } from "@/lib/keiri/readSource";
 
@@ -382,12 +384,17 @@ export async function getOutletAnalytics(): Promise<OutletStats[]> {
       // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
       .is("tenant_id", null),
     // 当月の予定出店（シフト）。中止は除く。
-    supabase
-      .from("shifts")
-      .select("date, status, note, locations(name)")
-      .neq("status", "cancelled")
-      .gte("date", `${yearMonth}-01`)
-      .lte("date", `${yearMonth}-31`),
+    // 手羽屋のぶんだけ（印が空＝手羽屋。欄がまだ無い倉庫では何も足さない。lib/shiftScope.ts）
+    scopeShiftsQuery<any>(
+      supabase
+        .from("shifts")
+        .select("date, status, note, locations(name)")
+        .neq("status", "cancelled")
+        .gte("date", `${yearMonth}-01`)
+        .lte("date", `${yearMonth}-31`) as any,
+      TEBAYA_SCOPE,
+      await probeShiftsTenantState(supabase),
+    ),
     // 出店場所マスタ（ランク・目標はここが正）
     applyTenantScope<any>(
       supabase.from("locations").select("name, rank, target, rank_locked") as any,

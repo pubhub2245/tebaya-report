@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { probeShiftsTenantState, scopeShiftsQuery } from "@/lib/shiftScope";
+import { currentShopScope } from "@/lib/keiri/readSource";
 import { shortLocationName, isSpecialEvent } from "@/lib/locationDisplay";
 import { isWeekendOrHoliday } from "@/lib/japaneseHolidays";
 import AdminGate from "@/app/components/AdminGate";
@@ -55,16 +57,22 @@ export default function InstagramShiftsPage() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const { data } = await supabase
-        .from("shifts")
-        .select("*, locations(name)")
-        .gte("date", mode === "week" ? weekStart : `${monthStr}-01`)
-        .lte(
-          "date",
-          mode === "week" ? addDays(weekStart, 6) : `${monthStr}-${lastDay}`,
-        )
-        .neq("status", "cancelled")
-        .order("date");
+      // 手羽屋のぶんだけ（印が空＝手羽屋。欄がまだ無い倉庫では何も足さない。lib/shiftScope.ts）
+      // ★ここを絞らないと、よその店の出店予定が手羽屋の告知画像に並びます。
+      const { data } = await scopeShiftsQuery<any>(
+        supabase
+          .from("shifts")
+          .select("*, locations(name)")
+          .gte("date", mode === "week" ? weekStart : `${monthStr}-01`)
+          .lte(
+            "date",
+            mode === "week" ? addDays(weekStart, 6) : `${monthStr}-${lastDay}`,
+          )
+          .neq("status", "cancelled")
+          .order("date") as any,
+        currentShopScope(),
+        await probeShiftsTenantState(supabase),
+      );
       setShifts((data as Shift[]) || []);
       setLoading(false);
     })();
