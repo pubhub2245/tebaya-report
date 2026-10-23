@@ -26,7 +26,10 @@ import {
 } from "@/lib/locationRank";
 import { applyTenantScope, type TenantScope } from "@/lib/tenantScope";
 import { currentShopScope } from "@/lib/keiri/readSource";
-import { decideRankHistoryWrite } from "@/lib/locationRankScope";
+import {
+  decideRankAutoJudge,
+  decideRankHistoryWrite,
+} from "@/lib/locationRankScope";
 
 // 判定そのもの（純粋な計算）は lib/locationRank.ts にある。
 // これまで通りここから使えるよう、型と関数をそのまま通しておく。
@@ -87,6 +90,23 @@ async function fetchRankReports(
   return (data as (RankReport & { location: string | null })[]) || [];
 }
 
+/**
+ * 判定の結果を「よそのお店では何も変えない」形にそろえる（2026-10-23・f3-4）。
+ * 目標額（S=80,000〜D=30,000 円）は手羽屋の決めごとなので、よそのお店の
+ * マスタには書き込まない（→ lib/locationRankScope.ts の decideRankAutoJudge）。
+ * 手羽屋のときは1件も触らない＝今までとまったく同じ答え。
+ */
+function holdPlansForOtherShop(plans: RankPlan[], scope: TenantScope): RankPlan[] {
+  if (decideRankAutoJudge(scope).judge) return plans;
+  return plans.map((p) => ({
+    ...p,
+    newRank: null,
+    newTarget: null,
+    changed: false,
+    skipReason: "otherShop" as const,
+  }));
+}
+
 /** 全出店先ぶんの「こう変えます」一覧を作る（まだ書き換えない） */
 export async function planAllRankUpdates(
   scope: TenantScope = currentRankScope(),
@@ -95,7 +115,7 @@ export async function planAllRankUpdates(
     fetchRankLocations(scope),
     fetchRankReports(scope),
   ]);
-  return buildRankPlans(locations, reports);
+  return holdPlansForOtherShop(buildRankPlans(locations, reports), scope);
 }
 
 /** 1件ぶん、マスタを書き換えて履歴を残す */
@@ -162,7 +182,7 @@ export async function recalcRankForLocation(
     if (!target) return null; // マスタに無い場所（単発のお祭りなど）は何もしない
 
     const reports = await fetchRankReports(scope);
-    const [plan] = buildRankPlans([target], reports);
+    const [plan] = holdPlansForOtherShop(buildRankPlans([target], reports), scope);
     if (!plan) return null;
 
     await applyPlan(plan, scope);
