@@ -35,7 +35,11 @@ import {
   CLEANUP_TASK_ITEMS,
 } from "@/lib/formState";
 import { generateLineText } from "@/lib/lineText";
-import { calcGrossProfit, sumExpenses } from "@/lib/money";
+import { calcActualProfit, calcGrossProfit, sumExpenses } from "@/lib/money";
+import {
+  ACTUAL_ONLY_NOTE,
+  showsEstimatedGrossProfit,
+} from "@/lib/grossProfitRule";
 import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
 import { NO_RECEIPT_REASONS } from "@/lib/formState";
 import {
@@ -527,7 +531,13 @@ export default function Page() {
   };
 
   const handleGenerate = () => {
-    const text = generateLineText(form, cumulative, breakdown, laborToSave(form.labor, reportScope()));
+    const text = generateLineText(
+      form,
+      cumulative,
+      breakdown,
+      laborToSave(form.labor, reportScope()),
+      reportScope(),
+    );
     setLineText(text);
   };
 
@@ -544,7 +554,13 @@ export default function Page() {
     try {
       const text =
         lineText ||
-        generateLineText(form, cumulative, breakdown, laborToSave(form.labor, reportScope()));
+        generateLineText(
+      form,
+      cumulative,
+      breakdown,
+      laborToSave(form.labor, reportScope()),
+      reportScope(),
+    );
       if (!lineText) setLineText(text);
 
       // 代理INSERT（line_textに「【代理INSERT】」マーカー付き）が同じ
@@ -737,7 +753,13 @@ export default function Page() {
   if (step === 9) {
     const sales = form.sales_amount || 0;
     if (!lineText) {
-      const text = generateLineText(form, cumulative, breakdown, laborToSave(form.labor, scope));
+      const text = generateLineText(
+        form,
+        cumulative,
+        breakdown,
+        laborToSave(form.labor, scope),
+        scope,
+      );
       setLineText(text);
     }
     return (
@@ -956,6 +978,9 @@ export default function Page() {
           laborAmount={laborToSave(form.labor, scope)}
           // 屋号の行も、2択を出していないお店には出さない
           showShop={!scope}
+          // 粗利の「目安」（食材25%・場代10%）は手羽屋の決めごとなので、
+          // よそのお店には出さず、実際に出たお金だけで出す（2026-10-23・f3-4）
+          showEstimate={showsEstimatedGrossProfit(scope)}
         />
       )}
 
@@ -2217,6 +2242,7 @@ function Step7({
   saving,
   laborAmount,
   showShop,
+  showEstimate,
 }: {
   form: FormState;
   cumulative: number;
@@ -2229,6 +2255,12 @@ function Step7({
   laborAmount: number;
   /** 確認画面に「お店（🍗 手羽屋 / 🍖 もも屋）」の行を出すか。手羽屋のときだけ true */
   showShop: boolean;
+  /**
+   * 粗利の「目安」（原価概算25%・場代概算10%）を出すか。手羽屋のときだけ true。
+   * よそのお店では、実際に出たお金（日当・レジから払った経費）だけで出す
+   * （→ lib/grossProfitRule.ts・2026-10-23・f3-4）
+   */
+  showEstimate: boolean;
 }) {
   const sales = form.sales_amount || 0;
   // 粗利の計算は lib/money.ts に集約（tests/money.test.ts で検証済み）
@@ -2236,6 +2268,8 @@ function Step7({
     sales,
     laborAmount,
   );
+  // よそのお店に出す粗利（新しい率を作らず、実際に出たお金だけで計算する）
+  const actual = calcActualProfit(sales, laborAmount, expensesTotal);
 
   return (
     <section className="space-y-4">
@@ -2304,19 +2338,34 @@ function Step7({
 
       <div className="card space-y-2">
         <h3 className="font-bold">粗利（自動計算）</h3>
-        <Row k="原価概算 Food (25%)" v={yen(food)} />
-        <Row k="日当 Labor" v={yen(labor)} />
-        <Row k="場代 Rent (10%)" v={yen(rent)} />
-        <Row k="レジから払った経費" v={yen(expensesTotal)} />
-        <Row k="経費合計" v={yen(costTotal)} />
+        {showEstimate ? (
+          <>
+            <Row k="原価概算 Food (25%)" v={yen(food)} />
+            <Row k="日当 Labor" v={yen(labor)} />
+            <Row k="場代 Rent (10%)" v={yen(rent)} />
+            <Row k="レジから払った経費" v={yen(expensesTotal)} />
+            <Row k="経費合計" v={yen(costTotal)} />
+          </>
+        ) : (
+          <>
+            <p className="text-xs text-stone-500 leading-relaxed">
+              {ACTUAL_ONLY_NOTE}
+            </p>
+            <Row k="日当" v={yen(actual.labor)} />
+            <Row k="レジから払った経費" v={yen(actual.expenses)} />
+            <Row k="出たお金の合計" v={yen(actual.costTotal)} />
+          </>
+        )}
         <div className="flex justify-between border-t pt-2 mt-2">
           <span className="font-bold">粗利</span>
           <span
             className={`text-2xl font-extrabold ${
-              profit >= 0 ? "text-brand-dark" : "text-red-600"
+              (showEstimate ? profit : actual.profit) >= 0
+                ? "text-brand-dark"
+                : "text-red-600"
             }`}
           >
-            {yen(profit)}
+            {yen(showEstimate ? profit : actual.profit)}
           </span>
         </div>
       </div>
