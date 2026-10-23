@@ -475,7 +475,7 @@ test("isTebayaScope: 手羽屋だけ true。よそのお店は false", () => {
   assert.equal(isTebayaScope(SHOP_A.toUpperCase()), false);
 });
 
-test("印の欄がまだ無い棚の一覧は、いまこの6つ", () => {
+test("印の欄がまだ無い棚の一覧は、いまこの8つ", () => {
   assert.deepEqual([...TABLES_WITHOUT_TENANT_COLUMN], [
     "shifts",
     "keiri_advance_expenses",
@@ -483,6 +483,8 @@ test("印の欄がまだ無い棚の一覧は、いまこの6つ", () => {
     "feedback_replies",
     "agenda_items",
     "event_plans",
+    "setup_checks",
+    "venue_inquiries",
   ]);
 });
 
@@ -496,6 +498,10 @@ const GATED_SCREENS: { file: string; table: string }[] = [
   // イベント段取り（2026-10-21・f3-4）。発注本数・担当・注意点が入る棚で、
   // 印の欄がまだ無い。過去の売上の参考（daily_reports）も手羽屋で固定している。
   { file: "app/events/EventsView.tsx", table: "event_plans" },
+  // 設営後チェックとレジ突き合わせ（2026-10-23・f3-4）。開店前のレジ金・
+  // 担当者の名前・出店場所が入る棚で、印の欄がまだ無い。
+  { file: "app/setup-check/page.tsx", table: "setup_checks" },
+  { file: "app/cash/register/page.tsx", table: "setup_checks" },
 ];
 
 test("印の欄が無い棚の画面には、手羽屋だけに開く門が掛かっている", () => {
