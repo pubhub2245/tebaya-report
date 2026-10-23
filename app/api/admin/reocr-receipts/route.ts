@@ -18,7 +18,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { serviceClient, serviceKeyProblem } from "@/lib/backup";
 import { readReceipt, type ReceiptMedia } from "@/lib/receiptOcr";
+import { decideReceiptScopeCheck } from "@/lib/receiptAdminScope";
 import { decideReocrFix } from "@/lib/receiptReocr";
+import { applyTenantScope, TEBAYA_SCOPE } from "@/lib/tenantScope";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -78,12 +80,25 @@ function mediaTypeOf(url: string): ReceiptMedia {
   return (m?.[1] as ReceiptMedia) ?? "image/jpeg";
 }
 
+/**
+ * 読み直す相手を探す。
+ *
+ * ★f3-4：ここは手羽屋の管理画面から動かす処理で、**経費の金額を書き換える**所
+ *   （しかも1枚ごとに読み取りの費用がかかる）。お店が2軒になったときに
+ *   よその店の帳簿まで書き換えないよう、手羽屋の日報（印が空）だけを相手にする。
+ *   いまある日報は印が空なので、手羽屋の対象枚数は1枚も変わらない。
+ *   どの店の行か確かめられなかったときは、1行も触らずに止まる。
+ */
 async function loadTargets(db: any) {
-  const { data, error } = await db
-    .from("daily_reports")
-    .select("id, date, location, expenses")
-    .order("date");
-  if (error) throw new Error(error.message);
+  const { data, error } = (await applyTenantScope<any>(
+    db.from("daily_reports").select("id, date, location, expenses").order("date"),
+    TEBAYA_SCOPE,
+  )) as { data: ReportRow[] | null; error: { message?: string } | null };
+  const verdict = decideReceiptScopeCheck({
+    errorMessage: error ? (error.message ?? String(error)) : null,
+    what: "昔のレシートの読み直し",
+  });
+  if (!verdict.proceed) throw new Error(verdict.message ?? "確かめられませんでした");
   const rows = ((data as ReportRow[]) ?? []).filter((r) => Array.isArray(r.expenses));
   const targets = rows
     .map((r) => ({ report: r, idxs: pendingPhotoItems(r.expenses) }))
@@ -212,10 +227,13 @@ export async function POST(req: NextRequest) {
       if (!changed) continue;
 
       const total = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-      const { error: upErr } = await db
-        .from("daily_reports")
-        .update({ expenses, expenses_total: total })
-        .eq("id", t.report.id);
+      const { error: upErr } = (await applyTenantScope<any>(
+        db
+          .from("daily_reports")
+          .update({ expenses, expenses_total: total })
+          .eq("id", t.report.id),
+        TEBAYA_SCOPE,
+      )) as { error: { message?: string } | null };
       if (upErr) errors.push(`${t.report.date} の保存に失敗：${upErr.message}`);
     }
 
