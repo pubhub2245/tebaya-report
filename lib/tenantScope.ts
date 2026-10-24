@@ -306,6 +306,17 @@ export const TABLES_WITHOUT_TENANT_COLUMN = [
   // よその店が日報を書くと 手羽屋の商品名と単価がそのお店の数字に混ざっていた。
   // 門は lib/limitedProductScope.ts（読む所・書く所の両方）。
   "monthly_limited_products",
+  // 2026-10-24 追加（f3-4）。仕込み日報（/prep）が使う棚。入り口は 2026-06-09 に
+  // 外してあるが（CLAUDE.md 3 の「止めた機能」）、URL を直接開けば今も動く。
+  // 中身は手羽屋の仕込み商品の名前・1本あたりの時間・担当者・前日の繰り越し。
+  // 門は app/prep/page.tsx に掛かっている（TebayaOnlyGate）。
+  // 一覧に名前が無いと「門を外しても誰も気づかない」ので、ここに載せて見張りの対象にする。
+  "prep_products",
+  "prep_reports",
+  "prep_sessions",
+  "prep_session_items",
+  "prep_carryovers",
+  "prep_settings",
 ] as const;
 
 /** いま手羽屋として開いているか（印が空＝手羽屋） */

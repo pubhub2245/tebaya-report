@@ -34,6 +34,14 @@ import { isCopyTableName, isForeignTable } from "@/lib/keiri/copyTables";
  * アプリが使っている棚の名前（2026-10-14 に、コードの中の読み書きを数え上げたもの）。
  * ★ここに並ぶのは「いま使っている棚」です。鍵をかける相手ではありません。
  *   写しの名前を**組み立てる材料**としてだけ使います。
+ *
+ * ★★2026-10-24（f3-4）：**この一覧に抜けがあると、その棚の写しだけ一度も聞かれません。**
+ *   実際に4つ抜けていました（イベント段取り `event_plans`、仕込みの3つ
+ *   `prep_products` `prep_session_items` `prep_carryovers`）。
+ *   ＝ `prep_products_backup` のような写しが開いていても、
+ *   /api/keiri/copies は「開いている写しはありません」と答えていました。
+ *   抜けは目では見つからないので、**機械で見張ります**
+ *   （tests/keiriCopyCandidates.ts の「コードが読み書きしている棚は、ぜんぶ材料に入っている」）。
  */
 export const LIVE_TABLES = [
   "achievement_rate_calculations",
@@ -46,6 +54,7 @@ export const LIVE_TABLES = [
   "daily_cancellations",
   "daily_report_edits",
   "daily_reports",
+  "event_plans",
   "expenses",
   "feedback_box",
   "feedback_replies",
@@ -63,7 +72,10 @@ export const LIVE_TABLES = [
   "location_rank_history",
   "locations",
   "monthly_limited_products",
+  "prep_carryovers",
+  "prep_products",
   "prep_reports",
+  "prep_session_items",
   "prep_sessions",
   "prep_settings",
   "sale_products",

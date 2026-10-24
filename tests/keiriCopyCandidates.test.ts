@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
@@ -228,4 +230,66 @@ test("そんな棚はありません（42P01）は、閉まっている側に入
   });
   assert.equal(v.state, COPY_CLOSED);
   assert.match(v.note, /ありません/);
+});
+
+/* ------------------------------------------------------------------ *
+ *  材料の一覧に抜けが無いかを、機械で見張る（2026-10-24・f3-4）
+ * ------------------------------------------------------------------ */
+
+/**
+ * ★なぜこの見張りを足したか
+ *
+ *   写しが開いていないかは /api/keiri/copies で確かめていますが、
+ *   聞く相手は **LIVE_TABLES（いま使っている棚の名前）から組み立てて**います。
+ *   つまり **一覧に無い棚は、その写しも一度も聞かれません**。
+ *   2026-10-24 に数え直したところ **4つ抜けて**いました
+ *   （event_plans / prep_products / prep_session_items / prep_carryovers）。
+ *   ＝「開いている写しはありません」という答えが、そのぶん不完全でした。
+ *
+ *   抜けは目では見つからないので、**コードが実際に読み書きしている棚**を
+ *   機械で数え上げて、一覧と突き合わせます。
+ */
+function tablesUsedInCode(): Set<string> {
+  const out = new Set<string>();
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      if (name === "node_modules" || name === ".next") continue;
+      const p = join(dir, name);
+      if (statSync(p).isDirectory()) walk(p);
+      else if (/\.(ts|tsx)$/.test(name)) {
+        for (const m of readFileSync(p, "utf8").matchAll(/\.from\("([a-z0-9_]+)"\)/g)) {
+          out.add(m[1]);
+        }
+      }
+    }
+  };
+  walk("lib");
+  walk("app");
+  return out;
+}
+
+test("コードが読み書きしている棚は、ぜんぶ写しを探す材料に入っている", () => {
+  const live = new Set<string>(LIVE_TABLES);
+  const missing = [...tablesUsedInCode()]
+    .filter((t) => !isForeignTable(t)) // 別のアプリの棚（pkmn_…）は触らない
+    .filter((t) => !live.has(t))
+    .sort();
+  assert.deepEqual(
+    missing,
+    [],
+    "この棚の『写し』は一度も聞かれていません（LIVE_TABLES に足してください）：\n" +
+      missing.join("\n"),
+  );
+});
+
+test("材料にだけある棚は、理由が分かっているものだけ", () => {
+  const used = tablesUsedInCode();
+  const extra = [...LIVE_TABLES].filter((t) => !used.has(t)).sort();
+  assert.deepEqual(extra, [
+    // 経費は daily_reports の中の欄（CLAUDE.md 4-2）。棚として読む所は無いが、
+    // 昔 expenses という棚があった可能性があるので写しは聞いておく
+    "expenses",
+    // 2026-08-27 に消した棚（CLAUDE.md 4-11）。控え（deleted_tasks_…）が残る
+    "tasks",
+  ]);
 });
