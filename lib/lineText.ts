@@ -1,7 +1,12 @@
 import { yen, slashDate } from "./format";
 import type { FormState, InventoryStatus } from "./formState";
 import { diffReasonLabel, type SalesBreakdown } from "./salesBreakdown";
-import { calcGrossProfit, sumExpenses } from "./money";
+import { calcActualProfit, calcGrossProfit, sumExpenses } from "./money";
+import {
+  ACTUAL_ONLY_NOTE,
+  showsEstimatedGrossProfit,
+} from "./grossProfitRule";
+import { TEBAYA_SCOPE, type TenantScope } from "./tenantScope";
 
 const SEP = "━━━━━━━━━━━━━━";
 
@@ -20,14 +25,29 @@ export function generateLineText(
    *   文と帳簿が必ず同じになります。手羽屋は渡しても答えが変わりません。
    */
   laborAmount?: number,
+  /**
+   * どのお店として出している日報か。渡さないときは手羽屋＝**今までと同じ文**。
+   *
+   * ★なぜ渡せるようにしたか（2026-10-23・f3-4）
+   *   「粗利（現場評価）」の原価概算25%・場代概算10% は**手羽屋の見込みの率**です。
+   *   経理パッケージを申し込んだお店の文に出すと、そのお店が決めていない率で
+   *   粗利が出ます。よそのお店では、実際に出たお金（日当・レジから払った経費）
+   *   だけで粗利を出します（→ lib/grossProfitRule.ts）。
+   */
+  scope: TenantScope = TEBAYA_SCOPE,
 ): string {
   const sales = f.sales_amount || 0;
   // 粗利の計算は lib/money.ts に集約（tests/money.test.ts で検証済み）
+  const usedLabor =
+    typeof laborAmount === "number" ? laborAmount : f.labor || 10000;
   const { food, rent, labor, costTotal, profit } = calcGrossProfit(
     sales,
-    typeof laborAmount === "number" ? laborAmount : f.labor || 10000,
+    usedLabor,
   );
   const expensesTotal = sumExpenses(f.expenses);
+  // よそのお店に出す粗利（新しい率を作らず、実際に出たお金だけで計算する）
+  const actual = calcActualProfit(sales, usedLabor, expensesTotal);
+  const showEstimate = showsEstimatedGrossProfit(scope);
 
   const coins: [string, number, number][] = [
     ["10円", f.coins.c10, 10],
@@ -72,11 +92,21 @@ export function generateLineText(
     `累計売上：${yen(cumulative)}`,
     SEP,
     "■ 粗利（現場評価）",
-    `原価概算（Food）：${yen(food)}（売上の25%）`,
-    `日当（Labor）：${yen(labor)}`,
-    `場代(Rent)：${yen(rent)}`,
-    `経費合計：${yen(costTotal)}`,
-    `粗利：${yen(profit)}`,
+    ...(showEstimate
+      ? [
+          `原価概算（Food）：${yen(food)}（売上の25%）`,
+          `日当（Labor）：${yen(labor)}`,
+          `場代(Rent)：${yen(rent)}`,
+          `経費合計：${yen(costTotal)}`,
+          `粗利：${yen(profit)}`,
+        ]
+      : [
+          ACTUAL_ONLY_NOTE,
+          `日当：${yen(actual.labor)}`,
+          `レジから払った経費：${yen(actual.expenses)}`,
+          `出たお金の合計：${yen(actual.costTotal)}`,
+          `粗利：${yen(actual.profit)}`,
+        ]),
     SEP,
     "レジ確認",
     coinLines || "(金種入力なし)",

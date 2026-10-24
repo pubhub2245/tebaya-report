@@ -10,7 +10,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { buildRankPlans, type RankLocationRow } from "../lib/locationRank";
-import { decideRankHistoryWrite, rankRowsInScope } from "../lib/locationRankScope";
+import {
+  decideRankAutoJudge,
+  decideRankHistoryWrite,
+  rankRowsInScope,
+} from "../lib/locationRankScope";
 
 const SHOP = "11111111-1111-4111-8111-111111111111";
 
@@ -80,5 +84,15 @@ test("ランクが変わった記録は、手羽屋だけが残す", () => {
   assert.equal(decideRankHistoryWrite(null).write, true);
   const shop = decideRankHistoryWrite(SHOP);
   assert.equal(shop.write, false);
-  assert.match(shop.why, /ランクと目標額の書き換えは行います/);
+  assert.match(shop.why, /自動判定を行いません/);
+});
+
+test("自動判定そのものは、手羽屋だけが行う（2026-10-23・f3-4）", () => {
+  // 目標額（S=80,000〜D=30,000 円）は手羽屋の決めごとなので、
+  // よそのお店の出店場所マスタには書き込まない
+  assert.equal(decideRankAutoJudge(null).judge, true);
+  assert.equal(decideRankAutoJudge("").judge, true);
+  const shop = decideRankAutoJudge(SHOP);
+  assert.equal(shop.judge, false);
+  assert.match(shop.why, /手羽屋の/);
 });
