@@ -567,6 +567,50 @@ test("印の欄がまだ無い棚を、門の外の画面が新たに読み始�
   );
 });
 
+test("印の欄がまだ無い棚を、門の無い『読む係』（lib）が読んでいない", () => {
+  /**
+   * ★2026-10-24（f3-4）。この見張りを足した理由。
+   *
+   *   すぐ上の見張りは app の画面だけを見ていて、`.from("棚")` という文字を探します。
+   *   ところが読む所が lib の小さな係に移っていると、画面には文字が出てこないので
+   *   **見張りの目を通り抜けます**。実際にそれで1件すり抜けていました：
+   *   その月の限定商品（monthly_limited_products）を lib/limitedProduct.ts が
+   *   絞らずに読み、日報の入力画面が**よその店にも手羽屋の商品名と単価を自動で入れて**
+   *   いました（2026-10-24 に見つけて直した）。
+   *
+   *   そこで lib 側も同じように見張ります。印の欄が無い棚を読む係には、
+   *   「手羽屋のときだけ」の門が同じファイルの中に要ります。
+   */
+  const MARKS = [
+    "isTebayaScope(",
+    "applyTenantScope",
+    "rowsInScope",
+    "scopeShiftsQuery",
+    "withShiftTenant",
+    "limitedProductInScope",
+  ];
+  const found: string[] = [];
+  for (const file of sourceFiles("lib")) {
+    const rel = file.replace(/\\/g, "/");
+    const src = readFileSync(file, "utf8");
+    if (MARKS.some((m) => src.includes(m))) continue;
+    for (const table of TABLES_WITHOUT_TENANT_COLUMN) {
+      if (src.includes(`.from("${table}")`)) found.push(`${rel}（${table}）`);
+    }
+  }
+  assert.deepEqual(
+    found.sort(),
+    [
+      // 出店先の問い合わせ。読む係そのものには門が無いが、呼ぶ所の両方に門がある：
+      //   ・画面 … app/venues/VenuesView.tsx（包んでいるのは app/shifts/CombinedClient.tsx）
+      //     ※ /venues は /shifts?tab=venues へ転送するだけ
+      //   ・出店予定への書き写し … lib/venueShiftSync.ts（scopeShiftsQuery の内側）
+      "lib/venueInquiries.ts（venue_inquiries）",
+    ],
+    `印の欄が無い棚を、門の無い読む係が読んでいます：\n${found.join("\n")}`,
+  );
+});
+
 test("経理の月次が立替を読むのは、手羽屋として開いているときだけ", () => {
   /**
    * 2026-10-02（kp218）。月の経費に立替を足すため、経理の画面が
