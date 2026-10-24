@@ -475,7 +475,7 @@ test("isTebayaScope: 手羽屋だけ true。よそのお店は false", () => {
   assert.equal(isTebayaScope(SHOP_A.toUpperCase()), false);
 });
 
-test("印の欄がまだ無い棚の一覧は、いまこの9つ", () => {
+test("印の欄がまだ無い棚の一覧は、いまこの15個", () => {
   assert.deepEqual([...TABLES_WITHOUT_TENANT_COLUMN], [
     "shifts",
     "keiri_advance_expenses",
@@ -486,6 +486,14 @@ test("印の欄がまだ無い棚の一覧は、いまこの9つ", () => {
     "setup_checks",
     "venue_inquiries",
     "monthly_limited_products",
+    // 仕込み日報（/prep）の6つ。2026-10-24 追加（f3-4）。
+    // 入り口は外してあるが URL を直接開けば動く。門は app/prep/page.tsx。
+    "prep_products",
+    "prep_reports",
+    "prep_sessions",
+    "prep_session_items",
+    "prep_carryovers",
+    "prep_settings",
   ]);
 });
 
@@ -503,6 +511,9 @@ const GATED_SCREENS: { file: string; table: string }[] = [
   // 担当者の名前・出店場所が入る棚で、印の欄がまだ無い。
   { file: "app/setup-check/page.tsx", table: "setup_checks" },
   { file: "app/cash/register/page.tsx", table: "setup_checks" },
+  // 仕込み日報（2026-10-24・f3-4）。入り口は 2026-06-09 に外してあるが、
+  // URL を直接開けば今も動くので門が要る（/report/cancel と同じ事情）。
+  { file: "app/prep/page.tsx", table: "prep_products" },
 ];
 
 test("印の欄が無い棚の画面には、手羽屋だけに開く門が掛かっている", () => {
@@ -555,14 +566,25 @@ test("印の欄がまだ無い棚を、門の外の画面が新たに読み始�
       found.push(`${rel}（${table}）`);
     }
   }
+  // ★並び順は、ファイルを拾う順（倉庫やOSで変わる）に左右されないよう名前順にそろえる
   assert.deepEqual(
-    found,
+    found.sort(),
     [
+      // 仕込みの3つ（2026-10-24・f3-4）。置き場所は app/components だが、
+      // 呼んでいるのは **管理者ページ（app/admin/page.tsx）だけ**で、
+      // そこは合言葉の内側＝この見張りの対象外（すぐ上の ★ のとおり）。
+      // 仕込み日報の画面（app/prep/page.tsx）側には門が掛かっている。
+      "app/components/PrepProductManager.tsx（prep_products）",
+      "app/components/PrepReportDashboard.tsx（prep_products）",
+      "app/components/PrepReportDashboard.tsx（prep_reports）",
+      "app/components/PrepReportDashboard.tsx（prep_session_items）",
+      "app/components/PrepReportDashboard.tsx（prep_sessions）",
+      "app/components/PrepSettingsManager.tsx（prep_settings）",
       // 意見箱の中身（返信のやり取り）。包んでいるのは app/feedback/[id]/page.tsx
       "app/feedback/[id]/_components/ReplyThread.tsx（feedback_replies）",
       // 出店予定の中身。包んでいるのは app/shifts/CombinedClient.tsx
       "app/shifts/ShiftsView.tsx（shifts）",
-    ],
+    ].sort(),
     `印の欄が無い棚を、門の掛かっていない画面が読んでいます：\n${found.join("\n")}`,
   );
 });
@@ -1033,5 +1055,65 @@ test("「📊 中間報告」のリンクは、よそのお店の日報に出さ
   assert.ok(
     gate.includes("TebayaOnlyGate"),
     "中間報告の画面から門が外れています。リンクの囲いも見直してください",
+  );
+});
+
+/* ------------------------------------------------------------------ *
+ *  窓口（/api）の側も見張る（2026-10-24・f3-4）
+ * ------------------------------------------------------------------ */
+
+/**
+ * ★なぜこの見張りを足したか
+ *
+ *   すぐ上の2つの見張りは「画面（app）」と「読む係（lib）」を見ていますが、
+ *   **`app/api/` は丸ごと対象外**にしてありました。理由は
+ *   「合言葉かサーバー側の鍵の内側だから」です。
+ *   ところが数え直すと、**そのどちらでもない窓口**がありました。
+ *   窓口は URL をたたけば誰でも呼べるので、画面に門を掛けても
+ *   **窓口が裏口として残ります**（2026-10-23 にレシートの窓口で同じ形を直した）。
+ *
+ *   いまある窓口をここで固定しておき、
+ *   **新しく「門も合言葉も鍵も無い窓口」が増えたら、その場で気づけるように**します。
+ *   ★固定した5つは「直さなくてよい」という意味ではありません。
+ *     手羽屋が毎日使う機能（設営後チェック・意見箱）に当たるので、
+ *     1つずつ、手羽屋の動きを確かめながら閉めます（kp253 ③の続き）。
+ */
+const API_GUARD_MARKS = [
+  "checkAdminPassword", // 合言葉の内側
+  "ADMIN_PASSWORD", // 合言葉を Authorization: Bearer で確かめる窓口
+  "CRON_SECRET", // 毎日の自動処理だけが持つ合言葉
+  "serviceClient", // サーバー側の鍵の内側
+  "isTebayaScope(", // 手羽屋のときだけ
+  "applyTenantScope",
+  "rowsInScope",
+  "scopeShiftsQuery",
+  "withShiftTenant",
+  "limitedProductInScope",
+];
+
+test("印の欄が無い棚を触る窓口のうち、門も合言葉も鍵も無いのは、いまこの4つだけ", () => {
+  const found: string[] = [];
+  for (const file of sourceFiles("app/api")) {
+    const rel = file.replace(/\\/g, "/");
+    const src = readFileSync(file, "utf8");
+    if (API_GUARD_MARKS.some((m) => src.includes(m))) continue;
+    const hit = (TABLES_WITHOUT_TENANT_COLUMN as readonly string[]).filter((t) =>
+      src.includes(`.from("${t}")`),
+    );
+    if (hit.length > 0) found.push(rel);
+  }
+  assert.deepEqual(
+    [...new Set(found)].sort(),
+    [
+      // 意見箱の返信を足す窓口（手羽屋のスタッフが毎日使う機能）
+      "app/api/feedback/[id]/replies/route.ts",
+      // 仕込み日報の保存（入り口は外してあるが窓口は生きている）
+      "app/api/prep/save/route.ts",
+      // 設営後チェックを作る／LINE へ流す窓口（手羽屋が毎日使う機能）
+      "app/api/setup-check/create/route.ts",
+      "app/api/setup-check/post-line/route.ts",
+    ].sort(),
+    "門も合言葉も鍵も無い窓口が増えました（画面の門だけでは裏口が残ります）：\n" +
+      found.join("\n"),
   );
 });
