@@ -40,7 +40,7 @@ const STATUS_STYLE: Record<PlanStatus, string> = {
 
 const COLUMNS =
   "id,event_date,event_name,venue,venue_address,open_time,close_time,load_in,load_out," +
-  "expected_sales,chicken_count,supplier,order_date,prep_date,prep_start,prep_end,staff_prep,staff_event," +
+  "expected_sales,chicken_count,supplier,order_date,receive_date,prep_date,prep_start,prep_end,staff_prep,staff_event," +
   "fryer,power,power_note,gas_refill,booth_fee,cautions,contact,memo,status";
 
 /** 決まっていない大事な項目（カードに赤字で出す） */
@@ -213,6 +213,7 @@ function EventsViewInner() {
                     : "未定"}
                   {` ／ ${p.supplier} ／ ${dateLabel(p.order_date)}まで`}
                 </Row>
+                {p.receive_date && <Row label="📦 受け取り">{dateLabel(p.receive_date)}</Row>}
                 <Row label="🔪 骨抜き">
                   {prepLabel(p)} ／ {p.staff_prep || "担当未定"}
                 </Row>
@@ -468,10 +469,16 @@ function PlanForm({
           <Field label="発注日">
             <input type="date" className={input} value={p.order_date ?? ""} onChange={text("order_date")} />
           </Field>
+          <Field label="鳥の受け取り日（なくてもOK）">
+            <input type="date" className={input} value={p.receive_date ?? ""} onChange={text("receive_date")} />
+          </Field>
           <Field label="骨抜き・仕込み日">
             <input type="date" className={input} value={p.prep_date ?? ""} onChange={text("prep_date")} />
           </Field>
         </div>
+        <p className="text-xs text-stone-500">
+          決めた日付は、1時間ごとにじゅんのGoogleカレンダーへ自動で入ります（発注・受け取り・仕込み・当日）。
+        </p>
         <button type="button" onClick={resetDates} className="text-sm text-blue-700 underline">
           開催日から入れ直す（発注は4日前・仕込みは前日）
         </button>

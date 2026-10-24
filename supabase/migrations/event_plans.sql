@@ -69,3 +69,8 @@ alter table public.event_plans enable row level security;
 drop policy if exists "event_plans_all_public" on public.event_plans;
 create policy "event_plans_all_public" on public.event_plans
   for all using (true) with check (true);
+
+-- 2026-10-24 追加：鳥の受け取り日と、カレンダーに入れた予定の控え
+-- （定期実行「【手羽屋】イベント段取り→カレンダー登録（毎時）」が calendar_event_ids を使う。画面からは書かない）
+alter table public.event_plans add column if not exists receive_date date;
+alter table public.event_plans add column if not exists calendar_event_ids jsonb not null default '{}'::jsonb;

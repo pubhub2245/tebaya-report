@@ -125,3 +125,9 @@ test("LINE用の文：本数・袋・発注先・担当未定・注意点が入�
   assert.match(t, /・営業中の撤収は禁止/);
   assert.doesNotMatch(t, /ガスの補充/);
 });
+
+test("鳥の受け取り日が入っていればLINE用の文に出る（空なら出ない）", () => {
+  const base = { ...emptyPlan("2026-11-08"), event_name: "まるまる朝市", chicken_count: 180 };
+  assert.doesNotMatch(buildLineText(base), /受け取り/);
+  assert.match(buildLineText({ ...base, receive_date: "2026-11-05" }), /📦 鳥の受け取り：11\/5\(木\)/);
+});

@@ -41,6 +41,7 @@ export type EventPlan = {
   chicken_count: number | null;
   supplier: string;
   order_date: string | null;
+  receive_date: string | null; // 鳥の受け取り日（空でもよい）
   prep_date: string | null;
   prep_start: string | null; // 骨抜き・仕込みの開始（例 16:00）。空でもよい
   prep_end: string | null; // 終了（例 18:00）
@@ -108,6 +109,7 @@ export function emptyPlan(eventDate: string): EventPlan {
     chicken_count: null,
     supplier: DEFAULT_SUPPLIER,
     order_date: d.orderDate,
+    receive_date: null,
     prep_date: d.prepDate,
     prep_start: null,
     prep_end: null,
@@ -280,6 +282,7 @@ export function buildLineText(plan: EventPlan): string {
     lines.push("🐔 発注：本数未定");
   }
   lines.push(`🛒 発注先：${orUndecided(plan.supplier)}／発注日：${dateLabel(plan.order_date)}`);
+  if (plan.receive_date) lines.push(`📦 鳥の受け取り：${dateLabel(plan.receive_date)}`);
   lines.push(
     `🔪 骨抜き・仕込み：${prepLabel(plan)}／担当：${orUndecided(plan.staff_prep)}`
   );
