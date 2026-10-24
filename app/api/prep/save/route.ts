@@ -1,12 +1,19 @@
 import { serverClient } from "@/lib/supabaseServer";
 import { NextRequest, NextResponse } from "next/server";
 import { calculatePrepMinutes, type PrepProduct } from "@/lib/prepHelpers";
+import { decidePrepSave } from "@/lib/prepScope";
 
 export const runtime = "nodejs";
 
 const supabase = serverClient();
 
 interface SaveBody {
+  /**
+   * いまどのお店として開いているか（手羽屋は null／送られてこないこともある）。
+   * 仕込みの棚には「どの店のものか」の欄がまだ無いので、
+   * よその店の記録が入ると手羽屋の仕込みに混ざって見分けられない（f3-4）。
+   */
+  tenant_id?: string | null;
   date: string;
   staff_name: string;
   sessions: Array<{
@@ -38,6 +45,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       { success: false, error: "リクエストボディが不正です" },
       { status: 400 },
+    );
+  }
+
+  // 手羽屋のときだけ保存する（画面の門と同じ。lib/prepScope.ts）
+  const scopeVerdict = decidePrepSave(body.tenant_id);
+  if (!scopeVerdict.allow) {
+    return NextResponse.json(
+      { success: false, error: scopeVerdict.message },
+      { status: 403 },
     );
   }
 

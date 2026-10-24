@@ -1089,9 +1089,10 @@ const API_GUARD_MARKS = [
   "scopeShiftsQuery",
   "withShiftTenant",
   "limitedProductInScope",
+  "decidePrepSave", // 仕込みの保存（2026-10-24 に門を足した）
 ];
 
-test("印の欄が無い棚を触る窓口のうち、門も合言葉も鍵も無いのは、いまこの4つだけ", () => {
+test("印の欄が無い棚を触る窓口のうち、門も合言葉も鍵も無いのは、いまこの3つだけ", () => {
   const found: string[] = [];
   for (const file of sourceFiles("app/api")) {
     const rel = file.replace(/\\/g, "/");
@@ -1107,8 +1108,6 @@ test("印の欄が無い棚を触る窓口のうち、門も合言葉も鍵も�
     [
       // 意見箱の返信を足す窓口（手羽屋のスタッフが毎日使う機能）
       "app/api/feedback/[id]/replies/route.ts",
-      // 仕込み日報の保存（入り口は外してあるが窓口は生きている）
-      "app/api/prep/save/route.ts",
       // 設営後チェックを作る／LINE へ流す窓口（手羽屋が毎日使う機能）
       "app/api/setup-check/create/route.ts",
       "app/api/setup-check/post-line/route.ts",
