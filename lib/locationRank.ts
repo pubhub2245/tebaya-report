@@ -182,7 +182,7 @@ export type RankPlan = {
   /** マスタを書き換える必要があるか */
   changed: boolean;
   /** 変えない場合の理由（人に見せる用） */
-  skipReason: "locked" | "notEnoughData" | "noChange" | null;
+  skipReason: "locked" | "notEnoughData" | "noChange" | "otherShop" | null;
 };
 
 /** 日報から、その場所ぶんだけ取り出す（名寄せして突き合わせる） */
