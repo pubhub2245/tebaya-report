@@ -29,6 +29,7 @@ import {
   type PrepSettings,
 } from "@/lib/prepHelpers";
 import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
+import { readTenantScope } from "@/lib/tenantScope";
 
 const STAFF_OPTIONS = ["なぎさ"];
 
@@ -292,6 +293,9 @@ function PrepReportPageInner() {
           .map((c) => ({ product_id: c.product_id, quantity: Math.max(0, c.quantity || 0) })),
         pre_check: preCheck,
         post_check: postCheck,
+        // いまどのお店として開いているか。手羽屋は null（＝今までどおり）。
+        // 保存の窓口は、よその店だとはっきり名乗ったときだけ断る（lib/prepScope.ts・f3-4）
+        tenant_id: readTenantScope(),
       };
       const res = await fetch("/api/prep/save", {
         method: "POST",
