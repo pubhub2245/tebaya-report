@@ -475,7 +475,7 @@ test("isTebayaScope: 手羽屋だけ true。よそのお店は false", () => {
   assert.equal(isTebayaScope(SHOP_A.toUpperCase()), false);
 });
 
-test("印の欄がまだ無い棚の一覧は、いまこの8つ", () => {
+test("印の欄がまだ無い棚の一覧は、いまこの9つ", () => {
   assert.deepEqual([...TABLES_WITHOUT_TENANT_COLUMN], [
     "shifts",
     "keiri_advance_expenses",
@@ -485,6 +485,7 @@ test("印の欄がまだ無い棚の一覧は、いまこの8つ", () => {
     "event_plans",
     "setup_checks",
     "venue_inquiries",
+    "monthly_limited_products",
   ]);
 });
 

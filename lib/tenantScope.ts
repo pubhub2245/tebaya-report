@@ -301,6 +301,11 @@ export const TABLES_WITHOUT_TENANT_COLUMN = [
   // 出店先の担当者名・連絡先・やり取りが入る。門は /shifts に掛かっている
   // （→ すぐ上の shifts の注記）。同じ理由で一覧に載せる。
   "venue_inquiries",
+  // 2026-10-24 追加（f3-4）。その月の限定商品（商品名と単価）の棚。
+  // 日報の入力画面が、この棚の商品を**自動で売上の内訳に入れる**ので、
+  // よその店が日報を書くと 手羽屋の商品名と単価がそのお店の数字に混ざっていた。
+  // 門は lib/limitedProductScope.ts（読む所・書く所の両方）。
+  "monthly_limited_products",
 ] as const;
 
 /** いま手羽屋として開いているか（印が空＝手羽屋） */

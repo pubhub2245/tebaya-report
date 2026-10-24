@@ -5,6 +5,12 @@
  */
 
 import { supabase } from "./supabase";
+import {
+  limitedProductInScope,
+  LIMITED_PRODUCT_OUT_OF_SCOPE,
+} from "./limitedProductScope";
+import type { TenantScope } from "./tenantScope";
+import { currentShopScope } from "./keiri/readSource";
 
 export type MonthlyLimitedProduct = {
   id: string;
@@ -37,7 +43,10 @@ function extractYearMonth(input: Date | string): { year: number; month: number }
  */
 export async function getLimitedProductForMonth(
   input: Date | string,
+  scope: TenantScope = currentShopScope(),
 ): Promise<MonthlyLimitedProduct | null> {
+  // よその店のときは1行も読まない（手羽屋の商品名と単価が混ざらないように・f3-4）
+  if (!limitedProductInScope(scope)) return null;
   const { year, month } = extractYearMonth(input);
   const { data, error } = await supabase
     .from("monthly_limited_products")
@@ -57,12 +66,17 @@ export async function getLimitedProductForMonth(
  * 過去〜未来の任意期間の限定商品を取得（管理画面用）。
  * fromYear/fromMonth から toYear/toMonth まで。
  */
-export async function listLimitedProducts(opts?: {
-  fromYear?: number;
-  fromMonth?: number;
-  toYear?: number;
-  toMonth?: number;
-}): Promise<MonthlyLimitedProduct[]> {
+export async function listLimitedProducts(
+  opts?: {
+    fromYear?: number;
+    fromMonth?: number;
+    toYear?: number;
+    toMonth?: number;
+  },
+  scope: TenantScope = currentShopScope(),
+): Promise<MonthlyLimitedProduct[]> {
+  // よその店のときは1行も読まない（f3-4）
+  if (!limitedProductInScope(scope)) return [];
   const { data, error } = await supabase
     .from("monthly_limited_products")
     .select("*")
@@ -101,7 +115,12 @@ export async function upsertLimitedProduct(
   month: number,
   productName: string,
   price = 0,
+  scope: TenantScope = currentShopScope(),
 ): Promise<{ success: boolean; error?: string }> {
+  // よその店のときは1行も書かない（手羽屋の棚に混ざらないように・f3-4）
+  if (!limitedProductInScope(scope)) {
+    return { success: false, error: LIMITED_PRODUCT_OUT_OF_SCOPE };
+  }
   const trimmed = (productName ?? "").trim();
 
   if (trimmed === "") {
