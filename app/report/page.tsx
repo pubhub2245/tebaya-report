@@ -555,12 +555,12 @@ export default function Page() {
       const text =
         lineText ||
         generateLineText(
-      form,
-      cumulative,
-      breakdown,
-      laborToSave(form.labor, reportScope()),
-      reportScope(),
-    );
+          form,
+          cumulative,
+          breakdown,
+          laborToSave(form.labor, reportScope()),
+          reportScope(),
+        );
       if (!lineText) setLineText(text);
 
       // 代理INSERT（line_textに「【代理INSERT】」マーカー付き）が同じ
