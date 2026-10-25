@@ -7,12 +7,19 @@ import type {
   CashCoinCounts,
   SetupCheckRecord,
 } from "@/lib/setupCheck/types";
+import { decideTebayaOnlyWindow } from "@/lib/tebayaOnlyApi";
 
 export const runtime = "nodejs";
 
 const supabase = serverClient();
 
 interface CreateBody {
+  /**
+   * いまどのお店として開いているか（手羽屋は null／送られてこないこともある）。
+   * 設営後チェックの棚には「どの店のものか」の欄がまだ無いので、
+   * よその店の記録が入ると手羽屋のレジ金・担当者に混ざって見分けられない（f3-4）。
+   */
+  tenant_id?: string | null;
   date: string;
   location: string;
   location_id: number | null;
@@ -27,6 +34,15 @@ interface CreateBody {
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as CreateBody;
+
+    // よその店だとはっきり名乗ったときだけ断る（手羽屋は今までどおり・f3-4）
+    const verdict = decideTebayaOnlyWindow(body.tenant_id, "setup-check");
+    if (!verdict.allow) {
+      return NextResponse.json(
+        { success: false, error: verdict.message },
+        { status: 403 },
+      );
+    }
 
     // バリデーション
     if (!body.date || !/^\d{4}-\d{2}-\d{2}$/.test(body.date)) {

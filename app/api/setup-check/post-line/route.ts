@@ -1,6 +1,7 @@
 import { serverClient } from "@/lib/supabaseServer";
 import { NextRequest, NextResponse } from "next/server";
 import { sendLineGroupMessage } from "@/lib/line/sendMessage";
+import { decideTebayaOnlyWindow } from "@/lib/tebayaOnlyApi";
 
 export const runtime = "nodejs";
 
@@ -18,7 +19,18 @@ export const runtime = "nodejs";
  */
 export async function POST(request: NextRequest) {
   try {
-    const { id } = await request.json();
+    const { id, tenant_id } = await request.json();
+
+    // よその店だとはっきり名乗ったときだけ断る（手羽屋は今までどおり・f3-4）。
+    // ★ここは手羽屋のスタッフのLINEグループに文が飛ぶ窓口なので、
+    //   LINE に送る前に断る（送ってから気づいても取り消せない）。
+    const verdict = decideTebayaOnlyWindow(tenant_id, "setup-check-line");
+    if (!verdict.allow) {
+      return NextResponse.json(
+        { success: false, error: verdict.message },
+        { status: 403 },
+      );
+    }
 
     if (!id || typeof id !== "string") {
       return NextResponse.json(

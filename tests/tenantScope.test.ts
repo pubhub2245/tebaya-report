@@ -1074,9 +1074,8 @@ test("「📊 中間報告」のリンクは、よそのお店の日報に出さ
  *
  *   いまある窓口をここで固定しておき、
  *   **新しく「門も合言葉も鍵も無い窓口」が増えたら、その場で気づけるように**します。
- *   ★固定した5つは「直さなくてよい」という意味ではありません。
- *     手羽屋が毎日使う機能（設営後チェック・意見箱）に当たるので、
- *     1つずつ、手羽屋の動きを確かめながら閉めます（kp253 ③の続き）。
+ *   ★2026-10-25 に、残っていた3つ（意見箱の返信・設営後チェックの登録とLINE投稿）も
+ *     閉め終わりました（lib/tebayaOnlyApi.ts）。この一覧はいま空です。
  */
 const API_GUARD_MARKS = [
   "checkAdminPassword", // 合言葉の内側
@@ -1090,9 +1089,10 @@ const API_GUARD_MARKS = [
   "withShiftTenant",
   "limitedProductInScope",
   "decidePrepSave", // 仕込みの保存（2026-10-24 に門を足した）
+  "decideTebayaOnlyWindow", // 設営後チェック・意見箱の返信（2026-10-25 に門を足した）
 ];
 
-test("印の欄が無い棚を触る窓口のうち、門も合言葉も鍵も無いのは、いまこの3つだけ", () => {
+test("印の欄が無い棚を触る窓口に、門も合言葉も鍵も無いものは もう1つもない", () => {
   const found: string[] = [];
   for (const file of sourceFiles("app/api")) {
     const rel = file.replace(/\\/g, "/");
@@ -1103,15 +1103,11 @@ test("印の欄が無い棚を触る窓口のうち、門も合言葉も鍵も�
     );
     if (hit.length > 0) found.push(rel);
   }
+  // ★2026-10-25 に残りの3つ（意見箱の返信・設営後チェックの登録とLINE投稿）を閉め、
+  //   ここは空になりました。以後、門も合言葉も鍵も無い窓口が1つでも増えたら落ちます。
   assert.deepEqual(
     [...new Set(found)].sort(),
-    [
-      // 意見箱の返信を足す窓口（手羽屋のスタッフが毎日使う機能）
-      "app/api/feedback/[id]/replies/route.ts",
-      // 設営後チェックを作る／LINE へ流す窓口（手羽屋が毎日使う機能）
-      "app/api/setup-check/create/route.ts",
-      "app/api/setup-check/post-line/route.ts",
-    ].sort(),
+    [],
     "門も合言葉も鍵も無い窓口が増えました（画面の門だけでは裏口が残ります）：\n" +
       found.join("\n"),
   );
