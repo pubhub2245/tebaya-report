@@ -100,10 +100,66 @@ test("聞いた結果の1行は、開いている写しを先に言う", () => {
     nextFrom: null,
   });
   assert.match(clean, /ぜんぶ聞き終えました/);
-  assert.match(clean, /ほかに開いている写しは見つかりませんでした/);
+  assert.match(clean, /新しく開いている写しはありませんでした/);
+  assert.match(clean, /すでに分かっている写しも、ぜんぶ閉まっています/);
 
   const partial = sweepNote({ asked: 80, total: 160, open: [], unknown: [], nextFrom: 80 });
   assert.match(partial, /\?from=80/);
+});
+
+/**
+ * 2026-10-25 に直したこと（同じ読み違いを二度としないため）。
+ *
+ * この1行は、**すでに分かっている写しを聞きません**（先に tables で答えているため）。
+ * そのため文が「ほかに開いている写しは見つかりませんでした。」だけだと、
+ * **この行だけを読むと「開いている写しは0件」に見えます**。
+ * 実際には `daily_reports_backup_20260902` が開いたままで、
+ * 10/24 の報告は「開いている写し0件」と書かれていました。
+ */
+test("すでに分かっている写しが開いているなら、聞いた結果の1行にも必ず出す", () => {
+  const n = sweepNote({
+    asked: 903,
+    total: 903,
+    open: [],
+    unknown: [],
+    nextFrom: null,
+    alreadyOpen: ["daily_reports_backup_20260902"],
+  });
+  assert.match(n, /すでに分かっている写し 1 つが まだ開いています/);
+  assert.match(n, /daily_reports_backup_20260902/);
+  assert.match(n, /貼り紙⑦/);
+  // ★「ぜんぶ閉まっています」と読める言い方が混ざっていないこと
+  assert.ok(
+    !/すでに分かっている写しも、ぜんぶ閉まっています/.test(n),
+    "開いているのに『ぜんぶ閉まっています』と言っています",
+  );
+});
+
+test("新しい写しも、すでに分かっている写しも開いているなら、両方言う", () => {
+  const n = sweepNote({
+    asked: 903,
+    total: 903,
+    open: ["expenses_backup"],
+    unknown: [],
+    nextFrom: null,
+    alreadyOpen: ["daily_reports_backup_20260902"],
+  });
+  assert.match(n, /expenses_backup/);
+  assert.match(n, /daily_reports_backup_20260902/);
+});
+
+test("途中で止まったときも、すでに分かっている写しが開いていれば言う", () => {
+  const n = sweepNote({
+    asked: 80,
+    total: 903,
+    open: [],
+    unknown: ["locations_backup"],
+    nextFrom: 80,
+    alreadyOpen: ["daily_reports_backup_20260902"],
+  });
+  assert.match(n, /\?from=80/);
+  assert.match(n, /聞けませんでした/);
+  assert.match(n, /daily_reports_backup_20260902/);
 });
 
 /**
