@@ -1,5 +1,16 @@
 import { supabase } from "@/lib/supabase";
+import { currentShopScope } from "@/lib/keiri/readSource";
 import type { CancellationReasonKey } from "./constants";
+import { CANCELLATION_OUT_OF_SCOPE, cancellationInScope } from "./scope";
+
+/**
+ * ★2026-10-25（f3-4）：この棚には「どの店のものか」の欄がまだ無いので、
+ *   **手羽屋として開いているときだけ**読み書きする（→ lib/cancellation/scope.ts）。
+ *   手羽屋は印が空なので答えは必ず true ＝ いまの画面と1文字も変わらない。
+ */
+function tebayaOnly(): boolean {
+  return cancellationInScope(currentShopScope());
+}
 
 export type CancellationInput = {
   business_date: string;
@@ -32,6 +43,8 @@ export type CancellationRow = {
 export async function createCancellation(
   input: CancellationInput,
 ): Promise<CancellationRow> {
+  if (!tebayaOnly()) throw new Error(CANCELLATION_OUT_OF_SCOPE);
+
   const payload = {
     business_date: input.business_date,
     location: input.location,
@@ -59,6 +72,8 @@ export async function createCancellation(
 export async function getCancellationsForPeriod(
   yyyymm: string,
 ): Promise<CancellationRow[]> {
+  if (!tebayaOnly()) return [];
+
   const [yStr, mStr] = yyyymm.split("-");
   const y = parseInt(yStr, 10);
   const m = parseInt(mStr, 10);
@@ -81,6 +96,8 @@ export async function getCancellationsForPeriod(
 export async function getCancellationsForDate(
   businessDate: string,
 ): Promise<CancellationRow[]> {
+  if (!tebayaOnly()) return [];
+
   const { data, error } = await supabase
     .from("daily_cancellations")
     .select("*")
@@ -96,6 +113,8 @@ export async function isCancelled(
   location: string,
   staffNameRaw: string,
 ): Promise<boolean> {
+  if (!tebayaOnly()) return false;
+
   const { data, error } = await supabase
     .from("daily_cancellations")
     .select("id")
