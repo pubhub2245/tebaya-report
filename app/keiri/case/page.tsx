@@ -196,7 +196,7 @@ export default async function KeiriCasePage({
           <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-stone-800 leading-relaxed">
             このブラウザでは入力欄をお使いいただけません。お手数ですが{" "}
             <a
-              href={keiriContactMailto({ to: KEIRI_COMPANY.email }).url}
+              href={keiriContactMailto({ to: KEIRI_COMPANY.email, kind: "apply" }).url}
               className="underline font-bold"
             >
               {KEIRI_COMPANY.email}
@@ -770,7 +770,7 @@ export default async function KeiriCasePage({
             <p className="mt-3 text-sm leading-relaxed opacity-95">
               {paymentNoticeLine()} メールでも受け付けています：{" "}
               <a
-                href={keiriContactMailto({ to: KEIRI_COMPANY.email }).url}
+                href={keiriContactMailto({ to: KEIRI_COMPANY.email, kind: "apply" }).url}
                 className="underline font-bold"
               >
                 {KEIRI_COMPANY.email}
