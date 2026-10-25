@@ -8,6 +8,9 @@ import AdminGate from "@/app/components/AdminGate";
 import { resizeImage } from "@/lib/imageResize";
 import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
 import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
+// 「どの店のものか」の印で絞って読み書きする（2026-10-25・f3-4・kp264）。
+// 棚にまだ印の欄が無いあいだは、今までどおり絞らずに読みます。
+import { withOwnerAdvanceTenant } from "@/lib/keiri/ownerAdvanceScope";
 
 type Advance = {
   id: number;
@@ -40,13 +43,18 @@ function AdvancesInner() {
     setLoading(true);
     setError(null);
     try {
-      const { data, error } = await supabase
-        .from("advance_expenses")
-        .select(
-          "id, date, payer, amount, description, receipt_image_url, settled, settled_date, memo",
-        )
-        .order("date", { ascending: false })
-        .order("id", { ascending: false });
+      // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）。
+      // 棚に印の欄がまだ無いときは、今までどおり絞らずに読み直します。
+      const { data, error } = await withOwnerAdvanceTenant<Advance[]>((scoped) => {
+        const q = supabase
+          .from("advance_expenses")
+          .select(
+            "id, date, payer, amount, description, receipt_image_url, settled, settled_date, memo",
+          )
+          .order("date", { ascending: false })
+          .order("id", { ascending: false });
+        return (scoped ? q.is("tenant_id", null) : q) as any;
+      });
       if (error) throw error;
       setRows((data as Advance[]) ?? []);
     } catch (e: any) {
@@ -77,20 +85,26 @@ function AdvancesInner() {
   const settle = async (row: Advance) => {
     if (!confirm(`「${row.payer}さん / ${yen(row.amount)}」を精算（返金済み）にしますか？`))
       return;
-    const { error } = await supabase
-      .from("advance_expenses")
-      .update({ settled: true, settled_date: todayStr() })
-      .eq("id", row.id);
+    const { error } = await withOwnerAdvanceTenant((scoped) => {
+      const q = supabase
+        .from("advance_expenses")
+        .update({ settled: true, settled_date: todayStr() })
+        .eq("id", row.id);
+      return (scoped ? q.is("tenant_id", null) : q) as any;
+    });
     if (error) return alert("失敗: " + error.message);
     load();
   };
 
   const unsettle = async (row: Advance) => {
     if (!confirm("精算を取り消して「未精算」に戻しますか？")) return;
-    const { error } = await supabase
-      .from("advance_expenses")
-      .update({ settled: false, settled_date: null })
-      .eq("id", row.id);
+    const { error } = await withOwnerAdvanceTenant((scoped) => {
+      const q = supabase
+        .from("advance_expenses")
+        .update({ settled: false, settled_date: null })
+        .eq("id", row.id);
+      return (scoped ? q.is("tenant_id", null) : q) as any;
+    });
     if (error) return alert("失敗: " + error.message);
     load();
   };
@@ -98,10 +112,10 @@ function AdvancesInner() {
   const remove = async (row: Advance) => {
     if (!confirm(`この立替記録（${row.payer} / ${yen(row.amount)}）を削除しますか？`))
       return;
-    const { error } = await supabase
-      .from("advance_expenses")
-      .delete()
-      .eq("id", row.id);
+    const { error } = await withOwnerAdvanceTenant((scoped) => {
+      const q = supabase.from("advance_expenses").delete().eq("id", row.id);
+      return (scoped ? q.is("tenant_id", null) : q) as any;
+    });
     if (error) return alert("失敗: " + error.message);
     load();
   };
@@ -308,7 +322,7 @@ function AddForm({ onAdded }: { onAdded: () => void }) {
     setSaving(true);
     setMsg(null);
     try {
-      const { error } = await supabase.from("advance_expenses").insert({
+      const row = {
         date,
         payer,
         amount,
@@ -318,7 +332,13 @@ function AddForm({ onAdded }: { onAdded: () => void }) {
         receipt_image_url: await uploadReceiptOrKeep(photo, "advance"),
         settled: false,
         created_by: "管理者",
-      });
+      };
+      // 印（手羽屋は空）を付けて入れる。棚にまだ欄が無ければ、今までどおり付けずに入れ直す
+      const { error } = await withOwnerAdvanceTenant((scoped) =>
+        supabase
+          .from("advance_expenses")
+          .insert(scoped ? { ...row, tenant_id: null } : row) as any,
+      );
       if (error) throw error;
       setMsg("登録しました");
       reset();

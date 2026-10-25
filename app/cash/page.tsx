@@ -7,6 +7,9 @@ import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
 import { calcCashBalance } from "@/lib/money";
 import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
+// 立替（経営）も「どの店のものか」の印で絞って読む（2026-10-25・f3-4・kp264）。
+// 棚にまだ印の欄が無いあいだは、今までどおり絞らずに読みます。
+import { withOwnerAdvanceTenant } from "@/lib/keiri/ownerAdvanceScope";
 
 type CashSettings = {
   id: number;
@@ -74,9 +77,15 @@ function CashInner() {
       setReports((reps as ReportRow[]) ?? []);
 
       // 立替（別枠）：精算済みは手元現金から引く／未精算は「返すべきお金」として表示
-      const { data: adv, error: aErr } = await supabase
-        .from("advance_expenses")
-        .select("amount, settled, settled_date, date");
+      const { data: adv, error: aErr } = await withOwnerAdvanceTenant<AdvanceRow[]>(
+        (scoped) => {
+          const q = supabase
+            .from("advance_expenses")
+            .select("amount, settled, settled_date, date");
+          // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+          return (scoped ? q.is("tenant_id", null) : q) as any;
+        },
+      );
       if (aErr) throw aErr;
       setAdvances((adv as AdvanceRow[]) ?? []);
     } catch (e: any) {

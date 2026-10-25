@@ -100,9 +100,6 @@ export const UNSCOPED_READS_WITH_REASON: Record<string, string> = {
   "app/api/keiri/cashcount/route.ts":
     "金庫を数えた結果が合っていたかだけを答える読むだけの窓口（f1-4）。" +
     "読む相手は手羽屋に固定（TEBAYA_SCOPE）で、金額は1円も返さない。1行も書かない",
-  "app/cash/advances/page.tsx":
-    "経営側の立替（/cash/advances）。画面ごと手羽屋だけの門（TebayaOnlyGate）の内側にあり、" +
-    "よその店は開けない。棚に印の欄ができたら絞る側に直す（貼り紙が流れたあと）",
   "app/api/keiri/diagnose/route.ts":
     "外から1回で状態を見る読むだけの窓口。お申し込みは『何件あるか』だけを数えており、" +
     "どのお店の行かは1行も読まない（中身を返さない）",
