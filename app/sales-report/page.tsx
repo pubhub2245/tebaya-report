@@ -7,6 +7,9 @@ import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
 import { calcCashBalance, expensesTotalOf, sumExpenses } from "@/lib/money";
 import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
+// 立替（経営）も「どの店のものか」の印で絞って読む（2026-10-25・f3-4・kp264）。
+// 棚にまだ印の欄が無いあいだは、今までどおり絞らずに読みます。
+import { withOwnerAdvanceTenant } from "@/lib/keiri/ownerAdvanceScope";
 
 /**
  * 手羽屋「売上報告」画面（フェアリー精算の売上報告タブ相当）。
@@ -91,9 +94,13 @@ function SalesReportInner() {
           .order("updated_at", { ascending: false })
           .limit(1)
           .maybeSingle(),
-        supabase
-          .from("advance_expenses")
-          .select("amount, settled, settled_date, date"),
+        withOwnerAdvanceTenant<AdvanceRow[]>((scoped) => {
+          const q = supabase
+            .from("advance_expenses")
+            .select("amount, settled, settled_date, date");
+          // 手羽屋のぶんだけ（印が空＝手羽屋。lib/tenantScope.ts）
+          return (scoped ? q.is("tenant_id", null) : q) as any;
+        }),
       ]);
       if (repRes.error) throw repRes.error;
       setReports((repRes.data as ReportRow[]) ?? []);
