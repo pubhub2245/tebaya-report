@@ -475,7 +475,7 @@ test("isTebayaScope: 手羽屋だけ true。よそのお店は false", () => {
   assert.equal(isTebayaScope(SHOP_A.toUpperCase()), false);
 });
 
-test("印の欄がまだ無い棚の一覧は、いまこの15個", () => {
+test("印の欄がまだ無い棚の一覧は、いまこの21個", () => {
   assert.deepEqual([...TABLES_WITHOUT_TENANT_COLUMN], [
     "shifts",
     "keiri_advance_expenses",
@@ -494,6 +494,14 @@ test("印の欄がまだ無い棚の一覧は、いまこの15個", () => {
     "prep_session_items",
     "prep_carryovers",
     "prep_settings",
+    // 2026-10-25 追加（f3-4）。棚の仕分け表（lib/tenantTables.ts）を作ったときに
+    // 一覧から抜けていたことが分かった6つ。守り方は ほかと同じ（手羽屋だけの門）。
+    "interim_reports",
+    "cash_settings",
+    "daily_cancellations",
+    "daily_report_edits",
+    "keiri_account_mapping",
+    "location_rank_history",
   ]);
 });
 
@@ -610,6 +618,7 @@ test("印の欄がまだ無い棚を、門の無い『読む係』（lib）が�
     "scopeShiftsQuery",
     "withShiftTenant",
     "limitedProductInScope",
+    "cancellationInScope",
   ];
   const found: string[] = [];
   for (const file of sourceFiles("lib")) {
@@ -1090,6 +1099,9 @@ const API_GUARD_MARKS = [
   "limitedProductInScope",
   "decidePrepSave", // 仕込みの保存（2026-10-24 に門を足した）
   "decideTebayaOnlyWindow", // 設営後チェック・意見箱の返信（2026-10-25 に門を足した）
+  // 読む相手を手羽屋に固定している窓口（お店によって中身が変わらない）。
+  // 2026-10-25：金庫の合否を答える窓口（/api/keiri/cashcount）がこれに当たる。
+  "TEBAYA_SCOPE",
 ];
 
 test("印の欄が無い棚を触る窓口に、門も合言葉も鍵も無いものは もう1つもない", () => {

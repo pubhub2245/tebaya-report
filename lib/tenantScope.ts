@@ -317,6 +317,21 @@ export const TABLES_WITHOUT_TENANT_COLUMN = [
   "prep_session_items",
   "prep_carryovers",
   "prep_settings",
+  // 2026-10-25 追加（f3-4）。**棚の仕分け表（lib/tenantTables.ts）を作ったときに、
+  // 一覧から抜けていたことが分かった6つ。** どれも「どの店か」の印の欄が無く、
+  // 手羽屋の画面の中だけで読んでいる棚なので、ほかと同じく見張りの対象にする。
+  //   ・interim_reports     … 中間報告（/interim）。その日の途中の売上と担当者
+  //   ・cash_settings       … 毎日の現金の数え始め・期首残高（/cash・/sales-report）
+  //   ・daily_cancellations … 出店中止の記録（/report/cancel）。入り口は外してある
+  //   ・daily_report_edits  … 日報を直した記録（誰がいつ何を直したか）
+  //   ・keiri_account_mapping … 勘定科目の対応表（手羽屋テンプレ）
+  //   ・location_rank_history … 出店先ランクが変わった記録
+  "interim_reports",
+  "cash_settings",
+  "daily_cancellations",
+  "daily_report_edits",
+  "keiri_account_mapping",
+  "location_rank_history",
 ] as const;
 
 /** いま手羽屋として開いているか（印が空＝手羽屋） */
