@@ -24,6 +24,13 @@ import { describeNotify, type NotifyFacts } from "../lib/keiri/notifyHealth";
 const sendMessage = readFileSync("lib/line/sendMessage.ts", "utf8");
 const applyRoute = readFileSync("app/api/keiri/apply/route.ts", "utf8");
 const diagnose = readFileSync("app/api/keiri/diagnose/route.ts", "utf8");
+/**
+ * ★2026-10-25（f2-2）：届くかを「送らずに」調べる所は lib/keiri/notifyProbe.ts の
+ *   1か所に出した（診断の窓口と、読むだけの窓口 /api/keiri/notifycheck が同じ関数を呼ぶ）。
+ *   見張る先も、その1か所にそろえる。
+ */
+const notifyProbe = readFileSync("lib/keiri/notifyProbe.ts", "utf8");
+const notifyCheck = readFileSync("app/api/keiri/notifycheck/route.ts", "utf8");
 
 const okFacts: NotifyFacts = {
   tokenSet: true,
@@ -92,8 +99,43 @@ test("⑥お申し込みの返事に、届かなかった理由の1行が付く"
 });
 
 test("⑦診断は、送り先に本当に届くかを『送らずに』確かめる", () => {
-  assert.ok(diagnose.includes("getGroupSummary"), "送り先の確かめが入っていません");
-  // 診断からメッセージを送らない（残りの通数を減らさない）
+  assert.ok(notifyProbe.includes("getGroupSummary"), "送り先の確かめが入っていません");
+  // 調べるだけでメッセージを送らない（残りの通数を減らさない）
+  assert.equal(
+    notifyProbe.includes("pushMessage"),
+    false,
+    "調べる所が LINE を送ろうとしています",
+  );
   assert.equal(diagnose.includes("pushMessage"), false, "診断が LINE を送ろうとしています");
-  assert.ok(diagnose.includes("groupReachable"));
+  assert.ok(notifyProbe.includes("groupReachable"));
+  // 診断は、同じ調べ方を呼んでいる（答えが2通りに分かれないように）
+  assert.ok(diagnose.includes("probeNotify"), "診断が共通の調べ方を使っていません");
+});
+
+test("⑧知らせの調子は、合言葉を出さずに読むだけの窓口から確かめられる（f2-2）", () => {
+  /**
+   * ★なぜ要るか：これまで知らせの調子は診断の窓口でしか見られず、そこは
+   *   自動で読む道具にことわってある住所なので、検査役が開けなかった。
+   *   そのため f2-2 の裏付けが 10/4 の1通のまま3週間 取り直せていなかった。
+   */
+  assert.ok(notifyCheck.includes("probeNotify"), "共通の調べ方を使っていません");
+  assert.ok(notifyCheck.includes("describeNotify"), "人の言葉の1行がありません");
+  // 送らない・書き込まない
+  assert.equal(notifyCheck.includes("pushMessage"), false, "窓口が LINE を送ろうとしています");
+  for (const write of [".insert(", ".update(", ".upsert(", ".delete("]) {
+    assert.equal(notifyCheck.includes(write), false, `窓口が書き込もうとしています（${write}）`);
+  }
+  // 合言葉・送り先のIDを返さない
+  assert.equal(
+    notifyCheck.includes("LINE_CHANNEL_ACCESS_TOKEN"),
+    false,
+    "窓口が合言葉を触っています",
+  );
+  assert.equal(notifyCheck.includes("groupId"), false, "窓口が送り先のIDを返そうとしています");
+  // 窓口の一覧（robots.txt が読む）に入っていること
+  const windows = readFileSync("lib/keiri/checkWindow.ts", "utf8");
+  assert.ok(
+    windows.includes("/api/keiri/notifycheck"),
+    "窓口の一覧に入っていません（検査役が読めません）",
+  );
 });

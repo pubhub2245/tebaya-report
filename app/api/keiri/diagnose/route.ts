@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { messagingApi } from "@line/bot-sdk";
 import {
   serverClient,
   serviceClientOrNull,
@@ -21,6 +20,7 @@ import {
   describeNotify,
   type NotifyFacts,
 } from "@/lib/keiri/notifyHealth";
+import { probeNotify } from "@/lib/keiri/notifyProbe";
 import { paymentLinkUrl } from "@/lib/keiri/caseNumbers";
 import { KEIRI_APPLY_COPY_TO, keiriApplyRecipients } from "@/lib/keiri/apply";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
@@ -78,79 +78,11 @@ async function checkTable(table: string): Promise<TableCheck> {
 }
 
 /**
- * スタッフの LINE へ「申し込みが入りました」を届けられる状態か、**読むだけ**で確かめる。
- *
- * ★メッセージは1通も送りません。送って確かめると、その1通ぶん今月の残りが減るため。
- * ★合言葉の値そのものは返しません。
- * ★手羽屋の LINE の送り方（lib/line/sendMessage.ts）は1行も変えていません。
+ * スタッフの LINE に届く状態かの調べ方は、lib/keiri/notifyProbe.ts の1か所にある
+ * （2026-10-25・f2-2）。読むだけの窓口 /api/keiri/notifycheck も同じ関数を呼ぶので、
+ * 診断と窓口で答えが分かれない。
  */
-async function checkNotify(): Promise<NotifyFacts> {
-  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-  const facts: NotifyFacts = {
-    tokenSet: !!token,
-    tokenValid: false,
-    groupFound: false,
-    groupReachable: null,
-    quota: null,
-  };
-  if (!token) return facts;
-
-  // 送り先。環境変数が無ければ、いつもの置き場（line_groups）から探す
-  let groupId = process.env.LINE_GROUP_ID;
-  if (!groupId) {
-    try {
-      const { data } = await serverClient({ fresh: true })
-        .from("line_groups")
-        .select("group_id")
-        .eq("is_active", true)
-        .order("joined_at", { ascending: false })
-        .limit(1)
-        .single();
-      groupId = data?.group_id ?? undefined;
-    } catch {
-      groupId = undefined;
-    }
-  }
-  facts.groupFound = !!groupId;
-
-  try {
-    const client = new messagingApi.MessagingApiClient({ channelAccessToken: token });
-    await client.getBotInfo();
-    facts.tokenValid = true;
-    // ★送り先に **本当に届くか** を確かめる（2026-09-28・kp198）。
-    //   これまでは「IDが手元にある」だけで緑にしていたが、9/28 13:46 に
-    //   診断が緑のまま実際の送信が失敗した。様子を聞くだけなので、
-    //   **LINE のメッセージは1通も送りません**（残りの通数も減りません）。
-    //   グループ以外の宛先（R… の部屋・U… の個人）には この聞き方が使えないので、
-    //   そのときは確かめずに null のままにする（＝判定を悪い方に倒さない）。
-    if (groupId && groupId.startsWith("C")) {
-      try {
-        await client.getGroupSummary(groupId);
-        facts.groupReachable = true;
-      } catch {
-        facts.groupReachable = false;
-      }
-    }
-    try {
-      const [quota, used] = await Promise.all([
-        client.getMessageQuota(),
-        client.getMessageQuotaConsumption(),
-      ]);
-      const limited = quota.type === "limited";
-      facts.quota = {
-        limited,
-        limit: limited ? (quota.value ?? null) : null,
-        used: typeof used.totalUsage === "number" ? used.totalUsage : null,
-      };
-    } catch {
-      // 残りの数が分からないだけ。届くかどうかの判定は続けられる
-      facts.quota = null;
-    }
-  } catch {
-    facts.tokenValid = false;
-  }
-  return facts;
-}
+const checkNotify = probeNotify;
 
 /**
  * お申し込みの控え（keiri_applications）が **本当に残るか** を確かめる（kp103）。

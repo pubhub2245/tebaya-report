@@ -130,6 +130,14 @@ export const CHECK_WINDOWS: CheckWindow[] = [
     check: "f3-4・f1-2",
   },
   {
+    path: "/api/keiri/notifycheck",
+    what:
+      "お申し込みが入ったときに、じゅんの LINE へ知らせが届く状態か" +
+      "（設定済みか・いま通るか・そのグループへ届く見込みか・今月あと何通 送れるか）。" +
+      "★メッセージは1通も送らず、合言葉・送り先のID・お店の名前は1文字も返しません",
+    check: "f2-2",
+  },
+  {
     path: "/api/keiri/setuptodo",
     what:
       "じゅんにしかできない一度きりの手続きが、いま何件のこっているか" +

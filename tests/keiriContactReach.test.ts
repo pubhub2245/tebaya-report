@@ -202,3 +202,34 @@ test("画面ごとに、どの下書きを使うかを決めておく", () => {
     "お申し込み完了の「お急ぎのときは」は hurry の下書きを使うこと",
   );
 });
+
+/* ---------- 入力欄が使えないときの「お申し込み」の下書き（2026-10-25・f2-4） ---------- */
+
+test("申し込みの下書きでは、電話を（任意）にしない", () => {
+  /**
+   * ★なぜ：画面の案内は「お店の名前とお電話番号をお送りください」、入力欄でも電話は必須。
+   *   ところが下書きだけ「お電話（任意）」になっていた（B2 10/24 の気づき）。
+   *   メールの道から来た店主が電話を書かずに送ると、折り返しの電話ができない。
+   */
+  const apply = keiriContactMailto({ to: "a@example.com", kind: "apply" });
+  assert.ok(apply.body.includes("お電話："), "電話の欄がありません");
+  assert.equal(apply.body.includes("お電話（任意）"), false, "電話が（任意）のままです");
+  assert.ok(apply.subject.includes("お申し込み"), "件名がお申し込みになっていません");
+
+  // 問い合わせ・使い方の質問は今までどおり（電話は任意）
+  for (const kind of ["contact", "support"] as const) {
+    const m = keiriContactMailto({ to: "a@example.com", kind });
+    assert.ok(m.body.includes("お電話（任意）："), `${kind} の下書きが変わっています`);
+  }
+});
+
+test("入力欄が使えないときの申し込みの入口は、申し込みの下書きを開く", () => {
+  for (const file of ["app/keiri/apply/page.tsx", "app/keiri/case/page.tsx"]) {
+    const src = readFileSync(file, "utf8");
+    assert.equal(
+      src.includes('keiriContactMailto({ to: KEIRI_COMPANY.email }).url'),
+      false,
+      `${file} に、電話が（任意）の下書きが残っています`,
+    );
+  }
+});
