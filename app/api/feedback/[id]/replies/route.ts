@@ -1,6 +1,7 @@
 import { serverClient } from "@/lib/supabaseServer";
 import { NextRequest, NextResponse } from "next/server";
 import { STAFF_OPTIONS } from "@/lib/formState";
+import { decideTebayaOnlyWindow } from "@/lib/tebayaOnlyApi";
 
 export const runtime = "nodejs";
 
@@ -35,13 +36,30 @@ export async function POST(
     );
   }
 
-  let body: { author_name?: unknown; content?: unknown };
+  let body: {
+    author_name?: unknown;
+    content?: unknown;
+    /**
+     * いまどのお店として開いているか（手羽屋は null／送られてこないこともある）。
+     * 意見箱の棚には「どの店のものか」の欄がまだ無い（f3-4）。
+     */
+    tenant_id?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json(
       { success: false, error: "リクエストボディが不正です" },
       { status: 400 },
+    );
+  }
+
+  // よその店だとはっきり名乗ったときだけ断る（手羽屋は今までどおり・f3-4）
+  const verdict = decideTebayaOnlyWindow(body.tenant_id, "feedback-reply");
+  if (!verdict.allow) {
+    return NextResponse.json(
+      { success: false, error: verdict.message },
+      { status: 403 },
     );
   }
 

@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { STAFF_OPTIONS } from "@/lib/formState";
+// 窓口に「いまどのお店か」を伝える（手羽屋は null＝今までどおり・f3-4）
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 export type ReplyRow = {
   id: string;
@@ -108,6 +110,7 @@ export default function ReplyThread({ feedbackId }: { feedbackId: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          tenant_id: currentShopScope(),
           author_name: authorName,
           content: content.trim(),
         }),

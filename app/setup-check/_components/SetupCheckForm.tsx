@@ -13,6 +13,8 @@ import {
   type SetupCheckRecord,
   type TodayShiftEntry,
 } from "@/lib/setupCheck/types";
+// 窓口に「いまどのお店か」を伝える（手羽屋は null＝今までどおり・f3-4）
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 export type SetupCheckFormInitial = Partial<TodayShiftEntry> & {
   date: string;
@@ -65,6 +67,7 @@ export default function SetupCheckForm({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          tenant_id: currentShopScope(),
           date: initial.date,
           location: location.trim(),
           location_id: initial.location_id ?? null,

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
+// 窓口に「いまどのお店か」を伝える（手羽屋は null＝今までどおり・f3-4）
+import { currentShopScope } from "@/lib/keiri/readSource";
 
 type LineTextPreviewProps = {
   text: string;
@@ -49,7 +51,7 @@ export default function LineTextPreview({
       const res = await fetch("/api/setup-check/post-line", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: recordId }),
+        body: JSON.stringify({ id: recordId, tenant_id: currentShopScope() }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
