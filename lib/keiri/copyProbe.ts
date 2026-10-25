@@ -210,6 +210,13 @@ export type F34Verdict = {
 
 /** 名前を組み立てて聞いた結果（外に出す形） */
 export type CopySweepReport = SweepTally & {
+  /**
+   * 先に tables で「まだ読めます」と分かっている写しの名前（2026-10-25）。
+   * この紙だけを読んでも「開いている写しは0件」と読み違えないために入れてある。
+   */
+  alreadyOpen?: string[];
+  /** 開いている写しの合計（alreadyOpen ＋ open）。0 でなければ まだ閉まっていない */
+  openTotal?: number;
   from: number;
   nextFrom: number | null;
   total: number;
@@ -363,10 +370,17 @@ export async function probeCopyTables(options?: {
       budgetMs: Math.max(SWEEP_MIN_MS, left),
       now: clock,
     });
+    // ★先に tables で「まだ読めます」と分かっている写しを、この1行にも必ず出す
+    //   （2026-10-25。この行だけを読むと「開いている写しは0件」に見えていた）
+    const alreadyOpen = tables
+      .filter((t) => t.state === COPY_OPEN)
+      .map((t) => t.table);
     sweep = {
       ...result,
       done: result.nextFrom === null,
-      note: sweepNote(result),
+      note: sweepNote({ ...result, alreadyOpen }),
+      alreadyOpen,
+      openTotal: alreadyOpen.length + result.open.length,
     };
     // 新しく見つかった写しは、見える所（tables）へ出す
     for (const name of result.open) {
@@ -591,24 +605,56 @@ export function f34Verdict(
   };
 }
 
-/** 片っぱしから聞いた結果を1行で言う */
+/**
+ * 片っぱしから聞いた結果を1行で言う。
+ *
+ * ■ 2026-10-25 に直したこと（同じ読み違いを二度としないため）
+ *   この1行は、**すでに分かっている写し（KNOWN_COPY_TABLES）を聞きません**
+ *   （そちらは先に tables で答えているので、二度 聞かない作りです）。
+ *   ところが文が「ほかに開いている写しは見つかりませんでした。」だけだったので、
+ *   **この行だけを読むと「開いている写しは0件」に見えました**。
+ *   実際には `daily_reports_backup_20260902` が開いたままで、
+ *   いちばん上の答え（summary・f34）はそう言っていたのに、
+ *   10/24 の報告は「開いている写し0件」と書かれました（1日ぶん 無駄になりました）。
+ *   そこで **すでに分かっている開いた写しも、この1行に必ず出します**。
+ *   「黙って大丈夫にしない」（このファイルの上の方針）と同じ考え方です。
+ *
+ * @param alreadyOpen 先に tables で「まだ読めます」と分かっている写しの名前
+ */
 export function sweepNote(result: {
   asked: number;
   total: number;
   open: string[];
   unknown: string[];
   nextFrom: number | null;
+  alreadyOpen?: readonly string[];
 }): string {
   const head =
     result.nextFrom === null
       ? `組み立てた名前 ${result.total} 本を、ぜんぶ聞き終えました。`
       : `組み立てた名前 ${result.total} 本のうち ${result.asked} 本を聞きました` +
         `（続きは ?from=${result.nextFrom} を付けて開いてください）。`;
+  const already = [...(result.alreadyOpen ?? [])];
+  // ★先に分かっている開いた写しは、ここでも必ず言う（この行だけ読む人がいるため）
+  const tail =
+    already.length > 0
+      ? `なお、**すでに分かっている写し ${already.length} つが まだ開いています**：` +
+        `${already.join("・")}（/keiri/sql の貼り紙⑦を1回 流すと閉まります）。`
+      : "";
   if (result.open.length > 0) {
-    return `${head}**新しく見つかった写しが ${result.open.length} つあります**：${result.open.join("・")}`;
+    return (
+      `${head}**新しく見つかった写しが ${result.open.length} つあります**：` +
+      `${result.open.join("・")}${tail ? `　${tail}` : ""}`
+    );
   }
   if (result.unknown.length > 0) {
-    return `${head}${result.unknown.length} 本は聞けませんでした（開いているとも閉まっているとも言えません）。`;
+    return (
+      `${head}${result.unknown.length} 本は聞けませんでした（開いているとも閉まっているとも言えません）。` +
+      tail
+    );
   }
-  return `${head}ほかに開いている写しは見つかりませんでした。`;
+  return (
+    `${head}組み立てた名前の中に、新しく開いている写しはありませんでした。` +
+    (tail ? tail : "（すでに分かっている写しも、ぜんぶ閉まっています。）")
+  );
 }
