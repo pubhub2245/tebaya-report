@@ -108,11 +108,22 @@ export async function GET(req: NextRequest) {
     return deny("写真を読み込めませんでした（通信に失敗しました）", 502);
   }
   if (!res.ok) {
-    if (res.status === 404) return deny("その写真は置き場にありません", 404);
-    return deny(
-      "いまは写真を出せません（置き場が非公開で、期限つきの住所を作る鍵がまだ入っていません）",
-      503,
-    );
+    // ■ 断られた理由を読み分ける（2026-10-26 18:5x に本番で実測して直した）
+    //   倉庫は「その写真が無い」ときも **400** で返し、理由は中身の文に入れてきます
+    //   （例 {"statusCode":"404","error":"not_found","message":"Object not found"}）。
+    //   番号だけを見ると「置き場が非公開です」と**嘘の理由**を出してしまうので、
+    //   文のほうを読んで分けます。
+    const said = (await res.text().catch(() => "")).slice(0, 200).toLowerCase();
+    if (/object\s*not\s*found|nosuchkey|not_found/.test(said)) {
+      return deny("その写真は置き場にありません", 404);
+    }
+    if (/not\s*public|unauthorized|invalid\s*jwt|not\s*allowed|row-level/.test(said)) {
+      return deny(
+        "いまは写真を出せません（置き場が非公開で、期限つきの住所を作る鍵がまだ入っていません）",
+        503,
+      );
+    }
+    return deny("写真を読み込めませんでした", 502);
   }
 
   const buf = await res.arrayBuffer();
