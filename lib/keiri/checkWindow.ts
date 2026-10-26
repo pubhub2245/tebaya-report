@@ -95,6 +95,14 @@ export const CHECK_WINDOWS: CheckWindow[] = [
     check: "f3-4",
   },
   {
+    path: "/api/keiri/photos",
+    what:
+      "**レシート写真の置き場**（棚ではない置き場）が、お店ごとに分かれているか。" +
+      "★ここも読み方が逆で、『一覧が読めます』＝ まだ開いている。" +
+      "写真は1枚も読まず、件数と ○× だけを返します",
+    check: "f3-4",
+  },
+  {
     path: "/api/keiri/dupcheck",
     what:
       "同じ支払いが2か所にある疑いを、押して片付けられるか（架空のお店で4通り試した結果）。" +

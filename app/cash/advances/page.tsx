@@ -7,6 +7,7 @@ import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
 import { resizeImage } from "@/lib/imageResize";
 import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
+import { TEBAYA_SCOPE } from "@/lib/tenantScope";
 import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 // 「どの店のものか」の印で絞って読み書きする（2026-10-25・f3-4・kp264）。
 // 棚にまだ印の欄が無いあいだは、今までどおり絞らずに読みます。
@@ -329,7 +330,9 @@ function AddForm({ onAdded }: { onAdded: () => void }) {
         description: description.trim() || null,
         memo: memo.trim() || null,
         // 写真そのものを記録に埋め込まず、置き場に置いて住所（URL）だけを持つ
-        receipt_image_url: await uploadReceiptOrKeep(photo, "advance"),
+        // この画面は手羽屋だけに開く（→ lib/tenantScope.ts）ので、
+        // 写真の置き場も今までどおり（印が空＝フォルダは増えない・2026-10-26・f3-4）。
+        receipt_image_url: await uploadReceiptOrKeep(photo, "advance", TEBAYA_SCOPE),
         settled: false,
         created_by: "管理者",
       };

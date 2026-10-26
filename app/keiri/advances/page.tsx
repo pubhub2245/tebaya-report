@@ -297,7 +297,9 @@ function AdvancesForm() {
         source_type: sourceType,
         memo: memo.trim() || null,
         // 写真そのものを記録に埋め込まず、置き場に置いて住所（URL）だけを持つ
-        receipt_image_url: await uploadReceiptOrKeep(photo, "keiri"),
+        // 写真も「どのお店のものか」のフォルダに分けて置く（2026-10-26・f3-4）。
+        // 手羽屋は印が空なので、置く住所は今までとまったく同じ。
+        receipt_image_url: await uploadReceiptOrKeep(photo, "keiri", scope),
       });
       if (error) throw error;
       setSavedMsg(`${payer}さん / ${yen(amount)} を登録しました`);

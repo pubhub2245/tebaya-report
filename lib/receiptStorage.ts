@@ -39,17 +39,22 @@ const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
  *   "advance" … 経営側の立替（/cash/advances）
  *   "keiri"   … 現場の立替（/keiri/advances）
  *
+ * tenantId は「どのお店の写真か」の印（2026-10-26・f3-4）。
+ * 手羽屋は省略／null でよく、そのときは今までとまったく同じ住所になる。
+ * 申し込んだお店の番号を渡すと、そのお店のフォルダの中に置く（→ lib/receiptImage.ts）。
+ *
  * 置くのに失敗した場合は例外を投げる。呼び出し側は uploadReceiptOrKeep を使うこと。
  */
 export async function uploadReceiptDataUrl(
   dataUrl: string,
   prefix: string,
+  tenantId?: string | null,
 ): Promise<string> {
   const blob = dataUrlToBlob(dataUrl);
   if (blob.size > MAX_UPLOAD_BYTES) {
     throw new Error("写真のサイズが大きすぎます");
   }
-  const path = makeObjectPath(prefix, blob.type);
+  const path = makeObjectPath(prefix, blob.type, tenantId);
 
   const { error } = await supabase.storage
     .from(RECEIPT_BUCKET)
@@ -72,11 +77,12 @@ export async function uploadReceiptDataUrl(
 export async function uploadReceiptOrKeep(
   value: string | null | undefined,
   prefix: string,
+  tenantId?: string | null,
 ): Promise<string | null> {
   if (!value) return null;
   if (!isEmbeddedImage(value)) return value; // すでにURL形式ならそのまま
   try {
-    return await uploadReceiptDataUrl(value, prefix);
+    return await uploadReceiptDataUrl(value, prefix, tenantId);
   } catch (e) {
     console.warn("レシート写真の置き場への保存に失敗。埋め込み形式のまま保存します", e);
     return value;
