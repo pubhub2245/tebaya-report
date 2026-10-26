@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { receiptViewSrc } from "@/lib/receiptViewUrl";
 import { recalcRankForLocation } from "@/lib/locationRankUpdate";
 import { yen } from "@/lib/format";
 import { NO_RECEIPT_REASONS } from "@/lib/formState";
@@ -525,13 +526,13 @@ export default function EditReportModal({
 
                   {e.receipt_image_url ? (
                     <a
-                      href={e.receipt_image_url}
+                      href={receiptViewSrc(e.receipt_image_url, currentShopScope())}
                       target="_blank"
                       rel="noreferrer"
                       className="block"
                     >
                       <img
-                        src={e.receipt_image_url}
+                        src={receiptViewSrc(e.receipt_image_url, currentShopScope())}
                         alt="レシート"
                         className="w-full max-h-56 object-contain rounded-lg border bg-stone-50"
                       />

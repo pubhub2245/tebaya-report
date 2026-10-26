@@ -44,6 +44,15 @@ export type PhotoShelfVerdict = {
    * true ＝ まだ開いている（直すこと） / false ＝ 閉まっている / null ＝ 分かりません
    */
   listable: boolean | null;
+  /**
+   * 置き場が「公開」の設定で、**住所を知っていれば合言葉なしで1枚ずつ開けてしまう**か。
+   * true ＝ まだ開いている（直すこと） / false ＝ 非公開になっている / null ＝ 分かりません。
+   * ★ここが false になって初めて、写真の置き場は閉まったと言えます
+   *   （一覧が閉まっていても、1枚ずつ開く道は別です・2026-10-26）。
+   */
+  publicRead: boolean | null;
+  /** 写真を見せる窓口が1本に通っているか（画面が置き場の住所を直に使っていないか） */
+  viewWindow: boolean;
   /** お店ごとのフォルダに分けて置く形になっているか（コード側の決まり） */
   separatedByFolder: boolean;
   /** 1行の説明 */
@@ -63,32 +72,51 @@ export function judgePhotoShelf(input: {
   knownPhotos: number | null;
   /** コード側が お店ごとのフォルダに分けて置く形になっているか */
   separatedByFolder: boolean;
+  /** 置き場が「公開」で1枚ずつ開けてしまうか（分からなければ null） */
+  publicRead?: boolean | null;
+  /** 写真を見せる窓口が1本に通っているか（コード側の決まり） */
+  viewWindow?: boolean;
 }): PhotoShelfVerdict {
   const { outcomes, knownPhotos, separatedByFolder } = input;
+  const publicRead = input.publicRead ?? null;
+  const viewWindow = input.viewWindow ?? false;
+  const openNote =
+    publicRead === true
+      ? "／**置き場は「公開」のままです＝住所を知っていれば合言葉なしで1枚ずつ開けます**" +
+        "（見せる窓口は通っているので、残っているのは置き場を非公開に変える1手だけ・鍵が直ってから）"
+      : publicRead === false
+        ? "／置き場は**非公開**になっています（1枚ずつ開く道も閉まりました）"
+        : "／置き場が公開かどうかは**分かりませんでした**（閉まったことにはしません）";
   const seen = outcomes.filter((o) => o.items !== null);
   const opened = seen.filter((o) => (o.items ?? 0) > 0);
 
   if (opened.length > 0) {
     return {
       listable: true,
+      publicRead,
+      viewWindow,
       separatedByFolder,
       note:
         "**公開の鍵で、置き場の中身が一覧で読めます（まだ開いています）。**" +
-        `読めた場所は ${opened.length} か所。置き場の鍵の決まり（一覧を禁じる）を1回 入れてください`,
+        `読めた場所は ${opened.length} か所。置き場の鍵の決まり（一覧を禁じる）を1回 入れてください` + openNote,
     };
   }
 
   if (outcomes.some((o) => o.denied)) {
     return {
       listable: false,
+      publicRead,
+      viewWindow,
       separatedByFolder,
-      note: "公開の鍵では、置き場の一覧が**はっきり断られました**（閉まっています）",
+      note: "公開の鍵では、置き場の一覧が**はっきり断られました**（閉まっています）" + openNote,
     };
   }
 
   if (seen.length === 0) {
     return {
       listable: null,
+      publicRead,
+      viewWindow,
       separatedByFolder,
       note:
         "置き場に聞けませんでした（通信できない・置き場が無い等）。" +
@@ -100,19 +128,23 @@ export function judgePhotoShelf(input: {
   if ((knownPhotos ?? 0) > 0) {
     return {
       listable: false,
+      publicRead,
+      viewWindow,
       separatedByFolder,
       note:
         `置き場には写真が ${knownPhotos} 枚以上あるのに、公開の鍵では **1件も返りません**。` +
-        "＝ 一覧の鍵が効いています（閉まっています）",
+        "＝ 一覧の鍵が効いています（閉まっています）" + openNote,
     };
   }
 
   return {
     listable: null,
+    publicRead,
+    viewWindow,
     separatedByFolder,
     note:
       "公開の鍵では1件も返りませんでしたが、**置き場が空なのか鍵が効いているのかを外から見分けられません**。" +
-      "写真が1枚でもあると数えられた回に、はじめて『閉まっている』と言えます",
+      "写真が1枚でもあると数えられた回に、はじめて『閉まっている』と言えます" + openNote,
   };
 }
 
@@ -122,4 +154,8 @@ export const PHOTO_SHELF_HOW =
   "読み方はここだけ逆で、**読めてしまったら まだ開いている**です（→ /api/keiri/copies の⑦と同じ）。" +
   "separatedByFolder は『これから置く写真が、お店ごとのフォルダに入る形になっているか』で、" +
   "手羽屋の写真の住所は今までと1文字も変わりません。" +
+  "**publicRead は『置き場が公開のままか』で、こちらが本当の行き止まりです**" +
+  "（一覧が閉まっていても、住所を知っていれば1枚ずつ開けるため・2026-10-26）。" +
+  "viewWindow は『画面が置き場の住所を直に使うのをやめ、こちら側の窓口ごしに見る形になったか』で、" +
+  "ここが true になってから置き場を非公開に変えます（順番を逆にすると写真が1枚も映りません）。" +
   "★この窓口は1枚も写真を読まず、写真の住所・金額・お店の名前を1文字も返しません";

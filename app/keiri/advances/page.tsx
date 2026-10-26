@@ -33,6 +33,7 @@ import { yen, slashDate, businessDateStr } from "@/lib/format";
 import { STAFF_OPTIONS } from "@/lib/formState";
 import { resizeImage } from "@/lib/imageResize";
 import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
+import { receiptViewSrc } from "@/lib/receiptViewUrl";
 import {
   applyTenantScope,
   businessCodeForScope,
@@ -560,7 +561,7 @@ function AdvancesForm() {
               )}
               {r.receipt_image_url && (
                 <img
-                  src={r.receipt_image_url}
+                  src={receiptViewSrc(r.receipt_image_url, scope)}
                   alt="レシート"
                   className="w-full max-h-40 object-contain rounded-lg border border-stone-200"
                 />
