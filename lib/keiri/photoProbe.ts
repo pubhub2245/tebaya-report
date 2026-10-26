@@ -82,6 +82,26 @@ async function countPhotosFromShelves(): Promise<{ count: number | null; note: s
       /* 聞けなかった棚は数に入れない */
     }
   }
+  // 立替に写真が無いときは、日報の側も数える（2026-10-26 18:3x）。
+  //
+  // ■ なぜ足したか
+  //   10/26 13:5x に本番で測ったところ、手羽屋の立替の記録には置き場の住所が1件も
+  //   ありませんでした（写真は日報の経費の行に付いています）。そのため合否が
+  //   いつまでも「分かりません」のままで、この窓口が f3-4 の材料になりませんでした。
+  //
+  // ■ それでも行の中身は読みません
+  //   聞くのは「その住所のかたちに当てはまる行が**何件あるか**」だけで（head=true）、
+  //   住所そのもの・金額・お店の名前は1文字も返ってきません。
+  //   手羽屋のぶんだけ（印が空）を数えます。
+  if (total === 0) {
+    const fromReports = await countPhotosInReports();
+    if (fromReports > 0) {
+      return {
+        count: fromReports,
+        note: `手羽屋の日報のうち、置き場の住所が入っている行は ${fromReports} 件（件数だけを数えました）`,
+      };
+    }
+  }
   if (asked === 0) {
     return { count: null, note: "立替の棚に聞けませんでした（写真の枚数は分かりません）" };
   }
@@ -89,14 +109,43 @@ async function countPhotosFromShelves(): Promise<{ count: number | null; note: s
     return {
       count: null,
       note:
-        "手羽屋の立替の記録には、置き場の住所がまだ1件もありません" +
-        "（日報の中の写真は数えていません。数えると行の中身を読むことになるため）",
+        "手羽屋の立替の記録にも日報にも、置き場の住所がまだ1件もありません" +
+        "（数えたのは件数だけで、行の中身は1文字も読んでいません）",
     };
   }
   return {
     count: total,
     note: `手羽屋の立替の記録のうち、置き場の住所が入っているのは ${total} 件（件数だけを数えました）`,
   };
+}
+
+/**
+ * 日報の経費の行に、置き場の住所が入っている行を数える（件数だけ）。
+ *
+ * 日報の経費はひとつの列（JSON）にまとまっているので、
+ * 先頭から数件の行だけを見ます（1件でも見つかれば「置き場は空ではない」が言えます）。
+ * ★返すのは件数だけ。住所・金額・お店の名前は1文字も読みません。
+ * ★手羽屋のぶんだけ（印が空）を数えます。
+ */
+async function countPhotosInReports(): Promise<number> {
+  let found = 0;
+  for (let i = 0; i < 5; i++) {
+    try {
+      const db = anonClient({ fresh: true });
+      const { count, error } = await applyTenantScope<any>(
+        db
+          .from("daily_reports")
+          .select("id", { count: "exact", head: true })
+          .like(`expenses->${i}->>receipt_image_url`, `%/${RECEIPT_BUCKET}/%`) as any,
+        TEBAYA_SCOPE,
+      );
+      if (error) continue;
+      found += count ?? 0;
+    } catch {
+      /* 聞けなかった分は数に入れない */
+    }
+  }
+  return found;
 }
 
 export async function probePhotoShelf(): Promise<PhotoShelfReport> {
