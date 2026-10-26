@@ -27,6 +27,8 @@ export type PhotoShelfReport = {
   publicCheck: PublicReadCheck;
   /** 写真を見せる窓口の住所（画面はここだけを通して見る） */
   viewWindow: string;
+  /** その窓口について、まだ測れていないことの1行（甘く見せないため） */
+  viewWindowNote: string;
   /** 聞いた場所ごとの結果 */
   outcomes: ShelfListOutcome[];
   /** 置き場に写真が1枚でもあると数えられたか（分からなければ null） */
@@ -242,6 +244,11 @@ export async function probePhotoShelf(): Promise<PhotoShelfReport> {
     bucket: RECEIPT_BUCKET,
     publicCheck,
     viewWindow: RECEIPT_VIEW_PATH,
+    viewWindowNote:
+      "画面は置き場の住所を直に使わず、この窓口ごしに写真を見ます（記録の住所は1文字も書き換えていません）。" +
+      "**本物の写真1枚で端から端まで試したことは、まだありません**" +
+      "（手羽屋の記録に置き場の住所が入っている行が1件も無く、外から住所を知る道もないため）。" +
+      "測れているのは「無い写真・置き場の外へ出る道・よその店の写真」を正しく断ることだけです。",
     outcomes,
     knownPhotos: photos.count,
     knownPhotosNote: photos.note,
