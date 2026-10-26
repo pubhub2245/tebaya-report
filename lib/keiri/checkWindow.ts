@@ -146,6 +146,14 @@ export const CHECK_WINDOWS: CheckWindow[] = [
     check: "f2-2",
   },
   {
+    path: "/api/keiri/photo-lock",
+    what:
+      "レシート写真の置き場を閉められるか・もう閉まっているか" +
+      "（state が locked なら閉まっています。読むだけで1行も変えません。" +
+      "写真の中身・住所・鍵の値は1文字も返しません）",
+    check: "f3-4",
+  },
+  {
     path: "/api/keiri/setuptodo",
     what:
       "じゅんにしかできない一度きりの手続きが、いま何件のこっているか" +

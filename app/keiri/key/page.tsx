@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import SetupTodoCard from "@/app/keiri/components/SetupTodoCard";
+import PhotoLockCard from "./PhotoLockCard";
 
 import {
   KEY_BLOCKED,
@@ -10,6 +11,7 @@ import {
   keyFixLevel,
   keyFixNeeded,
 } from "@/lib/keiri/keyFix";
+import { photoLockStatus } from "@/lib/keiri/photoLockServer";
 import { describeServerKey } from "@/lib/keiri/serverHealth";
 import { serviceRoleKeyRepair, serviceRoleKeyStatus } from "@/lib/supabaseServer";
 
@@ -38,13 +40,16 @@ export const metadata: Metadata = {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export default function KeiriKeyPage() {
+export default async function KeiriKeyPage() {
   const repair = serviceRoleKeyRepair();
   const report = describeServerKey(serviceRoleKeyStatus(), {
     repaired: repair.repaired,
     broken: repair.broken,
   });
   const level = keyFixLevel(report);
+  // レシート写真の置き場（f3-4）。鍵が直ったその場で、続けて1回 押せば終わるように
+  // 同じ1枚の中に置く（→ lib/keiri/photoLock.ts）。
+  const photoLock = await photoLockStatus();
   const needs = keyFixNeeded(level);
   const tone =
     level === "ok"
@@ -118,6 +123,8 @@ export default function KeiriKeyPage() {
           倉庫に貼る1枚を開く
         </Link>
       </section>
+
+      <PhotoLockCard state={photoLock.state} />
 
       {/* のこりの手続き（2026-10-10・kp247） */}
       <SetupTodoCard here="/keiri/key" />
