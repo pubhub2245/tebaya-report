@@ -629,7 +629,9 @@ export default function Page() {
       for (const e of form.expenses) {
         const url = e.receipt_image_url;
         if (!url || uploadedByPhoto.has(url)) continue;
-        uploadedByPhoto.set(url, await uploadReceiptOrKeep(url, "report"));
+        // 写真も「どのお店のものか」のフォルダに分けて置く（2026-10-26・f3-4）。
+        // 手羽屋は印が空なので、置く住所は今までとまったく同じ。
+        uploadedByPhoto.set(url, await uploadReceiptOrKeep(url, "report", reportScope()));
       }
       const expensesForSave = form.expenses.map((e) => ({
         ...e,
@@ -1935,7 +1937,7 @@ function Step5({
       // 写真そのものを日報に埋め込むのはやめ、置き場に置いて住所（URL）だけを持つ。
       // 置けなかったときは今まで通り埋め込み形式のまま（写真が原因で日報が
       // 保存できなくなるのを防ぐため）。読み取り（OCR）には手元のデータを使う。
-      uploadReceiptOrKeep(dataUrl, "report").then((stored) => {
+      uploadReceiptOrKeep(dataUrl, "report", reportScope()).then((stored) => {
         if (stored && stored !== dataUrl) {
           // 同じ1枚のレシートから作られた行はすべて同じ写真なので、まとめて差し替える
           setForm((f) => ({
