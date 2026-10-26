@@ -8,9 +8,10 @@
  *   「まだ開いている」のに「閉まっている」と答えてしまいます（→ lib/keiri/shelvesProbe.ts ⑦と同じ）。
  */
 
-import { anonClient } from "@/lib/supabaseServer";
+import { anonClient, noStoreFetch } from "@/lib/supabaseServer";
 import { RECEIPT_BUCKET } from "@/lib/receiptStorage";
 import { applyTenantScope, TEBAYA_SCOPE } from "@/lib/tenantScope";
+import { RECEIPT_VIEW_PATH } from "@/lib/receiptViewUrl";
 import {
   judgePhotoShelf,
   PHOTO_PREFIXES,
@@ -22,6 +23,10 @@ import {
 
 export type PhotoShelfReport = {
   bucket: string;
+  /** 「公開かどうか」を外から確かめた結果（写真は1枚も読みません） */
+  publicCheck: PublicReadCheck;
+  /** 写真を見せる窓口の住所（画面はここだけを通して見る） */
+  viewWindow: string;
   /** 聞いた場所ごとの結果 */
   outcomes: ShelfListOutcome[];
   /** 置き場に写真が1枚でもあると数えられたか（分からなければ null） */
@@ -148,14 +153,95 @@ async function countPhotosInReports(): Promise<number> {
   return found;
 }
 
+export type PublicReadCheck = {
+  /** 置き場が公開のままか（true ＝ 開いている / false ＝ 非公開 / null ＝ 分かりません） */
+  open: boolean | null;
+  /** 倉庫が返した番号（200・400・404 など。値や住所は入れません） */
+  status: number | null;
+  /** 倉庫が返した短い文（鍵・住所・お店の名前は入りません） */
+  said: string;
+  note: string;
+};
+
+/**
+ * 置き場が「公開」のままかを、**合言葉も鍵もまったく付けずに**確かめる。
+ *
+ * ■ どうやって見分けるのか（やさしい説明）
+ *   ありもしない写真の住所（でたらめな名前）を、**鍵なしで**たたきます。
+ *   ・置き場が**公開**なら … 倉庫は「その写真は無い」と答えます（＝置き場までは入れている）
+ *   ・置き場が**非公開**なら … 倉庫は「この置き場は公開されていない」と答えます
+ *   どちらとも読めない答えのときは **null（分かりません）**にします。
+ *
+ * ★本物の写真は1枚も読みません（**存在しない住所**をたたくだけです）。
+ * ★1行も書き込みません。鍵・合言葉は1つも付けません（付けたら確かめる意味がありません）。
+ */
+export async function probePublicRead(): Promise<PublicReadCheck> {
+  const base = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim().replace(/\/+$/, "");
+  if (!base) {
+    return {
+      open: null,
+      status: null,
+      said: "",
+      note: "倉庫の場所が設定されていないので確かめられませんでした",
+    };
+  }
+  // わざと「無い写真」の住所。手羽屋の2枚にも、よその店の写真にも当たりません。
+  const missing = `${base}/storage/v1/object/public/${RECEIPT_BUCKET}/report/0000-00/does-not-exist-${Date.now()}.jpg`;
+  let res: Response;
+  try {
+    res = await noStoreFetch(missing);
+  } catch {
+    return { open: null, status: null, said: "", note: "通信できませんでした（分かりません）" };
+  }
+  const body = (await res.text().catch(() => "")).slice(0, 200);
+  const said = body.replace(/\s+/g, " ").trim();
+  const lower = said.toLowerCase();
+
+  if (res.ok) {
+    return {
+      open: true,
+      status: res.status,
+      said: "",
+      note: "鍵なしで写真が返ってきました（置き場は公開のままです）",
+    };
+  }
+  if (/not\s*public|public\s*access|not\s*allowed|unauthorized|invalid\s*jwt/.test(lower)) {
+    return {
+      open: false,
+      status: res.status,
+      said,
+      note: "鍵なしでは断られました（置き場は非公開になっています）",
+    };
+  }
+  if (/object\s*not\s*found|not_found/.test(lower) && !/bucket\s*not\s*found/.test(lower)) {
+    return {
+      open: true,
+      status: res.status,
+      said,
+      note:
+        "鍵なしで置き場まで入れて「その写真は無い」と返りました" +
+        "（＝置き場は公開のままで、住所を知っていれば1枚ずつ開けます）",
+    };
+  }
+  return {
+    open: null,
+    status: res.status,
+    said,
+    note: "答えをどちらとも読めませんでした（分かりませんのままにします）",
+  };
+}
+
 export async function probePhotoShelf(): Promise<PhotoShelfReport> {
   const folders = ["", ...PHOTO_PREFIXES, PHOTO_TENANT_PREFIX];
   const outcomes: ShelfListOutcome[] = [];
   for (const folder of folders) outcomes.push(await listFolder(folder));
   const photos = await countPhotosFromShelves();
+  const publicCheck = await probePublicRead();
 
   return {
     bucket: RECEIPT_BUCKET,
+    publicCheck,
+    viewWindow: RECEIPT_VIEW_PATH,
     outcomes,
     knownPhotos: photos.count,
     knownPhotosNote: photos.note,
@@ -165,6 +251,10 @@ export async function probePhotoShelf(): Promise<PhotoShelfReport> {
       // コード側の決まり（lib/receiptImage.ts の photoFolderForTenant）。
       // tests/keiriPhotoShelf.test.ts が、この形から外れたら落ちるようにしてあります。
       separatedByFolder: true,
+      publicRead: publicCheck.open,
+      // 画面は lib/receiptViewUrl.ts を通して見る形にしました（2026-10-26）。
+      // tests/receiptViewUrl.test.ts と tests/keiriPhotoShelf.test.ts が、この形から外れたら落ちます。
+      viewWindow: true,
     }),
     how: PHOTO_SHELF_HOW,
   };

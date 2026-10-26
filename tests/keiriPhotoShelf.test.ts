@@ -88,3 +88,67 @@ test("聞けなかったときも『分かりません』", () => {
   });
   assert.equal(v.listable, null);
 });
+
+/* ------------------------------------------------------------------ *
+ *  2026-10-26 追加：**一覧が閉まっていても、置き場が「公開」なら閉まっていない**
+ *
+ *  10/26 に倉庫を数えて分かったこと：置き場（receipts）は「公開」の設定で、
+ *  住所さえ知っていれば合言葉なしで1枚ずつ開けます（一覧だけが閉まっている）。
+ *  ＝ listable が false でも、それだけで f3-4 の材料にはなりません。
+ * ------------------------------------------------------------------ */
+
+test("一覧は閉まっていても、置き場が公開のままなら そう書く", () => {
+  const v = judgePhotoShelf({
+    outcomes: [outcome("", null, true)],
+    knownPhotos: 2,
+    separatedByFolder: true,
+    publicRead: true,
+    viewWindow: true,
+  });
+  assert.equal(v.listable, false, "一覧は断られている");
+  assert.equal(v.publicRead, true, "1枚ずつ開く道は開いたまま");
+  assert.match(v.note, /公開/);
+});
+
+test("置き場が非公開になったら そう書く", () => {
+  const v = judgePhotoShelf({
+    outcomes: [outcome("", null, true)],
+    knownPhotos: 2,
+    separatedByFolder: true,
+    publicRead: false,
+    viewWindow: true,
+  });
+  assert.equal(v.listable, false);
+  assert.equal(v.publicRead, false);
+  assert.match(v.note, /非公開/);
+});
+
+test("公開かどうか分からないときは、分からないままにする（閉まったことにしない）", () => {
+  const v = judgePhotoShelf({
+    outcomes: [outcome("", null, true)],
+    knownPhotos: 2,
+    separatedByFolder: true,
+    publicRead: null,
+    viewWindow: true,
+  });
+  assert.equal(v.publicRead, null);
+  assert.match(v.note, /分かりません/);
+});
+
+test("窓口ごしに見る形になっているかを、そのまま返す", () => {
+  const closed = judgePhotoShelf({
+    outcomes: [outcome("", 0)],
+    knownPhotos: null,
+    separatedByFolder: true,
+    viewWindow: true,
+  });
+  assert.equal(closed.viewWindow, true);
+  // 渡さなかったときは「まだ通っていない」に倒す（甘く見せない）
+  const unknown = judgePhotoShelf({
+    outcomes: [outcome("", 0)],
+    knownPhotos: null,
+    separatedByFolder: true,
+  });
+  assert.equal(unknown.viewWindow, false);
+  assert.equal(unknown.publicRead, null);
+});

@@ -7,6 +7,7 @@ import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
 import { resizeImage } from "@/lib/imageResize";
 import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
+import { receiptViewSrc } from "@/lib/receiptViewUrl";
 import { TEBAYA_SCOPE } from "@/lib/tenantScope";
 import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 // 「どの店のものか」の印で絞って読み書きする（2026-10-25・f3-4・kp264）。
@@ -251,7 +252,7 @@ function AdvanceCard({
       {row.memo && <div className="text-xs text-stone-500">{row.memo}</div>}
       {row.receipt_image_url && (
         <img
-          src={row.receipt_image_url}
+          src={receiptViewSrc(row.receipt_image_url)}
           alt="レシート"
           className="max-h-40 rounded-lg border border-stone-200"
         />

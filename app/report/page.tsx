@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { receiptViewSrc } from "@/lib/receiptViewUrl";
 import {
   TEBAYA_SCOPE,
   applyTenantScope,
@@ -2114,7 +2115,7 @@ function Step5({
           </label>
           {e.receipt_image_url ? (
             <img
-              src={e.receipt_image_url}
+              src={receiptViewSrc(e.receipt_image_url, reportScope())}
               alt="receipt"
               className="w-full max-h-40 object-contain rounded-lg border"
             />
