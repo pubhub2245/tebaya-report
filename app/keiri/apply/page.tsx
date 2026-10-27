@@ -100,6 +100,30 @@ export default function KeiriApplyPage() {
           paymentLine={paymentApplyLine(cardLive)}
           afterApplyLine={paymentAfterApplyLine(cardLive)}
         />
+
+        {/*
+          ★メールの道は、JavaScript が切れている人にしか見えない形にしない（2026-10-27・f2-4）。
+
+          2026-10-25 に入れたメールの道は <noscript> の中だけに置いてありました。
+          HTML には入っているのですが、**ページを読み取る道具は <noscript> の中を外す**ため、
+          A と B2 が外から2通りの読み方で確かめても「メールの下書きが1件も無い」と出て、
+          「消したのかどうか分からない」まま2回の実行が使われました（10/27 の申し送り）。
+          店主の側でも、入力欄が出ているのに送れないとき（会社の回線で送信だけが止まる等）は
+          <noscript> が出ないので、メールの道に気づけません。
+          そこで**いつも見える小さな1行**として同じ下書きを置きます。
+          （件名と「お店・お名前・お電話」の空欄が入った下書きが開くので、打ち直しは要りません。
+            下書きの中身は lib/keiri/apply.ts の1か所だけで作ります。）
+        */}
+        <p className="mt-4 text-sm text-stone-600 leading-relaxed">
+          入力欄がうまく動かないときは、メールでも承ります。
+          <a
+            href={keiriContactMailto({ to: KEIRI_COMPANY.email, kind: "apply" }).url}
+            className="underline font-bold"
+          >
+            {KEIRI_COMPANY.email}
+          </a>{" "}
+          宛てに、お店の名前とお電話番号だけお送りください（件名と空欄の入った下書きが開きます）。
+        </p>
       </section>
 
       <section className="mb-10">
