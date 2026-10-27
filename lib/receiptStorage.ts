@@ -22,6 +22,8 @@
 
 import { supabase } from "./supabase";
 import { dataUrlToBlob, isEmbeddedImage, makeObjectPath } from "./receiptImage";
+import { judgeReceiptUpload } from "./receiptUploadGate";
+import { isTebayaScope, type TenantScope } from "./tenantScope";
 
 export { isEmbeddedImage, dataUrlToBlob } from "./receiptImage";
 
@@ -54,6 +56,7 @@ export async function uploadReceiptDataUrl(
   if (blob.size > MAX_UPLOAD_BYTES) {
     throw new Error("写真のサイズが大きすぎます");
   }
+  await assertUploadAllowed((tenantId ?? null) as TenantScope);
   const path = makeObjectPath(prefix, blob.type, tenantId);
 
   const { error } = await supabase.storage
@@ -64,6 +67,33 @@ export async function uploadReceiptDataUrl(
   const { data } = supabase.storage.from(RECEIPT_BUCKET).getPublicUrl(path);
   if (!data?.publicUrl) throw new Error("写真の住所を取得できませんでした");
   return data.publicUrl;
+}
+
+/**
+ * よそのお店の写真を、公開のままの置き場に置かないための門（f3-4・2026-10-27）。
+ *
+ * ・手羽屋（印が空）… 何も聞かずに通す。**通信も1本 増えません**＝今までとまったく同じ
+ * ・よそのお店 … 窓口（/api/keiri/photo-gate）に1回 聞いて、置き場が非公開のときだけ通す
+ *
+ * 置けないときは例外を投げる。呼び出し側（uploadReceiptOrKeep）が受け止めて、
+ * 今までどおり写真を記録の中にそのまま残す（CLAUDE.md 4-7）。
+ * 窓口に届かなかったときも「分かりません」として置かない（安全側）。
+ * 決まりそのものは lib/receiptUploadGate.ts の1か所にある。
+ */
+async function assertUploadAllowed(scope: TenantScope): Promise<void> {
+  if (isTebayaScope(scope)) return;
+  let bucketPublic: boolean | null = null;
+  try {
+    const res = await fetch("/api/keiri/photo-gate", { cache: "no-store" });
+    if (res.ok) {
+      const json = (await res.json()) as { bucketPublic?: boolean | null };
+      bucketPublic = typeof json?.bucketPublic === "boolean" ? json.bucketPublic : null;
+    }
+  } catch {
+    bucketPublic = null;
+  }
+  const gate = judgeReceiptUpload(scope, bucketPublic);
+  if (!gate.allowed) throw new Error(gate.reason);
 }
 
 /**
