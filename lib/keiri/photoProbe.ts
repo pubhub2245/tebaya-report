@@ -13,6 +13,12 @@ import { RECEIPT_BUCKET } from "@/lib/receiptStorage";
 import { applyTenantScope, TEBAYA_SCOPE } from "@/lib/tenantScope";
 import { RECEIPT_VIEW_PATH } from "@/lib/receiptViewUrl";
 import {
+  markerIsThere,
+  PHOTO_MARKER_FOLDER,
+  PHOTO_MARKER_PATH,
+} from "@/lib/keiri/photoMarker";
+import { checkWithoutWriting } from "@/lib/keiri/photoMarkerProbe";
+import {
   judgePhotoShelf,
   PHOTO_PREFIXES,
   PHOTO_SHELF_HOW,
@@ -34,6 +40,10 @@ export type PhotoShelfReport = {
   /** 置き場に写真が1枚でもあると数えられたか（分からなければ null） */
   knownPhotos: number | null;
   knownPhotosNote: string;
+  /** 「一覧は閉まっているか」を鍵なしで確かめる窓口（置き場が非公開になったあとも使えます） */
+  markerWindow: string;
+  /** 目印の画像のこと（1行） */
+  markerNote: string;
   verdict: PhotoShelfVerdict;
   how: string;
 };
@@ -234,11 +244,44 @@ export async function probePublicRead(): Promise<PublicReadCheck> {
 }
 
 export async function probePhotoShelf(): Promise<PhotoShelfReport> {
-  const folders = ["", ...PHOTO_PREFIXES, PHOTO_TENANT_PREFIX];
+  const folders = ["", ...PHOTO_PREFIXES, PHOTO_TENANT_PREFIX, PHOTO_MARKER_FOLDER];
   const outcomes: ShelfListOutcome[] = [];
   for (const folder of folders) outcomes.push(await listFolder(folder));
   const photos = await countPhotosFromShelves();
   const publicCheck = await probePublicRead();
+
+  // 「置き場が空っぽ」と「一覧が閉まっている」を見分けるための目印
+  // （f3-4・2026-10-27。決まりは lib/keiri/photoMarker.ts）。
+  //
+  // ■ なぜ要るか（やさしい説明）
+  //   手羽屋の記録には置き場の住所が1件も入っていないので、
+  //   「写真が1枚でもある」を記録の側から数えられませんでした（→ countPhotosFromShelves）。
+  //   そこで置き場に**中身の無い目印の画像1枚**を置いてあります。
+  //   ★この窓口は**読むだけ**なので、ここでは置きません（置くのは /api/keiri/photo-mark）。
+  //   ★置き場が非公開になったあとは、この道では目印を見つけられません（分かりませんに戻ります）。
+  //     そのときは /api/keiri/photo-mark のほうが答えを出します。
+  let known = photos;
+  let markerNote =
+    "目印の画像はまだ見つかっていません（/api/keiri/photo-mark を1回 開くと置かれます）";
+  if (known.count === null) {
+    const marker = await checkWithoutWriting();
+    if (markerIsThere(marker.marker)) {
+      known = {
+        count: 1,
+        note:
+          `置き場には目印の画像が1枚あります（${PHOTO_MARKER_PATH}・1×1の透明な点・` +
+          "本物のレシートではありません。これで「空っぽだから0件」ではないと言えます)",
+      };
+      markerNote =
+        `目印の画像（${PHOTO_MARKER_PATH}）が置き場にあります。` +
+        "開いても透明な点1つしか出ません。本物のレシート・日報・経費の行には1件も触っていません";
+    } else {
+      markerNote =
+        "目印の画像は、この読むだけの窓口からは見つかりませんでした" +
+        "（置き場が非公開になっている・まだ置かれていない のどちらか）。" +
+        "/api/keiri/photo-mark を開くと、置いたうえで答えが出ます";
+    }
+  }
 
   return {
     bucket: RECEIPT_BUCKET,
@@ -250,11 +293,13 @@ export async function probePhotoShelf(): Promise<PhotoShelfReport> {
       "（手羽屋の記録に置き場の住所が入っている行が1件も無く、外から住所を知る道もないため）。" +
       "測れているのは「無い写真・置き場の外へ出る道・よその店の写真」を正しく断ることだけです。",
     outcomes,
-    knownPhotos: photos.count,
-    knownPhotosNote: photos.note,
+    knownPhotos: known.count,
+    knownPhotosNote: known.note,
+    markerWindow: "/api/keiri/photo-mark",
+    markerNote,
     verdict: judgePhotoShelf({
       outcomes,
-      knownPhotos: photos.count,
+      knownPhotos: known.count,
       // コード側の決まり（lib/receiptImage.ts の photoFolderForTenant）。
       // tests/keiriPhotoShelf.test.ts が、この形から外れたら落ちるようにしてあります。
       separatedByFolder: true,
