@@ -154,6 +154,14 @@ export const CHECK_WINDOWS: CheckWindow[] = [
     check: "f3-4",
   },
   {
+    path: "/api/keiri/photo-gate",
+    what:
+      "よそのお店のレシート写真を、いま置き場に置いてよいか" +
+      "（置き場が公開のあいだは置きません。手羽屋は今までどおり置きます。" +
+      "読むだけで1行も変えません。写真の中身・住所は1文字も返しません）",
+    check: "f3-4",
+  },
+  {
     path: "/api/keiri/setuptodo",
     what:
       "じゅんにしかできない一度きりの手続きが、いま何件のこっているか" +
