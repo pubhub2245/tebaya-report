@@ -156,6 +156,11 @@ test("架空のお店の筋書きが、自分の検算で合格する", () => {
   // ② 別の大きさの差なら、今までどおり原因3つを出す
   assert.equal(c.cases[1].fit, "no");
   assert.equal(c.cases[1].causes.length, 3);
+  // 画面に箱が出るのは「差が 1,000円 以上」のときだけ
+  assert.equal(c.cases[0].shown, true);
+  assert.equal(c.cases[1].shown, true);
+  assert.equal(c.cases[3].shown, false);
+  assert.equal(c.cases[4].shown, false);
 });
 
 test("筋書きに手羽屋の実データを入れない（架空の金額だけ）", () => {

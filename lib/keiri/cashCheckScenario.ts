@@ -582,6 +582,13 @@ export type CashOpeningGapCase = {
   causes: readonly string[];
   /** この分で差を説明できるか */
   fit: CashOpeningGapFit;
+  /**
+   * 画面に、この内わけの箱がほんとうに出るか（2026-10-28）。
+   * ★画面は「差が 1,000円 以上」のときだけ出します。
+   *   行の中身（gapLines）だけを見ると、差が無い場面でも出るように見えてしまうので、
+   *   画面と同じ条件をここに持たせます。
+   */
+  shown: boolean;
 };
 
 export type CashOpeningGapCheck = {
@@ -648,19 +655,24 @@ export function buildCashOpeningGapCheck(params?: { today?: string }): CashOpeni
     name: string,
     diff: number | null,
     g: CashOpeningGap = gap,
-  ): CashOpeningGapCase => ({
-    name,
-    diff,
-    gapLines: cashOpeningGapLines(g, diff),
-    causes: diffCausesToShow({
-      // 差が 1,000円 以上のときだけ出る3つ（画面と同じ入り口）
-      causes: diff !== null && Math.abs(diff) >= NEAR_ENOUGH_YEN ? DIFF_CAUSES : [],
-      variantMatched: false,
-      gap: g,
+  ): CashOpeningGapCase => {
+    // 画面が「差が出た」とみなす線（1,000円）。原因3つも内わけの箱も、この線で出ます
+    const big = diff !== null && Math.abs(diff) >= NEAR_ENOUGH_YEN;
+    const gapLines = cashOpeningGapLines(g, diff);
+    return {
+      name,
       diff,
-    }),
-    fit: cashOpeningGapFit(g, diff),
-  });
+      gapLines,
+      causes: diffCausesToShow({
+        causes: big ? DIFF_CAUSES : [],
+        variantMatched: false,
+        gap: g,
+        diff,
+      }),
+      fit: cashOpeningGapFit(g, diff),
+      shown: big && gapLines.length > 0,
+    };
+  };
 
   const empty: CashOpeningGap = expensesBeforeOpening({ reports: [], openingDate });
 
@@ -694,11 +706,17 @@ export function buildCashOpeningGapCheck(params?: { today?: string }): CashOpeni
   if (cases[2].fit !== "no" || cases[2].causes.length !== DIFF_CAUSES.length) {
     problems.push("③ 金庫のほうが多いのに、この分で説明したことになっています");
   }
-  if (cases[3].gapLines.length !== 0) {
+  if (cases[3].gapLines.length !== 0 || cases[3].shown) {
     problems.push("④ 当てはまる行が無いのに、内わけの行が出ています");
   }
   if (cases[4].gapLines.length !== 2 || cases[4].causes.length !== 0) {
     problems.push("⑤ まだ数えていないのに、差の言い方が出ています");
+  }
+  if (cases[4].shown) {
+    problems.push("⑤ 差が無いのに、内わけの箱が画面に出ることになっています");
+  }
+  if (!cases[0].shown || !cases[1].shown) {
+    problems.push("差が出ているのに、内わけの箱が画面に出ないことになっています");
   }
 
   const window = buildCashOpeningGapWindow({ gap, diff: gap.total });
