@@ -219,3 +219,26 @@ export function cashOpeningGapExplains(
 ): boolean {
   return cashOpeningGapFit(gap, diff) !== "no";
 }
+
+/**
+ * 「よくある原因3つ」を出すかどうかを、1か所で決める（2026-10-28・kp265・f1-4）。
+ *
+ * ■ なぜ1か所にするのか
+ *   差の理由が先に分かっているときに「書き忘れを探してください」と出すと、
+ *   **無い探し物をさせてしまいます**。その決め方が画面と筋書き（外から確かめる窓口）に
+ *   2つあると、画面では出ないのに窓口では出る、という食い違いが起きます。
+ *   ここを通れば、どちらも同じ答えになります。
+ */
+export function diffCausesToShow(params: {
+  /** cashDiffCauses が出した3つ（差が小さければ空） */
+  causes: readonly string[];
+  /** 数え方のちがいで説明がついたか（lib/keiri/cashVariant.ts） */
+  variantMatched: boolean;
+  gap: CashOpeningGap;
+  /** 計算上の残高 − 数えた金額 */
+  diff: number | null;
+}): readonly string[] {
+  if (params.variantMatched) return [];
+  if (cashOpeningGapExplains(params.gap, params.diff)) return [];
+  return params.causes;
+}

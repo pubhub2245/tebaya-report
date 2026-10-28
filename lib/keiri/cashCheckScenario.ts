@@ -40,6 +40,15 @@ import {
   type CashReconcile,
 } from "./cashCheck";
 import {
+  buildCashOpeningGapWindow,
+  cashOpeningGapFit,
+  cashOpeningGapLines,
+  diffCausesToShow,
+  expensesBeforeOpening,
+  type CashOpeningGap,
+  type CashOpeningGapFit,
+} from "./cashOpeningGap";
+import {
   CASH_VARIANT_LABEL,
   buildCashVariants,
   pickCashVariant,
@@ -217,6 +226,11 @@ export type CashCheckResult = {
    * ★手羽屋の9月はここが分かれています（9行・493,700円）。
    */
   variants: CashVariantCheck;
+  /**
+   * 数え始めの日より前に払った経費で、差の理由がその場で分かるか
+   * （2026-10-28・kp265・f1-4）。★架空のお店の数字です。
+   */
+  openingGap: CashOpeningGapCheck;
   /** 言葉と数字のつじつまが合っているか（検算の結果） */
   ok: boolean;
   /** 合っていなかったところ（ok が true なら空） */
@@ -298,7 +312,12 @@ export function buildCashCheck(params?: {
   }
 
   const variants = buildCashVariantCheck({ today });
-  const problems = [...checkCases(cases), ...checkVariantCases(variants)];
+  const openingGap = buildCashOpeningGapCheck({ today });
+  const problems = [
+    ...checkCases(cases),
+    ...checkVariantCases(variants),
+    ...openingGap.problems,
+  ];
 
   return {
     what:
@@ -332,6 +351,7 @@ export function buildCashCheck(params?: {
     causeList: DIFF_CAUSES,
     cases,
     variants,
+    openingGap,
     ok: problems.length === 0,
     problems,
     note:
@@ -531,4 +551,176 @@ export function checkVariantCases(v: CashVariantCheck): string[] {
     }
   }
   return problems;
+}
+
+/* ------------------------------------------------------------------ *
+ *  数え始めの日より前に払った経費（2026-10-28・kp265・f1-4）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 「金庫を数えて差が出たとき、その場で理由が分かるか」を
+ * **架空のお店の数字で外から確かめる**ための筋書き。
+ *
+ * ■ なぜ要るか（やさしい説明）
+ *   月の経費は「その月ぜんぶ」を数えるのに、現金は「数え始めの日」からしか数えません。
+ *   ＝ 数え始めの日より前に払った経費は、月の経費には入るのに現金からは引かれないので、
+ *   金庫を数えると、その分が差として出ます（手羽屋の9月では仕入4件）。
+ *   画面はこれを差の内わけとして1行 出すようにしましたが、
+ *   その画面は合言葉の内側なので、検査役（B2）もこちらも目で見られません。
+ *   そこで**本物と同じ関数**に3通りを計算させて、外から読める形にします。
+ *
+ * ★架空の金額だけを使います（手羽屋の実データは1円も入りません）。
+ * ★倉庫は読みません・1行も書き込みません。
+ */
+export type CashOpeningGapCase = {
+  name: string;
+  /** 計算上の残高 − 数えた金額（プラス＝金庫のほうが少ない） */
+  diff: number | null;
+  /** 差の内わけに出る行（本物と同じ関数。出ないときは空） */
+  gapLines: string[];
+  /** 「よくある原因3つ」が出るか（決め方は画面と同じ1か所） */
+  causes: readonly string[];
+  /** この分で差を説明できるか */
+  fit: CashOpeningGapFit;
+};
+
+export type CashOpeningGapCheck = {
+  what: string;
+  /** 架空のお店の数え始めの日 */
+  openingDate: string;
+  /** 数え始めの日より前に払った経費（架空のお店・件数と金額） */
+  count: number;
+  total: number;
+  firstDate: string | null;
+  lastDate: string | null;
+  cases: CashOpeningGapCase[];
+  /** 本物の手羽屋ぶんは、金額を出さない形で /api/keiri/cashcount に出ています */
+  realNote: string;
+  ok: boolean;
+  problems: string[];
+  note: string;
+};
+
+/** 架空のお店の、数え始めの日より前の仕入3件（どれも作り物の金額） */
+const GAP_DEMO_ROWS: Array<{ day: string; yen: number }> = [
+  { day: "04", yen: 3000 },
+  { day: "06", yen: 4000 },
+  { day: "09", yen: 5000 },
+];
+
+/** 架空のお店の、数え始めの日（月の10日） */
+function gapOpeningDate(ym: string): string {
+  return `${ym}-10`;
+}
+
+/** 架空のお店の日報（数え始めの前の仕入3件＋数え始めのあとの売上1件） */
+function gapDemoReports(ym: string) {
+  const rows = GAP_DEMO_ROWS.map((r) => ({
+    date: `${ym}-${r.day}`,
+    location: "架空ひろば",
+    staff_name: "見本",
+    shop: "見本",
+    sales_amount: 0,
+    labor: 0,
+    expenses: [{ description: "仕入", amount: r.yen }],
+  }));
+  rows.push({
+    date: `${ym}-20`,
+    location: "架空ひろば",
+    staff_name: "見本",
+    shop: "見本",
+    sales_amount: 60000,
+    labor: 0,
+    expenses: [{ description: "氷", amount: 1000 }],
+  });
+  return rows as unknown as Parameters<typeof expensesBeforeOpening>[0]["reports"];
+}
+
+export function buildCashOpeningGapCheck(params?: { today?: string }): CashOpeningGapCheck {
+  void params;
+  const ym = CASH_CHECK_YM;
+  const openingDate = gapOpeningDate(ym);
+  const reports = gapDemoReports(ym);
+  const gap: CashOpeningGap = expensesBeforeOpening({ reports, openingDate });
+
+  /** 1場面ぶんを、本物と同じ関数で作る */
+  const caseOfGap = (
+    name: string,
+    diff: number | null,
+    g: CashOpeningGap = gap,
+  ): CashOpeningGapCase => ({
+    name,
+    diff,
+    gapLines: cashOpeningGapLines(g, diff),
+    causes: diffCausesToShow({
+      // 差が 1,000円 以上のときだけ出る3つ（画面と同じ入り口）
+      causes: diff !== null && Math.abs(diff) >= NEAR_ENOUGH_YEN ? DIFF_CAUSES : [],
+      variantMatched: false,
+      gap: g,
+      diff,
+    }),
+    fit: cashOpeningGapFit(g, diff),
+  });
+
+  const empty: CashOpeningGap = expensesBeforeOpening({ reports: [], openingDate });
+
+  const cases: CashOpeningGapCase[] = [
+    caseOfGap(
+      `① 差が、数え始めの日より前の経費（${gap.total.toLocaleString("ja-JP")}円）とぴったり同じ`,
+      gap.total,
+    ),
+    caseOfGap("② 差が、その分とは別の大きさ（200,000円）", 200000),
+    caseOfGap("③ 金庫のほうが多い（差 −50,000円）", -50000),
+    caseOfGap("④ 数え始めの日より前の経費が無いお店（行が出ない）", gap.total, empty),
+    caseOfGap("⑤ まだ数えていない（差が無い）", null),
+  ];
+
+  const problems: string[] = [];
+  if (gap.count !== GAP_DEMO_ROWS.length) {
+    problems.push("架空のお店の『数え始めの日より前の経費』の件数が合っていません");
+  }
+  if (cases[0].fit !== "exact" || cases[0].gapLines.length !== 3) {
+    problems.push("① ぴったり同じなのに、言い切る1行が出ていません");
+  }
+  if (cases[0].causes.length !== 0) {
+    problems.push("① 理由が分かっているのに、よくある原因（探し物）が出ています");
+  }
+  if (cases[1].fit !== "no" || cases[1].causes.length !== DIFF_CAUSES.length) {
+    problems.push("② 別の大きさの差なのに、よくある原因が出ていません");
+  }
+  if (cases[1].gapLines.length !== 2) {
+    problems.push("② 内わけの2行（金額と説明）が出ていません");
+  }
+  if (cases[2].fit !== "no" || cases[2].causes.length !== DIFF_CAUSES.length) {
+    problems.push("③ 金庫のほうが多いのに、この分で説明したことになっています");
+  }
+  if (cases[3].gapLines.length !== 0) {
+    problems.push("④ 当てはまる行が無いのに、内わけの行が出ています");
+  }
+  if (cases[4].gapLines.length !== 2 || cases[4].causes.length !== 0) {
+    problems.push("⑤ まだ数えていないのに、差の言い方が出ています");
+  }
+
+  const window = buildCashOpeningGapWindow({ gap, diff: gap.total });
+
+  return {
+    what:
+      "金庫を数えて差が出たとき、『数え始めの日より前に払った経費』として" +
+      "その場で理由が分かるか（f1-4）。ボタンを押さずに、外から読むだけで確かめられます",
+    openingDate,
+    count: gap.count,
+    total: gap.total,
+    firstDate: gap.firstDate,
+    lastDate: gap.lastDate,
+    cases,
+    realNote:
+      "本物の手羽屋ぶん（何件・いつからいつまで・差の説明がつくか）は " +
+      "/api/keiri/cashcount の openingGap に出ています（金額は1円も出しません）。" +
+      `いまの言い方：${window.note}`,
+    ok: problems.length === 0,
+    problems,
+    note:
+      "架空のお店の作り物の金額です（手羽屋の実データ・お店の名前・連絡先・鍵の値は1文字も入っていません）。" +
+      "倉庫は読みません・1行も書き込みません。",
+  };
 }

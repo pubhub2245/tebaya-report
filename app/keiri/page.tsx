@@ -120,8 +120,8 @@ import {
 } from "@/lib/keiri/cashCountPress";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
 import {
-  cashOpeningGapExplains,
   cashOpeningGapLines,
+  diffCausesToShow,
   expensesBeforeOpening,
   type CashOpeningGap,
 } from "@/lib/keiri/cashOpeningGap";
@@ -2120,6 +2120,18 @@ function CashCountCard({
    */
   const gapLinesSaved = cashOpeningGapLines(openingGap, reconcile.diff);
   const gapLinesPreview = preview ? cashOpeningGapLines(openingGap, preview.diff) : [];
+  /**
+   * 「よくある原因3つ」を出すか（2026-10-28・kp265・f1-4）。
+   * ★決め方は lib/keiri/cashOpeningGap.ts の1か所（画面と、外から確かめる窓口で同じ答え）。
+   */
+  const previewCauses = preview
+    ? diffCausesToShow({
+        causes: cashDiffCauses(preview),
+        variantMatched: !!variantPick?.matched,
+        gap: openingGap,
+        diff: preview.diff,
+      })
+    : [];
   /** どの数え始めから数えた金額と比べているのか（1行・2026-10-19・f1-4） */
   const openingSourceLine = buildCashOpeningSource({
     openingDate: openingDate || null,
@@ -2311,13 +2323,11 @@ function CashCountCard({
             {/* ★数え方のちがい・数え始めの日より前の経費で説明がついたときは
                    「よくある原因」を出さない。出すと、書き忘れなど1件も無いのに
                    探し物をさせてしまう。 */}
-            {cashDiffCauses(preview).length > 0 &&
-              !variantPick?.matched &&
-              !cashOpeningGapExplains(openingGap, preview.diff) && (
+            {previewCauses.length > 0 && (
               <div className="pt-1">
                 <p className="text-xs text-stone-600">よくある原因は次の3つです。</p>
                 <ul className="mt-1 list-disc pl-5 text-xs text-stone-600 leading-relaxed">
-                  {cashDiffCauses(preview).map((c) => (
+                  {previewCauses.map((c) => (
                     <li key={c}>{c}</li>
                   ))}
                 </ul>
