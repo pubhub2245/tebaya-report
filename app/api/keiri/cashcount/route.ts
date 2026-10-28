@@ -8,6 +8,11 @@ import {
   type CashCountPlace,
 } from "@/lib/keiri/cashCountWindow";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
+import {
+  buildCashOpeningGapWindow,
+  EMPTY_CASH_OPENING_GAP,
+  expensesBeforeOpening,
+} from "@/lib/keiri/cashOpeningGap";
 import { buildCashCountPress } from "@/lib/keiri/cashCountPress";
 import { planCashCountNoteKeep, type NoteKeepPlan } from "@/lib/keiri/cashCountMemo";
 import { buildCashVariants, pickCashVariant } from "@/lib/keiri/cashVariant";
@@ -132,9 +137,23 @@ export async function GET() {
       ...(await probeMemoRow(data.cashShelfMissing)),
     });
 
+    // ★「数え始めの日より前に払った経費」（2026-10-28・kp265・f1-4）。
+    //   金庫を数えたときの差の内わけとして画面に出している1行を、外からも確かめられる形。
+    //   **金額は1円も返しません**（件数と日付、説明がつくかどうかだけ）。
+    //   この分が居られるのは**数え始めの月だけ**なので、その月を数えます
+    //   （今月ぶんの読み込みは数え始めの日から始まるため、前の行がそもそも入っていません）。
+    const openingGap = await readOpeningGap({
+      openingDate: data.settingsMissing ? null : (settings.opening_date ?? null),
+      ym,
+      reports: data.reports,
+      db,
+    });
+
     return json({
       ok: true,
       ...buildCashCountWindow({ reconcile, pick, place }),
+      // 差の内わけ（数え始めの日より前に払った経費・金額は出さない）
+      openingGap: buildCashOpeningGapWindow({ gap: openingGap, diff: reconcile.diff }),
       shelfMissing: data.cashShelfMissing,
       // じゅんが押す回数と、いま押したら残るか（金額は出さない）
       press,
@@ -193,6 +212,42 @@ async function probeMemoRow(
       readError: String(e?.message ?? e).slice(0, 120),
       existingNote: null,
     };
+  }
+}
+
+/**
+ * 「数え始めの日より前に払った経費」を数える（2026-10-28・kp265・f1-4）。**読むだけ**です。
+ *
+ * ★この分が居られるのは**数え始めの日が入っている月だけ**です。
+ *   いま読んでいる月がその月でなければ、その月をもう一度 読んで数えます
+ *   （今月ぶんの読み込みは数え始めの日から始まるので、前の行が入っていません）。
+ *   読めなかったら「無し」ではなく 0件のまま返します（0件と取り違えないよう、
+ *   窓口の note で「差の説明にはなりません」と言うだけにします）。
+ */
+async function readOpeningGap(params: {
+  openingDate: string | null;
+  ym: string;
+  reports: Awaited<ReturnType<typeof loadKeiriMonthServer>>["reports"];
+  db: ReturnType<typeof serverClient>;
+}) {
+  const opening = params.openingDate ?? "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(opening)) return { ...EMPTY_CASH_OPENING_GAP };
+  const openingYm = opening.slice(0, 7);
+  if (openingYm === params.ym) {
+    return expensesBeforeOpening({ reports: params.reports, openingDate: opening });
+  }
+  try {
+    const month = await loadKeiriMonthServer({
+      ym: openingYm,
+      businessCode: CASE_BUSINESS_CODE,
+      scope: TEBAYA_SCOPE,
+      monthOnly: true,
+      db: params.db,
+    });
+    if (month.reportsUnreadable) return { ...EMPTY_CASH_OPENING_GAP };
+    return expensesBeforeOpening({ reports: month.reports, openingDate: opening });
+  } catch {
+    return { ...EMPTY_CASH_OPENING_GAP };
   }
 }
 

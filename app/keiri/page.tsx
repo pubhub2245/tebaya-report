@@ -120,6 +120,12 @@ import {
 } from "@/lib/keiri/cashCountPress";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
 import {
+  cashOpeningGapExplains,
+  cashOpeningGapLines,
+  expensesBeforeOpening,
+  type CashOpeningGap,
+} from "@/lib/keiri/cashOpeningGap";
+import {
   buildCashVariants,
   pickCashVariant,
   type CashVariantPick,
@@ -340,6 +346,18 @@ function KeiriInner() {
     () =>
       calcCashPosition({ reports, payments, settings: effective, advances, deposits }),
     [reports, payments, effective, advances, deposits],
+  );
+
+  /**
+   * 「数え始めの日より前に払った経費」（2026-10-28・kp265・f1-4）。
+   *
+   * ★月の経費には入っているのに、現金からは引いていない分です。
+   *   金庫を数えたときに出る「差」の内わけとして画面に出します。
+   *   数字は1円も直しません（出すのは説明の行だけ）。
+   */
+  const openingGap = useMemo(
+    () => expensesBeforeOpening({ reports, openingDate: effective.opening_date }),
+    [reports, effective.opening_date],
   );
 
   /**
@@ -1177,6 +1195,7 @@ function KeiriInner() {
         repaidEarlierRows={advancesRepaidEarlier.length}
         registerCloses={registerCloses}
         openingDate={effective.opening_date}
+        openingGap={openingGap}
       />
 
       {/* 毎月お渡しする1枚（2026-10-04・kp231）。
@@ -1848,6 +1867,7 @@ function CashCountCard({
   repaidEarlierRows,
   registerCloses,
   openingDate,
+  openingGap,
 }: {
   reconcile: ReturnType<typeof reconcileCash>;
   balanceNow: number;
@@ -1868,6 +1888,8 @@ function CashCountCard({
   registerCloses: RegisterCloseRow[];
   /** 経理の数え始めの日（keiri_settings）。どの金額と比べているのかを画面に出すため */
   openingDate: string;
+  /** 数え始めの日より前に払った経費（差の内わけに出す・2026-10-28・kp265・f1-4） */
+  openingGap: CashOpeningGap;
 }) {
   const [countOn, setCountOn] = useState(todayStr());
   const [countYen, setCountYen] = useState("");
@@ -2092,6 +2114,12 @@ function CashCountCard({
   };
 
   const lines = reconcileLines(reconcile);
+  /**
+   * 差の内わけ「数え始めの日より前に払った経費」（2026-10-28・kp265・f1-4）。
+   * 当てはまる行が無い月は空になり、画面には1行も出ません。
+   */
+  const gapLinesSaved = cashOpeningGapLines(openingGap, reconcile.diff);
+  const gapLinesPreview = preview ? cashOpeningGapLines(openingGap, preview.diff) : [];
   /** どの数え始めから数えた金額と比べているのか（1行・2026-10-19・f1-4） */
   const openingSourceLine = buildCashOpeningSource({
     openingDate: openingDate || null,
@@ -2136,6 +2164,18 @@ function CashCountCard({
             >
               {reconcile.verdict}
             </p>
+          )}
+          {/* ★差の内わけ「数え始めの日より前に払った経費」（2026-10-28・kp265・f1-4）。
+                 月の経費には入っているのに現金からは引いていない分です。
+                 これを出さないと、書き忘れが1件も無いのに探し物をさせてしまいます。 */}
+          {cashDiffCauses(reconcile).length > 0 && gapLinesSaved.length > 0 && (
+            <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
+              {gapLinesSaved.map((l) => (
+                <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
+                  {l}
+                </p>
+              ))}
+            </div>
           )}
           {reconcile.stale && (
             <p className="text-xs text-amber-700">{reconcile.stale}</p>
@@ -2258,9 +2298,22 @@ function CashCountCard({
                 </p>
               </div>
             )}
-            {/* ★数え方のちがいで説明がついたときは「よくある原因」を出さない。
-                   出すと、書き忘れなど1件も無いのに探し物をさせてしまう。 */}
-            {cashDiffCauses(preview).length > 0 && !variantPick?.matched && (
+            {/* ★差の内わけ「数え始めの日より前に払った経費」（2026-10-28・kp265・f1-4） */}
+            {cashDiffCauses(preview).length > 0 && gapLinesPreview.length > 0 && (
+              <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
+                {gapLinesPreview.map((l) => (
+                  <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
+                    {l}
+                  </p>
+                ))}
+              </div>
+            )}
+            {/* ★数え方のちがい・数え始めの日より前の経費で説明がついたときは
+                   「よくある原因」を出さない。出すと、書き忘れなど1件も無いのに
+                   探し物をさせてしまう。 */}
+            {cashDiffCauses(preview).length > 0 &&
+              !variantPick?.matched &&
+              !cashOpeningGapExplains(openingGap, preview.diff) && (
               <div className="pt-1">
                 <p className="text-xs text-stone-600">よくある原因は次の3つです。</p>
                 <ul className="mt-1 list-disc pl-5 text-xs text-stone-600 leading-relaxed">
