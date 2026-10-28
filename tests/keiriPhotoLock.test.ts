@@ -117,3 +117,41 @@ test("閉めたのに非公開を確かめられなければ、合格にしな�
   assert.equal(r.ok, false);
   assert.match(r.said, /確かめられませんでした/);
 });
+
+/* ------------------------------------------------------------------ *
+ *  2026-10-28 追加（f3-4）：毎日の処理に相乗りさせる門
+ *
+ *  置き場を閉められるのは、サーバー側の鍵が直ったあとです。その鍵を直すのも
+ *  じゅんの1分なので、これまでは「鍵を直す」→「もう一度ひらいてボタンを押す」で
+ *  じゅんの手が2回 要りました。毎日の処理の最後に相乗りさせると、
+ *  鍵が直った次の晩にこちら側で閉まります（じゅんの手は1回だけ）。
+ *
+ *  守ること：
+ *    ① 鍵が使えないときは、たたきにも行かない（毎晩むだに通信しない）
+ *    ② 時間がのこっていなければ何もしない（本来の集計とバックアップを道連れにしない）
+ * ------------------------------------------------------------------ */
+import { PHOTO_LOCK_MIN_BUDGET_MS, shouldRunPhotoLock } from "../lib/keiri/photoLock";
+
+test("鍵が使えないときは、閉めに行かない（理由を言う）", () => {
+  const g = shouldRunPhotoLock({ keyUsable: false, budgetMs: 60_000 });
+  assert.equal(g.run, false);
+  assert.match(g.skipped!, /鍵/);
+});
+
+test("時間がのこっていなければ見送る（明日また見る）", () => {
+  const g = shouldRunPhotoLock({
+    keyUsable: true,
+    budgetMs: PHOTO_LOCK_MIN_BUDGET_MS - 1,
+  });
+  assert.equal(g.run, false);
+  assert.match(g.skipped!, /見送り/);
+});
+
+test("鍵が使えて時間もあれば、閉めに行く", () => {
+  const g = shouldRunPhotoLock({
+    keyUsable: true,
+    budgetMs: PHOTO_LOCK_MIN_BUDGET_MS,
+  });
+  assert.equal(g.run, true);
+  assert.equal(g.skipped, null);
+});

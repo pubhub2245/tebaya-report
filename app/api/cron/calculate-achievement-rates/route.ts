@@ -2,6 +2,9 @@ import { serverClient } from "@/lib/supabaseServer";
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeLocationName } from "@/lib/locationMatcher";
 import { runBackup, serviceClient } from "@/lib/backup";
+import { runPhotoLock } from "@/lib/keiri/photoLockRun";
+import { PHOTO_LOCK_MIN_BUDGET_MS, shouldRunPhotoLock } from "@/lib/keiri/photoLock";
+import { serverKeyUsable } from "@/lib/keiri/photoLockServer";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -34,6 +37,8 @@ export async function GET(req: NextRequest) {
   //   「相乗りさせた処理が、本来の処理を道連れにしない」ことを最優先にする。
   const startedAt = Date.now();
   let backup: unknown = { ok: false, skipped: "未実行" };
+  // レシート写真の置き場を閉める1手（f3-4・2026-10-28）。いちばん最後に相乗りさせる。
+  let photoLock: unknown = { ok: false, skipped: "未実行" };
 
   try {
     // 1. Get 60 days of interim reports
@@ -236,7 +241,14 @@ export async function GET(req: NextRequest) {
       if (!db) {
         backup = { ok: false, skipped: "SUPABASE_SERVICE_ROLE_KEY 未設定" };
       } else {
-        const budgetMs = 55_000 - (Date.now() - startedAt);
+        /**
+         * ★2026-10-28：このあとに「レシート写真の置き場を閉める」が1つ 相乗りします。
+         *   閉められるのは**サーバー側の鍵が使えるときだけ**なので、
+         *   そのときだけ 8秒を取り置きます（使えないときの控えの時間は今までどおり）。
+         *   取り置かないと、控えが55秒を使い切って閉める番が永久に来ません。
+         */
+        const reserveMs = serverKeyUsable() ? PHOTO_LOCK_MIN_BUDGET_MS : 0;
+        const budgetMs = 55_000 - reserveMs - (Date.now() - startedAt);
         backup =
           budgetMs > 2_000
             ? await runBackup(db, { budgetMs })
@@ -244,6 +256,28 @@ export async function GET(req: NextRequest) {
       }
     } catch (e: any) {
       backup = { ok: false, error: e?.message || String(e) };
+    }
+
+    // ---------- ここからレシート写真の置き場を閉める（f3-4・2026-10-28） ----------
+    // ★なぜ毎日の処理に相乗りさせるか
+    //   置き場を閉められるのは、サーバー側の鍵が直ったあとです。その鍵を直すのも
+    //   じゅんの1分なので、これまでは「鍵を直す」→「もう一度ひらいてボタンを押す」で
+    //   **じゅんの手が2回**要りました。ここに置くと、鍵が直った次の晩に
+    //   こちら側で閉まります（じゅんの手は1回だけ）。
+    // ★安全：もう非公開なら何もしない。閉める前と後に写真が読めることを確かめ、
+    //   読めなくなったら**その場で元に戻す**（lib/keiri/photoLockRun.ts）。
+    // ★上の集計とバックアップはすでに終わっているので、ここで時間切れになっても
+    //   道連れにはならない（4-6 と同じ考え方）。足りなければ何もせず明日にまわす。
+    try {
+      const gate = shouldRunPhotoLock({
+        keyUsable: serverKeyUsable(),
+        budgetMs: 55_000 - (Date.now() - startedAt),
+      });
+      photoLock = gate.run
+        ? await runPhotoLock().then((r) => ({ ok: r.outcome.ok, changed: r.outcome.changed, said: r.outcome.said }))
+        : { ok: false, skipped: gate.skipped };
+    } catch (e: any) {
+      photoLock = { ok: false, error: e?.message || String(e) };
     }
 
     return NextResponse.json({
@@ -257,13 +291,14 @@ export async function GET(req: NextRequest) {
       unmatched_locations: [...unmatchedLocations],
       upsert_error: upsertError,
       backup,
+      photo_lock: photoLock,
     });
   } catch (err: any) {
     console.error("Achievement rate calc error:", err);
     // 集計が失敗した場合、バックアップはまだ動いていない（順番を入れ替えたため）。
     // その旨が分かるよう backup の中身をそのまま返す。
     return NextResponse.json(
-      { error: err?.message || "calculation failed", backup },
+      { error: err?.message || "calculation failed", backup, photo_lock: photoLock },
       { status: 500 }
     );
   }
