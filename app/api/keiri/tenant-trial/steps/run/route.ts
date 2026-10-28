@@ -14,6 +14,7 @@ import {
   type TebayaVisible,
 } from "@/lib/keiri/tenantTrialSteps";
 import { readTenantReportsViaWindow } from "@/lib/keiri/loadMonthServer";
+import { testShopNumbersShown } from "@/lib/keiri/tenantTrialNumbers";
 import { serverClient } from "@/lib/supabaseServer";
 import { applyTenantScope } from "@/lib/tenantScope";
 
@@ -214,12 +215,18 @@ export async function POST() {
 
   const read = await readBothWays(tenantId);
   const separated = !rolledBack && separationOk(read);
+  // ★「今月の利益・今の現金」が出たかは、**実際に数えてから**言う（2026-10-28）。
+  //   ここは 2026-10-28 まで `numbersShown: reportReady` でした。
+  //   ＝ 日報の行が1枚 入っただけで「数字も出た」と書いていたので、
+  //     まとめの「手順4・5・6 まで通りました」が嘘になりうる形でした。
+  //   数え方は読むだけの窓口（GET）と同じ1か所（lib/keiri/tenantTrialNumbers.ts）。
+  const numbersShown = reportReady ? await testShopNumbersShown(tenantId) : false;
   const state: StepsState = {
     shopReady: true,
     locationReady,
     reportReady,
     separated,
-    numbersShown: reportReady,
+    numbersShown,
   };
 
   return NextResponse.json(
@@ -235,6 +242,7 @@ export async function POST() {
       tebayaUnchanged: !rolledBack,
       locationReady,
       reportReady,
+      numbersShown,
       separated,
       elapsedMs: Date.now() - startedAt,
       problems,

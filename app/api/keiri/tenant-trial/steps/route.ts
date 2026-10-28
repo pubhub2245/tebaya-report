@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
-import { templateFor } from "@/lib/keiri/index";
 import { loadKeiriMonthServer } from "@/lib/keiri/loadMonthServer";
-import { buildOneSheet } from "@/lib/keiri/oneSheet";
 import { TEST_SHOP, separationOk } from "@/lib/keiri/tenantTrial";
+import { testShopNumbersShown } from "@/lib/keiri/tenantTrialNumbers";
 import { peekTestShop, readBothWays } from "@/lib/keiri/tenantTrialServer";
 import {
   TEST_LOCATION,
@@ -62,7 +61,6 @@ export async function GET() {
   if (tenantId) {
     try {
       const ym = testReportDate().slice(0, 7);
-      const [y, m] = ym.split("-");
       const businessCode = businessCodeForScope(tenantId);
       // ★貼り紙⑧⑪⑫のあと、テストの店の行は公開の鍵では読めない（0件で返る）。
       //   倉庫の窓口ごしに読むためのテストの印を渡す（lib/keiri/tenantTrialServer.ts と同じ）。
@@ -75,25 +73,9 @@ export async function GET() {
         tenantReadTestMark: TEST_SHOP.mark,
       });
       reportReady = data.reports.length > 0;
-      if (reportReady) {
-        const sheet = buildOneSheet({
-          ym,
-          monthLabel: `${Number(y)}年${Number(m)}月`,
-          shopName: TEST_SHOP.name,
-          reports: data.reports,
-          payments: data.payments,
-          advances: [],
-          settings: data.settings,
-          template: templateFor(businessCode),
-          madeOn: testReportDate(),
-          cashEvents: data.cashEvents,
-        });
-        const profit = sheet.headline.find((h) => h.label.includes("残ったお金"));
-        numbersShown =
-          Boolean(profit) &&
-          Number.isFinite(profit!.yen) &&
-          Number.isFinite(sheet.cash.balance);
-      }
+      // 「今月の利益・今の現金」が出るかは lib/keiri/tenantTrialNumbers.ts の1か所で数える
+      //   （通す側の窓口と同じものを使う。2026-10-28）
+      if (reportReady) numbersShown = await testShopNumbersShown(tenantId);
     } catch {
       // 読めなかったことは「合格にしない」形で表に出ます
     }
