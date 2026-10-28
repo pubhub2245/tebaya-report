@@ -64,17 +64,51 @@ psql -q -f "$ROOT/supabase/schema.sql" >/dev/null 2>&1
 psql -q -c "alter table public.daily_reports add column if not exists expenses_total integer not null default 0" >/dev/null 2>&1
 # 日報の unit_number（本番にある列。号車＝レジの持ち主。移行ファイルには残っていない）
 psql -q -c "alter table public.daily_reports add column if not exists unit_number smallint" >/dev/null 2>&1
+# 出店場所の棚（locations）を、**移行ファイルを流す前に**本番と同じ形で用意する。
+#   ここが要るのは、2軒目を入れる手順の **手順4（そのお店の出店場所を1件 入れる）** を
+#   下見でも通すためです（f5-4）。
+#   2026-10-28 まで、下見の出店場所は `(id, name)` だけの最小の形で、
+#   「どの店か」の印も鍵も無かったので、**手順4は一度も下見にかかっていませんでした。**
+#   ＝ 貼り紙が流れたあとに手順4で止まっても、気づくのは じゅんの2分が済んだ後でした。
+#
+#   ※ 正直に書いておくこと：本番の locations は画面から作られた棚で、
+#     鍵の決まりが移行ファイルに残っていません。ブラウザから
+#     「読む・足す（loc_insert）・無効化する（is_active を直す）」が毎日 使われているので、
+#     その形（読む／直す／消すは だれでもOK ＋ loc_insert）にそろえます。
+#     本番の決まりがこれと違っていれば、手順4の結果も変わります。
+psql -q >/dev/null 2>&1 <<'SQL'
+create table if not exists public.locations (
+  id bigserial primary key,
+  name text not null,
+  rank text,
+  target integer,
+  is_active boolean not null default true
+);
+alter table public.locations enable row level security;
+drop policy if exists loc_all on public.locations;
+create policy loc_all on public.locations for select to public using (true);
+drop policy if exists loc_update on public.locations;
+create policy loc_update on public.locations for update to public using (true) with check (true);
+drop policy if exists loc_delete on public.locations;
+create policy loc_delete on public.locations for delete to public using (true);
+SQL
 for f in daily_reports_shop_alcohol_products daily_reports_exclude_from_stats fix_expenses_total_column \
          staff_members sale_products keiri_settings_and_payments keiri_office_rent \
          advance_expenses keiri_account_mapping keiri_advance_expenses keiri_advance_expenses_receipt \
          keiri_tenants keiri_advance_expenses_tenant_id keiri_tenant_scope \
          keiri_applications keiri_applications_insert_only keiri_applications_optional_contact \
-         keiri_applications_paid_pending keiri_tenant_rpc; do
+         keiri_applications_paid_pending keiri_tenant_rpc \
+         locations_booth_fee location_rank_auto locations_allow_insert keiri_tenant_master; do
   psql -q -f "$ROOT/supabase/migrations/$f.sql" >/dev/null 2>&1
 done
 # 本番にしかない棚（移行ファイルが無い）を、最小の形で用意する
 psql -q >/dev/null 2>&1 <<'SQL'
+-- 出店場所は上で用意ずみ（この行は何もしない）
 create table if not exists public.locations (id bigserial primary key, name text);
+-- 手羽屋の選択肢を、印が空の行として置く（本番はぜんぶ印が空＝2026-10-28 A 実測）
+insert into public.locations (name, rank, target) values
+  ('ながやま三股','B',50000), ('PASIO高城','C',40000);
+insert into public.staff_members (name, daily_wage) values ('イデ', 10000), ('じゅん', 10000);
 -- 本番にある「日報の古い控え」（2026-09-02・13行）を、同じ形で1つ作る。
 -- ⑦が鍵をかける相手。鍵の決まりは**付けない**状態から始める（本番と同じ）
 create table if not exists public.daily_reports_backup_20260902
@@ -114,6 +148,10 @@ SQL
 psql -q >/dev/null 2>&1 <<'SQL'
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on all tables in schema public to anon, authenticated;
+-- いまある番号立て（sequence）にも、本番の Supabase と同じく公開の鍵で触れるようにする。
+--   2026-10-28：これが欠けていたため、出店場所を入れる試しが
+--   「番号立ての権限がない」で落ちました（下見だけの事情で、本番の話ではありません）。
+grant usage, select on all sequences in schema public to anon, authenticated;
 -- ★ここから先に**貼り紙が作る棚**（①②）も、本番と同じく公開の鍵で使えるようにする。
 --   Supabase は「これから作られる棚にも、同じ許可を自動で渡す」設定が入っているので、
 --   下見でもそれにそろえる。これが無いと、①②だけ本番より厳しくなり、
@@ -260,6 +298,52 @@ psql -q -c "set role anon; insert into public.daily_reports (date, location, sta
   || say "⑧ 申し込んだお店の日報は、番号を読み返さなければ入れられる" "NG（画面から日報を出せません）"
 want "⑧ その行は、ちゃんと棚に入っている（倉庫の側から数える）" "1" "$(q "select count(*) from public.daily_reports where date='2026-09-22'")"
 psql -q -c "delete from public.daily_reports where date='2026-09-22'" >/dev/null 2>&1
+
+# --- 手順４ そのお店の出店場所が1件 入るか（2026-10-28 追記・f5-4） --------
+#   2軒目を入れる手順は6手あり、そのうち **手順４（そのお店の出店場所を入れる）**だけが
+#   これまで **下見に一度もかかっていませんでした**（下見の出店場所は「番号と名前」だけの
+#   最小の形で、印も鍵も無かったため）。
+#   同じ見落としを 10/14（通す道が無かった）と 10/17（手順５が通らなかった）に
+#   2度 やっていて、どちらも **じゅんの二分が済む直前**に見つかりました。
+#   ここで固めておけば、貼り紙が流れたその回に f5-4 が閉まるかどうかが先に分かる。
+#   ためすのは、窓口（/api/keiri/tenant-trial/steps/run）が実際にすることと同じ順番：
+#     入れる → 番号を読み返す → そのお店として読む → 手羽屋に混じらない → 消せる（取り消し）
+LOC_TEBAYA="$(q "select count(*) from public.locations where tenant_id is null")"
+psql -tA -c "set role anon; insert into public.locations (tenant_id, name, rank, target, is_active, booth_fee_type) values ('$TEST_TENANT','【テスト】テスト広場','D',30000,true,'none') returning id" >/dev/null 2>&1 \
+  && say "手順４ よその店の出店場所を、公開の鍵で入れて番号も読み返せる" "OK" \
+  || say "手順４ よその店の出店場所を、公開の鍵で入れて番号も読み返せる" "NG（手順４がここで止まります）"
+want "手順４ その行は、ちゃんと棚に入っている" "1" "$(q "select count(*) from public.locations where tenant_id is not null")"
+want "手順４ そのお店として読むと、1件だけ出る" "1" "$(q "set role anon; select count(*) from public.locations where tenant_id='$TEST_TENANT'")"
+want "手順４ そのお店の一覧に、手羽屋の場所は混じらない" "0" "$(q "set role anon; select count(*) from public.locations where tenant_id='$TEST_TENANT' and name not like '【テスト】%'")"
+want "手順４ 手羽屋の出店場所の件数は、はじめと同じ" "$LOC_TEBAYA" "$(q "set role anon; select count(*) from public.locations where tenant_id is null")"
+# ★ここが要です：窓口は「手羽屋に見える件数が動いたら、入れた行をその場で取り消す」形です。
+#   公開の鍵で **印つきの出店場所が消せない**なら、取り消しが黙って空振りし、
+#   本番に【テスト】の行が永く残ります（日報では実際にそうでした・2026-10-17）。
+want "手順４ 入れた出店場所は、公開の鍵で取り消せる" "1" "$(q "set role anon; with d as (delete from public.locations where tenant_id='$TEST_TENANT' returning 1) select count(*) from d")"
+want "手順４ 取り消したあと、印つきの行は残っていない" "0" "$(q "select count(*) from public.locations where tenant_id is not null")"
+want "手順４ 取り消しで、手羽屋の場所は1行も消えていない" "$LOC_TEBAYA" "$(q "select count(*) from public.locations where tenant_id is null")"
+# 担当者・商品の棚も、印が空のままで手羽屋が読めること（日報の選択肢）
+want "手順４ 手羽屋の担当者は、公開の鍵で今までどおり読める" "2" "$(q "set role anon; select count(*) from public.staff_members where tenant_id is null")"
+
+# --- 選択肢の棚は、貼り紙ではだれが読めるかを変えていません（2026-10-28・f3-4） ---
+#   ★ ここは「こうあってほしい」ではなく、**いまこうだ**という事実を固める課題です。
+#   貼り紙（①〜⑳）は、日報・立替・払った記録・経理の設定・金庫の記録・数えない印には
+#   「印が空の行だけ 読んでよい」の決まりを足しますが、
+#   **出店場所（locations）・担当者（staff_members）・商品（sale_products）には1行も足していません**。
+#   そのため、貼り紙を流したあとも **よその店の場所の名前・担当者の名前・商品と単価は、
+#   公開の鍵で読めます**（お金の数字ではありませんが、人の名前が入ります）。
+#   すぐに絠ると、申し込んだお店自身の日報の選択肢が空になるので、
+#   日報と同じように「窓口ごしに読む」形を先に作る必要があります（kp266）。
+#   この3行が OK から変わったら、その工事が済んだ印です。
+psql -q -c "insert into public.locations (tenant_id, name) values ('$TEST_TENANT','【テスト】よその場所')" >/dev/null 2>&1
+psql -q -c "insert into public.staff_members (tenant_id, name, daily_wage) values ('$TEST_TENANT','【テスト】よその人',9000)" >/dev/null 2>&1
+psql -q -c "insert into public.sale_products (tenant_id, name, price) values ('$TEST_TENANT','【テスト】よその商品',300)" >/dev/null 2>&1
+want "未完：よその店の出店場所は、まだ公開の鍵で読める" "1" "$(q "set role anon; select count(*) from public.locations where tenant_id is not null")"
+want "未完：よその店の担当者は、まだ公開の鍵で読める" "1" "$(q "set role anon; select count(*) from public.staff_members where tenant_id is not null")"
+want "未完：よその店の商品は、まだ公開の鍵で読める" "1" "$(q "set role anon; select count(*) from public.sale_products where tenant_id is not null")"
+psql -q -c "delete from public.locations where tenant_id is not null" >/dev/null 2>&1
+psql -q -c "delete from public.staff_members where tenant_id is not null" >/dev/null 2>&1
+psql -q -c "delete from public.sale_products where tenant_id is not null" >/dev/null 2>&1
 
 # --- ⑩ よその店の立替（経営）が、公開の鍵で読めないか（2026-10-17 追記・f3-4） ------
 #   ★いちばん大事なのは **手羽屋の立替が今までどおり読める・直せる・消せること**。
