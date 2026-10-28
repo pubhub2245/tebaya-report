@@ -6,8 +6,10 @@ import {
   cashOpeningGapExplains,
   cashOpeningGapFit,
   cashOpeningGapLines,
+  diffCausesToShow,
   expensesBeforeOpening,
 } from "../lib/keiri/cashOpeningGap";
+import { buildCashOpeningGapCheck } from "../lib/keiri/cashCheckScenario";
 import type { KeiriReport } from "../lib/keiri/types";
 
 /**
@@ -138,4 +140,48 @@ test("差が 1,000円 未満なら、窓口も『行は出ない』と言う", (
   const w = buildCashOpeningGapWindow({ gap, diff: 300 });
   assert.equal(w.shown, false);
   assert.ok(w.note.includes("行は出ません"));
+});
+
+/* 外から確かめる筋書き（架空のお店・/api/keiri/cashcheck の openingGap） */
+test("架空のお店の筋書きが、自分の検算で合格する", () => {
+  const c = buildCashOpeningGapCheck();
+  assert.deepEqual(c.problems, []);
+  assert.equal(c.ok, true);
+  assert.equal(c.count, 3);
+  assert.equal(c.total, 12000);
+  assert.equal(c.cases.length, 5);
+  // ① 理由が分かっているときは「探し物」を出さない
+  assert.equal(c.cases[0].fit, "exact");
+  assert.equal(c.cases[0].causes.length, 0);
+  // ② 別の大きさの差なら、今までどおり原因3つを出す
+  assert.equal(c.cases[1].fit, "no");
+  assert.equal(c.cases[1].causes.length, 3);
+});
+
+test("筋書きに手羽屋の実データを入れない（架空の金額だけ）", () => {
+  const c = buildCashOpeningGapCheck();
+  const s = JSON.stringify(c);
+  assert.ok(!s.includes("47,520"));
+  assert.ok(!s.includes("47520"));
+  assert.ok(!s.includes("手羽屋の9月"));
+});
+
+test("よくある原因を出すかの決め方は1か所（数え方のちがいが先に説明したら出さない）", () => {
+  const gap = expensesBeforeOpening({ reports: SEPT, openingDate: OPENING });
+  const causes = ["あ", "い", "う"];
+  // 数え方のちがいで説明がついたら出さない
+  assert.deepEqual(
+    diffCausesToShow({ causes, variantMatched: true, gap, diff: 300000 }),
+    [],
+  );
+  // 数え始めの日より前の経費で説明がついたら出さない
+  assert.deepEqual(
+    diffCausesToShow({ causes, variantMatched: false, gap, diff: 47520 }),
+    [],
+  );
+  // どちらでも説明がつかなければ、今までどおり出す
+  assert.deepEqual(
+    diffCausesToShow({ causes, variantMatched: false, gap, diff: 300000 }),
+    causes,
+  );
 });
