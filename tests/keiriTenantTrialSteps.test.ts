@@ -8,6 +8,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { TEST_SHOP } from "../lib/keiri/tenantTrial";
+import { sheetShowsNumbers } from "../lib/keiri/tenantTrialNumbers";
 import {
   TEST_LOCATION,
   TEST_REPORT,
@@ -131,6 +132,43 @@ test("テストの店の日報が1枚 入っても、分かれている判定は
   // よその行の数が渡されないときは、これまでどおり件数で見る
   assert.equal(
     separationOk({ tebaya, testShop: { reportCount: 1, advancesRead: false, readable: true } }),
+    false,
+  );
+});
+
+// --- 「今月の利益・今の現金」が出たかは、数えてから言う（2026-10-28・f5-4） ---
+//   通す側の窓口は 2026-10-28 まで「日報が1枚 入った＝数字も出た」と書いていました。
+//   ここは、その判定（計算だけの部分）を固定します。
+test("1枚の要約に『残ったお金』と現金があれば、数字が出たと言う", () => {
+  assert.equal(
+    sheetShowsNumbers({
+      headline: [{ label: "今月 残ったお金", yen: 19000 }],
+      cash: { balance: 19000 },
+    }),
+    true,
+  );
+});
+
+test("『残ったお金』の行が無ければ、出たとは言わない", () => {
+  assert.equal(
+    sheetShowsNumbers({ headline: [{ label: "売上", yen: 30000 }], cash: { balance: 0 } }),
+    false,
+  );
+});
+
+test("金額が数でなければ、出たとは言わない", () => {
+  assert.equal(
+    sheetShowsNumbers({
+      headline: [{ label: "今月 残ったお金", yen: Number.NaN }],
+      cash: { balance: 19000 },
+    }),
+    false,
+  );
+  assert.equal(
+    sheetShowsNumbers({
+      headline: [{ label: "今月 残ったお金", yen: 19000 }],
+      cash: { balance: Number.NaN },
+    }),
     false,
   );
 });
