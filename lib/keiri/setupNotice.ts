@@ -32,6 +32,8 @@
  * ■ 手羽屋の日報・シフト・レジ・LINE には一切触れていません。
  */
 
+import { minutesOf } from "./setupTodo";
+
 /** 窓口（/api/keiri/setuptodo）から受け取る1件ぶん。中身は出さない物しか持ちません */
 export type SetupNoticeItem = {
   id: string;
@@ -122,10 +124,8 @@ export function remainingItems(summary: SetupNoticeSummary | null): SetupNoticeI
 
 /** のこっている手続きの合計の分数（「2分」のような書き方から数字だけを足す） */
 export function remainingMinutes(summary: SetupNoticeSummary | null): number {
-  return remainingItems(summary).reduce(
-    (sum, i) => sum + (Number(i.minutes.replace(/[^\d]/g, "")) || 0),
-    0,
-  );
+  // ★「10秒」は0分として数える（lib/keiri/setupTodo.ts の minutesOf と同じ決まり）
+  return remainingItems(summary).reduce((sum, i) => sum + minutesOf(i.minutes), 0);
 }
 
 /**
@@ -144,4 +144,4 @@ export function setupNoticeHeadline(summary: SetupNoticeSummary | null): string 
 
 /** 下に添える1行（ここに鍵・金額・お店の名前は書かない） */
 export const SETUP_NOTICE_NOTE =
-  "この3つは じゅんだけができる一度きりの手続きです。上から順に押すだけで終わります（スタッフの画面には出ません）。";
+  "どれも じゅんだけができる一度きりの手続きです。上から順に押すだけで終わります（スタッフの画面には出ません）。";

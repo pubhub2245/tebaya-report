@@ -34,7 +34,7 @@ import { compareAlsoKeeps } from "./cashCountPress";
 /** その手続きが済んでいるか */
 export type SetupTodoState = "のこり" | "済み" | "分からない";
 
-export type SetupTodoId = "shelves" | "cash" | "key";
+export type SetupTodoId = "shelves" | "cash" | "key" | "photo";
 
 export type SetupTodoItem = {
   id: SetupTodoId;
@@ -97,6 +97,24 @@ export type SetupTodoInput = {
    * counted＝数えた記録が1行でもあるか。
    */
   cash: { shelfMissing: boolean; counted: boolean; countedInMemo?: boolean } | null;
+  /**
+   * レシート写真の置き場（2026-10-28・f3-4）。
+   *
+   * ■ なぜ要るのか
+   *   仕上げで唯一の「不合格」＝f3-4（よその店のデータが見えないか）に残っているのは
+   *   **置き場が「公開」のまま**という1点だけです。閉めるのは /keiri/key の下にある
+   *   **1タップ**で、鍵を貼り直したあとに押します。
+   *   ところが この一覧は「鍵を貼り直す」が済むと その行を消すので、
+   *   **最後の1タップが、じゅんが見る唯一の一覧から消えてしまう**形でした。
+   *   ＝ 鍵を直しても f3-4 は閉まらず、次の回にもう一度お願いすることになります。
+   *   そこで「置き場を閉める」を1件として立て、**閉まるまで消えない**ようにします。
+   *
+   * bucketPublic … true=公開のまま / false=非公開（済み） / null=確かめられない
+   * keyUsable  … サーバー側の鍵がそのまま使えるか（使えないあいだは押せません）
+   *
+   * ※ この欄が無い（undefined）ときは、この1件を出しません（古い呼び出しのため）。
+   */
+  photo?: { bucketPublic: boolean | null; keyUsable: boolean } | null;
 };
 
 const SQL_SHEET = "/keiri/sql";
@@ -199,9 +217,20 @@ function keyItem(input: SetupTodoInput["key"]): SetupTodoItem {
     order: 3,
     title: "サーバー側の鍵を貼り直す",
     minutes: "1分",
-    benefit: "毎日の自動の控え（バックアップ）が戻り、お店の行を自動で作れるようになります",
+    /**
+     * ★2026-10-28：ここが「毎日の控えが戻ります」だけになっていました（f3-4）。
+     *   実際には、**仕上げで唯一の不合格（f3-4）を閉められるのはこの1分だけ**です
+     *   （置き場を閉めると写真は期限つきの住所ごしに映り、それを作れるのは
+     *   サーバー側の鍵だけ）。いちばん大事な効き目が じゅんの一覧に出ていないので、
+     *   いちばん先に書きます。
+     */
+    benefit:
+      "レシート写真の置き場を閉められるようになります" +
+      "（住所を知っていても、合言葉なしでは開けない形）。" +
+      "仕上げでいま唯一の不合格『よその店のデータが見えないか』は、これで閉まります。" +
+      "あわせて毎日の自動の控え（バックアップ）も戻ります",
     href: KEY_SHEET,
-    checks: [],
+    checks: ["f3-4"],
   };
   if (!input) {
     return { ...base, state: "分からない", detail: "いま確かめられませんでした" };
@@ -218,6 +247,60 @@ function keyItem(input: SetupTodoInput["key"]): SetupTodoItem {
   };
 }
 
+/**
+ * レシート写真の置き場を閉める1タップ（2026-10-28・f3-4）。
+ *
+ * ★「分からない」ときに「済み」へ寄せない（嘘の合格を作らないため）。
+ * ★鍵が使えないあいだも **のこり** のまま出す（置き場は本当に開いているので、
+ *   「済み」や「分からない」にすると、閉まっていないのに一覧から消えます）。
+ */
+function photoItem(
+  input: NonNullable<SetupTodoInput["photo"]> | null,
+): SetupTodoItem {
+  const base = {
+    id: "photo" as const,
+    order: 4,
+    title: "レシート写真の置き場を閉める（1タップ）",
+    // ★「秒」は分に足しません（totalMinutes / remainingMinutes で見ています）
+    minutes: "10秒",
+    benefit:
+      "住所を知っていても、合言葉なしではレシート写真が開けなくなります。" +
+      "仕上げの『よその店のデータが見えないか』（③）はこれで閉まります",
+    href: KEY_SHEET,
+    checks: ["f3-4"],
+  };
+  if (!input) {
+    return { ...base, state: "分からない", detail: "いま確かめられませんでした" };
+  }
+  if (input.bucketPublic === false) {
+    return { ...base, state: "済み", detail: "置き場はもう非公開です" };
+  }
+  if (input.bucketPublic === null) {
+    return {
+      ...base,
+      state: "分からない",
+      detail: "置き場が公開かどうかを、いま確かめられませんでした",
+    };
+  }
+  if (!input.keyUsable) {
+    return {
+      ...base,
+      state: "のこり",
+      detail:
+        "置き場は公開のままです。先に［サーバー側の鍵を貼り直す］を済ませると、" +
+        "同じ1枚（/keiri/key）の下に［レシート写真の置き場を閉める］のボタンが出ます",
+    };
+  }
+  return {
+    ...base,
+    state: "のこり",
+    presses: ["レシート写真の置き場を閉める（これで終わりです）"],
+    detail:
+      "いま押せます（置き場は公開のまま・鍵は使える形です）。" +
+      "閉める前と後に写真が読めることを確かめ、読めなくなったらその場で元に戻します",
+  };
+}
+
 /** 「のこり」を先に、同じなら order の小さい順 */
 function sortItems(items: SetupTodoItem[]): SetupTodoItem[] {
   const rank = (s: SetupTodoState) => (s === "のこり" ? 0 : s === "分からない" ? 1 : 2);
@@ -229,6 +312,8 @@ export function buildSetupTodo(input: SetupTodoInput): SetupTodo {
     shelvesItem(input.shelves),
     cashItem(input.cash),
     keyItem(input.key),
+    // ★この欄を渡していない呼び出し（古い試験など）では、この1件を出しません
+    ...(input.photo === undefined ? [] : [photoItem(input.photo)]),
   ]);
   const remaining = items.filter((i) => i.state === "のこり").length;
   const unknown = items.filter((i) => i.state === "分からない").length;
@@ -258,12 +343,23 @@ export function buildSetupTodo(input: SetupTodoInput): SetupTodo {
  * 経理の設定のひとこと欄に控えます）。順番に並んでいるのは「おすすめの順」だけです。
  */
 export const INDEPENDENT_NOTE =
-  "この3つは互いに待っていません。どれから押しても、その1つぶんだけ前に進みます" +
-  "（金庫の1分は、倉庫の貼り紙を待ちません）。";
+  "どれから押しても、その1つぶんだけ前に進みます" +
+  "（金庫の1分は、倉庫の貼り紙を待ちません）。" +
+  "ただし［レシート写真の置き場を閉める］だけは、先に［サーバー側の鍵を貼り直す］を済ませてからです。";
 
 /** のこっている分だけの時間の合計（表示用。おおよそで十分） */
 export function totalMinutes(items: SetupTodoItem[]): number {
   return items
     .filter((i) => i.state === "のこり")
-    .reduce((sum, i) => sum + (Number(i.minutes.replace(/[^\d]/g, "")) || 0), 0);
+    .reduce((sum, i) => sum + minutesOf(i.minutes), 0);
+}
+
+/**
+ * 「2分」のような書き方から分だけを取る（2026-10-28）。
+ * ★「10秒」は **0分** として数えます。そのまま数字だけ拾うと
+ *   10分として足され、「合わせて14分ほど」と大げさに言ってしまいます。
+ */
+export function minutesOf(label: string): number {
+  if (label.includes("秒") && !label.includes("分")) return 0;
+  return Number(label.replace(/[^\d]/g, "")) || 0;
 }
