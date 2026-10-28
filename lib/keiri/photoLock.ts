@@ -192,3 +192,26 @@ export const PHOTO_LOCK_HOW =
   "**閉める前と後に写真が読めることを確かめ、読めなくなったらその場で元に戻します**。" +
   "写真の中身・住所・鍵や合言葉の値は1文字も返しません。" +
   "state は locked＝閉まっている／ready＝いま閉められる／nokey＝鍵待ち／unknown＝分かりません。";
+
+/**
+ * 毎日の自動の処理の中で、置き場を閉めに行ってよいか（**計算だけ**）。
+ *
+ * ★4-6 の決まり（相乗りさせた処理が、本来の処理を道連れにしない）と同じ考え方。
+ *   集計とバックアップが終わったあとの残り時間だけで動かし、
+ *   足りなければ**何もせず見送る**（翌日またここに来ます）。
+ * ★鍵が使えないときは、たたきにも行きません（毎晩 無駄に3回 通信しないため）。
+ */
+export const PHOTO_LOCK_MIN_BUDGET_MS = 8_000;
+
+export function shouldRunPhotoLock(input: {
+  keyUsable: boolean;
+  budgetMs: number;
+}): { run: boolean; skipped: string | null } {
+  if (!input.keyUsable) {
+    return { run: false, skipped: "サーバー側の鍵がまだ使えないので何もしていません" };
+  }
+  if (input.budgetMs < PHOTO_LOCK_MIN_BUDGET_MS) {
+    return { run: false, skipped: "時間がのこっていないため今回は見送り（明日また見ます）" };
+  }
+  return { run: true, skipped: null };
+}
