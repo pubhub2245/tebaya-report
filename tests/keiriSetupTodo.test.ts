@@ -13,7 +13,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildSetupTodo, totalMinutes } from "../lib/keiri/setupTodo";
+import { buildSetupTodo, minutesOf, totalMinutes } from "../lib/keiri/setupTodo";
 
 const ALL_UNDONE = {
   shelves: { done: 0, total: 6 },
@@ -173,4 +173,87 @@ test("のこりが3件のときは、金庫（1分・1押し）をいちばん�
   assert.equal(t.items[0].id, "cash");
   assert.equal(t.items[1].id, "shelves");
   assert.equal(t.items[2].id, "key");
+});
+
+/* ------------------------------------------------------------------ *
+ *  2026-10-28 追加（f3-4）：最後の1タップが一覧から消えないようにする
+ *
+ *  仕上げで唯一の「不合格」＝f3-4（よその店のデータが見えないか）に
+ *  残っているのは「レシート写真の置き場が公開のまま」という1点だけで、
+ *  閉めるのは /keiri/key の下にある **1タップ**です。
+ *  ところが この一覧は「鍵を貼り直す」が済むとその行を消すので、
+ *  鍵を直した瞬間に **最後の1タップが、じゅんが見る唯一の一覧から消える**
+ *  形でした（＝f3-4 は閉まらないまま、次の回にまたお願いすることになる）。
+ *  そこで「置き場を閉める」を1件として立て、閉まるまで消えないようにします。
+ * ------------------------------------------------------------------ */
+
+test("置き場が公開のままなら、鍵が直ったあとも「のこり」として残る", () => {
+  const t = buildSetupTodo({
+    shelves: { done: 12, total: 12 },
+    key: { configured: true, usable: true },
+    cash: { shelfMissing: false, counted: true },
+    photo: { bucketPublic: true, keyUsable: true },
+  });
+  const photo = t.items.find((i) => i.id === "photo")!;
+  assert.equal(photo.state, "のこり");
+  assert.equal(t.remaining, 1);
+  assert.equal(t.allDone, false);
+  assert.deepEqual(photo.checks, ["f3-4"]);
+  assert.equal(photo.presses?.length, 1);
+  assert.match(photo.detail, /いま押せます/);
+});
+
+test("鍵がまだ使えないときも「のこり」。ただし先に鍵を直すことを言う", () => {
+  const photo = buildSetupTodo({
+    ...ALL_UNDONE,
+    photo: { bucketPublic: true, keyUsable: false },
+  }).items.find((i) => i.id === "photo")!;
+  assert.equal(photo.state, "のこり");
+  assert.equal(photo.presses, undefined);
+  assert.match(photo.detail, /鍵を貼り直す/);
+});
+
+test("置き場が非公開になったら「済み」。確かめられないときは済みに寄せない", () => {
+  const locked = buildSetupTodo({
+    shelves: { done: 12, total: 12 },
+    key: { configured: true, usable: true },
+    cash: { shelfMissing: false, counted: true },
+    photo: { bucketPublic: false, keyUsable: true },
+  });
+  assert.equal(locked.remaining, 0);
+  assert.equal(locked.allDone, true);
+  assert.equal(locked.items.find((i) => i.id === "photo")!.state, "済み");
+
+  for (const photo of [null, { bucketPublic: null, keyUsable: true }]) {
+    const t = buildSetupTodo({
+      shelves: { done: 12, total: 12 },
+      key: { configured: true, usable: true },
+      cash: { shelfMissing: false, counted: true },
+      photo,
+    });
+    const row = t.items.find((i) => i.id === "photo")!;
+    assert.equal(row.state, "分からない");
+    assert.equal(t.allDone, false);
+  }
+});
+
+test("鍵の行は、仕上げの f3-4 を閉めることを名指しする", () => {
+  const key = buildSetupTodo(ALL_UNDONE).items.find((i) => i.id === "key")!;
+  assert.deepEqual(key.checks, ["f3-4"]);
+  assert.match(key.benefit, /レシート写真の置き場/);
+  assert.match(key.benefit, /不合格/);
+});
+
+test("「10秒」は分に足さない（合計を大げさに言わない）", () => {
+  assert.equal(minutesOf("10秒"), 0);
+  assert.equal(minutesOf("2分"), 2);
+  const t = buildSetupTodo({ ...ALL_UNDONE, photo: { bucketPublic: true, keyUsable: false } });
+  assert.equal(t.remaining, 4);
+  assert.equal(totalMinutes(t.items), 1 + 2 + 1);
+});
+
+test("写真の1タップだけは鍵のあと、と1行で言う", () => {
+  const t = buildSetupTodo({ ...ALL_UNDONE, photo: { bucketPublic: true, keyUsable: false } });
+  assert.ok(t.independentNote);
+  assert.match(t.independentNote!, /鍵を貼り直す/);
 });

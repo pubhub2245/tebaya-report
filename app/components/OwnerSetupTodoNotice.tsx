@@ -86,13 +86,21 @@ export default function OwnerSetupTodoNotice() {
         <p className="text-xs text-amber-800 leading-relaxed">いま：{first.detail}</p>
       ) : null}
 
+      {/* ★2026-10-28：2件目から下も「何が前に進むか」を1行 添えます（f3-4）。
+             題名だけだと、どれが仕上げの不合格を閉める1分なのか分かりません
+             （実際に『鍵を貼り直す』は、いちばん大事な効き目が1文字も出ていませんでした）。 */}
       {rest.length > 0 ? (
-        <ul className="space-y-1">
+        <ul className="space-y-2">
           {rest.map((i) => (
             <li key={i.id} className="text-sm leading-snug">
-              <a href={i.href} className="text-amber-900 underline">
+              <a href={i.href} className="font-bold text-amber-900 underline">
                 {i.title}（{i.minutes}）
               </a>
+              {i.benefit ? (
+                <span className="block text-xs font-normal text-amber-800 leading-relaxed">
+                  {i.benefit}
+                </span>
+              ) : null}
             </li>
           ))}
         </ul>

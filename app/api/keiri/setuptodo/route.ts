@@ -4,6 +4,7 @@ import { summarizeShelves } from "@/lib/keiri/shelves";
 import { readShelfReports, probeCashCount } from "@/lib/keiri/shelvesProbe";
 import { buildSetupTodo } from "@/lib/keiri/setupTodo";
 import { describeServerKey } from "@/lib/keiri/serverHealth";
+import { photoLockStatus } from "@/lib/keiri/photoLockServer";
 import { serviceRoleKeyRepair, serviceRoleKeyStatus } from "@/lib/supabaseServer";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 
@@ -28,7 +29,17 @@ export const dynamic = "force-dynamic";
  * ★ 手羽屋の日報・シフト・レジ・LINE には一切触れていません。
  */
 export async function GET() {
-  const [reports, cash] = await Promise.all([readShelfReports(), probeCashCount()]);
+  /**
+   * ★2026-10-28（f3-4）：レシート写真の置き場が「公開」のままかも一緒に見ます。
+   *   ここを足さないと、鍵を貼り直した瞬間に「鍵」の行が消え、
+   *   **置き場を閉める最後の1タップが、じゅんが見る唯一の一覧から消えます**。
+   *   読むだけ（鍵が無ければ、鍵をまったく付けずに置き場をたたいて見分けます）。
+   */
+  const [reports, cash, photo] = await Promise.all([
+    readShelfReports(),
+    probeCashCount(),
+    photoLockStatus().catch(() => null),
+  ]);
   const shelfSummary = summarizeShelves(reports);
 
   const repair = serviceRoleKeyRepair();
@@ -47,6 +58,7 @@ export async function GET() {
           counted: cash.counted,
           countedInMemo: cash.countedInMemo,
         },
+    photo: photo ? { bucketPublic: photo.bucketPublic, keyUsable: photo.keyUsable } : null,
   });
 
   return NextResponse.json(
@@ -55,7 +67,7 @@ export async function GET() {
         "じゅんにしかできない一度きりの手続きが、いま何件のこっているか。" +
         "経理の画面（/keiri）のいちばん上に出るのと同じ答えです",
       ...todo,
-      sheets: { shelves: "/keiri/sql", cash: "/keiri", key: "/keiri/key" },
+      sheets: { shelves: "/keiri/sql", cash: "/keiri", key: "/keiri/key", photo: "/keiri/key" },
       shelfDetail: `${shelfSummary.done}／${shelfSummary.total}`,
     }),
     { status: 200, headers: CHECK_WINDOW_HEADERS },

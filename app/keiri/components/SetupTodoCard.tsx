@@ -78,8 +78,9 @@ export default function SetupTodoCard({ here }: { here?: string } = {}) {
       </ol>
       <p className="mt-3 text-xs leading-relaxed text-amber-800">
         ※ どれも一度きりで、数分で終わります。<strong>どれから押しても大丈夫です</strong>
-        （並びはおすすめの順だけで、互いに待っていません）。
-        済んだものはこの欄から消えます。
+        （並びはおすすめの順です）。ただし
+        <strong>［レシート写真の置き場を閉める］だけは、先に［サーバー側の鍵を貼り直す］</strong>
+        を済ませてからです。済んだものはこの欄から消えます。
       </p>
     </section>
   );
