@@ -8,8 +8,13 @@ import {
   keyFixLevel,
   keyFixNeeded,
 } from "@/lib/keiri/keyFix";
+import { describeKeyHunt } from "@/lib/keiri/keyHunt";
 import { describeServerKey } from "@/lib/keiri/serverHealth";
-import { serviceRoleKeyRepair, serviceRoleKeyStatus } from "@/lib/supabaseServer";
+import {
+  findServiceKeyCandidates,
+  serviceRoleKeyRepair,
+  serviceRoleKeyStatus,
+} from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +41,12 @@ export async function GET() {
     broken: repair.broken,
   });
   const level = keyFixLevel(report);
+  // 公式の欄が使えないときは、**よその欄に本物が入っていないか**も見て返す
+  // （2026-10-29・kp267）。返すのは名前と見立てだけで、値は1文字も出しません。
+  const hunt = describeKeyHunt(
+    findServiceKeyCandidates(process.env),
+    report.usable === true,
+  );
 
   return NextResponse.json(
     stampCheckWindow({
@@ -48,8 +59,11 @@ export async function GET() {
       why: report.note,
       blocked: keyFixNeeded(level) && !report.usable ? KEY_BLOCKED : [],
       steps: keyFixNeeded(level) ? KEY_FIX_STEPS : [],
+      hunt,
       sheet: "/keiri/key",
-      note: "読むだけの窓口です。鍵の値・合言葉・環境変数の中身は1文字も返しません",
+      note:
+        "読むだけの窓口です。鍵の値・合言葉・環境変数の中身は1文字も返しません" +
+        "（hunt は、鍵がよその欄に入っていないかを名前だけで見た結果です）",
     }),
     { status: 200, headers: CHECK_WINDOW_HEADERS },
   );
