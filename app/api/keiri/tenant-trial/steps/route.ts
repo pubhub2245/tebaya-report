@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 import { loadKeiriMonthServer } from "@/lib/keiri/loadMonthServer";
+import { findTestShopLocation } from "@/lib/keiri/tenantMasterRead";
 import { TEST_SHOP, separationOk } from "@/lib/keiri/tenantTrial";
 import { testShopNumbersShown } from "@/lib/keiri/tenantTrialNumbers";
 import { peekTestShop, readBothWays } from "@/lib/keiri/tenantTrialServer";
@@ -12,7 +13,7 @@ import {
   testReportDate,
   type StepsState,
 } from "@/lib/keiri/tenantTrialSteps";
-import { applyTenantScope, businessCodeForScope } from "@/lib/tenantScope";
+import { businessCodeForScope } from "@/lib/tenantScope";
 import { serverClient } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
@@ -39,19 +40,13 @@ export async function GET() {
   let locationReady = false;
   let locationsUnreadable = false;
   if (tenantId) {
-    try {
-      const db = serverClient({ fresh: true });
-      const { data, error } = await applyTenantScope<any>(
-        db.from("locations").select("id") as any,
-        tenantId,
-      )
-        .eq("name", TEST_LOCATION.name)
-        .limit(1);
-      if (error) locationsUnreadable = true;
-      else locationReady = (data?.length ?? 0) > 0;
-    } catch {
-      locationsUnreadable = true;
-    }
+    // ★貼り紙⑬のあと、テストの店の出店場所は公開の鍵では読めない（0件で返る）。
+    //   倉庫の窓口ごしに読む道を1か所にまとめてある（lib/keiri/tenantMasterRead.ts）。
+    //   流す前は今までどおり公開の鍵で読むので、答えは流す前後で変わらない（2026-10-29・kp266）。
+    const db = serverClient({ fresh: true });
+    const read = await findTestShopLocation(db as any, tenantId, TEST_LOCATION.name);
+    locationsUnreadable = read.unreadable;
+    locationReady = read.found;
   }
 
   // 手順5・6：そのお店として月を読み、手羽屋と見比べる（件数だけ）

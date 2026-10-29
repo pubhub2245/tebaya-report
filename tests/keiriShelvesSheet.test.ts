@@ -17,7 +17,11 @@ import { readFileSync } from "node:fs";
 
 import { TEST_SHOP } from "../lib/keiri/tenantTrial";
 import { TEST_LOCATION, TEST_REPORT, testReportDate } from "../lib/keiri/tenantTrialSteps";
-import { PENDING_SHELVES, SHARED_SHELVES } from "../lib/keiri/shelfScope";
+import {
+  MASTER_SHELF_TABLES,
+  PENDING_SHELVES,
+  SHARED_SHELVES,
+} from "../lib/keiri/shelfScope";
 
 const SHEET = "supabase/migrations/keiri_shelves_20261005.sql";
 const sql = readFileSync(SHEET, "utf8");
@@ -236,7 +240,9 @@ test("⑪は棚が無い倉庫でも途中で止まらない（あるときだ�
 /** ⑫の所だけを切り出す */
 function stepTwelve(): string {
   const from = sql.indexOf("-- ⑫ のこりの棚（経理の設定");
-  const to = sql.indexOf("-- 確かめ方（流したあと");
+  // ★2026-10-29：うしろに⑬が入ったので、区切りは⑬の見出しまで
+  //   （ここを「確かめ方」までにしておくと、⑬の中身まで⑫として数えてしまう）
+  const to = sql.indexOf("-- ⑬ 選択肢の棚（出店場所・担当者・商品と単価）");
   assert.ok(from > 0 && to > from, "⑫の区切りが見つかりません");
   return sql.slice(from, to);
 }
@@ -244,7 +250,11 @@ function stepTwelve(): string {
 test("⑫は、コード側の一覧に残っている棚ぜんぶを締める（1つも取りこぼさない）", () => {
   const twelve = stepTwelve();
   const rest = PENDING_SHELVES.filter(
-    (p) => p.table !== "advance_expenses" && p.table !== "keiri_payments",
+    (p) =>
+      p.table !== "advance_expenses" &&
+      p.table !== "keiri_payments" &&
+      // 選択肢の棚は⑬の担当（2026-10-29・kp266）
+      !MASTER_SHELF_TABLES.includes(p.table),
   );
   assert.equal(rest.length, 4, "のこりの棚の数が変わっています（貼り紙を見直すこと）");
   for (const plan of rest) {
@@ -302,12 +312,110 @@ test("⑫の窓口4つは、画面が名乗った番号を受け取らず、写�
 test("⑫は棚が無い倉庫でも途中で止まらない（あるときだけ足す）", () => {
   const twelve = stepTwelve();
   const rest = PENDING_SHELVES.filter(
-    (p) => p.table !== "advance_expenses" && p.table !== "keiri_payments",
+    (p) =>
+      p.table !== "advance_expenses" &&
+      p.table !== "keiri_payments" &&
+      !MASTER_SHELF_TABLES.includes(p.table),
   );
   for (const plan of rest) {
     assert.ok(
       twelve.includes(`table_name = '${plan.table}'`),
       `${plan.table} が、棚があるかを見てから足す形になっていません`,
+    );
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ *  ⑬ 選択肢の棚（出店場所・担当者・商品と単価）を締める
+ *                                        （2026-10-29・f3-4・kp266）
+ *
+ *  ■ ここで縛っていること
+ *    ⑧⑩⑪⑫と**同じ形**（読む決まりと倉庫の窓口を対で足す）であること。
+ *    形が崩れると、手羽屋の毎日の画面（日報の選択肢・シフト・管理のマスタ）が
+ *    止まるか、よその店の**担当者の名前**が公開の鍵で読めたままになります。
+ * ------------------------------------------------------------------ */
+
+/** ⑬の所だけを切り出す */
+function stepThirteen(): string {
+  const from = sql.indexOf("-- ⑬ 選択肢の棚（出店場所・担当者・商品と単価）も、よその店ぶんだけ\n--    公開の鍵では読めないようにする");
+  const to = sql.indexOf("-- 確かめ方（流したあと");
+  assert.ok(from > 0 && to > from, "⑬の区切りが見つかりません");
+  return sql.slice(from, to);
+}
+
+test("⑬は、コード側の一覧にある選択肢の棚3つをぜんぶ締める", () => {
+  const thirteen = stepThirteen();
+  const masters = PENDING_SHELVES.filter((p) => MASTER_SHELF_TABLES.includes(p.table));
+  assert.equal(masters.length, 3, "選択肢の棚の数が変わっています（貼り紙を見直すこと）");
+  for (const plan of masters) {
+    assert.ok(
+      thirteen.includes(`create or replace function public.${plan.window}(`),
+      `⑬に ${plan.label} の窓口（${plan.window}）がありません`,
+    );
+    assert.ok(
+      thirteen.includes(`on public.${plan.table}`),
+      `⑬に ${plan.table} の決まりがありません`,
+    );
+  }
+});
+
+test("⑬の決まりは3つとも「読むときだけ」「印が空の行だけ」（消さない）", () => {
+  const thirteen = stepThirteen();
+  assert.equal(
+    (thirteen.match(/as restrictive for select to public/g) ?? []).length,
+    3,
+    "読むときだけの決まりが3本になっていません",
+  );
+  assert.equal(
+    (thirteen.match(/using \(tenant_id is null\)/g) ?? []).length,
+    3,
+    "「印が空の行だけ」が3本になっていません",
+  );
+  const runs = thirteen
+    .split("\n")
+    .filter((l) => !l.trimStart().startsWith("--"))
+    .join("\n")
+    .toLowerCase();
+  for (const bad of ["drop policy", "drop table", "delete from", "truncate", "alter column"]) {
+    assert.ok(!runs.includes(bad), `⑬の流れる所に ${bad} が入っています（消す操作は禁止）`);
+  }
+});
+
+test("⑬の窓口3つは、画面が名乗った番号を受け取らず、合言葉のかたちを確かめる", () => {
+  const thirteen = stepThirteen();
+  assert.ok(!thirteen.includes("p_tenant_id"), "お店の番号を受け取る入り口が付いています");
+  assert.equal(
+    (thirteen.match(/\[0-9a-f\]\{64\}/g) ?? []).length,
+    3,
+    "合言葉のかたちを確かめていない窓口があります",
+  );
+});
+
+test("⑬の窓口は、お店の名前・合言葉・写真の住所を返さない", () => {
+  const thirteen = stepThirteen();
+  const returned = thirteen
+    .split("return query")
+    .slice(1)
+    .map((part) => part.split("end $$")[0] ?? "")
+    .join("\n");
+  for (const bad of ["receipt_image_url", "shop_name", "admin_password_hash", "setup_token"]) {
+    assert.ok(!returned.includes(bad), `⑬の窓口が ${bad} を返しています`);
+  }
+  assert.ok(returned.includes("l.name"), "出店場所の名前を返していません");
+  assert.ok(returned.includes("s.daily_wage"), "担当者の日当を返していません");
+  assert.ok(returned.includes("p.price"), "商品の単価を返していません");
+});
+
+test("⑬は棚や欄が無い倉庫でも途中で止まらない（あるときだけ足す）", () => {
+  const thirteen = stepThirteen();
+  for (const t of MASTER_SHELF_TABLES) {
+    assert.ok(
+      thirteen.includes(`table_name = '${t}'`),
+      `⑬が ${t} の棚があるかを見ていません`,
+    );
+    assert.ok(
+      thirteen.includes(`table_name = '${t}' and column_name = 'tenant_id'`),
+      `⑬が ${t} に「どの店か」の欄があるかを見ていません`,
     );
   }
 });

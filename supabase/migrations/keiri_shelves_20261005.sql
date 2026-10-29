@@ -41,6 +41,12 @@
 --      → ⑧は日報だけを締めます。経理にはほかにも棚があり、**中身が入っている
 --        いちばん大きい棚が立替（経営）**でした。⑧と同じ形（決まり＋窓口を対で）
 --        で締めます。**手羽屋の51行は印が空なので、見え方は1行も変わりません。**
+--   ⑬ 選択肢の棚（出店場所・担当者・商品と単価）も、よその店ぶんだけ
+--      公開の鍵では読めないようにする（2026-10-29 追記）
+--      → ⑧⑩⑪⑫で締めたのは日報とお金の棚だけで、**名前の棚が3つ残っていました**
+--        （出店場所22行・担当者8行・商品7行／2026-10-28 実測）。お金ではありませんが
+--        **人の名前**が入ります。⑫と同じ形（決まり＋窓口を対で）で締めます。
+--        **手羽屋の行は3つとも印が空なので、見え方は1行も変わりません。**
 --
 -- ■ 安全について（ここが大事）
 --   ・**足すだけ**です。消す・名前を変える・作り変えるものは1つもありません
@@ -53,6 +59,8 @@
 --       手羽屋の行は印が空なので見え方は変わりません。1行（drop policy）で元に戻せます。
 --     ⑩で、立替（経営）の棚に⑧と同じ決まりを**1本 足します**。
 --       手羽屋の51行は印が空なので見え方は変わりません。1行（drop policy）で元に戻せます。
+--     ⑬で、選択肢の棚3つ（出店場所・担当者・商品と単価）に⑧と同じ決まりを**1本ずつ 足します**。
+--       手羽屋の行は3つとも印が空なので見え方は変わりません。3行（drop policy）で元に戻せます。
 --   ・何度流しても同じ結果です（if not exists / create or replace）。
 --   ・手羽屋が毎日使う画面（日報・シフト・レジ・LINE・お金の計算）の棚は
 --     触っていません。④の欄を足す棚も、立替だけで日報ではありません。
@@ -309,10 +317,11 @@ end $$;
 --     ＝**このテストの店には誰も入れません**（外から覗かれる心配がありません）。
 --   ★ 手羽屋には1行も触れません。足すのは お店の棚に1行、
 --     そのお店ぶんの経理の設定に1行（業態コードは t_<お店の番号>）、
+--     **そのお店ぶんの出店場所1件**（手順4・2026-10-29 追記）、
 --     そして **そのお店ぶんの日報1枚**（手順5・架空の金額）だけです。
 --     どれも「どの店か」の印がテストの店で、名前の頭に【テスト】が付きます。
 --     手羽屋の行（印が空）は1行も読み書きしません。
---     経費・申し込み・出店場所・担当者・商品の行は**1行も作りません**。
+--     経費・申し込み・担当者・商品の行は**1行も作りません**。
 --
 --   ★ **日報1枚をここで入れる理由（2026-10-17 B・本番の前に実測して分かりました）**
 --     ⑧で足す決まり（印が空の行だけ 読んでよい・restrictive for select）は、
@@ -323,8 +332,13 @@ end $$;
 --       ・公開の鍵で「印つきの日報を消す」… **0行しか消えません**（黙って何も起きない）
 --     ＝ アプリ側（公開の鍵）からは、テストの店の日報を入れることも消すこともできません。
 --     そのため手順5は、鍵の決まりの外で動くこの1枚の中で済ませます。
---     これで ⑧ を流したあとも手順4〜6が通ります（手順4の出店場所は印の欄に
---     読む決まりが無いので、今までどおりアプリ側から入ります）。
+--
+--   ★ **出店場所（手順4）も、2026-10-29 からここで入れます**
+--     2026-10-28 まで、手順4の出店場所は「印の欄に読む決まりが無い」ので
+--     今までどおりアプリ側（公開の鍵）から入りました。
+--     ⑬で その棚にも ⑧と同じ決まりを足すので、**日報と同じことが起きます**
+--     （入れた番号を読み返せない・印つきの行を消せない）。
+--     下見で実測して分かったので、手順5と同じようにこの1枚の中で入れます。
 --   ★ 値は lib/keiri/tenantTrial.ts の TEST_SHOP と同じ固定値です
 --     （名前の頭に【テスト】が付きます。本物の軒数には数えないこと）。
 -- ============================================================
@@ -376,6 +390,27 @@ begin
     raise notice '⑥ テストの店の初回設定：%', coalesce(v_outcome, '（返事なし）');
   else
     raise notice '⑥ テストの店は、もうありました（何もしていません）';
+  end if;
+
+  -- ---------------------------------------------------------------
+  -- 手順4：そのお店ぶんの出店場所を1件 入れる（f5-4・2026-10-29 追記）
+  --
+  --   値は lib/keiri/tenantTrialSteps.ts の TEST_LOCATION と同じ固定値です
+  --   （tests/keiriShelvesSheet.test.ts で ずれないように縛っています）。
+  --   ★場代の決まりは「なし」。分からないところを0円の行にしないため（CLAUDE.md 4-15）。
+  --   ★同じお店・同じ名前の行があれば何もしません（何度 流しても増えません）。
+  -- ---------------------------------------------------------------
+  if v_id is not null then
+    if exists (
+         select 1 from public.locations l
+          where l.tenant_id = v_id and l.name = '【テスト】テスト広場'
+       ) then
+      raise notice '⑥ 手順4の出店場所は、もうありました（何もしていません）';
+    else
+      insert into public.locations (tenant_id, name, rank, target, is_active, booth_fee_type)
+      values (v_id, '【テスト】テスト広場', 'D', 30000, true, 'none');
+      raise notice '⑥ 手順4の出店場所を1件 入れました（印はテストの店・手羽屋の行は1行も触っていません）';
+    end if;
   end if;
 
   -- ---------------------------------------------------------------
@@ -1436,6 +1471,375 @@ grant execute on function public.keiri_tenant_advance_expenses(text, date, date,
 
 
 -- ============================================================
+-- ⑬ 選択肢の棚（出店場所・担当者・商品と単価）も、よその店ぶんだけ
+--    公開の鍵では読めないようにする（f3-4／2026-10-29 追記）
+--
+--   これを流すと：**お金の棚だけでなく、名前の棚もお店ごとに分かれます。**
+--
+-- ■ なぜ足したのか（2026-10-29・B／kp266）
+--   ⑧⑩⑪⑫で締めたのは、日報とお金の棚だけでした。
+--   日報の「出店場所」「担当者」「商品と単価」を選ぶための3つの棚は、
+--   **1行も締めていません**（2026-10-28 に倉庫で数えて確認：
+--     出店場所22行・決まり3本／担当者8行・決まり1本／商品7行・決まり1本。
+--     どれも「だれでも・条件なし」で、お店を分ける印は ぜんぶ0行）。
+--   ＝ 貼り紙を流したあとも、**よその店の 場所の名前・担当者の名前・商品と単価は、
+--     公開の鍵でそのまま読めます**。お金ではありませんが、**人の名前**が入ります。
+--   いまは よその店の行が0行なので漏れる中身はありません。
+--   **2軒目のお店が自分の担当者を入れた瞬間に読めてしまう**ので、先に閉めます。
+--
+-- ■ 手羽屋は1行も変わりません（ここが大事）
+--   手羽屋の行は**印が空（null）**です（22行・8行・7行ぜんぶ）。
+--   足す決まりは「**印が空の行だけ 読んでよい**」なので、
+--   日報・シフト・中間報告・レジ・管理のマスタ画面は**1行も変わりません**。
+--   書き込み（足す・直す・消す）も今までどおりです（足す決まりは**読むときだけ**に効きます）。
+--
+-- ■ 足すだけ・消しません（やり方は⑧⑩⑪⑫と同じ）
+--   いまある「だれでもOK」の決まりは**触りません**。追い禁止（restrictive）の
+--   決まりを棚ごとに1本 足し、その棚の**倉庫の窓口**を対で作ります。
+--   ★元に戻すのは3行です：
+--     drop policy "keiri_only_tebaya_locations_readable" on public.locations;
+--     drop policy "keiri_only_tebaya_staff_readable"     on public.staff_members;
+--     drop policy "keiri_only_tebaya_products_readable"  on public.sale_products;
+-- ============================================================
+-- (a) 棚ごとに「印が空の行だけ 読んでよい」という追い禁止の決まりを1本ずつ 足す
+do $$
+begin
+  if not exists (
+       select 1 from information_schema.tables
+        where table_schema = 'public' and table_name = 'locations'
+     ) then
+    raise notice '⑬ 出店場所の棚がありませんでした（何もしていません）';
+  elsif not exists (
+       select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = 'locations' and column_name = 'tenant_id'
+     ) then
+    raise notice '⑬ 出店場所の棚に「どの店か」の欄がありませんでした（何もしていません）';
+  elsif exists (
+       select 1 from pg_policies
+        where schemaname = 'public'
+          and tablename = 'locations'
+          and policyname = 'keiri_only_tebaya_locations_readable'
+     ) then
+    raise notice '⑬ 出店場所の読む決まりは、もうありました（何もしていません）';
+  else
+    create policy "keiri_only_tebaya_locations_readable" on public.locations
+      as restrictive for select to public
+      using (tenant_id is null);
+    raise notice '⑬ よその店の出店場所を、公開の鍵では読めないようにしました（手羽屋の行＝印が空は今までどおり）';
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+       select 1 from information_schema.tables
+        where table_schema = 'public' and table_name = 'staff_members'
+     ) then
+    raise notice '⑬ 担当者の棚がありませんでした（何もしていません）';
+  elsif not exists (
+       select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = 'staff_members' and column_name = 'tenant_id'
+     ) then
+    raise notice '⑬ 担当者の棚に「どの店か」の欄がありませんでした（何もしていません）';
+  elsif exists (
+       select 1 from pg_policies
+        where schemaname = 'public'
+          and tablename = 'staff_members'
+          and policyname = 'keiri_only_tebaya_staff_readable'
+     ) then
+    raise notice '⑬ 担当者の読む決まりは、もうありました（何もしていません）';
+  else
+    create policy "keiri_only_tebaya_staff_readable" on public.staff_members
+      as restrictive for select to public
+      using (tenant_id is null);
+    raise notice '⑬ よその店の担当者を、公開の鍵では読めないようにしました（手羽屋の行＝印が空は今までどおり）';
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+       select 1 from information_schema.tables
+        where table_schema = 'public' and table_name = 'sale_products'
+     ) then
+    raise notice '⑬ 商品と単価の棚がありませんでした（何もしていません）';
+  elsif not exists (
+       select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = 'sale_products' and column_name = 'tenant_id'
+     ) then
+    raise notice '⑬ 商品と単価の棚に「どの店か」の欄がありませんでした（何もしていません）';
+  elsif exists (
+       select 1 from pg_policies
+        where schemaname = 'public'
+          and tablename = 'sale_products'
+          and policyname = 'keiri_only_tebaya_products_readable'
+     ) then
+    raise notice '⑬ 商品と単価の読む決まりは、もうありました（何もしていません）';
+  else
+    create policy "keiri_only_tebaya_products_readable" on public.sale_products
+      as restrictive for select to public
+      using (tenant_id is null);
+    raise notice '⑬ よその店の商品と単価を、公開の鍵では読めないようにしました（手羽屋の行＝印が空は今までどおり）';
+  end if;
+end $$;
+
+-- (a-2) 念のため：棚の鍵（RLS）が開いていないかを見るだけ
+--   鍵が開いている棚では、決まりを足しても読めたままです（気づけないのがいちばん危ない）。
+--   **ここでは鍵を開け閉めしません。** おかしければ言うだけにして、人が決めます。
+do $$
+declare
+  t text;
+  v_on boolean;
+begin
+  foreach t in array array['locations', 'staff_members', 'sale_products'] loop
+    select c.relrowsecurity into v_on
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and c.relname = t;
+    if v_on is null then
+      raise notice '⑬ % の棚がありません', t;
+    elsif v_on = false then
+      raise notice '⑬ ★% の棚は鍵（RLS）が開いています。足した決まりが効きません（司令室に知らせてください）', t;
+    end if;
+  end loop;
+end $$;
+
+-- (b) よその店が、自分の選択肢だけを読むための「倉庫の窓口」を棚ごとに1つ
+--
+--   ★どれも⑧⑩⑪⑫と同じ決まりです：
+--     ・お店は**合言葉（戻せない形・16進64文字）**か**テストの印**から決める
+--     ・画面やブラウザが名乗った「お店の番号」は**受け取りません**
+--     ・当たったお店が1軒でないときは**何も返しません**
+--     ・お店の名前・合言葉・連絡先は1文字も返しません
+--   ★選択肢の棚は日付を持たないので、p_from / p_to は受け取るだけで使いません
+--     （ほかの窓口と形をそろえ、呼ぶ側が同じ書き方でいられるようにするため）。
+
+-- 出店場所：そのお店の出店場所の一覧
+create or replace function public.keiri_tenant_locations(
+  p_password_hash text default null,
+  p_from date default null,
+  p_to date default null,
+  p_test_mark text default null
+)
+returns setof jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_tenant uuid;
+  v_n int;
+begin
+  if p_test_mark is not null and btrim(p_test_mark) <> '' then
+    if btrim(p_test_mark) !~ '^test-' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%'
+     limit 1;
+  else
+    if p_password_hash is null or btrim(lower(p_password_hash)) !~ '^[0-9a-f]{64}$' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active'
+     limit 1;
+  end if;
+
+  if v_tenant is null then
+    return;
+  end if;
+
+  return query
+    select to_jsonb(x)
+      from (
+        select l.id,
+               l.name,
+               l.rank,
+               l.target,
+               l.is_active
+          from public.locations l
+         where l.tenant_id = v_tenant
+         order by l.name
+      ) x;
+end $$;
+
+comment on function public.keiri_tenant_locations(text, date, date, text) is
+  '経理：よその店が自分の出店場所だけを読む窓口（f3-4）。お店は合言葉かテストの印から決め、画面が名乗った番号は受け取らない。読むだけ。';
+
+revoke all on function public.keiri_tenant_locations(text, date, date, text) from public;
+grant execute on function public.keiri_tenant_locations(text, date, date, text)
+  to anon, authenticated, service_role;
+
+-- 担当者：そのお店の担当者の一覧（日当はそのお店じしんのものなので返します）
+create or replace function public.keiri_tenant_staff(
+  p_password_hash text default null,
+  p_from date default null,
+  p_to date default null,
+  p_test_mark text default null
+)
+returns setof jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_tenant uuid;
+  v_n int;
+begin
+  if p_test_mark is not null and btrim(p_test_mark) <> '' then
+    if btrim(p_test_mark) !~ '^test-' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%'
+     limit 1;
+  else
+    if p_password_hash is null or btrim(lower(p_password_hash)) !~ '^[0-9a-f]{64}$' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active'
+     limit 1;
+  end if;
+
+  if v_tenant is null then
+    return;
+  end if;
+
+  return query
+    select to_jsonb(x)
+      from (
+        select s.id,
+               s.name,
+               s.daily_wage,
+               s.is_active
+          from public.staff_members s
+         where s.tenant_id = v_tenant
+         order by s.name
+      ) x;
+end $$;
+
+comment on function public.keiri_tenant_staff(text, date, date, text) is
+  '経理：よその店が自分の担当者だけを読む窓口（f3-4）。お店は合言葉かテストの印から決め、画面が名乗った番号は受け取らない。読むだけ。';
+
+revoke all on function public.keiri_tenant_staff(text, date, date, text) from public;
+grant execute on function public.keiri_tenant_staff(text, date, date, text)
+  to anon, authenticated, service_role;
+
+-- 商品と単価：そのお店の商品の一覧
+create or replace function public.keiri_tenant_products(
+  p_password_hash text default null,
+  p_from date default null,
+  p_to date default null,
+  p_test_mark text default null
+)
+returns setof jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_tenant uuid;
+  v_n int;
+begin
+  if p_test_mark is not null and btrim(p_test_mark) <> '' then
+    if btrim(p_test_mark) !~ '^test-' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.external_session_id = btrim(p_test_mark)
+       and coalesce(t.shop_name, '') like '【テスト】%'
+     limit 1;
+  else
+    if p_password_hash is null or btrim(lower(p_password_hash)) !~ '^[0-9a-f]{64}$' then
+      return;
+    end if;
+    select count(*) into v_n
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active';
+    if v_n <> 1 then
+      return;
+    end if;
+    select t.id into v_tenant
+      from public.keiri_tenants t
+     where t.admin_password_hash = btrim(lower(p_password_hash))
+       and t.status = 'active'
+     limit 1;
+  end if;
+
+  if v_tenant is null then
+    return;
+  end if;
+
+  return query
+    select to_jsonb(x)
+      from (
+        select p.id,
+               p.name,
+               p.price,
+               p.kind,
+               p.is_active,
+               p.sort_order
+          from public.sale_products p
+         where p.tenant_id = v_tenant
+         order by p.sort_order, p.name
+      ) x;
+end $$;
+
+comment on function public.keiri_tenant_products(text, date, date, text) is
+  '経理：よその店が自分の商品と単価だけを読む窓口（f3-4）。お店は合言葉かテストの印から決め、画面が名乗った番号は受け取らない。読むだけ。';
+
+revoke all on function public.keiri_tenant_products(text, date, date, text) from public;
+grant execute on function public.keiri_tenant_products(text, date, date, text)
+  to anon, authenticated, service_role;
+
+
+-- ============================================================
 -- 確かめ方（流したあと、これを貼ると結果が1画面で見えます）
 --
 --   select 'keiri_cash_events'    as 棚, count(*) as 行数 from public.keiri_cash_events
@@ -1532,5 +1936,25 @@ grant execute on function public.keiri_tenant_advance_expenses(text, date, date,
 --   select 'keiri_advance_expenses', count(*), count(tenant_id) from public.keiri_advance_expenses;
 --   → 「印がついている行」が 0 なら、じゅんが見る画面は1行も変わっていません。
 --   → 本番の https://tebaya-report.vercel.app/api/keiri/copies の
---     「日報いがいの棚」が**6つぜんぶ○**になり、f3-4 がここで閉じます。
+--     「日報いがいの棚」で、お金の棚6つが○になります。
+--
+--   ⑬ 選択肢の棚3つが締まったかは、これで分かります（2026-10-29 追記）：
+--   select tablename as 棚, count(*) as 読む決まりの本数
+--     from pg_policies
+--    where schemaname = 'public'
+--      and policyname in ('keiri_only_tebaya_locations_readable',
+--                         'keiri_only_tebaya_staff_readable',
+--                         'keiri_only_tebaya_products_readable')
+--    group by tablename;
+--   → 3棚ぶん 1 ずつ出れば付いています。手羽屋の行が今までどおり読めることは、これで分かります：
+--   select 'locations' as 棚, count(*) as 行, count(tenant_id) as 印がついている行
+--     from public.locations
+--   union all
+--   select 'staff_members', count(*), count(tenant_id) from public.staff_members
+--   union all
+--   select 'sale_products', count(*), count(tenant_id) from public.sale_products;
+--   → 行が 22・8・7（2026-10-28 時点）のまま・「印がついている行」が 0 なら、
+--     日報の選択肢もシフトも管理のマスタ画面も、1行も変わっていません。
+--   → 本番の https://tebaya-report.vercel.app/api/keiri/copies の
+--     「日報いがいの棚」が**9つぜんぶ○**になり、f3-4 がここで閉じます。
 -- ============================================================

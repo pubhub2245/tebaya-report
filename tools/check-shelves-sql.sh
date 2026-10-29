@@ -127,6 +127,15 @@ create table if not exists public.pkmn_entries_backup_20260823
 create table if not exists public.bakery_sales (id bigserial primary key, note text);
 create table if not exists public.shifts (id bigserial primary key, date date, staff_name text, location text);
 insert into public.shifts (date, staff_name, location) values ('2026-08-01','テスト','テスト広場');
+-- 商品と単価の棚に、本番と同じく鍵をかける（2026-10-29）。
+--   本番は enable_rls_all_tables.sql で sale_products にも鍵がかかっているが、
+--   その移行ファイルは下見では流していない（ほかの棚の結果まで変わるため）。
+--   ここをそろえないと、⑬で足す追い禁止の決まりが**効かないのに気づけない**
+--   （鍵が開いた棚では、決まりを足しても読めたままになる）。
+alter table public.sale_products enable row level security;
+drop policy if exists "allow all sale_products" on public.sale_products;
+create policy "allow all sale_products" on public.sale_products
+  for all to public using (true) with check (true);
 -- 本番の立替（経営・51行）に相当する手羽屋の行。⑩のあとも読める・直せる・消せるはず
 insert into public.advance_expenses (date, payer, amount, description, settled)
   values ('2026-09-03','テスト太郎',3000,'テストの立替',false),
@@ -299,49 +308,66 @@ psql -q -c "set role anon; insert into public.daily_reports (date, location, sta
 want "⑧ その行は、ちゃんと棚に入っている（倉庫の側から数える）" "1" "$(q "select count(*) from public.daily_reports where date='2026-09-22'")"
 psql -q -c "delete from public.daily_reports where date='2026-09-22'" >/dev/null 2>&1
 
-# --- 手順４ そのお店の出店場所が1件 入るか（2026-10-28 追記・f5-4） --------
+# --- 手順４ そのお店の出店場所が1件 入るか（2026-10-28 追記・2026-10-29 書き直し・f5-4） ---
 #   2軒目を入れる手順は6手あり、そのうち **手順４（そのお店の出店場所を入れる）**だけが
-#   これまで **下見に一度もかかっていませんでした**（下見の出店場所は「番号と名前」だけの
+#   2026-10-28 まで **下見に一度もかかっていませんでした**（下見の出店場所は「番号と名前」だけの
 #   最小の形で、印も鍵も無かったため）。
-#   同じ見落としを 10/14（通す道が無かった）と 10/17（手順５が通らなかった）に
-#   2度 やっていて、どちらも **じゅんの二分が済む直前**に見つかりました。
-#   ここで固めておけば、貼り紙が流れたその回に f5-4 が閉まるかどうかが先に分かる。
-#   ためすのは、窓口（/api/keiri/tenant-trial/steps/run）が実際にすることと同じ順番：
-#     入れる → 番号を読み返す → そのお店として読む → 手羽屋に混じらない → 消せる（取り消し）
+#
+#   ★2026-10-29・kp266：⑬で この棚にも⑧と同じ決まり（印が空の行だけ 読んでよい）を
+#     足したので、**公開の鍵では 印つきの出店場所を入れて番号を読み返すことも、
+#     消すこともできません**（日報でまったく同じことが起きたのが 2026-10-17）。
+#     そのため手順４の行は、⑥がこの1枚の中で入れます。ここで見るのは
+#       ・⑥が1件 入れたか（何度 流しても増えないか）
+#       ・そのお店の出店場所が、**倉庫の窓口ごしに**読めるか
+#       ・公開の鍵からは隠れているか
+#       ・**手羽屋の出店場所は今までどおり読める・入れられる・消せるか**（ここが要）
 LOC_TEBAYA="$(q "select count(*) from public.locations where tenant_id is null")"
-psql -tA -c "set role anon; insert into public.locations (tenant_id, name, rank, target, is_active, booth_fee_type) values ('$TEST_TENANT','【テスト】テスト広場','D',30000,true,'none') returning id" >/dev/null 2>&1 \
-  && say "手順４ よその店の出店場所を、公開の鍵で入れて番号も読み返せる" "OK" \
-  || say "手順４ よその店の出店場所を、公開の鍵で入れて番号も読み返せる" "NG（手順４がここで止まります）"
-want "手順４ その行は、ちゃんと棚に入っている" "1" "$(q "select count(*) from public.locations where tenant_id is not null")"
-want "手順４ そのお店として読むと、1件だけ出る" "1" "$(q "set role anon; select count(*) from public.locations where tenant_id='$TEST_TENANT'")"
-want "手順４ そのお店の一覧に、手羽屋の場所は混じらない" "0" "$(q "set role anon; select count(*) from public.locations where tenant_id='$TEST_TENANT' and name not like '【テスト】%'")"
+want "手順４ ⑥が、そのお店の出店場所を1件 入れた" "1" "$(q "select count(*) from public.locations where tenant_id is not null")"
+want "手順４ 何度 流しても増えない（印つきは1件のまま）" "1" "$(q "select count(*) from public.locations where tenant_id='$TEST_TENANT' and name='【テスト】テスト広場'")"
+want "手順４ そのお店の出店場所は、窓口ごしに読める" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_locations(null, null, null, 'test-b2-kensa-1006')")"
+want "手順４ 窓口の答えに、手羽屋の場所は混じらない" "0" "$(q "set role anon; select count(*) from (select (x->>'name') as n from public.keiri_tenant_locations(null,null,null,'test-b2-kensa-1006') x) y where n not like '【テスト】%'")"
+want "手順４ そのお店の出店場所は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.locations where tenant_id='$TEST_TENANT'")"
 want "手順４ 手羽屋の出店場所の件数は、はじめと同じ" "$LOC_TEBAYA" "$(q "set role anon; select count(*) from public.locations where tenant_id is null")"
-# ★ここが要です：窓口は「手羽屋に見える件数が動いたら、入れた行をその場で取り消す」形です。
-#   公開の鍵で **印つきの出店場所が消せない**なら、取り消しが黙って空振りし、
-#   本番に【テスト】の行が永く残ります（日報では実際にそうでした・2026-10-17）。
-want "手順４ 入れた出店場所は、公開の鍵で取り消せる" "1" "$(q "set role anon; with d as (delete from public.locations where tenant_id='$TEST_TENANT' returning 1) select count(*) from d")"
-want "手順４ 取り消したあと、印つきの行は残っていない" "0" "$(q "select count(*) from public.locations where tenant_id is not null")"
-want "手順４ 取り消しで、手羽屋の場所は1行も消えていない" "$LOC_TEBAYA" "$(q "select count(*) from public.locations where tenant_id is null")"
+# ★ここが要です：手羽屋の毎日の画面（日報の選択肢・シフト・管理のマスタ）が
+#   今までどおり動くこと。読めるだけでなく、入れる・直す・消すまで見ます。
+psql -tA -c "set role anon; insert into public.locations (name, rank, target, is_active) values ('【下見】手羽屋の新しい場所','C',40000,true) returning id" >/dev/null 2>&1 \
+  && say "手順４ 手羽屋の出店場所は、公開の鍵で入れて番号も読み返せる" "OK" \
+  || say "手順４ 手羽屋の出店場所は、公開の鍵で入れて番号も読み返せる" "NG（管理のマスタ画面が止まります）"
+want "手順４ 手羽屋の出店場所は、公開の鍵で直せる" "1" "$(q "set role anon; with u as (update public.locations set target=45000 where name='【下見】手羽屋の新しい場所' returning 1) select count(*) from u")"
+want "手順４ 手羽屋の出店場所は、公開の鍵で消せる" "1" "$(q "set role anon; with d as (delete from public.locations where name='【下見】手羽屋の新しい場所' returning 1) select count(*) from d")"
+want "手順４ 出し入れのあと、手羽屋の件数は はじめと同じ" "$LOC_TEBAYA" "$(q "select count(*) from public.locations where tenant_id is null")"
 # 担当者・商品の棚も、印が空のままで手羽屋が読めること（日報の選択肢）
 want "手順４ 手羽屋の担当者は、公開の鍵で今までどおり読める" "2" "$(q "set role anon; select count(*) from public.staff_members where tenant_id is null")"
 
-# --- 選択肢の棚は、貼り紙ではだれが読めるかを変えていません（2026-10-28・f3-4） ---
-#   ★ ここは「こうあってほしい」ではなく、**いまこうだ**という事実を固める課題です。
-#   貼り紙（①〜⑳）は、日報・立替・払った記録・経理の設定・金庫の記録・数えない印には
-#   「印が空の行だけ 読んでよい」の決まりを足しますが、
-#   **出店場所（locations）・担当者（staff_members）・商品（sale_products）には1行も足していません**。
-#   そのため、貼り紙を流したあとも **よその店の場所の名前・担当者の名前・商品と単価は、
-#   公開の鍵で読めます**（お金の数字ではありませんが、人の名前が入ります）。
-#   すぐに絠ると、申し込んだお店自身の日報の選択肢が空になるので、
-#   日報と同じように「窓口ごしに読む」形を先に作る必要があります（kp266）。
-#   この3行が OK から変わったら、その工事が済んだ印です。
-psql -q -c "insert into public.locations (tenant_id, name) values ('$TEST_TENANT','【テスト】よその場所')" >/dev/null 2>&1
+# --- ⑬ 選択肢の棚3つが締まったか（2026-10-29 追記・f3-4・kp266） ---------------
+#   ★2026-10-28 まで、ここは「**未完：まだ公開の鍵で読める**」という事実を
+#     そのまま固める課題でした（貼り紙が1行も足していなかったため）。
+#   ⑬で、出店場所・担当者・商品にも ⑧と同じ決まり（印が空の行だけ 読んでよい）と
+#   倉庫の窓口を対で足したので、ここを**閉まっている側**に書き換えます。
+#   見るのは4つ：よその店の行が隠れたか／窓口ごしには読めるか／
+#   窓口が知らない印に答えないか／**手羽屋の行は今までどおり読めるか**。
+STAFF_TEBAYA="$(q "select count(*) from public.staff_members where tenant_id is null")"
+PROD_TEBAYA="$(q "select count(*) from public.sale_products where tenant_id is null")"
 psql -q -c "insert into public.staff_members (tenant_id, name, daily_wage) values ('$TEST_TENANT','【テスト】よその人',9000)" >/dev/null 2>&1
 psql -q -c "insert into public.sale_products (tenant_id, name, price) values ('$TEST_TENANT','【テスト】よその商品',300)" >/dev/null 2>&1
-want "未完：よその店の出店場所は、まだ公開の鍵で読める" "1" "$(q "set role anon; select count(*) from public.locations where tenant_id is not null")"
-want "未完：よその店の担当者は、まだ公開の鍵で読める" "1" "$(q "set role anon; select count(*) from public.staff_members where tenant_id is not null")"
-want "未完：よその店の商品は、まだ公開の鍵で読める" "1" "$(q "set role anon; select count(*) from public.sale_products where tenant_id is not null")"
-psql -q -c "delete from public.locations where tenant_id is not null" >/dev/null 2>&1
+want "⑬ locations に読む決まりが1本 付いた" "1" "$(q "select count(*) from pg_policies where tablename='locations' and policyname='keiri_only_tebaya_locations_readable'")"
+want "⑬ staff_members に読む決まりが1本 付いた" "1" "$(q "select count(*) from pg_policies where tablename='staff_members' and policyname='keiri_only_tebaya_staff_readable'")"
+want "⑬ sale_products に読む決まりが1本 付いた" "1" "$(q "select count(*) from pg_policies where tablename='sale_products' and policyname='keiri_only_tebaya_products_readable'")"
+want "⑬ 窓口が3つ できた" "3" "$(q "select count(*) from pg_proc where proname in ('keiri_tenant_locations','keiri_tenant_staff','keiri_tenant_products')")"
+want "⑬ よその店の担当者は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.staff_members where tenant_id is not null")"
+want "⑬ よその店の商品は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.sale_products where tenant_id is not null")"
+want "⑬ 書き換えて取り出す道でも読めない" "0" "$(q "set role anon; select count(*) from public.staff_members where tenant_id::text like '%'")"
+want "⑬ 窓口は、その店の担当者を返す" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_staff(null,null,null,'test-b2-kensa-1006')")"
+want "⑬ 窓口は、その店の商品を返す" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_products(null,null,null,'test-b2-kensa-1006')")"
+want "⑬ 窓口は、知らない印には何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_staff(null,null,null,'test-shiranai')")"
+want "⑬ 窓口は、合言葉のかたちでなければ何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_products('あいことば',null,null,null)")"
+want "⑬ 手羽屋の担当者は、公開の鍵で今までどおり読める" "$STAFF_TEBAYA" "$(q "set role anon; select count(*) from public.staff_members where tenant_id is null")"
+want "⑬ 手羽屋の商品は、公開の鍵で今までどおり読める" "$PROD_TEBAYA" "$(q "set role anon; select count(*) from public.sale_products where tenant_id is null")"
+psql -tA -c "set role anon; insert into public.staff_members (name, daily_wage) values ('【下見】新しい人',9500) returning id" >/dev/null 2>&1 \
+  && say "⑬ 手羽屋の担当者は、公開の鍵で入れて番号も読み返せる" "OK" \
+  || say "⑬ 手羽屋の担当者は、公開の鍵で入れて番号も読み返せる" "NG（管理のマスタ画面が止まります）"
+want "⑬ 手羽屋の担当者は、公開の鍵で消せる" "1" "$(q "set role anon; with d as (delete from public.staff_members where name='【下見】新しい人' returning 1) select count(*) from d")"
+want "⑬ 手羽屋の担当者の件数は、はじめと同じ" "$STAFF_TEBAYA" "$(q "select count(*) from public.staff_members where tenant_id is null")"
 psql -q -c "delete from public.staff_members where tenant_id is not null" >/dev/null 2>&1
 psql -q -c "delete from public.sale_products where tenant_id is not null" >/dev/null 2>&1
 
@@ -487,7 +513,7 @@ psql -q -c "insert into public.keiri_expense_ignores(source,ref_id,line_index) v
 
 echo "----------------------------------------------"
 if [ "$NG" = "0" ]; then
-  echo "OK：貼り紙は12 ぜんぶ通り、何度 流しても増えません（本番ではなく、同じ形の空の倉庫での結果です）"
+  echo "OK：貼り紙は13 ぜんぶ通り、何度 流しても増えません（本番ではなく、同じ形の空の倉庫での結果です）"
   exit 0
 fi
 echo "NG：直してから、じゅんに渡す1枚を更新してください"

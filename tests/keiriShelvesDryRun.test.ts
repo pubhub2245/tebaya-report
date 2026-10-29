@@ -91,5 +91,5 @@ test("下見の記録は、外に出してよい事実だけ（鍵・合言葉�
     assert.ok(!text.includes(ng), `下見の記録に ${ng} が入っている`);
   }
   assert.ok(SHELF_SQL_DRYRUN.checks > 0, "確かめた件数が入っている");
-  assert.equal(SHELF_SQL_DRYRUN.steps.length, 12, "貼り紙は12 本");
+  assert.equal(SHELF_SQL_DRYRUN.steps.length, 13, "貼り紙は13 本");
 });
