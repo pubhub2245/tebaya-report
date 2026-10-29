@@ -177,8 +177,14 @@ export function serviceClientOrNull(opts?: ServerClientOptions): SupabaseClient 
   // 直せなければ今までどおり null。ここは「使えないと何もできない」所なので、
   // 直して動くほうが必ず良く、直しが外れても今と同じ（何もできない）で済む。
   const service = serviceRoleKeyRepair(url);
-  if (!url || !service.ok) return null;
-  return createClient(url, service.key, clientOptions(opts));
+  if (!url) return null;
+  if (service.ok) return createClient(url, service.key, clientOptions(opts));
+  // 公式の名前が使えないときだけ、**よその名前に本物が入っていないか**を見る
+  // （2026-10-29・kp267）。形の確かめを そのまま通ったものしか使わないので、
+  // 推測で鍵を作ることにはなりません。無ければ今までどおり null＝何もしません。
+  const alt = alternateServiceKey(process.env, url);
+  if (!alt) return null;
+  return createClient(url, alt.key, clientOptions(opts));
 }
 
 /* ============================================================
@@ -327,4 +333,110 @@ export function serviceRoleKeyRepair(url?: string): KeyRepair {
     repaired: false,
     broken,
   };
+}
+
+/* ============================================================
+ * ここから下は 2026-10-29（kp267）に足した「鍵が別の名前に入っていないか探す」しくみ。
+ *
+ * ■ なぜ足したか（やさしい説明）
+ *   仕上げの残り3つ（f1-4・f3-4・f5-4）は、22日 動いていません。
+ *   止まっている理由はコードではなく、**サーバー側の鍵の欄に鍵ではないものが
+ *   入っていること**（kp241）と、倉庫に貼り紙を1回 貼ること（kp238）です。
+ *   鍵の欄に日本語の文章が入っている＝**貼る欄を間違えた**ようにも見えます。
+ *   だとすれば、**本物の鍵はよその欄に入っているかもしれません**。
+ *   入っていれば、じゅんの1分を待たずに、こちら側で f3-4 が1つ前に進みます
+ *   （レシート写真の置き場を閉める・毎日の控えが戻る）。
+ *
+ * ■ ここでやること／やらないこと
+ *   やる  … Vercel に預けてある設定の**名前だけ**を1つずつ見て、
+ *           その値が「この倉庫の service_role の鍵の形」をしているかを確かめる。
+ *   やらない … 値を返す・記録に残す・推測で作り変える。
+ *           形の確かめ方は 2026-09-19 のものと**同じ関数**（looksLikeServiceRoleKey）で、
+ *           「. で3つ／真ん中の role が service_role／ref がこの倉庫」を全部 満たさないと
+ *           候補にしません。新しい形（sb_secret_…）は倉庫の名前が入っていないので
+ *           **見つけたことだけ言って、使いません**。
+ *   ブラウザにも配られる名前（NEXT_PUBLIC_…）に鍵が入っていたら、
+ *   それは**すでに表に出てしまっている**ので、やはり使わず「危ない」と言うだけにします。
+ * ============================================================ */
+
+/** 本来、鍵が入っているはずの名前 */
+export const SERVICE_KEY_NAME = "SUPABASE_SERVICE_ROLE_KEY";
+
+/** 鍵らしい長さの下限（JWT は 200 文字ほど。短い値は見ない） */
+const KEY_MIN_LENGTH = 40;
+
+/** 見つけた候補。**値は1文字も持ちません**（名前と見立てだけ） */
+export type KeyCandidate = {
+  /** 設定の名前（値ではありません） */
+  name: string;
+  /** そのまま鍵として使える形か */
+  usable: boolean;
+  /** 全角を半角に直すと形が合うか */
+  repaired: boolean;
+  /** ブラウザにも配られる名前（NEXT_PUBLIC_…）か。true なら使いません */
+  publicName: boolean;
+  /** 新しい形の秘密の鍵（sb_secret_…）に見えるか。倉庫が分からないので使いません */
+  secretStyle: boolean;
+};
+
+/** 新しい形の秘密の鍵の書き出し（公開されている形なので、これを見ても値は漏れない） */
+function looksLikeSecretStyleKey(value: string): boolean {
+  return /^sb_secret_[A-Za-z0-9_-]{10,}$/.test(value);
+}
+
+/**
+ * 預けてある設定の中から、「この倉庫の service_role の鍵の形」をしている名前を探す。
+ * **値は返しません。**（公式の名前そのものは、探す対象から外します）
+ */
+export function findServiceKeyCandidates(
+  env: Record<string, string | undefined>,
+  url?: string,
+): KeyCandidate[] {
+  const target = (url ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
+  const found: KeyCandidate[] = [];
+  for (const name of Object.keys(env)) {
+    if (name === SERVICE_KEY_NAME) continue;
+    const raw = env[name];
+    if (typeof raw !== "string") continue;
+    const tidy = tidyPastedValue(raw);
+    if (tidy.length < KEY_MIN_LENGTH) continue;
+
+    const publicName = name.startsWith("NEXT_PUBLIC_");
+    if (isUsableKey(tidy) && looksLikeServiceRoleKey(tidy, target)) {
+      found.push({ name, usable: true, repaired: false, publicName, secretStyle: false });
+      continue;
+    }
+    if (isUsableKey(tidy) && looksLikeSecretStyleKey(tidy)) {
+      found.push({ name, usable: false, repaired: false, publicName, secretStyle: true });
+      continue;
+    }
+    const fixed = tidyPastedValue(repairWideChars(tidy));
+    if (isUsableKey(fixed) && looksLikeServiceRoleKey(fixed, target)) {
+      found.push({ name, usable: false, repaired: true, publicName, secretStyle: false });
+    }
+  }
+  return found;
+}
+
+/**
+ * 公式の名前の鍵が使えないときに、代わりに使ってよい鍵を1つだけ選ぶ。
+ *
+ * ■ 使ってよい条件（1つでも外れたら使いません）
+ *   ・形の確かめを**そのまま**通った（全角を直した値は使いません。直すのは公式の名前だけ）
+ *   ・ブラウザにも配られる名前ではない（NEXT_PUBLIC_… は表に出てしまっているので使わない）
+ *   ・新しい形（sb_secret_…）ではない（どの倉庫のものか確かめられないので使わない）
+ */
+export function alternateServiceKey(
+  env: Record<string, string | undefined>,
+  url?: string,
+): { name: string; key: string } | null {
+  const target = (url ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
+  for (const c of findServiceKeyCandidates(env, target)) {
+    if (!c.usable || c.publicName || c.secretStyle) continue;
+    const key = tidyPastedValue(env[c.name] ?? "");
+    if (isUsableKey(key) && looksLikeServiceRoleKey(key, target)) {
+      return { name: c.name, key };
+    }
+  }
+  return null;
 }
