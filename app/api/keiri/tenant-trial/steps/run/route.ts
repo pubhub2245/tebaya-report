@@ -14,9 +14,9 @@ import {
   type TebayaVisible,
 } from "@/lib/keiri/tenantTrialSteps";
 import { readTenantReportsViaWindow } from "@/lib/keiri/loadMonthServer";
+import { findTestShopLocation } from "@/lib/keiri/tenantMasterRead";
 import { testShopNumbersShown } from "@/lib/keiri/tenantTrialNumbers";
 import { serverClient } from "@/lib/supabaseServer";
-import { applyTenantScope } from "@/lib/tenantScope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -106,14 +106,12 @@ export async function POST() {
   // --- 手順4：出店場所を1件 ------------------------------------------------
   let locationReady = false;
   try {
-    const { data: already, error: readErr } = await applyTenantScope<any>(
-      db.from("locations").select("id") as any,
-      tenantId,
-    )
-      .eq("name", TEST_LOCATION.name)
-      .limit(1);
-    if (readErr) problems.push("出店場所の棚を読めませんでした");
-    else if ((already?.length ?? 0) > 0) locationReady = true;
+    // ★読む道は GET と同じ1か所（lib/keiri/tenantMasterRead.ts）。
+    //   貼り紙⑬のあとも「もう入っているか」が正しく分かるので、
+    //   同じ出店場所を2件 足してしまうことがない（2026-10-29・kp266）。
+    const already = await findTestShopLocation(db as any, tenantId, TEST_LOCATION.name);
+    if (already.unreadable) problems.push("出店場所の棚を読めませんでした");
+    else if (already.found) locationReady = true;
     else {
       const { data, error } = await db
         .from("locations")

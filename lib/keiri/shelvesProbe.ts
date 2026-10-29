@@ -24,7 +24,11 @@ import {
 import { peekTestShop } from "@/lib/keiri/tenantTrialServer";
 import { decodeCashCountMemo } from "@/lib/keiri/cashCountMemo";
 import { probeTenantReadGuard } from "@/lib/keiri/tenantReadGuard";
-import { PENDING_SHELVES, probeShelfScopes } from "@/lib/keiri/shelfScope";
+import {
+  MASTER_SHELF_TABLES,
+  PENDING_SHELVES,
+  probeShelfScopes,
+} from "@/lib/keiri/shelfScope";
 
 /** その棚（または欄）が1行 読めるかだけを見る。中身は捨てる */
 export async function probeShelf(table: string, column: string): Promise<ShelfProbe> {
@@ -155,7 +159,11 @@ async function probePaymentsScoped(): Promise<ShelfProbe> {
  */
 async function probeRestShelvesScoped(): Promise<ShelfProbe> {
   const rest = PENDING_SHELVES.filter(
-    (p) => p.table !== "advance_expenses" && p.table !== "keiri_payments",
+    (p) =>
+      p.table !== "advance_expenses" &&
+      p.table !== "keiri_payments" &&
+      // 選択肢の棚は⑬で締めるので、⑫の合否には入れない（2026-10-29・kp266）
+      !MASTER_SHELF_TABLES.includes(p.table),
   );
   if (rest.length === 0) {
     return { ok: false, code: null, message: "締める棚の一覧に のこりの棚がありません" };
@@ -168,7 +176,28 @@ async function probeRestShelvesScoped(): Promise<ShelfProbe> {
   return missingProbe(r.summary);
 }
 
-/** 貼り紙の①〜⑫を、ぜんぶ読んで並べる */
+/**
+ * ⑬は**選択肢の棚3つがぜんぶ締まったか**を見る（1つでも残っていれば「まだ」）。
+ *
+ * ■ ここが大事（やさしい説明）
+ *   見るのは⑫と同じ2つだけです：公開の鍵で「印が付いた行」が読めるか、
+ *   その棚の倉庫の窓口があるか。**手羽屋の行（印が空）は流したあとも読めます**。
+ *   それが正しい形なので、「棚が公開の鍵で読めるか」では判定しません。
+ */
+async function probeMasterShelvesScoped(): Promise<ShelfProbe> {
+  const masters = PENDING_SHELVES.filter((p) => MASTER_SHELF_TABLES.includes(p.table));
+  if (masters.length === 0) {
+    return { ok: false, code: null, message: "締める棚の一覧に 選択肢の棚がありません" };
+  }
+  const r = await probeShelfScopes(masters);
+  if (r.shelves.some((s) => s.scoped === null)) {
+    return { ok: false, code: null, message: r.summary };
+  }
+  if (r.allScoped) return { ok: true };
+  return missingProbe(r.summary);
+}
+
+/** 貼り紙の①〜⑬を、ぜんぶ読んで並べる */
 export async function readShelfReports(): Promise<ShelfReport[]> {
   const [
     cash,
@@ -183,6 +212,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     advancesOldScoped,
     paymentsScoped,
     restShelvesScoped,
+    masterShelvesScoped,
   ] = await Promise.all([
     probeShelf("keiri_cash_events", "id"),
     probeShelf("keiri_expense_ignores", "id"),
@@ -196,6 +226,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     probeAdvancesOldScoped(),
     probePaymentsScoped(),
     probeRestShelvesScoped(),
+    probeMasterShelvesScoped(),
   ]);
 
   const probes: Record<string, ShelfProbe> = {
@@ -211,6 +242,7 @@ export async function readShelfReports(): Promise<ShelfReport[]> {
     advances_old_scoped: advancesOldScoped,
     payments_scoped: paymentsScoped,
     rest_shelves_scoped: restShelvesScoped,
+    master_shelves_scoped: masterShelvesScoped,
   };
 
   return SHELF_STEPS.map((s) =>

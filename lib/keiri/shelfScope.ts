@@ -77,7 +77,7 @@ export const SHARED_SHELVES: { table: string; label: string; why: string }[] = [
 ];
 
 /**
- * 日報のつぎに締める棚（kp253 ③ の6つ）。
+ * 日報のつぎに締める棚（kp253 ③ のお金の棚6つ ＋ kp266 の選択肢の棚3つ）。
  * **消さないこと。** 締め終わった棚もここに残し、窓口があるかで ○× を出します。
  *
  * ■ 立替の「本物」はどちらか（2026-10-17・B の決め・kp253 ③②）
@@ -97,6 +97,30 @@ export const TENANT_SETTINGS_WINDOW = "keiri_tenant_settings";
 export const TENANT_PAYMENTS_WINDOW = "keiri_tenant_payments";
 export const TENANT_FIELD_ADVANCES_WINDOW = "keiri_tenant_advance_expenses";
 export const TENANT_OWNER_ADVANCES_WINDOW = "keiri_tenant_advances_old";
+
+/**
+ * 選択肢の棚（出店場所・担当者・商品と単価）の窓口（2026-10-29・kp266／f3-4）。
+ *
+ * ■ なぜ お金の棚と分けて名前を付けるのか（やさしい説明）
+ *   ⑧⑩⑪⑫で締めたのは、日報とお金の棚だけでした。
+ *   日報で選ぶ「出店場所」「担当者」「商品と単価」の3つは1行も締めておらず、
+ *   **よその店の 場所の名前・担当者の名前・商品と単価は 公開の鍵で読めます**
+ *   （2026-10-28 に倉庫で実測：22行・8行・7行、どれも印は0行）。
+ *   お金ではありませんが**人の名前**が入るので、⑬で同じ形に締めます。
+ */
+export const TENANT_LOCATIONS_WINDOW = "keiri_tenant_locations";
+export const TENANT_STAFF_WINDOW = "keiri_tenant_staff";
+export const TENANT_PRODUCTS_WINDOW = "keiri_tenant_products";
+
+/**
+ * 貼り紙⑬で締める「選択肢の棚」の名前。
+ * ⑫（お金の棚）の数え方と混ざらないよう、ここで1か所だけに書いておく。
+ */
+export const MASTER_SHELF_TABLES: readonly string[] = [
+  "locations",
+  "staff_members",
+  "sale_products",
+];
 
 export const PENDING_SHELVES: ShelfPlan[] = [
   {
@@ -135,6 +159,25 @@ export const PENDING_SHELVES: ShelfPlan[] = [
     window: TENANT_OWNER_ADVANCES_WINDOW,
     column: "tenant_id",
   },
+  // ここから下は貼り紙⑬（選択肢の棚・2026-10-29・kp266）
+  {
+    table: "locations",
+    label: "出店場所",
+    window: TENANT_LOCATIONS_WINDOW,
+    column: "tenant_id",
+  },
+  {
+    table: "staff_members",
+    label: "担当者",
+    window: TENANT_STAFF_WINDOW,
+    column: "tenant_id",
+  },
+  {
+    table: "sale_products",
+    label: "商品と単価",
+    window: TENANT_PRODUCTS_WINDOW,
+    column: "tenant_id",
+  },
 ];
 
 export type ShelfScopeReport = {
@@ -163,7 +206,7 @@ export type ShelvesScopeReport = {
   leaking: string[];
   /** まだ締める工事が済んでいない棚 */
   pending: string[];
-  /** 6つぜんぶ締まっているか（1つでも分からなければ false） */
+  /** 数えた棚がぜんぶ締まっているか（1つでも分からなければ false） */
   allScoped: boolean;
   /** 「お店ごとに分ける必要が無い」と決めた棚（理由つき・2026-10-17） */
   shared: { table: string; label: string; why: string }[];
@@ -289,7 +332,7 @@ export async function probeShelfScopes(
   return summarizeShelfScopes(shelves);
 }
 
-/** 6つの答えを1つにまとめる（計算だけ・倉庫に聞きません） */
+/** 棚ごとの答えを1つにまとめる（計算だけ・倉庫に聞きません） */
 export function summarizeShelfScopes(shelves: ShelfScopeReport[]): ShelvesScopeReport {
   const leaking = shelves.filter((s) => s.scoped === false && (s.foreignRows ?? 0) > 0);
   const pending = shelves.filter((s) => s.scoped !== true);
