@@ -11,15 +11,19 @@ import { TEST_SHOP } from "../lib/keiri/tenantTrial";
 import { sheetShowsNumbers } from "../lib/keiri/tenantTrialNumbers";
 import {
   TEST_LOCATION,
+  TEST_PRODUCT,
   TEST_REPORT,
   buildTestLocation,
+  buildTestProduct,
   buildTestReport,
   rollbackNeeded,
   stepsAllDone,
   stepsSummary,
+  testProductCount,
   testReportDate,
   type StepsState,
 } from "../lib/keiri/tenantTrialSteps";
+import { computeSalesBreakdown, type SaleProduct } from "../lib/salesBreakdown";
 import { rowsInScope } from "../lib/tenantScope";
 
 const TENANT = "11111111-2222-4333-8444-555555555555";
@@ -80,20 +84,26 @@ test("出店場所の場代の決まりは『なし』（0円の行を作らな�
   assert.equal(TEST_LOCATION.boothFeeType, "none");
 });
 
+const seen = { locations: 20, reports: 184, products: 7 };
+
 test("手羽屋に見える件数が動いたら取り消す", () => {
-  assert.equal(rollbackNeeded({ locations: 20, reports: 184 }, { locations: 20, reports: 184 }), false);
-  assert.equal(rollbackNeeded({ locations: 20, reports: 184 }, { locations: 21, reports: 184 }), true);
-  assert.equal(rollbackNeeded({ locations: 20, reports: 184 }, { locations: 20, reports: 185 }), true);
+  assert.equal(rollbackNeeded(seen, { ...seen }), false);
+  assert.equal(rollbackNeeded(seen, { ...seen, locations: 21 }), true);
+  assert.equal(rollbackNeeded(seen, { ...seen, reports: 185 }), true);
+  // 商品も数える（手順4で1件 入れるようになったため・2026-10-30）
+  assert.equal(rollbackNeeded(seen, { ...seen, products: 8 }), true);
 });
 
 test("数えられなかったときも取り消す（0件と読めなかったを取り違えない）", () => {
-  assert.equal(rollbackNeeded({ locations: null, reports: 184 }, { locations: 20, reports: 184 }), true);
-  assert.equal(rollbackNeeded({ locations: 20, reports: 184 }, { locations: 20, reports: null }), true);
+  assert.equal(rollbackNeeded({ ...seen, locations: null }, { ...seen }), true);
+  assert.equal(rollbackNeeded(seen, { ...seen, reports: null }), true);
+  assert.equal(rollbackNeeded(seen, { ...seen, products: null }), true);
 });
 
 const done: StepsState = {
   shopReady: true,
   locationReady: true,
+  productReady: true,
   reportReady: true,
   separated: true,
   numbersShown: true,
@@ -101,6 +111,7 @@ const done: StepsState = {
 
 test("手順4〜6がそろって初めて『通った』と言う", () => {
   assert.equal(stepsAllDone(done), true);
+  assert.equal(stepsAllDone({ ...done, productReady: false }), false);
   assert.equal(stepsAllDone({ ...done, separated: false }), false);
   assert.equal(stepsAllDone({ ...done, numbersShown: false }), false);
   assert.equal(stepsAllDone({ ...done, shopReady: false }), false);
@@ -110,6 +121,7 @@ test("まとめの1行は、のこりを名指しする", () => {
   assert.match(stepsSummary(done), /手順4・5・6 まで通りました/);
   assert.match(stepsSummary({ ...done, shopReady: false }), /テストの店がまだありません/);
   assert.match(stepsSummary({ ...done, locationReady: false }), /手順4（出店場所）/);
+  assert.match(stepsSummary({ ...done, productReady: false }), /手順4（商品と単価）/);
   assert.match(stepsSummary({ ...done, separated: false }), /手順6/);
   assert.match(stepsSummary(done, true), /取り消しました/);
 });
@@ -171,4 +183,58 @@ test("金額が数でなければ、出たとは言わない", () => {
     }),
     false,
   );
+});
+
+
+/* ---------- 手順4の商品（名前と単価）／2026-10-30・kp269 ---------- */
+
+test("商品の行にも『どの店か』の印が付き、名前の頭に【テスト】が付く", () => {
+  const p = buildTestProduct(TENANT) as {
+    tenant_id?: string | null;
+    name: string;
+    shop: string;
+    price: number;
+    is_active: boolean;
+  };
+  assert.equal(p.tenant_id, TENANT);
+  assert.ok(p.name.startsWith("【テスト】"));
+  // 日報の画面は開いているお店の shop で商品を絞るので、手順5の日報と同じでないと出ない
+  assert.equal(p.shop, TEST_REPORT.shop);
+  assert.equal(p.price, TEST_PRODUCT.price);
+  assert.equal(p.is_active, true);
+});
+
+test("商品の行は、手羽屋の画面に出ない（印が空の行として読まれない）", () => {
+  const rows = [buildTestProduct(TENANT), { tenant_id: null, name: "手羽先" }];
+  assert.equal(rowsInScope(rows, null).length, 1);
+  assert.equal((rowsInScope(rows, null)[0] as { name: string }).name, "手羽先");
+});
+
+test("単価は、手順5の日報の売上とぴったり割り切れる（本数を出せる）", () => {
+  const count = testProductCount();
+  assert.equal(count, 60);
+  assert.equal((count as number) * TEST_PRODUCT.price, TEST_REPORT.sales);
+});
+
+test("STEP4 の突き合わせ（単価 × 本数 = 売上）が、この固定値で成り立つ", () => {
+  const products: SaleProduct[] = [
+    {
+      id: 1,
+      shop: TEST_REPORT.shop,
+      name: TEST_PRODUCT.name,
+      price: TEST_PRODUCT.price,
+      kind: TEST_PRODUCT.kind,
+      is_active: true,
+      sort_order: TEST_PRODUCT.sortOrder,
+    },
+  ];
+  const b = computeSalesBreakdown({
+    sales: TEST_REPORT.sales,
+    products,
+    counts: { [TEST_PRODUCT.name]: testProductCount() as number },
+  });
+  assert.equal(b.total, TEST_REPORT.sales);
+  assert.equal(b.diff, 0);
+  assert.equal(b.matched, true);
+  assert.deepEqual(b.unpricedNames, []);
 });

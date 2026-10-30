@@ -16,7 +16,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { TEST_SHOP } from "../lib/keiri/tenantTrial";
-import { TEST_LOCATION, TEST_REPORT, testReportDate } from "../lib/keiri/tenantTrialSteps";
+import {
+  TEST_LOCATION,
+  TEST_PRODUCT,
+  TEST_REPORT,
+  testProductCount,
+  testReportDate,
+} from "../lib/keiri/tenantTrialSteps";
 import {
   MASTER_SHELF_TABLES,
   PENDING_SHELVES,
@@ -67,10 +73,38 @@ test("⑥の日報の日付が、テストの店の数え始めの日と同じ",
   );
 });
 
+test("⑥は手順4の商品を1件だけ入れる（増やさない形になっている・2026-10-30）", () => {
+  const six = stepSix();
+  assert.ok(six.includes("insert into public.sale_products"), "商品を入れる所がありません");
+  assert.ok(
+    six.includes("where p.tenant_id = v_id and p.name = '【テスト】テスト商品'"),
+    "同じお店・同じ名前の行があるかを見ていません（何度 流すと増えてしまいます）",
+  );
+});
+
+test("⑥の商品の中身が、コード側の固定値と同じ", () => {
+  const six = stepSix();
+  const insert = six.slice(six.indexOf("insert into public.sale_products"));
+  for (const v of [
+    TEST_PRODUCT.name,
+    String(TEST_PRODUCT.price),
+    `'${TEST_PRODUCT.kind}'`,
+    // 日報の画面は開いているお店の shop で商品を絞るので、手順5の日報と同じでないと出ない
+    `'${TEST_REPORT.shop}'`,
+  ]) {
+    assert.ok(insert.includes(v), `⑥の商品に ${v} がありません（コード側とずれています）`);
+  }
+  // 単価 × 本数 = 売上 が成り立つ固定値であること（STEP4 の突き合わせを通すため）
+  assert.equal(testProductCount(), TEST_REPORT.sales / TEST_PRODUCT.price);
+});
+
 test("⑥が入れる行は、ぜんぶテストの店の印（手羽屋の行に混ざらない）", () => {
   const six = stepSix();
   const insert = six.slice(six.indexOf("insert into public.daily_reports"));
   assert.ok(insert.includes("tenant_id"), "日報に『どの店か』の印を入れていません");
+  const prod = six.slice(six.indexOf("insert into public.sale_products"));
+  assert.ok(prod.includes("tenant_id"), "商品に『どの店か』の印を入れていません");
+  assert.ok(prod.includes("values (v_id,"), "商品の印にテストの店の番号（v_id）を入れていません");
   assert.ok(
     insert.includes("v_id, c_date"),
     "印にテストの店の番号（v_id）を入れていません",

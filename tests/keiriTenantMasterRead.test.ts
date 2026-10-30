@@ -9,12 +9,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { findTestShopLocation, namesFromWindowRows } from "../lib/keiri/tenantMasterRead";
-import { TENANT_LOCATIONS_WINDOW } from "../lib/keiri/shelfScope";
+import {
+  findTestShopLocation,
+  findTestShopProduct,
+  namesFromWindowRows,
+  saleProductsFromWindowRows,
+} from "../lib/keiri/tenantMasterRead";
+import { TENANT_LOCATIONS_WINDOW, TENANT_PRODUCTS_WINDOW } from "../lib/keiri/shelfScope";
 import { TEST_SHOP } from "../lib/keiri/tenantTrial";
 
 const TENANT = "11111111-2222-3333-4444-555555555555";
 const NAME = "【テスト】テスト広場";
+const PRODUCT = "【テスト】テスト商品";
 
 /** 倉庫のふり（窓口の答えと、公開の鍵の答えを好きに決められる） */
 function fakeDb(opts: {
@@ -91,4 +97,58 @@ test("公開の鍵でも読めなければ、読めなかったと言う", async
 test("窓口の答えの形が変わっても落ちない", () => {
   assert.deepEqual(namesFromWindowRows(null), []);
   assert.deepEqual(namesFromWindowRows([{ name: "あ" }, { x: 1 }, null, { name: 3 }]), ["あ"]);
+});
+
+/* ================================================================== *
+ *  商品（名前と単価）も同じ道で読む（2026-10-30・kp269／f5-4・f3-4）
+ * ================================================================== */
+
+test("商品も窓口ごしに読む（公開の鍵は使わない・単価も返る）", async () => {
+  const { db, calls } = fakeDb({
+    window: { data: [{ id: 3, name: PRODUCT, price: 500, kind: "primary", is_active: true }], error: null },
+  });
+  const r = await findTestShopProduct(db as any, TENANT, PRODUCT);
+  assert.deepEqual(r, { found: true, price: 500, unreadable: false, via: "window" });
+  assert.equal(calls.from.length, 0, "窓口があるのに公開の鍵でも読んでいます");
+  assert.equal(calls.rpc[0]?.fn, TENANT_PRODUCTS_WINDOW);
+  assert.ok(!("p_tenant_id" in (calls.rpc[0] ?? {})), "お店の番号を渡しています");
+  assert.equal(calls.rpc[0]?.p_test_mark, TEST_SHOP.mark);
+});
+
+test("窓口がまだ無いときは、今までどおり公開の鍵で読む（流す前と同じ答え）", async () => {
+  const { db, calls } = fakeDb({ anonRows: [{ id: 3, price: 500 }] });
+  const r = await findTestShopProduct(db as any, TENANT, PRODUCT);
+  assert.equal(r.found, true);
+  assert.equal(r.price, 500);
+  assert.equal(r.via, "anon");
+  assert.deepEqual(calls.from, ["sale_products"]);
+});
+
+test("読めなかったら『無い』と言わない（同じ商品を2件 足さないため）", async () => {
+  const { db } = fakeDb({ window: { data: null, error: { code: "42501", message: "permission denied" } } });
+  const r = await findTestShopProduct(db as any, TENANT, PRODUCT);
+  assert.equal(r.found, false);
+  assert.equal(r.unreadable, true);
+});
+
+test("窓口の答えを、日報の画面が使える形に直す（お店は開いている方を入れる）", () => {
+  const rows = [
+    { id: 2, name: "B", price: "300", kind: "normal", is_active: true, sort_order: 2 },
+    { id: 1, name: "A", price: 500, kind: "primary", is_active: true, sort_order: 1 },
+    { id: 9, name: "やめた商品", price: 100, kind: "normal", is_active: false, sort_order: 0 },
+    { id: 8, price: 100 },
+  ];
+  const out = saleProductsFromWindowRows(rows, "手羽屋");
+  assert.deepEqual(
+    out.map((p) => [p.name, p.price, p.kind, p.shop, p.sort_order]),
+    [
+      ["A", 500, "primary", "手羽屋", 1],
+      ["B", 300, "normal", "手羽屋", 2],
+    ],
+  );
+});
+
+test("窓口が何も返さないときは空（『1件もない』と見せない判断は呼ぶ側）", () => {
+  assert.deepEqual(saleProductsFromWindowRows(null, "手羽屋"), []);
+  assert.deepEqual(saleProductsFromWindowRows([], "手羽屋"), []);
 });

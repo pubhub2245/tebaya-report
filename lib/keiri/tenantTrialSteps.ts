@@ -36,6 +36,31 @@ export const TEST_LOCATION = {
   rank: "D",
 } as const;
 
+/**
+ * 手順4で入れる商品1件（名前と単価・架空の1品）。
+ *
+ * ■ なぜ要るのか（2026-10-30・f5-4・f3-4）
+ *   日報の STEP4 は「単価 × 本数の合計」と、レジで数えた売上を突き合わせる所です
+ *   （このアプリの検算の芯・CLAUDE.md 3「売上の内訳チェック」）。
+ *   ところが申し込んだお店は、商品の一覧を直す画面に入れません
+ *   （設定センターは手羽屋だけ。お店が入れるのは経理の画面とその月の1枚だけ）。
+ *   ＝ **商品が1件も無いので、2軒目のお店は STEP4 を一度も使えません。**
+ *   そこで、2軒目を入れる手順の中で商品を1件 入れます。
+ *
+ * ■ 単価は、手順5の日報とぴったり合う値にしてあります
+ *   売上 30,000円 ÷ 単価 500円 = **60本**（割り切れます）。
+ *   ＝ 手順6で「単価 × 本数 = 売上」が成り立つことを、そのまま確かめられます
+ *   （testProductCount() で縛っています）。
+ */
+export const TEST_PRODUCT = {
+  name: "【テスト】テスト商品",
+  /** 単価（円）。日報の売上とぴったり割り切れる値にしてある */
+  price: 500,
+  /** 主力商品として入れる（各店1つ想定。逆算はしないので数え方は normal と同じ） */
+  kind: "primary",
+  sortOrder: 0,
+} as const;
+
 /** 手順5で入れる日報1枚（架空の数字。本物の日報とは印で分かれます） */
 export const TEST_REPORT = {
   /** 売上（円） */
@@ -64,6 +89,35 @@ export function buildTestLocation(tenantId: string): Record<string, unknown> {
     is_active: true,
     booth_fee_type: TEST_LOCATION.boothFeeType,
   };
+}
+
+/**
+ * 商品の棚に入れる1行。
+ *
+ * ★お店を分ける印はテストの店。`shop` は手順5の日報と同じ「手羽屋」です
+ *   （日報の画面は、開いているお店の `shop` で商品を絞るため）。
+ */
+export function buildTestProduct(tenantId: string): Record<string, unknown> {
+  return {
+    tenant_id: tenantId,
+    shop: TEST_REPORT.shop,
+    name: TEST_PRODUCT.name,
+    price: TEST_PRODUCT.price,
+    kind: TEST_PRODUCT.kind,
+    is_active: true,
+    sort_order: TEST_PRODUCT.sortOrder,
+  };
+}
+
+/**
+ * 手順5の日報の売上を、手順4の商品の単価で割った本数。
+ * **割り切れないときは null**（＝突き合わせに使える固定値になっていない）。
+ */
+export function testProductCount(): number | null {
+  const { sales } = TEST_REPORT;
+  const { price } = TEST_PRODUCT;
+  if (price <= 0) return null;
+  return sales % price === 0 ? sales / price : null;
 }
 
 /**
@@ -124,6 +178,8 @@ export type TebayaVisible = {
   locations: number | null;
   /** 日報の件数。読めなかったときは null */
   reports: number | null;
+  /** 商品（名前と単価）の件数。読めなかったときは null（2026-10-30） */
+  products: number | null;
 };
 
 /**
@@ -136,7 +192,12 @@ export type TebayaVisible = {
 export function rollbackNeeded(before: TebayaVisible, after: TebayaVisible): boolean {
   if (before.locations === null || after.locations === null) return true;
   if (before.reports === null || after.reports === null) return true;
-  return before.locations !== after.locations || before.reports !== after.reports;
+  if (before.products === null || after.products === null) return true;
+  return (
+    before.locations !== after.locations ||
+    before.reports !== after.reports ||
+    before.products !== after.products
+  );
 }
 
 /** 手順4・5・6 がそれぞれ通ったか */
@@ -145,6 +206,8 @@ export type StepsState = {
   shopReady: boolean;
   /** 手順4：そのお店の出店場所が1件あるか */
   locationReady: boolean;
+  /** 手順4：そのお店の商品（名前と単価）が1件あるか（2026-10-30） */
+  productReady: boolean;
   /** 手順5：そのお店の日報が1枚あるか */
   reportReady: boolean;
   /** 手順6：そのお店として読むと、手羽屋の数字が1件も混ざらないか */
@@ -155,7 +218,14 @@ export type StepsState = {
 
 /** 手順4〜6が全部そろったか */
 export function stepsAllDone(s: StepsState): boolean {
-  return s.shopReady && s.locationReady && s.reportReady && s.separated && s.numbersShown;
+  return (
+    s.shopReady &&
+    s.locationReady &&
+    s.productReady &&
+    s.reportReady &&
+    s.separated &&
+    s.numbersShown
+  );
 }
 
 /** 窓口の返事に出す1行のまとめ */
@@ -173,10 +243,14 @@ export function stepsSummary(s: StepsState, rolledBack = false): string {
     );
   }
   if (stepsAllDone(s)) {
-    return "手順4・5・6 まで通りました（出店場所1件・日報1枚・そのお店の数字だけが出る）";
+    return (
+      "手順4・5・6 まで通りました" +
+      "（出店場所1件・商品1件・日報1枚・そのお店の数字だけが出る）"
+    );
   }
   const left: string[] = [];
   if (!s.locationReady) left.push("手順4（出店場所）");
+  if (!s.productReady) left.push("手順4（商品と単価）");
   if (!s.reportReady) left.push("手順5（日報1枚）");
   if (!s.numbersShown) left.push("手順5の数字（今月の利益・今の現金）");
   if (!s.separated) left.push("手順6（よその数字が混ざらないこと）");

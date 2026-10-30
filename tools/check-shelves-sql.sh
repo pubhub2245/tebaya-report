@@ -336,6 +336,21 @@ psql -tA -c "set role anon; insert into public.locations (name, rank, target, is
 want "手順４ 手羽屋の出店場所は、公開の鍵で直せる" "1" "$(q "set role anon; with u as (update public.locations set target=45000 where name='【下見】手羽屋の新しい場所' returning 1) select count(*) from u")"
 want "手順４ 手羽屋の出店場所は、公開の鍵で消せる" "1" "$(q "set role anon; with d as (delete from public.locations where name='【下見】手羽屋の新しい場所' returning 1) select count(*) from d")"
 want "手順４ 出し入れのあと、手羽屋の件数は はじめと同じ" "$LOC_TEBAYA" "$(q "select count(*) from public.locations where tenant_id is null")"
+# --- 手順４（もう半分） そのお店の商品（名前と単価）が1件 入るか（2026-10-30 追記・f5-4） ---
+#   日報の STEP4 は「単価 × 本数」とレジの売上を突き合わせる所で、ここがこのアプリの検算の芯。
+#   申し込んだお店は商品の一覧を直す画面に入れないので、⑥がそのお店ぶんを1件 入れる。
+#   見るのは4つ：⑥が1件 入れたか／何度 流しても増えないか／窓口ごしに読めるか／
+#   公開の鍵からは隠れているか。**手羽屋の商品7件には1行も触らないこと**もここで見る。
+PROD_TEBAYA_0="$(q "select count(*) from public.sale_products where tenant_id is null")"
+want "手順４ ⑥が、そのお店の商品を1件 入れた" "1" "$(q "select count(*) from public.sale_products where tenant_id is not null")"
+want "手順４ 何度 流しても増えない（印つきは1件のまま）" "1" "$(q "select count(*) from public.sale_products where tenant_id='$TEST_TENANT' and name='【テスト】テスト商品'")"
+want "手順４ その商品の中身は固定値（単価／種別／お店）" "500/primary/手羽屋" "$(q "select price||'/'||kind||'/'||shop from public.sale_products where tenant_id='$TEST_TENANT' and name='【テスト】テスト商品'")"
+want "手順４ 単価×本数が売上とぴったり合う（30000÷500＝60本）" "60/true" "$(q "select (30000/price)||'/'||((30000 % price)=0) from public.sale_products where tenant_id='$TEST_TENANT' and name='【テスト】テスト商品'")"
+want "手順４ その商品は、窓口ごしに読める" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_products(null, null, null, 'test-b2-kensa-1006')")"
+want "手順４ 窓口の答えに、手羽屋の商品は混じらない" "0" "$(q "set role anon; select count(*) from (select (x->>'name') as n from public.keiri_tenant_products(null,null,null,'test-b2-kensa-1006') x) y where n not like '【テスト】%'")"
+want "手順４ その商品は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.sale_products where tenant_id='$TEST_TENANT'")"
+want "手順４ 手羽屋の商品の件数は、はじめと同じ" "$PROD_TEBAYA_0" "$(q "set role anon; select count(*) from public.sale_products where tenant_id is null")"
+
 # 担当者・商品の棚も、印が空のままで手羽屋が読めること（日報の選択肢）
 want "手順４ 手羽屋の担当者は、公開の鍵で今までどおり読める" "2" "$(q "set role anon; select count(*) from public.staff_members where tenant_id is null")"
 
@@ -358,7 +373,9 @@ want "⑬ よその店の担当者は、公開の鍵では読めない" "0" "$(q
 want "⑬ よその店の商品は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.sale_products where tenant_id is not null")"
 want "⑬ 書き換えて取り出す道でも読めない" "0" "$(q "set role anon; select count(*) from public.staff_members where tenant_id::text like '%'")"
 want "⑬ 窓口は、その店の担当者を返す" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_staff(null,null,null,'test-b2-kensa-1006')")"
-want "⑬ 窓口は、その店の商品を返す" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_products(null,null,null,'test-b2-kensa-1006')")"
+# ★2026-10-30：⑥がそのお店ぶんの商品を1件 入れるようになったので、
+#   ここでは「⑥の1件＋この試しの1件」＝2件 返るのが正しい。
+want "⑬ 窓口は、その店の商品を返す" "2" "$(q "set role anon; select count(*) from public.keiri_tenant_products(null,null,null,'test-b2-kensa-1006')")"
 want "⑬ 窓口は、知らない印には何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_staff(null,null,null,'test-shiranai')")"
 want "⑬ 窓口は、合言葉のかたちでなければ何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_products('あいことば',null,null,null)")"
 want "⑬ 手羽屋の担当者は、公開の鍵で今までどおり読める" "$STAFF_TEBAYA" "$(q "set role anon; select count(*) from public.staff_members where tenant_id is null")"
@@ -368,8 +385,16 @@ psql -tA -c "set role anon; insert into public.staff_members (name, daily_wage) 
   || say "⑬ 手羽屋の担当者は、公開の鍵で入れて番号も読み返せる" "NG（管理のマスタ画面が止まります）"
 want "⑬ 手羽屋の担当者は、公開の鍵で消せる" "1" "$(q "set role anon; with d as (delete from public.staff_members where name='【下見】新しい人' returning 1) select count(*) from d")"
 want "⑬ 手羽屋の担当者の件数は、はじめと同じ" "$STAFF_TEBAYA" "$(q "select count(*) from public.staff_members where tenant_id is null")"
+# ★商品も同じことを見る（2026-10-30）。手羽屋の商品マスタの画面（/settings）は
+#   公開の鍵で入れて番号を読み返す作りなので、ここが止まると毎日の画面が止まる。
+psql -tA -c "set role anon; insert into public.sale_products (name, price, kind) values ('【下見】新しい商品',250,'normal') returning id" >/dev/null 2>&1 \
+  && say "⑬ 手羽屋の商品は、公開の鍵で入れて番号も読み返せる" "OK" \
+  || say "⑬ 手羽屋の商品は、公開の鍵で入れて番号も読み返せる" "NG（商品マスタの画面が止まります）"
+want "⑬ 手羽屋の商品は、公開の鍵で消せる" "1" "$(q "set role anon; with d as (delete from public.sale_products where name='【下見】新しい商品' returning 1) select count(*) from d")"
+want "⑬ 手羽屋の商品の件数は、はじめと同じ" "$PROD_TEBAYA" "$(q "select count(*) from public.sale_products where tenant_id is null")"
 psql -q -c "delete from public.staff_members where tenant_id is not null" >/dev/null 2>&1
-psql -q -c "delete from public.sale_products where tenant_id is not null" >/dev/null 2>&1
+# ★⑥が入れた商品（【テスト】テスト商品）は消さない。この節で入れた試しの行だけを消す
+psql -q -c "delete from public.sale_products where name='【テスト】よその商品'" >/dev/null 2>&1
 
 # --- ⑩ よその店の立替（経営）が、公開の鍵で読めないか（2026-10-17 追記・f3-4） ------
 #   ★いちばん大事なのは **手羽屋の立替が今までどおり読める・直せる・消せること**。
