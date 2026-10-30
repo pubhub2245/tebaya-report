@@ -16,6 +16,7 @@ import {
   MASTER_SHELF_STEP,
   REPORT_SHELF_STEP,
   decideBreakdownCheck,
+  gateFromWindowProducts,
   decideCumulative,
   decideDupCheck,
   decideReportEdit,
@@ -222,4 +223,22 @@ test("貼り紙⑬の答えの読み取り（ある＝締まっている／ま�
   );
   assert.equal(masterShelfStateOf({ shelves: [{ step: "⑧", state: "ある" }] }), "分からない");
   assert.equal(masterShelfStateOf(null), "分からない");
+});
+
+/* ---------- 窓口ごしに自分の商品が読めたとき（2026-10-30・kp269） ---------- */
+
+test("窓口ごしに商品が読めたら、突き合わせは今までどおりする（足す所は出さない）", () => {
+  const g = gateFromWindowProducts(1);
+  assert.equal(g.check, true);
+  // 公開の鍵で入れた商品は読み返せないので、足す所を出すと同じ商品が増える
+  assert.equal(g.allowAdd, false);
+  assert.equal(g.message, null);
+});
+
+test("窓口ごしでも読めなかったら、止めずに正直な1行を出す（0件と取り違えない）", () => {
+  const g = gateFromWindowProducts(0);
+  assert.equal(g.check, false);
+  assert.equal(g.allowAdd, false);
+  assert.match(String(g.message), /読めませんでした/);
+  assert.match(String(g.message), /意味ではありません/);
 });

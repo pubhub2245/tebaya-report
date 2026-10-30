@@ -5,7 +5,9 @@ import { TEST_SHOP, separationOk } from "@/lib/keiri/tenantTrial";
 import { peekTestShop, readBothWays } from "@/lib/keiri/tenantTrialServer";
 import {
   TEST_LOCATION,
+  TEST_PRODUCT,
   buildTestLocation,
+  buildTestProduct,
   buildTestReport,
   rollbackNeeded,
   stepsSummary,
@@ -14,7 +16,7 @@ import {
   type TebayaVisible,
 } from "@/lib/keiri/tenantTrialSteps";
 import { readTenantReportsViaWindow } from "@/lib/keiri/loadMonthServer";
-import { findTestShopLocation } from "@/lib/keiri/tenantMasterRead";
+import { findTestShopLocation, findTestShopProduct } from "@/lib/keiri/tenantMasterRead";
 import { testShopNumbersShown } from "@/lib/keiri/tenantTrialNumbers";
 import { serverClient } from "@/lib/supabaseServer";
 
@@ -24,11 +26,12 @@ export const dynamic = "force-dynamic";
 /**
  * POST /api/keiri/tenant-trial/steps/run
  *
- * 2軒目を入れる手順の **手順4（出店場所を入れる）と手順5（日報を1枚 打つ）** を、
+ * 2軒目を入れる手順の **手順4（出店場所と商品を入れる）と手順5（日報を1枚 打つ）** を、
  * テストの店（架空の1軒）に対して通す（f5-4・f3-4）。
  *
- * ■ 入れるのは固定の2行だけです
- *   出店場所1件（【テスト】テスト広場）と、日報1枚（架空の金額）。
+ * ■ 入れるのは固定の3行だけです
+ *   出店場所1件（【テスト】テスト広場）、商品1件（【テスト】テスト商品・単価500円）、
+ *   日報1枚（架空の金額）。
  *   中身は lib/keiri/tenantTrialSteps.ts に書いた固定の値で、**外から指定できません**。
  *   すでに入っていれば何も作りません（何度 送っても増えません）。
  *
@@ -52,7 +55,8 @@ export const dynamic = "force-dynamic";
  *   それが済むまでは、ここは「まだできません」と答えるだけです。
  */
 
-/** 手羽屋に見える件数（印が空のものだけ）を数える。読めなければ null */
+/** 手羽屋に見える件数（印が空のものだけ）を数える。読めなければ null
+ *  ★2026-10-30：商品（sale_products）も数えます。手順4で1件 入れるようになったため。 */
 async function countTebayaVisible(): Promise<TebayaVisible> {
   const db = serverClient({ fresh: true });
   const one = async (table: string): Promise<number | null> => {
@@ -67,7 +71,11 @@ async function countTebayaVisible(): Promise<TebayaVisible> {
       return null;
     }
   };
-  return { locations: await one("locations"), reports: await one("daily_reports") };
+  return {
+    locations: await one("locations"),
+    reports: await one("daily_reports"),
+    products: await one("sale_products"),
+  };
 }
 
 export async function POST() {
@@ -77,6 +85,7 @@ export async function POST() {
     const state: StepsState = {
       shopReady: false,
       locationReady: false,
+      productReady: false,
       reportReady: false,
       separated: false,
       numbersShown: false,
@@ -100,6 +109,7 @@ export async function POST() {
   const before = await countTebayaVisible();
 
   const madeLocationIds: string[] = [];
+  const madeProductIds: string[] = [];
   const madeReportIds: string[] = [];
   const problems: string[] = [];
 
@@ -126,6 +136,38 @@ export async function POST() {
     }
   } catch {
     problems.push("出店場所の出し入れで通信に失敗しました");
+  }
+
+  // --- 手順4（もう半分）：商品（名前と単価）を1件 --------------------------
+  //   日報の STEP4（単価 × 本数 と売上の突き合わせ）を2軒目でも通すために要る
+  //   （2026-10-30・kp269）。読む道は GET と同じ1か所なので、⑬のあとも
+  //   「もう入っているか」が正しく分かり、同じ商品を2件 足すことがない。
+  let productReady = false;
+  try {
+    const already = await findTestShopProduct(db as any, tenantId, TEST_PRODUCT.name);
+    if (already.unreadable) problems.push("商品の棚を読めませんでした");
+    else if (already.found) productReady = true;
+    else {
+      const { data, error } = await db
+        .from("sale_products")
+        .insert(buildTestProduct(tenantId))
+        .select("id")
+        .maybeSingle();
+      if (error || !data) {
+        const why = error?.message ?? "理由なし";
+        problems.push(
+          /row-level security|row level security/i.test(why)
+            ? "商品は公開の鍵では入れられません（⑬の読む決まりが、入れた行の読み返しにも効くため）。" +
+              "手順4の商品は /keiri/sql の貼り紙⑥の中で入ります。貼り紙を1回 流してください"
+            : `商品を入れられませんでした（${why}）`,
+        );
+      } else {
+        madeProductIds.push(String((data as { id: unknown }).id));
+        productReady = true;
+      }
+    }
+  } catch {
+    problems.push("商品の出し入れで通信に失敗しました");
   }
 
   // --- 手順5：日報を1枚 ----------------------------------------------------
@@ -181,7 +223,7 @@ export async function POST() {
 
   // --- 入れる前と後で、手羽屋に見える件数が動いていないか ------------------
   const after = await countTebayaVisible();
-  const wrote = madeLocationIds.length + madeReportIds.length;
+  const wrote = madeLocationIds.length + madeProductIds.length + madeReportIds.length;
   let rolledBack = false;
   if (wrote > 0 && rollbackNeeded(before, after)) {
     rolledBack = true;
@@ -206,8 +248,10 @@ export async function POST() {
       }
     };
     for (const id of madeLocationIds) await removeOne("locations", id, "出店場所");
+    for (const id of madeProductIds) await removeOne("sale_products", id, "商品");
     for (const id of madeReportIds) await removeOne("daily_reports", id, "日報");
     locationReady = false;
+    productReady = false;
     reportReady = false;
   }
 
@@ -222,6 +266,7 @@ export async function POST() {
   const state: StepsState = {
     shopReady: true,
     locationReady,
+    productReady,
     reportReady,
     separated,
     numbersShown,
@@ -234,11 +279,13 @@ export async function POST() {
       ran:
         wrote === 0
           ? "もう入っていました。何も作っていません"
-          : `この回で ${wrote} 行 入れました（出店場所 ${madeLocationIds.length}・日報 ${madeReportIds.length}）`,
+          : `この回で ${wrote} 行 入れました（出店場所 ${madeLocationIds.length}・` +
+            `商品 ${madeProductIds.length}・日報 ${madeReportIds.length}）`,
       wrote,
       rolledBack,
       tebayaUnchanged: !rolledBack,
       locationReady,
+      productReady,
       reportReady,
       numbersShown,
       separated,

@@ -16,11 +16,15 @@ import {
   type TenantScope,
 } from "@/lib/tenantScope";
 import { effectiveKeiriScope } from "@/lib/keiri/readSource";
+import { readKeiriSecret } from "@/lib/keiri/browserSecret";
+import { TENANT_PRODUCTS_WINDOW } from "@/lib/keiri/shelfScope";
+import { saleProductsFromWindowRows } from "@/lib/keiri/tenantMasterRead";
 import {
   decideBreakdownCheck,
   decideCumulative,
   decideDupCheck,
   decideReportSave,
+  gateFromWindowProducts,
   masterShelfStateOf,
   reportShelfStateOf,
   type ReportShelfState,
@@ -191,18 +195,36 @@ export default function Page() {
       .order("sort_order")
       .order("id");
     const rows = (data as SaleProduct[] | null) ?? [];
-    setProducts(rows);
     // ★「読めなかった」を「商品が1件もない」と取り違えない（2026-10-30・f3-4）。
     //   手羽屋と、1件でも読めたときは、ここで1回も問い合わせません
     //   ＝ 手羽屋の見え方も通信の回数も今までどおりです。
     const isTebayaShop = isTebayaScope(scope);
+    if (isTebayaShop || rows.length > 0) {
+      setProducts(rows);
+      setBreakdownGate(
+        decideBreakdownCheck({
+          isTebaya: isTebayaShop,
+          productRows: rows.length,
+          shelfState: "分からない",
+        }),
+      );
+      setProductsLoading(false);
+      return;
+    }
+    const shelfState = await masterShelfClosed();
+    if (shelfState === "締まっている") {
+      // ★締まっているなら、**自分の商品は窓口ごしに読めます**（2026-10-30・kp269）。
+      //   読めれば単価×本数の突き合わせ（STEP4）は今までどおり働きます。
+      //   合言葉の札がそのタブに無い端末では読めないので、そのときは下の正直な1行に落ちます。
+      const mine = await loadProductsViaWindow(form.shop);
+      setProducts(mine as SaleProduct[]);
+      setBreakdownGate(gateFromWindowProducts(mine.length));
+      setProductsLoading(false);
+      return;
+    }
+    setProducts(rows);
     setBreakdownGate(
-      decideBreakdownCheck({
-        isTebaya: isTebayaShop,
-        productRows: rows.length,
-        shelfState:
-          isTebayaShop || rows.length > 0 ? "分からない" : await masterShelfClosed(),
-      }),
+      decideBreakdownCheck({ isTebaya: false, productRows: rows.length, shelfState }),
     );
     setProductsLoading(false);
   }, [form.shop, scope]);
@@ -1299,6 +1321,37 @@ async function masterShelfClosed(): Promise<ReportShelfState> {
     return masterShelfStateOf(await res.json());
   } catch {
     return "分からない";
+  }
+}
+
+/**
+ * 申し込んだお店が、**自分の商品（名前と単価）だけ**を倉庫の窓口ごしに読む（2026-10-30・kp269）。
+ *
+ * ■ なぜ要るのか（やさしい説明）
+ *   貼り紙⑬のあと、申し込んだお店の商品は公開の鍵では0件になります。
+ *   日報の STEP4 は「単価 × 本数」とレジの売上を突き合わせる所なので、
+ *   商品が読めないとこのお店は検算を一度も使えません。
+ *   そこで、経理の画面に入ったときの**合言葉の札**（そのタブだけ・戻せない形）を
+ *   窓口に渡して、自分の商品だけを読みます。
+ *
+ * ★渡すのは「合言葉を戻せない形にしたもの」だけで、お店の番号は渡しません
+ *   （番号を書き換えればよその店が開けてしまうため。窓口の決まりは⑬と同じ）。
+ * ★札が無い・窓口が無い・読めないときは**空で返します**（画面は正直な1行に落ちます）。
+ */
+async function loadProductsViaWindow(shop: string): Promise<SaleProduct[]> {
+  try {
+    const hash = readKeiriSecret();
+    if (!hash) return [];
+    const { data, error } = await supabase.rpc(TENANT_PRODUCTS_WINDOW, {
+      p_password_hash: hash,
+      p_from: null,
+      p_to: null,
+      p_test_mark: null,
+    });
+    if (error) return [];
+    return saleProductsFromWindowRows(data, shop) as SaleProduct[];
+  } catch {
+    return [];
   }
 }
 

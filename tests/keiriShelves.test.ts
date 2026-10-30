@@ -218,17 +218,33 @@ test("⑥ テストのお店1軒を貼り紙の中で作る（2026-10-09・f5-4 
   // ★2026-10-29：**出店場所（locations）も外した。** ⑬で その棚にも同じ読む決まりを
   //   足すので、日報とまったく同じ理由で、公開の鍵ではアプリ側から入れられない
   //   （下見で実測）。手順4の1件も⑥がこの1枚の中で入れる。印はテストの店。
+  //
+  // ★2026-10-30：**商品（sale_products）も外した。** 日報の STEP4（単価×本数と売上の
+  //   突き合わせ）は申し込んだお店では商品が1件も無くて一度も使えなかったため、
+  //   ⑥がそのお店ぶんを1件 入れる。入れる行の印はテストの店で、
+  //   手羽屋の商品7件（印が空）には1行も触らない。中身は
+  //   tests/keiriShelvesSheet.test.ts で固定値と突き合わせてある。
   for (const forbidden of [
     "keiri_advance_expenses",
     "keiri_applications",
     "staff_members",
-    "sale_products",
   ]) {
     assert.ok(
       !new RegExp(`insert\\s+into\\s+public\\.${forbidden}`, "i").test(body),
       `貼り紙⑥が ${forbidden} に行を足しています`,
     );
   }
+  // 商品を入れるときも、必ずテストの店の印を付ける（2026-10-30・kp269）
+  const prodInsert = body.slice(body.indexOf("insert into public.sale_products"));
+  assert.ok(
+    /insert\s+into\s+public\.sale_products\s*\(tenant_id/i.test(prodInsert),
+    "⑥の商品に『どの店か』の印を付けていません（手羽屋の商品になってしまいます）",
+  );
+  assert.ok(
+    /where p\.tenant_id = v_id and p\.name = '【テスト】テスト商品'/.test(body),
+    "⑥の商品が、何度 流すと増える形になっています",
+  );
+
   // 出店場所を入れるときも、必ずテストの店の印を付ける（2026-10-29・kp266）
   const locInsert = body.slice(body.indexOf("insert into public.locations"));
   assert.ok(

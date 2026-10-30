@@ -355,6 +355,32 @@ export function decideBreakdownCheck(params: {
   };
 }
 
+/**
+ * 窓口ごしに、そのお店の商品が読めたときの決まり（2026-10-30・kp269）。
+ *
+ * ⑬のあと、申し込んだお店の商品は**公開の鍵では0件**になりますが、
+ * 倉庫の窓口（合言葉の札で本人だと分かるとき）からは読めます。
+ * 読めたら**突き合わせは今までどおりします**（＝2軒目でも STEP4 が働きます）。
+ * ただし**足す所は出しません**：公開の鍵で入れた商品は読み返せないので、
+ * 同じ商品が増えてしまうためです（出店場所で 2026-10-17 に実際に起きた形）。
+ */
+export function gateFromWindowProducts(rows: number): BreakdownGate {
+  if (rows > 0) {
+    return {
+      check: true,
+      allowAdd: false,
+      message: null,
+      why: "窓口ごしに そのお店の商品が読めた＝突き合わせはする（足す所は出さない）",
+    };
+  }
+  return {
+    check: false,
+    allowAdd: false,
+    message: PRODUCTS_UNREADABLE,
+    why: "窓口ごしでも読めなかった＝0件と取り違えない",
+  };
+}
+
 /** /api/keiri/shelves の答えから、貼り紙⑬が流れたかを決める（取り違えを1か所に閉じる） */
 export function masterShelfStateOf(body: {
   shelves?: { step?: unknown; state?: unknown }[];
