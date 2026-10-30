@@ -13,12 +13,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  MASTER_SHELF_STEP,
   REPORT_SHELF_STEP,
+  decideBreakdownCheck,
   decideCumulative,
   decideDupCheck,
   decideReportEdit,
   decideReportListRead,
   decideReportSave,
+  masterShelfStateOf,
   reportShelfStateOf,
 } from "../lib/keiri/tenantReportWrite";
 
@@ -161,4 +164,62 @@ test("編集：まだ締まっていない・確かめられないときは、�
     assert.equal(v.canEdit, true);
     assert.equal(v.message, null);
   }
+});
+
+/* ---------------------------------------------------------------------------
+ * 商品の一覧が読めなかったとき（2026-10-30・f3-4）
+ * ------------------------------------------------------------------------- */
+
+test("手羽屋は、商品が0件でも今までどおり突き合わせる（0件は本当に0件）", () => {
+  for (const shelfState of ["締まっている", "まだ", "分からない"] as const) {
+    const g = decideBreakdownCheck({ isTebaya: true, productRows: 0, shelfState });
+    assert.equal(g.check, true);
+    assert.equal(g.allowAdd, true);
+    assert.equal(g.message, null);
+  }
+});
+
+test("商品が1件でも読めたときは、どちらのお店でも今までどおり突き合わせる", () => {
+  for (const isTebaya of [true, false]) {
+    const g = decideBreakdownCheck({ isTebaya, productRows: 7, shelfState: "締まっている" });
+    assert.equal(g.check, true);
+    assert.equal(g.allowAdd, true);
+    assert.equal(g.message, null);
+  }
+});
+
+test("申し込んだお店・⑬が流れている・0件＝読めなかった扱い（止めない・足す所も出さない）", () => {
+  const g = decideBreakdownCheck({
+    isTebaya: false,
+    productRows: 0,
+    shelfState: "締まっている",
+  });
+  assert.equal(g.check, false);
+  assert.equal(g.allowAdd, false);
+  assert.match(String(g.message), /読めませんでした/);
+  // 「1件もない」と言い切らないこと（同じ商品を足させてしまうため）
+  assert.match(String(g.message), /意味ではありません/);
+});
+
+test("⑬がまだ・確かめられないときは、今までどおりに倒す（開かずに閉じない）", () => {
+  for (const shelfState of ["まだ", "分からない"] as const) {
+    const g = decideBreakdownCheck({ isTebaya: false, productRows: 0, shelfState });
+    assert.equal(g.check, true);
+    assert.equal(g.allowAdd, true);
+    assert.equal(g.message, null);
+  }
+});
+
+test("貼り紙⑬の答えの読み取り（ある＝締まっている／まだ無い＝まだ／無ければ分からない）", () => {
+  assert.equal(MASTER_SHELF_STEP, "⑬");
+  assert.equal(
+    masterShelfStateOf({ shelves: [{ step: "⑬", state: "ある" }] }),
+    "締まっている",
+  );
+  assert.equal(
+    masterShelfStateOf({ shelves: [{ step: "⑬", state: "まだ無い" }] }),
+    "まだ",
+  );
+  assert.equal(masterShelfStateOf({ shelves: [{ step: "⑧", state: "ある" }] }), "分からない");
+  assert.equal(masterShelfStateOf(null), "分からない");
 });
