@@ -266,3 +266,102 @@ export function reportShelfStateOf(body: {
   if (row.state === "まだ無い") return "まだ";
   return "分からない";
 }
+
+/* ===========================================================================
+ * 商品の一覧（名前と単価）が読めなかったときの決まり（2026-10-30・f3-4・f5-4）
+ * ===========================================================================
+ *
+ * ■ 何が起きるところだったか（今回 見つけたこと）
+ *   貼り紙⑬は、商品の棚（sale_products）も「**印が空の行だけ 読んでよい**」にします。
+ *   手羽屋の行は印が空なので今までどおりですが、
+ *   **申し込んだお店の商品は、日報の画面（公開の鍵）から0件になります**。
+ *
+ *   日報の STEP4 は「単価 × 本数の合計」と、レジで数えた売上を突き合わせる所です。
+ *   商品が0件だと合計が0円になるので、
+ *     ・売上との差が**売上まるごと**になり「合っていません」と出る
+ *     ・差の理由を選ばないと **STEP4 から先へ進めない**
+ *     ・しかも0件のときの画面は「商品がまだ登録されていません」と出して
+ *       **差の理由を選ぶ所を出しません** ＝ **1枚も日報が出せません**
+ *     ・その画面から商品を足すと（入れるのは通る・読み返せない）
+ *       **同じ商品が何度も増えます**（2026-10-17 に出店場所でまったく同じことが起きています）
+ *
+ *   ＝ 貼り紙を流した日に、申し込んだお店が**日報を1枚も出せなくなる**ところでした。
+ *
+ * ■ どう直すか
+ *   「0件」と「読めなかった」を分けます。読めなかったときは
+ *     ・突き合わせを**その日はしない**（嘘の差額で止めない）
+ *     ・画面に**正直に1行**出す（「1件もない」とは言わない）
+ *     ・商品を足す所は**出さない**（同じ商品が増えるのを防ぐ）
+ *   手羽屋（印が空）は締めたあとも読めるので、**1行も変わりません**
+ *   （棚の状態も問い合わせません＝通信の回数も今までどおり）。
+ */
+
+/** 貼り紙の確かめ窓口で、選択肢の棚（出店場所・担当者・商品）を締める決まりが入っている段 */
+export const MASTER_SHELF_STEP = "⑬";
+
+export type BreakdownGate = {
+  /** 内訳と売上の突き合わせをするか（false＝その日はしない） */
+  check: boolean;
+  /** 商品を足す所を出してよいか（false＝同じ商品が増えるので出さない） */
+  allowAdd: boolean;
+  /** 画面に出す1行（ふだんは null） */
+  message: string | null;
+  why: string;
+};
+
+const PRODUCTS_UNREADABLE =
+  "このお店の商品の一覧（名前と単価）は、この画面からは読めませんでした。" +
+  "**「1件もない」という意味ではありません。** " +
+  "本数と売上の突き合わせは、この日はしません（売上は STEP2 で入れた金額のまま記録します）。";
+
+/**
+ * 内訳の突き合わせをしてよいかを決める。
+ *
+ * @param isTebaya      手羽屋として開いているか（印が空）
+ * @param productRows   棚から読めた商品の件数
+ * @param shelfState    貼り紙⑬が流れたか（手羽屋・1件以上のときは聞かなくてよい）
+ */
+export function decideBreakdownCheck(params: {
+  isTebaya: boolean;
+  productRows: number;
+  shelfState: ReportShelfState;
+}): BreakdownGate {
+  const { isTebaya, productRows, shelfState } = params;
+
+  if (productRows > 0) {
+    return { check: true, allowAdd: true, message: null, why: "商品が読めた＝今までどおり" };
+  }
+  if (isTebaya) {
+    return {
+      check: true,
+      allowAdd: true,
+      message: null,
+      why: "手羽屋（印が空）は締めても読める＝0件は本当に0件（商品マスタが空）",
+    };
+  }
+  if (shelfState === "締まっている") {
+    return {
+      check: false,
+      allowAdd: false,
+      message: PRODUCTS_UNREADABLE,
+      why: "申し込んだお店・棚は締まっている・0件＝読めなかった（0件と取り違えない）",
+    };
+  }
+  return {
+    check: true,
+    allowAdd: true,
+    message: null,
+    why: "まだ締まっていない／確かめられない＝0件は本当の0件として今までどおり",
+  };
+}
+
+/** /api/keiri/shelves の答えから、貼り紙⑬が流れたかを決める（取り違えを1か所に閉じる） */
+export function masterShelfStateOf(body: {
+  shelves?: { step?: unknown; state?: unknown }[];
+} | null): ReportShelfState {
+  const row = (body?.shelves ?? []).find((r) => r.step === MASTER_SHELF_STEP);
+  if (!row) return "分からない";
+  if (row.state === "ある") return "締まっている";
+  if (row.state === "まだ無い") return "まだ";
+  return "分からない";
+}

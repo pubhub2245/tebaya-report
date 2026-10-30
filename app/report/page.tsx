@@ -17,11 +17,14 @@ import {
 } from "@/lib/tenantScope";
 import { effectiveKeiriScope } from "@/lib/keiri/readSource";
 import {
+  decideBreakdownCheck,
   decideCumulative,
   decideDupCheck,
   decideReportSave,
+  masterShelfStateOf,
   reportShelfStateOf,
   type ReportShelfState,
+  type BreakdownGate,
 } from "@/lib/keiri/tenantReportWrite";
 import { yen } from "@/lib/format";
 import {
@@ -163,6 +166,17 @@ export default function Page() {
   const [products, setProducts] = useState<SaleProduct[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
 
+  /**
+   * 商品の一覧が「読めなかった」ときの決まり（2026-10-30・f3-4）。
+   * ふだん（手羽屋・商品が1件でも読めたとき）は突き合わせをするままです。
+   */
+  const [breakdownGate, setBreakdownGate] = useState<BreakdownGate>({
+    check: true,
+    allowAdd: true,
+    message: null,
+    why: "はじめは今までどおり",
+  });
+
   const loadProducts = useCallback(async () => {
     setProductsLoading(true);
     // 開いているお店の商品だけを出す（手羽屋は印が空＝今までどおり）
@@ -176,7 +190,20 @@ export default function Page() {
       .eq("is_active", true)
       .order("sort_order")
       .order("id");
-    setProducts((data as SaleProduct[]) ?? []);
+    const rows = (data as SaleProduct[] | null) ?? [];
+    setProducts(rows);
+    // ★「読めなかった」を「商品が1件もない」と取り違えない（2026-10-30・f3-4）。
+    //   手羽屋と、1件でも読めたときは、ここで1回も問い合わせません
+    //   ＝ 手羽屋の見え方も通信の回数も今までどおりです。
+    const isTebayaShop = isTebayaScope(scope);
+    setBreakdownGate(
+      decideBreakdownCheck({
+        isTebaya: isTebayaShop,
+        productRows: rows.length,
+        shelfState:
+          isTebayaShop || rows.length > 0 ? "分からない" : await masterShelfClosed(),
+      }),
+    );
     setProductsLoading(false);
   }, [form.shop, scope]);
 
@@ -525,7 +552,9 @@ export default function Page() {
     if (step === 1)
       return form.date && form.location.trim() && form.staff_name.trim();
     if (step === 2) return form.sales_amount > 0;
-    if (step === 4) return !productsLoading && breakdownResolved;
+    // 商品が読めなかったときは突き合わせをしない（嘘の差額で止めない・2026-10-30）
+    if (step === 4)
+      return !productsLoading && (!breakdownGate.check || breakdownResolved);
     if (step === 5) return expensesMissingReceipt.length === 0;
     if (step === 7) return allTasksCompleted;
     return true;
@@ -949,6 +978,7 @@ export default function Page() {
           loading={productsLoading}
           breakdown={breakdown}
           reloadProducts={loadProducts}
+          gate={breakdownGate}
         />
       )}
       {step === 5 && (
@@ -1257,6 +1287,21 @@ async function reportShelfClosed(): Promise<ReportShelfState> {
   }
 }
 
+/**
+ * 貼り紙⑬（申し込んだお店の商品・出店場所・担当者を、公開の鍵では読めないようにする）が
+ * 流れたかを、読むだけの窓口に1回 聞く（2026-10-30・f3-4）。
+ * **確かめられなかったら「分からない」**を返し、画面は今までどおりに倒します。
+ */
+async function masterShelfClosed(): Promise<ReportShelfState> {
+  try {
+    const res = await fetch("/api/keiri/shelves", { cache: "no-store" });
+    if (!res.ok) return "分からない";
+    return masterShelfStateOf(await res.json());
+  } catch {
+    return "分からない";
+  }
+}
+
 /* ---------- STEP 2 ---------- */
 function Step2({
   form,
@@ -1515,6 +1560,7 @@ function ProductsStep({
   loading,
   breakdown,
   reloadProducts,
+  gate,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
@@ -1522,6 +1568,7 @@ function ProductsStep({
   loading: boolean;
   breakdown: SalesBreakdown;
   reloadProducts: () => void;
+  gate: BreakdownGate;
 }) {
   const isTebaya = form.shop !== "もも屋";
   const priced = products.filter((p) => p.kind !== "count_only");
@@ -1557,6 +1604,20 @@ function ProductsStep({
   }
 
   if (priced.length === 0) {
+    // 読めなかったときは「1件もない」と言わない。足す所も出さない（同じ商品が増えるため）
+    if (gate.message) {
+      return (
+        <section className="card space-y-3">
+          <h2 className="text-lg font-bold">{isTebaya ? "🍗" : "🍖"} 販売本数</h2>
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+            {gate.message}
+          </p>
+          <p className="text-xs text-stone-500">
+            このまま「次へ」で進めます。商品の一覧は、経理の画面から入り直すと出ます。
+          </p>
+        </section>
+      );
+    }
     return (
       <section className="card space-y-3">
         <h2 className="text-lg font-bold">{isTebaya ? "🍗" : "🍖"} 販売本数</h2>
@@ -1828,6 +1889,7 @@ function Step4({
   loading,
   breakdown,
   reloadProducts,
+  gate,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
@@ -1835,6 +1897,7 @@ function Step4({
   loading: boolean;
   breakdown: SalesBreakdown;
   reloadProducts: () => void;
+  gate: BreakdownGate;
 }) {
   return (
     <ProductsStep
@@ -1844,6 +1907,7 @@ function Step4({
       loading={loading}
       breakdown={breakdown}
       reloadProducts={reloadProducts}
+      gate={gate}
     />
   );
 }
