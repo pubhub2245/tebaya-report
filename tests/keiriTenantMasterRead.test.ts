@@ -10,6 +10,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  boothFeeLocationsFromWindowRows,
   findTestShopLocation,
   findTestShopProduct,
   findTestShopStaff,
@@ -24,6 +25,7 @@ import {
   TENANT_STAFF_WINDOW,
 } from "../lib/keiri/shelfScope";
 import { TEST_SHOP } from "../lib/keiri/tenantTrial";
+import { boothFeeRuleFor, buildBoothFeeRules } from "../lib/boothFee";
 
 const TENANT = "11111111-2222-3333-4444-555555555555";
 const NAME = "【テスト】テスト広場";
@@ -240,4 +242,63 @@ test("窓口で読めた日当を表に重ねる（もとの表は上書きし�
   assert.equal(after.has("日当なし"), false);
   assert.equal(after.has("ゼロ"), false);
   assert.equal(before.size, 1, "もとの表そのものを書き換えています");
+});
+
+
+/* ================================================================== *
+ *  出店場所（名前と場代の決まり）も同じ道で読む
+ *                             （2026-10-31・kp271／f5-4・f3-4）
+ * ================================================================== */
+
+test("窓口の答えから、名前と場代の決まりを取り出す（止めている場所は落とす）", () => {
+  const rows = [
+    {
+      id: 2,
+      name: "ロ広場",
+      is_active: true,
+      booth_fee_type: "percent",
+      booth_fee_rate: "10",
+      booth_fee_amount: null,
+    },
+    {
+      id: 1,
+      name: "イ広場",
+      is_active: true,
+      booth_fee_type: "fixed",
+      booth_fee_rate: null,
+      booth_fee_amount: 2200,
+    },
+    { id: 9, name: "やめた広場", is_active: false, booth_fee_type: "fixed", booth_fee_rate: null, booth_fee_amount: 1 },
+    { id: 8, is_active: true },
+  ];
+  const out = boothFeeLocationsFromWindowRows(rows);
+  assert.deepEqual(
+    out.map((r) => [r.name, r.booth_fee_type, r.booth_fee_rate, r.booth_fee_amount]),
+    [
+      ["イ広場", "fixed", null, 2200],
+      ["ロ広場", "percent", "10", null],
+    ],
+  );
+});
+
+test("場代の決まりが無い行は『なし』のまま（0円の行を作らない）", () => {
+  const out = boothFeeLocationsFromWindowRows([
+    { id: 1, name: "【テスト】テスト広場", is_active: true, booth_fee_type: "none" },
+  ]);
+  assert.equal(out[0].booth_fee_type, "none");
+  assert.equal(out[0].booth_fee_rate, null);
+  assert.equal(out[0].booth_fee_amount, null);
+  assert.deepEqual(boothFeeLocationsFromWindowRows(null), []);
+});
+
+test("窓口で読めた場代の決まりが、そのまま計算に使える形になっている", () => {
+  const rules = buildBoothFeeRules(
+    boothFeeLocationsFromWindowRows([
+      { id: 1, name: "イ広場", is_active: true, booth_fee_type: "fixed", booth_fee_amount: 2200 },
+      { id: 2, name: "ロ広場", is_active: true, booth_fee_type: "percent", booth_fee_rate: 10 },
+    ]),
+  );
+  assert.deepEqual(boothFeeRuleFor(rules, "イ広場"), { type: "fixed", amount: 2200 });
+  assert.deepEqual(boothFeeRuleFor(rules, "ロ広場"), { type: "percent", rate: 10 });
+  assert.deepEqual(boothFeeRuleFor(rules, "知らない広場"), { type: "none" });
 });

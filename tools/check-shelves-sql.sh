@@ -326,6 +326,12 @@ want "手順４ ⑥が、そのお店の出店場所を1件 入れた" "1" "$(q 
 want "手順４ 何度 流しても増えない（印つきは1件のまま）" "1" "$(q "select count(*) from public.locations where tenant_id='$TEST_TENANT' and name='【テスト】テスト広場'")"
 want "手順４ そのお店の出店場所は、窓口ごしに読める" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_locations(null, null, null, 'test-b2-kensa-1006')")"
 want "手順４ 窓口の答えに、手羽屋の場所は混じらない" "0" "$(q "set role anon; select count(*) from (select (x->>'name') as n from public.keiri_tenant_locations(null,null,null,'test-b2-kensa-1006') x) y where n not like '【テスト】%'")"
+# ★2026-10-31（kp271）：窓口が**場代（出店料）の決まり**も返すこと。
+#   返らないと、申し込んだお店の日報は場代の行が自動で入らず毎日 手打ちになる
+#   （CLAUDE.md 4-15。手打ちは打ち忘れが起きると実データで分かっている）。
+want "手順４ 窓口の答えに、場代の決まりの欄がある" "t" "$(q "set role anon; select (x ? 'booth_fee_type') from public.keiri_tenant_locations(null,null,null,'test-b2-kensa-1006') x limit 1")"
+want "手順４ その出店場所の場代の決まりは『なし』（0円の行を作らない）" "none" "$(q "set role anon; select (x->>'booth_fee_type') from public.keiri_tenant_locations(null,null,null,'test-b2-kensa-1006') x limit 1")"
+want "手順４ 窓口の答えに、場代の％と定額の欄もある" "true/true" "$(q "set role anon; select (x ? 'booth_fee_rate')||'/'||(x ? 'booth_fee_amount') from public.keiri_tenant_locations(null,null,null,'test-b2-kensa-1006') x limit 1")"
 want "手順４ そのお店の出店場所は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.locations where tenant_id='$TEST_TENANT'")"
 want "手順４ 手羽屋の出店場所の件数は、はじめと同じ" "$LOC_TEBAYA" "$(q "set role anon; select count(*) from public.locations where tenant_id is null")"
 # ★ここが要です：手羽屋の毎日の画面（日報の選択肢・シフト・管理のマスタ）が

@@ -1734,7 +1734,13 @@ begin
                l.name,
                l.rank,
                l.target,
-               l.is_active
+               l.is_active,
+               -- ★場代（出店料）の決まりも返す（2026-10-31・kp271／f5-4・CLAUDE.md 4-15）。
+               --   そのお店じしんの決まりです。これを返さないと、申し込んだお店の日報は
+               --   場代の行が自動で入らず、毎日 手打ちになります（打ち忘れが起きます）。
+               l.booth_fee_type,
+               l.booth_fee_rate,
+               l.booth_fee_amount
           from public.locations l
          where l.tenant_id = v_tenant
          order by l.name
