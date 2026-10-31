@@ -351,6 +351,25 @@ want "手順４ 窓口の答えに、手羽屋の商品は混じらない" "0" "
 want "手順４ その商品は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.sale_products where tenant_id='$TEST_TENANT'")"
 want "手順４ 手羽屋の商品の件数は、はじめと同じ" "$PROD_TEBAYA_0" "$(q "set role anon; select count(*) from public.sale_products where tenant_id is null")"
 
+# --- 手順４（3つめ） そのお店の担当者（名前と日当）が1人 入るか（2026-10-31 追記・f5-4） ---
+#   日当はスタッフマスタが正（CLAUDE.md 4-3）。申し込んだお店は担当者の一覧を直す画面に
+#   入れないので、⑥がそのお店ぶんを1人 入れる。入っていないと、そのお店の利益
+#   （売上 − 日当 − 経費）が毎日 手打ち頼みになる。
+#   見るのは：⑥が1人 入れたか／何度 流しても増えないか／日当が日報と同じか／
+#   窓口ごしに読めるか／公開の鍵からは隠れているか／**手羽屋の担当者に触っていないか**。
+STAFF_TEBAYA_0="$(q "select count(*) from public.staff_members where tenant_id is null")"
+want "手順４ ⑥が、そのお店の担当者を1人 入れた" "1" "$(q "select count(*) from public.staff_members where tenant_id is not null")"
+want "手順４ 何度 流しても増えない（印つきは1人のまま）" "1" "$(q "select count(*) from public.staff_members where tenant_id='$TEST_TENANT' and name='【テスト】テスト太郎'")"
+want "手順４ その担当者の日当は、手順5の日報と同じ（10,000円・在籍）" "10000/true" "$(q "select daily_wage||'/'||is_active from public.staff_members where tenant_id='$TEST_TENANT' and name='【テスト】テスト太郎'")"
+# ★その店の日報の担当が、ぜんぶマスタに居ること（居ないと「日当が分かりません」になる）
+want "手順４ マスタに居ない担当の日報は、1枚も無い" "0" "$(q "select count(*) from public.daily_reports r where r.tenant_id='$TEST_TENANT' and not exists (select 1 from public.staff_members s where s.tenant_id=r.tenant_id and s.name=r.staff_name)")"
+want "手順４ 日報の日当と、マスタの日当がちがう日報は無い" "0" "$(q "select count(*) from public.daily_reports r join public.staff_members s on s.name=r.staff_name and s.tenant_id=r.tenant_id where r.tenant_id='$TEST_TENANT' and r.labor <> s.daily_wage")"
+want "手順４ その担当者は、窓口ごしに読める" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_staff(null, null, null, 'test-b2-kensa-1006')")"
+want "手順４ 窓口の答えに、手羽屋の担当者は混じらない" "0" "$(q "set role anon; select count(*) from (select (x->>'name') as n from public.keiri_tenant_staff(null,null,null,'test-b2-kensa-1006') x) y where n not like '【テスト】%'")"
+want "手順４ 窓口の答えに、日当が入っている" "10000" "$(q "set role anon; select (x->>'daily_wage') from public.keiri_tenant_staff(null,null,null,'test-b2-kensa-1006') x limit 1")"
+want "手順４ その担当者は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.staff_members where tenant_id='$TEST_TENANT'")"
+want "手順４ 手羽屋の担当者の件数は、はじめと同じ" "$STAFF_TEBAYA_0" "$(q "set role anon; select count(*) from public.staff_members where tenant_id is null")"
+
 # 担当者・商品の棚も、印が空のままで手羽屋が読めること（日報の選択肢）
 want "手順４ 手羽屋の担当者は、公開の鍵で今までどおり読める" "2" "$(q "set role anon; select count(*) from public.staff_members where tenant_id is null")"
 
@@ -372,7 +391,9 @@ want "⑬ 窓口が3つ できた" "3" "$(q "select count(*) from pg_proc where 
 want "⑬ よその店の担当者は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.staff_members where tenant_id is not null")"
 want "⑬ よその店の商品は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.sale_products where tenant_id is not null")"
 want "⑬ 書き換えて取り出す道でも読めない" "0" "$(q "set role anon; select count(*) from public.staff_members where tenant_id::text like '%'")"
-want "⑬ 窓口は、その店の担当者を返す" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_staff(null,null,null,'test-b2-kensa-1006')")"
+# ★2026-10-31：⑥がそのお店ぶんの担当者を1人 入れるようになったので、
+#   ここでは「⑥の1人＋この試しの1人」＝2件 返るのが正しい。
+want "⑬ 窓口は、その店の担当者を返す" "2" "$(q "set role anon; select count(*) from public.keiri_tenant_staff(null,null,null,'test-b2-kensa-1006')")"
 # ★2026-10-30：⑥がそのお店ぶんの商品を1件 入れるようになったので、
 #   ここでは「⑥の1件＋この試しの1件」＝2件 返るのが正しい。
 want "⑬ 窓口は、その店の商品を返す" "2" "$(q "set role anon; select count(*) from public.keiri_tenant_products(null,null,null,'test-b2-kensa-1006')")"
@@ -392,7 +413,8 @@ psql -tA -c "set role anon; insert into public.sale_products (name, price, kind)
   || say "⑬ 手羽屋の商品は、公開の鍵で入れて番号も読み返せる" "NG（商品マスタの画面が止まります）"
 want "⑬ 手羽屋の商品は、公開の鍵で消せる" "1" "$(q "set role anon; with d as (delete from public.sale_products where name='【下見】新しい商品' returning 1) select count(*) from d")"
 want "⑬ 手羽屋の商品の件数は、はじめと同じ" "$PROD_TEBAYA" "$(q "select count(*) from public.sale_products where tenant_id is null")"
-psql -q -c "delete from public.staff_members where tenant_id is not null" >/dev/null 2>&1
+# ★⑥が入れた担当者（【テスト】テスト太郎）は消さない。この節で入れた試しの行だけを消す
+psql -q -c "delete from public.staff_members where name='【テスト】よその人'" >/dev/null 2>&1
 # ★⑥が入れた商品（【テスト】テスト商品）は消さない。この節で入れた試しの行だけを消す
 psql -q -c "delete from public.sale_products where name='【テスト】よその商品'" >/dev/null 2>&1
 

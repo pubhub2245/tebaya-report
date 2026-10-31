@@ -26,7 +26,11 @@
 
 import { applyTenantScope } from "@/lib/tenantScope";
 import { isMissingFunction } from "@/lib/keiri/tenantAccess";
-import { TENANT_LOCATIONS_WINDOW, TENANT_PRODUCTS_WINDOW } from "@/lib/keiri/shelfScope";
+import {
+  TENANT_LOCATIONS_WINDOW,
+  TENANT_PRODUCTS_WINDOW,
+  TENANT_STAFF_WINDOW,
+} from "@/lib/keiri/shelfScope";
 import { TEST_SHOP } from "@/lib/keiri/tenantTrial";
 
 /** 倉庫に聞ける物の、ここで使う最小の形（テストで偽物を渡せるようにしてある） */
@@ -226,4 +230,119 @@ export function saleProductsFromWindowRows(
     });
   }
   return out.sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
+}
+
+
+/* ------------------------------------------------------------------ *
+ *  担当者（名前と日当）も同じ道で読む（2026-10-31・kp270／f5-4・f3-4）
+ * ------------------------------------------------------------------ *
+ *
+ * ■ なぜ要るのか（やさしい説明）
+ *   2軒目を入れる手順で、そのお店の担当者を1人 入れるようにしました
+ *   （日当はスタッフマスタが正・CLAUDE.md 4-3。マスタに無いと利益が手打ち頼みになる）。
+ *   出店場所・商品とまったく同じ事情で、⑬のあとは**公開の鍵では読めません**。
+ *   読めないまま「まだ無い」と思うと、**同じ人をもう1人 足してしまいます**
+ *   （担当者の名前は倉庫の中で重なれないので、2人目は入らずエラーになります）。
+ *   そこで出店場所・商品と同じ1か所にまとめます（窓口 → 無ければ公開の鍵）。
+ */
+
+/** 窓口が返した行から、名前と日当だけを取り出す（形が変わっても落ちないように包む） */
+export function staffWagesFromWindowRows(data: unknown): { name: string; dailyWage: number | null }[] {
+  if (!Array.isArray(data)) return [];
+  const out: { name: string; dailyWage: number | null }[] = [];
+  for (const row of data) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    if (typeof r.name !== "string") continue;
+    // ★止めている人（is_active が false）は、画面と同じく落とす
+    if (r.is_active === false) continue;
+    const wage = Number(r.daily_wage);
+    out.push({
+      name: r.name,
+      dailyWage: Number.isFinite(wage) && wage > 0 ? wage : null,
+    });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export type TestShopStaffRead = TestShopLocationRead & {
+  /** その人の日当（分からなかったときは null） */
+  dailyWage: number | null;
+};
+
+/**
+ * テストの店に、その名前の担当者が1人いるかを見る。
+ * 窓口があればそちら、無ければ今までどおり公開の鍵で読む。
+ */
+export async function findTestShopStaff(
+  db: Db,
+  tenantId: string,
+  name: string,
+): Promise<TestShopStaffRead> {
+  // ① 倉庫の窓口ごし（貼り紙⑬のあとはこちらだけが通る）
+  try {
+    const { data, error } = await db.rpc(TENANT_STAFF_WINDOW, {
+      p_password_hash: null,
+      p_from: null,
+      p_to: null,
+      p_test_mark: TEST_SHOP.mark,
+    });
+    if (!error) {
+      const hit = staffWagesFromWindowRows(data).find((r) => r.name === name);
+      return {
+        found: Boolean(hit),
+        dailyWage: hit ? hit.dailyWage : null,
+        unreadable: false,
+        via: "window",
+      };
+    }
+    if (!isMissingFunction(error)) {
+      return { found: false, dailyWage: null, unreadable: true, via: "none" };
+    }
+  } catch {
+    return { found: false, dailyWage: null, unreadable: true, via: "none" };
+  }
+
+  // ② 今までどおり公開の鍵で読む（貼り紙を流す前だけ通る道）
+  try {
+    const { data, error } = await applyTenantScope<any>(
+      db.from("staff_members").select("id, daily_wage") as any,
+      tenantId,
+    )
+      .eq("name", name)
+      .limit(1);
+    if (error) return { found: false, dailyWage: null, unreadable: true, via: "anon" };
+    const row = (data ?? [])[0] as { daily_wage?: unknown } | undefined;
+    const wage = Number(row?.daily_wage);
+    return {
+      found: Boolean(row),
+      dailyWage: row && Number.isFinite(wage) && wage > 0 ? wage : null,
+      unreadable: false,
+      via: "anon",
+    };
+  } catch {
+    return { found: false, dailyWage: null, unreadable: true, via: "anon" };
+  }
+}
+
+/**
+ * 窓口ごしに読めた担当者の日当を、いまの日当の表に重ねる（2026-10-31・kp270）。
+ *
+ * ★日当の決まりそのもの（どの金額を使うか・保険の値）は lib/laborRule.ts のままで、
+ *   ここは触りません。やるのは「窓口で読めた分を表に足す」だけです。
+ * ★日当が分からない人（null）は足しません（金額を作らないため）。
+ * ★もとの表に同じ名前があれば、そちらを残します（手羽屋の表を上書きしない）。
+ */
+export function mergeWindowWages(
+  current: Map<string, number>,
+  rows: { name: string; dailyWage: number | null }[],
+): Map<string, number> {
+  const merged = new Map(current);
+  for (const r of rows) {
+    if (!r.name) continue;
+    if (r.dailyWage === null || !(r.dailyWage > 0)) continue;
+    if (merged.has(r.name)) continue;
+    merged.set(r.name, r.dailyWage);
+  }
+  return merged;
 }

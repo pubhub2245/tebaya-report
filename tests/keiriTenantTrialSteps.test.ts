@@ -13,14 +13,17 @@ import {
   TEST_LOCATION,
   TEST_PRODUCT,
   TEST_REPORT,
+  TEST_STAFF,
   buildTestLocation,
   buildTestProduct,
   buildTestReport,
+  buildTestStaff,
   rollbackNeeded,
   stepsAllDone,
   stepsSummary,
   testProductCount,
   testReportDate,
+  testStaffMatchesReport,
   type StepsState,
 } from "../lib/keiri/tenantTrialSteps";
 import { computeSalesBreakdown, type SaleProduct } from "../lib/salesBreakdown";
@@ -84,7 +87,7 @@ test("出店場所の場代の決まりは『なし』（0円の行を作らな�
   assert.equal(TEST_LOCATION.boothFeeType, "none");
 });
 
-const seen = { locations: 20, reports: 184, products: 7 };
+const seen = { locations: 20, reports: 184, products: 7, staff: 8 };
 
 test("手羽屋に見える件数が動いたら取り消す", () => {
   assert.equal(rollbackNeeded(seen, { ...seen }), false);
@@ -92,18 +95,22 @@ test("手羽屋に見える件数が動いたら取り消す", () => {
   assert.equal(rollbackNeeded(seen, { ...seen, reports: 185 }), true);
   // 商品も数える（手順4で1件 入れるようになったため・2026-10-30）
   assert.equal(rollbackNeeded(seen, { ...seen, products: 8 }), true);
+  // 担当者も数える（手順4で1人 入れるようになったため・2026-10-31）
+  assert.equal(rollbackNeeded(seen, { ...seen, staff: 9 }), true);
 });
 
 test("数えられなかったときも取り消す（0件と読めなかったを取り違えない）", () => {
   assert.equal(rollbackNeeded({ ...seen, locations: null }, { ...seen }), true);
   assert.equal(rollbackNeeded(seen, { ...seen, reports: null }), true);
   assert.equal(rollbackNeeded(seen, { ...seen, products: null }), true);
+  assert.equal(rollbackNeeded(seen, { ...seen, staff: null }), true);
 });
 
 const done: StepsState = {
   shopReady: true,
   locationReady: true,
   productReady: true,
+  staffReady: true,
   reportReady: true,
   separated: true,
   numbersShown: true,
@@ -112,6 +119,7 @@ const done: StepsState = {
 test("手順4〜6がそろって初めて『通った』と言う", () => {
   assert.equal(stepsAllDone(done), true);
   assert.equal(stepsAllDone({ ...done, productReady: false }), false);
+  assert.equal(stepsAllDone({ ...done, staffReady: false }), false);
   assert.equal(stepsAllDone({ ...done, separated: false }), false);
   assert.equal(stepsAllDone({ ...done, numbersShown: false }), false);
   assert.equal(stepsAllDone({ ...done, shopReady: false }), false);
@@ -122,6 +130,7 @@ test("まとめの1行は、のこりを名指しする", () => {
   assert.match(stepsSummary({ ...done, shopReady: false }), /テストの店がまだありません/);
   assert.match(stepsSummary({ ...done, locationReady: false }), /手順4（出店場所）/);
   assert.match(stepsSummary({ ...done, productReady: false }), /手順4（商品と単価）/);
+  assert.match(stepsSummary({ ...done, staffReady: false }), /手順4（担当者と日当）/);
   assert.match(stepsSummary({ ...done, separated: false }), /手順6/);
   assert.match(stepsSummary(done, true), /取り消しました/);
 });
@@ -237,4 +246,38 @@ test("STEP4 の突き合わせ（単価 × 本数 = 売上）が、この固定�
   assert.equal(b.diff, 0);
   assert.equal(b.matched, true);
   assert.deepEqual(b.unpricedNames, []);
+});
+
+
+/* ---------- 手順4の担当者（名前と日当）／2026-10-31・kp270 ---------- */
+
+test("担当者の行にも『どの店か』の印が付き、名前の頭に【テスト】が付く", () => {
+  const st = buildTestStaff(TENANT) as {
+    tenant_id?: string | null;
+    name: string;
+    daily_wage: number;
+    is_active: boolean;
+  };
+  assert.equal(st.tenant_id, TENANT);
+  assert.ok(st.name.startsWith("【テスト】"));
+  assert.equal(st.daily_wage, TEST_STAFF.dailyWage);
+  assert.equal(st.is_active, true);
+  // 番隊・別名は入れない（手羽屋だけの決まりなので、よそのお店に作らない）
+  assert.ok(!("unit_number" in st), "番隊を入れています");
+  assert.ok(!("aliases" in st), "別名を入れています");
+});
+
+test("担当者の行は、手羽屋の画面に出ない（印が空の行として読まれない）", () => {
+  const rows = [buildTestStaff(TENANT), { tenant_id: null, name: "イデ" }];
+  assert.equal(rowsInScope(rows, null).length, 1);
+  assert.equal((rowsInScope(rows, null)[0] as { name: string }).name, "イデ");
+});
+
+test("担当者の名前と日当が、手順5の日報とそろっている（利益が手打ちにならない）", () => {
+  assert.equal(testStaffMatchesReport(), true);
+  assert.equal(TEST_STAFF.name, TEST_REPORT.staffName);
+  assert.equal(TEST_STAFF.dailyWage, TEST_REPORT.labor);
+  const r = buildTestReport(TENANT) as { staff_name: string; labor: number };
+  assert.equal(r.staff_name, TEST_STAFF.name);
+  assert.equal(r.labor, TEST_STAFF.dailyWage);
 });

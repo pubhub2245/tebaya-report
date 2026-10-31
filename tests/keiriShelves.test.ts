@@ -224,16 +224,29 @@ test("⑥ テストのお店1軒を貼り紙の中で作る（2026-10-09・f5-4 
   //   ⑥がそのお店ぶんを1件 入れる。入れる行の印はテストの店で、
   //   手羽屋の商品7件（印が空）には1行も触らない。中身は
   //   tests/keiriShelvesSheet.test.ts で固定値と突き合わせてある。
-  for (const forbidden of [
-    "keiri_advance_expenses",
-    "keiri_applications",
-    "staff_members",
-  ]) {
+  // ★2026-10-31：**担当者（staff_members）も外した。** 日当はスタッフマスタが正
+  //   （CLAUDE.md 4-3）なのに、申し込んだお店は担当者が1人も無く、
+  //   その日の利益（売上 − 日当 − 経費）が手打ち頼みになっていたため、
+  //   ⑥がそのお店ぶんを1人 入れる。入れる行の印はテストの店で、
+  //   手羽屋の担当者8件（印が空）には1行も触らない。中身は
+  //   tests/keiriShelvesSheet.test.ts で固定値と突き合わせてある。
+  for (const forbidden of ["keiri_advance_expenses", "keiri_applications"]) {
     assert.ok(
       !new RegExp(`insert\\s+into\\s+public\\.${forbidden}`, "i").test(body),
       `貼り紙⑥が ${forbidden} に行を足しています`,
     );
   }
+  // 担当者を入れるときも、必ずテストの店の印を付ける（2026-10-31・kp270）
+  const staffInsert = body.slice(body.indexOf("insert into public.staff_members"));
+  assert.ok(
+    /insert\s+into\s+public\.staff_members\s*\(tenant_id/i.test(staffInsert),
+    "⑥の担当者に『どの店か』の印を付けていません（手羽屋の担当者になってしまいます）",
+  );
+  assert.ok(
+    /where s\.tenant_id = v_id and s\.name = '【テスト】テスト太郎'/.test(body),
+    "⑥の担当者が、何度 流すと増える形になっています",
+  );
+
   // 商品を入れるときも、必ずテストの店の印を付ける（2026-10-30・kp269）
   const prodInsert = body.slice(body.indexOf("insert into public.sale_products"));
   assert.ok(
