@@ -12,10 +12,17 @@ import assert from "node:assert/strict";
 import {
   findTestShopLocation,
   findTestShopProduct,
+  findTestShopStaff,
+  mergeWindowWages,
   namesFromWindowRows,
   saleProductsFromWindowRows,
+  staffWagesFromWindowRows,
 } from "../lib/keiri/tenantMasterRead";
-import { TENANT_LOCATIONS_WINDOW, TENANT_PRODUCTS_WINDOW } from "../lib/keiri/shelfScope";
+import {
+  TENANT_LOCATIONS_WINDOW,
+  TENANT_PRODUCTS_WINDOW,
+  TENANT_STAFF_WINDOW,
+} from "../lib/keiri/shelfScope";
 import { TEST_SHOP } from "../lib/keiri/tenantTrial";
 
 const TENANT = "11111111-2222-3333-4444-555555555555";
@@ -151,4 +158,86 @@ test("窓口の答えを、日報の画面が使える形に直す（お店は�
 test("窓口が何も返さないときは空（『1件もない』と見せない判断は呼ぶ側）", () => {
   assert.deepEqual(saleProductsFromWindowRows(null, "手羽屋"), []);
   assert.deepEqual(saleProductsFromWindowRows([], "手羽屋"), []);
+});
+
+
+/* ================================================================== *
+ *  担当者（名前と日当）も同じ道で読む（2026-10-31・kp270／f5-4・f3-4）
+ * ================================================================== */
+
+const STAFF = "【テスト】テスト太郎";
+
+test("担当者も窓口ごしに読む（公開の鍵は使わない・日当も返る）", async () => {
+  const { db, calls } = fakeDb({
+    window: {
+      data: [{ id: 5, name: STAFF, daily_wage: 10000, is_active: true }],
+      error: null,
+    },
+  });
+  const r = await findTestShopStaff(db as any, TENANT, STAFF);
+  assert.deepEqual(r, { found: true, dailyWage: 10000, unreadable: false, via: "window" });
+  assert.equal(calls.from.length, 0, "窓口があるのに公開の鍵でも読んでいます");
+  assert.equal(calls.rpc[0]?.fn, TENANT_STAFF_WINDOW);
+  assert.ok(!("p_tenant_id" in (calls.rpc[0] ?? {})), "お店の番号を渡しています");
+  assert.equal(calls.rpc[0]?.p_test_mark, TEST_SHOP.mark);
+});
+
+test("担当者：窓口がまだ無いときは、今までどおり公開の鍵で読む", async () => {
+  const { db, calls } = fakeDb({ anonRows: [{ id: 5, daily_wage: 10000 }] });
+  const r = await findTestShopStaff(db as any, TENANT, STAFF);
+  assert.equal(r.found, true);
+  assert.equal(r.dailyWage, 10000);
+  assert.equal(r.via, "anon");
+  assert.deepEqual(calls.from, ["staff_members"]);
+});
+
+test("担当者：読めなかったら『いない』と言わない（同じ名前で2人目を入れないため）", async () => {
+  const { db } = fakeDb({
+    window: { data: null, error: { code: "42501", message: "permission denied" } },
+  });
+  const r = await findTestShopStaff(db as any, TENANT, STAFF);
+  assert.equal(r.found, false);
+  assert.equal(r.unreadable, true);
+  assert.equal(r.dailyWage, null);
+});
+
+test("担当者：日当が入っていないときは null（金額を作らない）", async () => {
+  const { db } = fakeDb({
+    window: { data: [{ id: 5, name: STAFF, daily_wage: null, is_active: true }], error: null },
+  });
+  const r = await findTestShopStaff(db as any, TENANT, STAFF);
+  assert.equal(r.found, true);
+  assert.equal(r.dailyWage, null);
+});
+
+test("窓口の答えから、名前と日当だけを取り出す（止めている人は落とす）", () => {
+  const rows = [
+    { id: 2, name: "ロ", daily_wage: "9000", is_active: true },
+    { id: 1, name: "イ", daily_wage: 10000, is_active: true },
+    { id: 9, name: "やめた人", daily_wage: 8000, is_active: false },
+    { id: 8, daily_wage: 100 },
+  ];
+  assert.deepEqual(
+    staffWagesFromWindowRows(rows).map((r) => [r.name, r.dailyWage]),
+    [
+      ["イ", 10000],
+      ["ロ", 9000],
+    ],
+  );
+  assert.deepEqual(staffWagesFromWindowRows(null), []);
+});
+
+test("窓口で読めた日当を表に重ねる（もとの表は上書きしない・0や空は足さない）", () => {
+  const before = new Map<string, number>([["イデ", 9000]]);
+  const after = mergeWindowWages(before, [
+    { name: "イデ", dailyWage: 1 },
+    { name: "テスト太郎", dailyWage: 10000 },
+    { name: "日当なし", dailyWage: null },
+    { name: "ゼロ", dailyWage: 0 },
+  ]);
+  assert.equal(after.get("イデ"), 9000, "もとの表を上書きしています");
+  assert.equal(after.get("テスト太郎"), 10000);
+  assert.equal(after.has("日当なし"), false);
+  assert.equal(after.has("ゼロ"), false);
+  assert.equal(before.size, 1, "もとの表そのものを書き換えています");
 });

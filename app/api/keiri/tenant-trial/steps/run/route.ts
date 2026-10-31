@@ -6,8 +6,10 @@ import { peekTestShop, readBothWays } from "@/lib/keiri/tenantTrialServer";
 import {
   TEST_LOCATION,
   TEST_PRODUCT,
+  TEST_STAFF,
   buildTestLocation,
   buildTestProduct,
+  buildTestStaff,
   buildTestReport,
   rollbackNeeded,
   stepsSummary,
@@ -16,7 +18,11 @@ import {
   type TebayaVisible,
 } from "@/lib/keiri/tenantTrialSteps";
 import { readTenantReportsViaWindow } from "@/lib/keiri/loadMonthServer";
-import { findTestShopLocation, findTestShopProduct } from "@/lib/keiri/tenantMasterRead";
+import {
+  findTestShopLocation,
+  findTestShopProduct,
+  findTestShopStaff,
+} from "@/lib/keiri/tenantMasterRead";
 import { testShopNumbersShown } from "@/lib/keiri/tenantTrialNumbers";
 import { serverClient } from "@/lib/supabaseServer";
 
@@ -29,9 +35,9 @@ export const dynamic = "force-dynamic";
  * 2軒目を入れる手順の **手順4（出店場所と商品を入れる）と手順5（日報を1枚 打つ）** を、
  * テストの店（架空の1軒）に対して通す（f5-4・f3-4）。
  *
- * ■ 入れるのは固定の3行だけです
+ * ■ 入れるのは固定の4行だけです
  *   出店場所1件（【テスト】テスト広場）、商品1件（【テスト】テスト商品・単価500円）、
- *   日報1枚（架空の金額）。
+ *   担当者1人（【テスト】テスト太郎・日当10,000円）、日報1枚（架空の金額）。
  *   中身は lib/keiri/tenantTrialSteps.ts に書いた固定の値で、**外から指定できません**。
  *   すでに入っていれば何も作りません（何度 送っても増えません）。
  *
@@ -56,7 +62,8 @@ export const dynamic = "force-dynamic";
  */
 
 /** 手羽屋に見える件数（印が空のものだけ）を数える。読めなければ null
- *  ★2026-10-30：商品（sale_products）も数えます。手順4で1件 入れるようになったため。 */
+ *  ★2026-10-30：商品（sale_products）も数えます。手順4で1件 入れるようになったため。
+ *  ★2026-10-31：担当者（staff_members）も数えます（同じ理由）。 */
 async function countTebayaVisible(): Promise<TebayaVisible> {
   const db = serverClient({ fresh: true });
   const one = async (table: string): Promise<number | null> => {
@@ -75,6 +82,7 @@ async function countTebayaVisible(): Promise<TebayaVisible> {
     locations: await one("locations"),
     reports: await one("daily_reports"),
     products: await one("sale_products"),
+    staff: await one("staff_members"),
   };
 }
 
@@ -86,6 +94,7 @@ export async function POST() {
       shopReady: false,
       locationReady: false,
       productReady: false,
+      staffReady: false,
       reportReady: false,
       separated: false,
       numbersShown: false,
@@ -110,6 +119,7 @@ export async function POST() {
 
   const madeLocationIds: string[] = [];
   const madeProductIds: string[] = [];
+  const madeStaffIds: string[] = [];
   const madeReportIds: string[] = [];
   const problems: string[] = [];
 
@@ -170,6 +180,39 @@ export async function POST() {
     problems.push("商品の出し入れで通信に失敗しました");
   }
 
+  // --- 手順4（3つめ）：担当者（名前と日当）を1人 ---------------------------
+  //   日当はスタッフマスタが正（CLAUDE.md 4-3）。ここが空だと、そのお店の利益
+  //   （売上 − 日当 − 経費）が手打ち頼みになる（2026-10-31・kp270）。
+  //   読む道は GET と同じ1か所なので、⑬のあとも「もういるか」が正しく分かり、
+  //   同じ名前で2人目を入れようとして落ちることがない（名前は倉庫の中で重なれない）。
+  let staffReady = false;
+  try {
+    const already = await findTestShopStaff(db as any, tenantId, TEST_STAFF.name);
+    if (already.unreadable) problems.push("担当者の棚を読めませんでした");
+    else if (already.found) staffReady = true;
+    else {
+      const { data, error } = await db
+        .from("staff_members")
+        .insert(buildTestStaff(tenantId))
+        .select("id")
+        .maybeSingle();
+      if (error || !data) {
+        const why = error?.message ?? "理由なし";
+        problems.push(
+          /row-level security|row level security/i.test(why)
+            ? "担当者は公開の鍵では入れられません（⑬の読む決まりが、入れた行の読み返しにも効くため）。" +
+              "手順4の担当者は /keiri/sql の貼り紙⑥の中で入ります。貼り紙を1回 流してください"
+            : `担当者を入れられませんでした（${why}）`,
+        );
+      } else {
+        madeStaffIds.push(String((data as { id: unknown }).id));
+        staffReady = true;
+      }
+    }
+  } catch {
+    problems.push("担当者の出し入れで通信に失敗しました");
+  }
+
   // --- 手順5：日報を1枚 ----------------------------------------------------
   let reportReady = false;
   const reportDate = testReportDate();
@@ -223,7 +266,11 @@ export async function POST() {
 
   // --- 入れる前と後で、手羽屋に見える件数が動いていないか ------------------
   const after = await countTebayaVisible();
-  const wrote = madeLocationIds.length + madeProductIds.length + madeReportIds.length;
+  const wrote =
+    madeLocationIds.length +
+    madeProductIds.length +
+    madeStaffIds.length +
+    madeReportIds.length;
   let rolledBack = false;
   if (wrote > 0 && rollbackNeeded(before, after)) {
     rolledBack = true;
@@ -249,9 +296,11 @@ export async function POST() {
     };
     for (const id of madeLocationIds) await removeOne("locations", id, "出店場所");
     for (const id of madeProductIds) await removeOne("sale_products", id, "商品");
+    for (const id of madeStaffIds) await removeOne("staff_members", id, "担当者");
     for (const id of madeReportIds) await removeOne("daily_reports", id, "日報");
     locationReady = false;
     productReady = false;
+    staffReady = false;
     reportReady = false;
   }
 
@@ -267,6 +316,7 @@ export async function POST() {
     shopReady: true,
     locationReady,
     productReady,
+    staffReady,
     reportReady,
     separated,
     numbersShown,
@@ -280,12 +330,14 @@ export async function POST() {
         wrote === 0
           ? "もう入っていました。何も作っていません"
           : `この回で ${wrote} 行 入れました（出店場所 ${madeLocationIds.length}・` +
-            `商品 ${madeProductIds.length}・日報 ${madeReportIds.length}）`,
+            `商品 ${madeProductIds.length}・担当者 ${madeStaffIds.length}・` +
+            `日報 ${madeReportIds.length}）`,
       wrote,
       rolledBack,
       tebayaUnchanged: !rolledBack,
       locationReady,
       productReady,
+      staffReady,
       reportReady,
       numbersShown,
       separated,

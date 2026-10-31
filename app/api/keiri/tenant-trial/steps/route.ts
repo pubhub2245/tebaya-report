@@ -2,13 +2,18 @@ import { NextResponse } from "next/server";
 
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 import { loadKeiriMonthServer } from "@/lib/keiri/loadMonthServer";
-import { findTestShopLocation, findTestShopProduct } from "@/lib/keiri/tenantMasterRead";
+import {
+  findTestShopLocation,
+  findTestShopProduct,
+  findTestShopStaff,
+} from "@/lib/keiri/tenantMasterRead";
 import { TEST_SHOP, separationOk } from "@/lib/keiri/tenantTrial";
 import { testShopNumbersShown } from "@/lib/keiri/tenantTrialNumbers";
 import { peekTestShop, readBothWays } from "@/lib/keiri/tenantTrialServer";
 import {
   TEST_LOCATION,
   TEST_PRODUCT,
+  TEST_STAFF,
   stepsAllDone,
   stepsSummary,
   testReportDate,
@@ -29,7 +34,8 @@ export const dynamic = "force-dynamic";
  * ★返すのは件数と○×と架空の店の名前だけ。合言葉・鍵の値・お店の番号・金額は返しません。
  *
  * ■ ここで分かること
- *   手順4 … そのお店の出店場所が1件・商品（名前と単価）が1件 入っているか
+ *   手順4 … そのお店の出店場所が1件・商品（名前と単価）が1件・
+ *            担当者（名前と日当）が1人 入っているか
  *   手順5 … そのお店の日報が1枚 入っていて、そこから「今月の利益・今の現金」が出るか
  *   手順6 … そのお店として読むと、手羽屋の数字が1件も混ざらないか
  */
@@ -43,6 +49,9 @@ export async function GET() {
   let productReady = false;
   let productsUnreadable = false;
   let productPrice: number | null = null;
+  let staffReady = false;
+  let staffUnreadable = false;
+  let staffWage: number | null = null;
   if (tenantId) {
     // ★貼り紙⑬のあと、テストの店の出店場所は公開の鍵では読めない（0件で返る）。
     //   倉庫の窓口ごしに読む道を1か所にまとめてある（lib/keiri/tenantMasterRead.ts）。
@@ -57,6 +66,12 @@ export async function GET() {
     productsUnreadable = prod.unreadable;
     productReady = prod.found;
     productPrice = prod.price;
+    // 手順4の3つめ：そのお店の担当者（名前と日当）が1人いるか（2026-10-31・kp270）
+    //   日当はスタッフマスタが正（CLAUDE.md 4-3）。ここが空だと、そのお店の利益は手打ち頼み。
+    const st = await findTestShopStaff(db as any, tenantId, TEST_STAFF.name);
+    staffUnreadable = st.unreadable;
+    staffReady = st.found;
+    staffWage = st.dailyWage;
   }
 
   // 手順5・6：そのお店として月を読み、手羽屋と見比べる（件数だけ）
@@ -95,6 +110,7 @@ export async function GET() {
     shopReady,
     locationReady,
     productReady,
+    staffReady,
     reportReady,
     separated,
     numbersShown,
@@ -107,6 +123,7 @@ export async function GET() {
       steps: {
         "4_出店場所": locationReady ? "入っています" : "まだです",
         "4_商品と単価": productReady ? "入っています" : "まだです",
+        "4_担当者と日当": staffReady ? "入っています" : "まだです",
         "5_日報1枚": reportReady ? "入っています" : "まだです",
         "5_数字が出るか": numbersShown ? "出ます" : "まだです",
         "6_混ざらないか": separated ? "混ざりません" : "まだです",
@@ -118,6 +135,10 @@ export async function GET() {
       productsUnreadable,
       /** 単価 × 本数 の突き合わせが、この固定値で成り立つか（金額ではなく「割り切れるか」だけ） */
       breakdownFits: productReady && productPrice === TEST_PRODUCT.price,
+      staffReady,
+      staffUnreadable,
+      /** マスタの日当が、手順5の日報の日当とそろっているか（○×だけ・金額は返しません） */
+      wageKnown: staffReady && staffWage === TEST_STAFF.dailyWage,
       reportReady,
       numbersShown,
       separated,
