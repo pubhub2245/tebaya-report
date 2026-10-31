@@ -346,3 +346,55 @@ export function mergeWindowWages(
   }
   return merged;
 }
+
+
+/* ------------------------------------------------------------------ *
+ *  出店場所（名前と場代の決まり）も同じ道で読む
+ *                             （2026-10-31・kp271／f5-4・f3-4）
+ * ------------------------------------------------------------------ *
+ *
+ * ■ なぜ要るのか（やさしい説明）
+ *   貼り紙⑬のあと、申し込んだお店の出店場所は公開の鍵では読めません。
+ *   日報の画面は出店場所が0件になるので、
+ *   ① 出店場所を選べず「その他（手入力）」で毎回 打つことになり、
+ *   ② **場代（出店料）の行が自動で入りません**（CLAUDE.md 4-15）。
+ *   ②は、場代を手打ちにすると打ち忘れが起きるという、実データで分かっている
+ *   問題そのものです（4月に ながやま27日中23日 記録が無かった）。
+ *   そこで、担当者・商品と同じ道（窓口 → 無ければ公開の鍵）で読みます。
+ */
+
+/** 窓口が返した行から、名前と場代の決まりだけを取り出す（形が変わっても落ちないように包む） */
+export function boothFeeLocationsFromWindowRows(data: unknown): {
+  name: string;
+  booth_fee_type: string | null;
+  booth_fee_rate: number | string | null;
+  booth_fee_amount: number | null;
+}[] {
+  if (!Array.isArray(data)) return [];
+  const out: ReturnType<typeof boothFeeLocationsFromWindowRows> = [];
+  for (const row of data) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    if (typeof r.name !== "string") continue;
+    // ★止めている場所（is_active が false）は、画面と同じく落とす
+    if (r.is_active === false) continue;
+    const type = typeof r.booth_fee_type === "string" ? r.booth_fee_type : null;
+    const rate =
+      typeof r.booth_fee_rate === "number" || typeof r.booth_fee_rate === "string"
+        ? r.booth_fee_rate
+        : null;
+    // ★空（null・未記入）を 0 にしない。0 にすると「0円の行」が作られてしまう
+    //   （CLAUDE.md 4-15：決まりが無いときは null のまま）。
+    const amount =
+      r.booth_fee_amount === null || r.booth_fee_amount === undefined
+        ? null
+        : Number(r.booth_fee_amount);
+    out.push({
+      name: r.name,
+      booth_fee_type: type,
+      booth_fee_rate: rate,
+      booth_fee_amount: amount !== null && Number.isFinite(amount) ? amount : null,
+    });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}

@@ -17,8 +17,13 @@ import {
 } from "@/lib/tenantScope";
 import { effectiveKeiriScope } from "@/lib/keiri/readSource";
 import { readKeiriSecret } from "@/lib/keiri/browserSecret";
-import { TENANT_PRODUCTS_WINDOW, TENANT_STAFF_WINDOW } from "@/lib/keiri/shelfScope";
 import {
+  TENANT_LOCATIONS_WINDOW,
+  TENANT_PRODUCTS_WINDOW,
+  TENANT_STAFF_WINDOW,
+} from "@/lib/keiri/shelfScope";
+import {
+  boothFeeLocationsFromWindowRows,
   mergeWindowWages,
   saleProductsFromWindowRows,
   staffWagesFromWindowRows,
@@ -64,7 +69,7 @@ import {
 import { getUnitFromStaff } from "@/lib/teamMapping";
 import { getLimitedProductForMonth } from "@/lib/limitedProduct";
 import { recalcRankForLocation } from "@/lib/locationRankUpdate";
-import { boothFeeRuleFor } from "@/lib/boothFee";
+import { boothFeeRuleFor, buildBoothFeeRules, type BoothFeeLocation } from "@/lib/boothFee";
 import { fetchBoothFeeRules } from "@/lib/boothFeeMaster";
 import {
   BOOTH_FEE_LABEL,
@@ -182,6 +187,21 @@ export default function Page() {
   const [boothFeeRules, setBoothFeeRules] = useState<Map<string, BoothFeeRule>>(
     new Map(),
   );
+  /**
+   * 貼り紙⑬のあと、申し込んだお店が**自分の出店場所だけ**を窓口ごしに読めた分
+   * （名前と場代の決まり・2026-10-31・kp271）。**手羽屋では必ず空**なので、
+   * 手羽屋の場代は1円も変わりません。
+   */
+  const [windowLocations, setWindowLocations] = useState<BoothFeeLocation[]>([]);
+  /** 画面が使う場代の表（マスタで読めた分 ＋ 窓口ごしに読めた分） */
+  const feeRules = useMemo<Map<string, BoothFeeRule>>(() => {
+    if (windowLocations.length === 0) return boothFeeRules;
+    const merged = new Map(boothFeeRules);
+    for (const [k, v] of buildBoothFeeRules(windowLocations)) {
+      if (!merged.has(k)) merged.set(k, v);
+    }
+    return merged;
+  }, [boothFeeRules, windowLocations]);
 
   // 商品マスタ。内訳の突き合わせに使うので親で持つ（STEP4 と保存の両方から見る）
   const [products, setProducts] = useState<SaleProduct[]>([]);
@@ -400,11 +420,10 @@ export default function Page() {
             .eq("is_active", true)
             .order("name"),
         ]);
-        setMasterLocations(
-          ((locRes.data as { name: string }[]) || [])
-            .map((l) => l.name)
-            .filter(Boolean),
-        );
+        const locNames = ((locRes.data as { name: string }[]) || [])
+          .map((l) => l.name)
+          .filter(Boolean);
+        setMasterLocations(locNames);
         const staffNames = ((staffRes.data as { name: string }[]) || [])
           .map((s) => s.name)
           .filter(Boolean);
@@ -413,12 +432,26 @@ export default function Page() {
         // ★「読めなかった」を「担当者が1人もいない」と取り違えない（2026-10-31・kp270）。
         //   手羽屋と、1人でも読めたときは、ここで1回も問い合わせません
         //   ＝ 手羽屋の見え方も通信の回数も今までどおりです。
-        if (!isTebayaScope(scope) && staffNames.length === 0) {
+        if (
+          !isTebayaScope(scope) &&
+          (staffNames.length === 0 || locNames.length === 0)
+        ) {
           if ((await masterShelfClosed()) === "締まっている") {
-            const mine = await loadStaffViaWindow();
-            if (mine.length > 0) {
-              setWindowStaff(mine);
-              setMasterStaff(mine.map((r) => r.name));
+            if (staffNames.length === 0) {
+              const mine = await loadStaffViaWindow();
+              if (mine.length > 0) {
+                setWindowStaff(mine);
+                setMasterStaff(mine.map((r) => r.name));
+              }
+            }
+            // ★出店場所も同じ道で読む（2026-10-31・kp271）。
+            //   読めると、場代（出店料）の行がそのお店でも自動で入ります。
+            if (locNames.length === 0) {
+              const mineLoc = await loadLocationsViaWindow();
+              if (mineLoc.length > 0) {
+                setWindowLocations(mineLoc);
+                setMasterLocations(mineLoc.map((r) => r.name));
+              }
             }
           }
         }
@@ -542,8 +575,8 @@ export default function Page() {
   // ★手羽屋・もも屋が同じ日・同じ場所に出ても場代は1回だけなので、
   //   自動で入れるのは手羽屋の日報だけにする（実データもすべてこの形）。
   const boothFeeRule = useMemo(
-    () => boothFeeRuleFor(boothFeeRules, form.location),
-    [boothFeeRules, form.location],
+    () => boothFeeRuleFor(feeRules, form.location),
+    [feeRules, form.location],
   );
   const boothFeeAmount = useMemo(
     () => calcBoothFee(boothFeeRule, form.sales_amount),
@@ -1413,6 +1446,36 @@ async function loadStaffViaWindow(): Promise<
     });
     if (error) return [];
     return staffWagesFromWindowRows(data);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 申し込んだお店が、**自分の出店場所（名前と場代の決まり）だけ**を
+ * 倉庫の窓口ごしに読む（2026-10-31・kp271）。
+ *
+ * ■ なぜ要るのか（やさしい説明）
+ *   貼り紙⑬のあと、申し込んだお店の出店場所は公開の鍵では0件になります。
+ *   選択肢が出ないだけでなく、**場代（出店料）の行が自動で入りません**
+ *   （CLAUDE.md 4-15。手打ちにすると打ち忘れが起きると分かっている所です）。
+ *
+ * ★渡すのは「合言葉を戻せない形にしたもの」だけで、お店の番号は渡しません。
+ * ★札が無い・窓口が無い・読めないときは**空で返します**
+ *   （画面は今までどおり「その他（自由入力）」で進めます）。
+ */
+async function loadLocationsViaWindow(): Promise<BoothFeeLocation[]> {
+  try {
+    const hash = readKeiriSecret();
+    if (!hash) return [];
+    const { data, error } = await supabase.rpc(TENANT_LOCATIONS_WINDOW, {
+      p_password_hash: hash,
+      p_from: null,
+      p_to: null,
+      p_test_mark: null,
+    });
+    if (error) return [];
+    return boothFeeLocationsFromWindowRows(data);
   } catch {
     return [];
   }
