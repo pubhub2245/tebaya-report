@@ -244,6 +244,74 @@ export function sortDemoReports(reports: KeiriReport[]): KeiriReport[] {
  *   画面に渡します。画面の中で毎回 new Date() を呼ぶと、
  *   サーバーが描いた絵とブラウザが描き直した絵が月末にズレることがあるためです。
  */
+/**
+ * お試し版と「毎月お渡しする1枚」が見せる月を、1か所で決める（2026-11-01・f5-2・f4-4・f5-1）。
+ *
+ * ■ なぜ要るのか（やさしく）
+ *   これまでは**いつでも「今月」**を見せていました。架空の日報は月の 3日・6日・8日 に
+ *   置いてあるので、**月の1日〜7日に開くと「まだ来ていない日の日報」**が並びます。
+ *   店主の前で「11月1日に作りました」と書いた1枚の中身が 11月3日 から始まる＝
+ *   作り物に見えます（2026-11-01 に B2 が本番で見つけました。**毎月1〜7日に必ず起きます**）。
+ *   10/6 と 10/13 に「日にちを月初に寄せる」直し方をしていますが、
+ *   **月初に寄せても、月が替わった直後は追いつけません**（日にちを1日にはできない＝
+ *   「もう何日か使ったお店」に見えなくなる）。そこで**月そのものを下げます**。
+ *
+ * ■ 決まり（これだけ）
+ *   架空のデータのいちばん後ろの日（いまは8日）**より前に開いたときだけ、前の月**を見せる。
+ *   それ以降はいままでどおり今月。＝ **未来の日付は、どの日に開いても出ません。**
+ *   いちばん後ろの日は数え取ります（データを直したら自動で付いてきます）。
+ */
+export function latestDemoDay(): number {
+  const probe = "2000-01";
+  const dates: string[] = [
+    ...demoReports(probe).map((r) => String(r.date ?? "")),
+    ...demoAdvances(probe).flatMap((a) => [
+      String(a.date ?? ""),
+      String((a as { settledDate?: string | null }).settledDate ?? ""),
+    ]),
+  ];
+  const days = dates
+    .filter((d) => d.startsWith(`${probe}-`))
+    .map((d) => Number(d.slice(8, 10)))
+    .filter((n) => Number.isFinite(n) && n >= 1 && n <= 31);
+  return days.length > 0 ? Math.max(...days) : 1;
+}
+
+/** お試し版・1枚の見本が見せる月（日本時間で決める） */
+export function demoMonth(now: Date = new Date()): { ym: string; label: string } {
+  const today = demoTodayJst(now);
+  const day = Number(today.slice(8, 10));
+  let y = Number(today.slice(0, 4));
+  let m = Number(today.slice(5, 7));
+  if (day < latestDemoDay()) {
+    m -= 1;
+    if (m === 0) {
+      m = 12;
+      y -= 1;
+    }
+  }
+  return { ym: `${y}-${String(m).padStart(2, "0")}`, label: `${y}年${m}月` };
+}
+
+/** その月の末日（YYYY-MM-DD） */
+export function demoMonthEnd(ym: string): string {
+  const y = Number(ym.slice(0, 4));
+  const m = Number(ym.slice(5, 7));
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${ym}-${String(last).padStart(2, "0")}`;
+}
+
+/**
+ * お試し版の「日報を1件 足す」欄に、はじめから入れておく日。
+ *
+ * ★見せている月の外の日を入れると、**足した1件が集計に入らず**
+ *   「書いても数字が変わらない」画面になります（お試し版の芯が死にます）。
+ *   今月を見せているときは今日、前の月を見せているときはその月の末日にします。
+ */
+export function demoInputDate(ym: string, today: string): string {
+  return today.startsWith(`${ym}-`) ? today : demoMonthEnd(ym);
+}
+
 export function demoTodayJst(now: Date = new Date()): string {
   const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
   const y = jst.getUTCFullYear();
