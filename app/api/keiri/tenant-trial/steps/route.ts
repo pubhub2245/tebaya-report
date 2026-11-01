@@ -145,6 +145,10 @@ export async function GET() {
       allDone: stepsAllDone(state),
       tebaya: read.tebaya,
       testShop: read.testShop,
+      /** 手順6（混ざらないか）を測った月。今日の日付では動きません（2026-11-01） */
+      month: read.month,
+      ym: read.ym,
+      monthWhy: read.monthWhy,
       summary: stepsSummary(state),
       runPath: "/api/keiri/tenant-trial/steps/run",
       check: "f5-4・f3-4",

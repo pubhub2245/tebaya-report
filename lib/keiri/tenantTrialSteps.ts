@@ -103,6 +103,30 @@ export function testReportDate(): string {
   return TEST_SHOP.openingDate;
 }
 
+/**
+ * 手順6（混ざらないか）で**読み比べる月**。
+ *
+ * ■ なぜ「先月」ではいけないのか（2026-11-01・f5-4・f3-4）
+ *   手順5で入れる日報は、数え始めの日（{@link TEST_SHOP.openingDate}）に**固定**です。
+ *   ところが読み比べる所は「先月」を読んでいました（previousMonthRange）。
+ *   ＝ **たまたま 2026年11月のあいだだけ**、先月（10月）と日報の月（10月）が
+ *   そろっていただけで、
+ *     ・12月に入ると先月＝11月になり、テストの店の行は**1行も無い月**を読む
+ *       → よその行は0件なので「混ざりません」と**読んでもいないのに言ってしまう**
+ *     ・その月に手羽屋の日報が1枚も無いと（いまは10月18日が最後）
+ *       → 手羽屋の件数が0件になり、分かれているのに「まだです」と**逆に言う**
+ *   のどちらかになります。どちらも f5-4 の合否を誤らせます。
+ *
+ * ■ だから、日報が入っている月（＝手順5の日報の月）を読みます
+ *   この月は手羽屋にも行がある月なので、両方を**同じ月**で見比べられます。
+ *   今日の日付では変わりません（テストで固定）。
+ */
+export function trialReadMonth(): { ym: string; label: string } {
+  const ym = testReportDate().slice(0, 7);
+  const [y, m] = ym.split("-");
+  return { ym, label: `${Number(y)}年${Number(m)}月` };
+}
+
 /** 出店場所の棚に入れる1行 */
 export function buildTestLocation(tenantId: string): Record<string, unknown> {
   return {
