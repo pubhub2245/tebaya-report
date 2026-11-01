@@ -41,7 +41,7 @@ import {
 } from "../lib/keiri/demo";
 import { GENERIC_TEMPLATE } from "../lib/keiri/templates/generic";
 import { sampleMonth } from "../lib/keiri/monthlySample";
-import { demoTodayJst } from "../lib/keiri/demo";
+import { demoMonth, demoTodayJst } from "../lib/keiri/demo";
 
 /**
  * 見本を作る日を固定する。
@@ -275,7 +275,8 @@ test("要確認（雑費に入れた経費）は、見本でも隠さずに出�
 // ------------------------------------------------------------------
 
 test("見本の月は、お試し版（/keiri/demo）が出す月と同じ", () => {
-  // お試し版は demoTodayJst の「日本時間の今日」から月を決めている
+  // ★月を決める所は1つだけ（lib/keiri/demo.ts の demoMonth）。
+  //   2つ持つと、お試し版と1枚の見本が別の月を出し、店主に見せる道で数字が食い違う。
   for (const iso of [
     "2026-09-20T00:00:00Z",
     "2026-10-03T05:00:00Z",
@@ -284,8 +285,35 @@ test("見本の月は、お試し版（/keiri/demo）が出す月と同じ", () 
     "2026-12-31T15:30:00Z",
   ]) {
     const today = new Date(iso);
-    const demoYm = demoTodayJst(today).slice(0, 7);
-    assert.equal(sampleMonth(today).ym, demoYm, `${iso} で月がずれている`);
+    assert.equal(sampleMonth(today).ym, demoMonth(today).ym, `${iso} で月がずれている`);
+  }
+});
+
+test("見本の月は、月の1日〜7日に開くと前の月になる（未来の日付を出さないため）", () => {
+  // 架空の日報は月の 3日・6日・8日 に置いてある。
+  // 今月のままだと、月の前半に開いた店主に「まだ来ていない日の日報」が並ぶ
+  // （2026-11-01 に本番で起きた・毎月1〜7日に必ず起きる形）。
+  assert.equal(sampleMonth(new Date("2026-10-31T16:00:00Z")).ym, "2026-10"); // JST 11/1
+  assert.equal(sampleMonth(new Date("2026-11-06T05:00:00Z")).ym, "2026-10");
+  // 8日からは今月（その日までの日報しか入っていない）
+  assert.equal(sampleMonth(new Date("2026-11-08T05:00:00Z")).ym, "2026-11");
+  assert.equal(sampleMonth(new Date("2026-11-20T05:00:00Z")).ym, "2026-11");
+  // 年をまたぐとき
+  assert.equal(sampleMonth(new Date("2026-12-31T16:00:00Z")).ym, "2026-12"); // JST 1/1
+});
+
+test("見本に、作った日より後の日付が1つも出ない（どの日に開いても）", () => {
+  // 月のどの日に開いても、1枚の中に「まだ来ていない日」が出ないこと。
+  for (let day = 1; day <= 28; day++) {
+    const today = new Date(`2026-11-${String(day).padStart(2, "0")}T05:00:00Z`);
+    const s = buildMonthlySample(today);
+    const madeOn = demoTodayJst(today);
+    for (const r of s.journalRows) {
+      assert.ok(
+        r.date <= madeOn,
+        `11/${day} に開くと、作った日 ${madeOn} より後の日付 ${r.date} が出る`,
+      );
+    }
   }
 });
 
@@ -293,7 +321,8 @@ test("見本のCSVの日付は、見本が指している月の中に入って�
   const today = new Date("2026-10-03T05:00:00Z");
   const s = buildMonthlySample(today);
   const ym = sampleMonth(today).ym;
-  assert.equal(s.monthLabel, "2026年10月");
+  assert.equal(s.monthLabel, "2026年9月");
+  assert.equal(ym, "2026-09");
   assert.ok(s.journalRows.length > 0, "仕訳が0行では確かめにならない");
   for (const r of s.journalRows) {
     assert.ok(

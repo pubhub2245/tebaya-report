@@ -17,8 +17,10 @@ import path from "node:path";
 import { NEUTRAL_OUTSOURCING_ACCOUNT_LABEL } from "@/lib/keiri";
 import {
   DEMO_SHOP_NAME,
+  demoInputDate,
   demoInputProblem,
   demoInputToReport,
+  demoMonth,
   demoNumber,
   demoOpeningDate,
   demoPayments,
@@ -27,6 +29,7 @@ import {
   demoSettings,
   demoTodayJst,
   emptyDemoInput,
+  latestDemoDay,
   sortDemoReports,
 } from "../lib/keiri/demo";
 import {
@@ -565,4 +568,39 @@ test("お試し版から、毎月お渡しする1枚の見本へ進める（f5-1
     page.includes('href="/keiri/monthly-sample"'),
     "お試し版から1枚の見本への道が無い",
   );
+});
+
+/* ------------------------------------------------------------------ *
+ *  お試し版が見せる月（2026-11-01・f5-2・f4-4）
+ * ------------------------------------------------------------------ */
+
+test("お試し版の日報は、どの日に開いても今日より後の日付にならない", () => {
+  // 架空の日報は月の 3日・6日・8日。月の前半に開くと未来になるので、前の月を見せる。
+  for (let day = 1; day <= 28; day++) {
+    const today = new Date(`2026-11-${String(day).padStart(2, "0")}T05:00:00Z`);
+    const { ym } = demoMonth(today);
+    const todayStr = demoTodayJst(today);
+    for (const r of demoReports(ym)) {
+      assert.ok(r.date <= todayStr, `11/${day}：日報 ${r.date} が今日より後になっている`);
+    }
+    for (const a of demoAdvances(ym)) {
+      assert.ok(a.date <= todayStr, `11/${day}：立替 ${a.date} が今日より後になっている`);
+    }
+  }
+});
+
+test("お試し版の『日報を足す』欄の日付は、見せている月の中に入っている", () => {
+  // 月の外の日を入れると、足した1件が集計に入らず「書いても変わらない」画面になる
+  for (let day = 1; day <= 28; day++) {
+    const today = new Date(`2026-11-${String(day).padStart(2, "0")}T05:00:00Z`);
+    const { ym } = demoMonth(today);
+    const todayStr = demoTodayJst(today);
+    const d = demoInputDate(ym, todayStr);
+    assert.ok(d.startsWith(`${ym}-`), `11/${day}：${d} が月 ${ym} の外`);
+    assert.ok(d <= todayStr, `11/${day}：${d} が今日より後`);
+  }
+});
+
+test("いちばん後ろの架空の日は、データから数え取る（直したら自動で付いてくる）", () => {
+  assert.equal(latestDemoDay(), 8);
 });
