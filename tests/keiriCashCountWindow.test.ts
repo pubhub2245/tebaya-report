@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { reconcileCash, type CashEvent } from "../lib/keiri/cashCheck";
 import { buildCashCountReady, buildCashCountWindow } from "../lib/keiri/cashCountWindow";
+import { measureBooksGap } from "../lib/keiri/cashBooksGap";
 import { buildCashVariants, pickCashVariant } from "../lib/keiri/cashVariant";
 
 /**
@@ -147,4 +148,64 @@ test("数える前の用意：計算上の現金が出せないときは「出�
   assert.equal(ready.ways, 0);
   assert.deepEqual(ready.wayLabels, []);
   assert.ok(ready.line.includes("合否が出ません"));
+});
+
+/* ------------------------------------------------------------------ *
+ *  数える前の用意：日報がどこまで入っているか（2026-11-01・f1-4）
+ * ------------------------------------------------------------------ */
+
+test("数える前の用意：日報が2週間 空いていると、押す前にそう言う（金額は出さない）", () => {
+  const variants = buildCashVariants({
+    screenBalance: 1_004_399,
+    withRepaidBalance: 510_699,
+    registerFloat: 120_000,
+  });
+  const ready = buildCashCountReady({
+    variants,
+    registerFloatOn: "2026-10-12",
+    booksGap: measureBooksGap({
+      reports: [{ date: "2026-10-18" } as any],
+      asOf: "2026-11-01",
+    }),
+  });
+  // 相手はそろっているが、日報が空いていることは別に言う
+  assert.equal(ready.canCompare, true);
+  assert.equal(ready.booksUpToDate, false);
+  assert.equal(ready.booksLastDate, "2026-10-18");
+  assert.equal(ready.booksGapDays, 14);
+  assert.ok(ready.line.includes("10月18日"));
+  assert.ok(ready.line.includes("先に日報を入れてから"));
+  // 金額は1円も出さない
+  assert.ok(!/[0-9]{1,3},[0-9]{3}/.test(ready.line), ready.line);
+});
+
+test("数える前の用意：日報が今日の近くまで入っていれば、よけいな一言は出ない", () => {
+  const variants = buildCashVariants({
+    screenBalance: 1_004_399,
+    withRepaidBalance: 510_699,
+    registerFloat: 120_000,
+  });
+  const ready = buildCashCountReady({
+    variants,
+    registerFloatOn: "2026-10-12",
+    booksGap: measureBooksGap({
+      reports: [{ date: "2026-10-31" } as any],
+      asOf: "2026-11-01",
+    }),
+  });
+  assert.equal(ready.booksUpToDate, true);
+  assert.ok(!ready.line.includes("先に日報を入れてから"));
+});
+
+test("数える前の用意：日報を渡さなければ、今までとまったく同じ答え", () => {
+  const variants = buildCashVariants({
+    screenBalance: 1_004_399,
+    withRepaidBalance: 510_699,
+    registerFloat: 120_000,
+  });
+  const a = buildCashCountReady({ variants, registerFloatOn: "2026-10-12" });
+  assert.equal(a.booksUpToDate, true);
+  assert.equal(a.booksLastDate, null);
+  assert.equal(a.booksGapDays, null);
+  assert.ok(!a.line.includes("日報"));
 });
