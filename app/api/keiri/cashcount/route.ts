@@ -7,6 +7,10 @@ import {
   buildCashCountWindow,
   type CashCountPlace,
 } from "@/lib/keiri/cashCountWindow";
+import {
+  buildCashBooksGapWindow,
+  measureBooksGap,
+} from "@/lib/keiri/cashBooksGap";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
 import {
   buildCashOpeningGapWindow,
@@ -106,8 +110,20 @@ export async function GET() {
 
     // ★数える前でも「いま数えてもらえば合否が出るか」を答える（2026-10-16・kp245）。
     //   金額は1円も出さない（相手の名前と数だけ）。
+    // ★「日報がどこまで入っているか」（2026-11-01・f1-4）。
+    //   日報がまだ入っていない営業日があると、その分だけ計算上の現金がずれます。
+    //   数えた日に揃えて数え（まだ数えていなければ今日）、**金額は1円も返しません**
+    //   （日付・件数・日数と、ひとことだけ）。
+    const booksGap = measureBooksGap({
+      reports: data.reports,
+      asOf: last ? last.happened_on : todayJst,
+    });
+    // 数える前の用意にも、同じ答えを渡す（今日に揃えて見る）
+    const booksGapToday = measureBooksGap({ reports: data.reports, asOf: todayJst });
+
     const floatToday = latestRegisterFloat(data.registerCloses ?? [], todayJst);
     const ready = buildCashCountReady({
+      booksGap: booksGapToday,
       variants: buildCashVariants({
         screenBalance: data.settingsMissing ? null : balanceAt(todayJst, false),
         withRepaidBalance:
@@ -154,6 +170,8 @@ export async function GET() {
       ...buildCashCountWindow({ reconcile, pick, place }),
       // 差の内わけ（数え始めの日より前に払った経費・金額は出さない）
       openingGap: buildCashOpeningGapWindow({ gap: openingGap, diff: reconcile.diff }),
+      // 差の内わけ（日報がどこまで入っているか・金額は出さない）
+      booksGap: buildCashBooksGapWindow({ gap: booksGap, diff: reconcile.diff }),
       shelfMissing: data.cashShelfMissing,
       // じゅんが押す回数と、いま押したら残るか（金額は出さない）
       press,

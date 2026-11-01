@@ -120,6 +120,11 @@ import {
   keepButtonLabel,
   sameCashCountRow,
 } from "@/lib/keiri/cashCountPress";
+import {
+  cashBooksGapLines,
+  measureBooksGap,
+  type CashBooksGap,
+} from "@/lib/keiri/cashBooksGap";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
 import {
   cashOpeningGapLines,
@@ -360,6 +365,21 @@ function KeiriInner() {
   const openingGap = useMemo(
     () => expensesBeforeOpening({ reports, openingDate: effective.opening_date }),
     [reports, effective.opening_date],
+  );
+
+  /**
+   * 「日報がどこまで入っているか」（2026-11-01・f1-4）。
+   *
+   * ★日報がまだ入っていない営業日があると、その分だけ計算上の現金がずれます。
+   *   金庫を数えたときに出る「差」の内わけとして、まず見る所を名指しします。
+   *   数字は1円も直しません（出すのは説明の行だけ）。
+   * ★空きは**数えた日に揃えて**数えます（今日ではありません）。
+   *   突き合わせそのものが数えた日に揃えてあるので、ここだけ今日で数えると
+   *   さかのぼって数えた月で空きが出すぎます。
+   */
+  const booksGapAsOf = useCallback(
+    (date: string): CashBooksGap => measureBooksGap({ reports, asOf: date }),
+    [reports],
   );
 
   /**
@@ -1198,6 +1218,7 @@ function KeiriInner() {
         registerCloses={registerCloses}
         openingDate={effective.opening_date}
         openingGap={openingGap}
+        booksGapAsOf={booksGapAsOf}
       />
 
       {/* 毎月お渡しする1枚（2026-10-04・kp231）。
@@ -1870,6 +1891,7 @@ function CashCountCard({
   registerCloses,
   openingDate,
   openingGap,
+  booksGapAsOf,
 }: {
   reconcile: ReturnType<typeof reconcileCash>;
   balanceNow: number;
@@ -1892,6 +1914,8 @@ function CashCountCard({
   openingDate: string;
   /** 数え始めの日より前に払った経費（差の内わけに出す・2026-10-28・kp265・f1-4） */
   openingGap: CashOpeningGap;
+  /** その日に揃えた「日報がどこまで入っているか」（差の内わけに出す・2026-11-01・f1-4） */
+  booksGapAsOf: (date: string) => CashBooksGap;
 }) {
   const [countOn, setCountOn] = useState(todayStr());
   const [countYen, setCountYen] = useState("");
@@ -2204,6 +2228,25 @@ function CashCountCard({
   const gapLinesSaved = cashOpeningGapLines(openingGap, reconcile.diff);
   const gapLinesPreview = preview ? cashOpeningGapLines(openingGap, preview.diff) : [];
   /**
+   * 差の内わけ「日報はここまで入っています」（2026-11-01・f1-4）。
+   * 3日以上 空いていて、差が1,000円以上のときだけ出ます。
+   */
+  const booksLinesSaved = reconcile.countedOn
+    ? cashBooksGapLines(booksGapAsOf(reconcile.countedOn), reconcile.diff)
+    : [];
+  const booksLinesPreview =
+    preview && preview.countedOn
+      ? cashBooksGapLines(booksGapAsOf(preview.countedOn), preview.diff)
+      : [];
+  /**
+   * 数える前の一言（2026-11-01・f1-4）。
+   *
+   * ★日報が3日以上 空いていると、数えても「入っていない日のぶん」で必ず食い違います。
+   *   数えたあとに言っても1分は戻らないので、**押す前に**ここに出します。
+   *   止めはしません（数えれば差の理由は名指しで出ます）。
+   */
+  const booksGapToday = booksGapAsOf(todayStr());
+  /**
    * 「よくある原因3つ」を出すか（2026-10-28・kp265・f1-4）。
    * ★決め方は lib/keiri/cashOpeningGap.ts の1か所（画面と、外から確かめる窓口で同じ答え）。
    */
@@ -2272,6 +2315,18 @@ function CashCountCard({
               ))}
             </div>
           )}
+          {/* ★差の内わけ「日報はここまで入っています」（2026-11-01・f1-4）。
+                 日報がまだ入っていない営業日があると、その分だけ必ずずれます。
+                 これを出さないと、探す先が「全部」になってしまいます。 */}
+          {booksLinesSaved.length > 0 && (
+            <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
+              {booksLinesSaved.map((l) => (
+                <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
+                  {l}
+                </p>
+              ))}
+            </div>
+          )}
           {reconcile.stale && (
             <p className="text-xs text-amber-700">{reconcile.stale}</p>
           )}
@@ -2289,6 +2344,16 @@ function CashCountCard({
              手羽屋が毎日使う現金の画面＝cash_settings）、どちらを読むかで金額が丸ごと変わります。
              経理が読むのは keiri_settings だけ。迷わせないよう、ここに1行で書きます。 */}
       <p className="text-xs text-stone-500 leading-relaxed">{openingSourceLine}</p>
+
+      {/* ★数える前の一言「日報はここまでしか入っていません」（2026-11-01・f1-4）。
+             押したあとに言っても1分は戻らないので、押す前に出します。 */}
+      {booksGapToday.wide && booksGapToday.lastDate && (
+        <p className="text-xs text-amber-700 leading-relaxed">
+          日報は {monthDay(booksGapToday.lastDate)} までしか入っていません（そこから{" "}
+          {booksGapToday.days}日）。それ以降に営業した日があると、そのぶんだけ差が出ます。
+          先に日報を入れてから数えると、差の意味がはっきりします。
+        </p>
+      )}
 
       {/* ① 金庫を数えた */}
       <div className="pt-3 border-t border-stone-200 space-y-2">
@@ -2399,6 +2464,16 @@ function CashCountCard({
             {cashDiffCauses(preview).length > 0 && gapLinesPreview.length > 0 && (
               <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
                 {gapLinesPreview.map((l) => (
+                  <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
+                    {l}
+                  </p>
+                ))}
+              </div>
+            )}
+            {/* ★差の内わけ「日報はここまで入っています」（2026-11-01・f1-4） */}
+            {booksLinesPreview.length > 0 && (
+              <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
+                {booksLinesPreview.map((l) => (
                   <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
                     {l}
                   </p>
