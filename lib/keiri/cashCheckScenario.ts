@@ -92,6 +92,25 @@ export function cashCheckStaleOn(today: Date = new Date()): string {
   return `${cashCheckYm(today)}-05`;
 }
 
+/**
+ * ⑥「久しく数えていない」の場面だけ使う“その場面の今日”（2026-11-01・f1-4）。
+ *
+ * ■ なぜ要るのか（やさしい説明）
+ *   この場面は「最後に数えてから 30日 以上たった」ことを見せるためのものです。
+ *   ところが比べる相手が**本当の今日**だったので、月が替わった直後は
+ *   数えた日（前の月の5日）から 30日 たっておらず、
+ *   **「久しく数えていません」の一言が出ない**＝名前と中身が食い違っていました
+ *   （2026-11-01 に本番で実測：27日しかたっていなかった）。
+ *   検算（problems）も空で返るので、気づけない形でした。
+ *   この場面は架空の筋書きなので、**その場面の今日**を数えた日の 40日 後に
+ *   固定します。いつ開いても同じ答えになり、名前と中身が必ず合います。
+ */
+export function cashCheckStaleToday(today: Date = new Date()): string {
+  const on = new Date(`${cashCheckStaleOn(today)}T09:00:00Z`);
+  on.setUTCDate(on.getUTCDate() + 40);
+  return on.toISOString().slice(0, 10);
+}
+
 /** 以前の書き方で読んでいる所のために残す（中身は「前の月」） */
 export const CASH_CHECK_YM = cashCheckYm();
 export const CASH_CHECK_COUNTED_ON = cashCheckCountedOn();
@@ -318,11 +337,13 @@ export function buildCashCheck(params?: {
       countedOn: "",
     }),
     caseOf({
-      name: `⑥ 久しく数えていない（${staleOnDay} に数えたまま）`,
+      name: `⑥ 久しく数えていない（${staleOnDay} に数えたまま、その40日後に開いたとき）`,
       r: reconcileCash({
         events: [{ kind: "count", happened_on: staleOnDay, amount: 120000 }],
         computedAtCount: cashCheckPosition(staleOnDay, ym).balance,
-        today,
+        // ★この場面だけ「その場面の今日」を使う（本当の今日だと、月が替わった直後に
+        //   30日 たっておらず「久しく数えていません」が出ない・2026-11-01）
+        today: cashCheckStaleToday(base),
       }),
       countedOn: staleOnDay,
     }),
@@ -424,6 +445,12 @@ export function checkCases(cases: CashCheckCase[]): string[] {
       problems.push(`${c.name}：数えていないのに、差や原因が出ています`);
     }
     if (!c.verdict) problems.push(`${c.name}：差の言い方が空です`);
+    // ★名前と中身が食い違っていないか（2026-11-01・f1-4）。
+    //   ⑥「久しく数えていない」は、その一言が出て初めて場面として成立する。
+    //   本当の今日と比べていたため、月が替わった直後は出ていなかった（検算は空で返っていた）。
+    if (c.name.includes("久しく数えていない") && !c.stale) {
+      problems.push(`${c.name}：「久しく数えていません」の一言が出ていません`);
+    }
   }
   return problems;
 }
