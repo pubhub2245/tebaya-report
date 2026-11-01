@@ -69,6 +69,16 @@ export type TrialRead = {
    *   渡されなかったときは、これまでどおり件数そのもので見ます。
    */
   foreignCount?: number;
+  /**
+   * そのうち「そのお店じしんの行」が何件あったか（2026-11-01・f5-4）。
+   *
+   * ■ なぜ足したか（やさしい説明）
+   *   よその行が0件でも、**その月にそのお店の行が1行も無いだけ**のことがあります。
+   *   そのときの「混ざりません」は、読んで確かめた答えではありません。
+   *   数を外に出しておけば、どちらなのかが窓口を1回 開くだけで分かります。
+   *   （判定そのものは変えていません。手順5の前は0件が正しい形です）
+   */
+  ownCount?: number;
 };
 
 /**
@@ -85,6 +95,10 @@ export function separationOk(params: { tebaya: TrialRead; testShop: TrialRead })
   return (
     tebaya.readable &&
     tebaya.reportCount > 0 &&
+    // ★そのお店として**読めている**ことまで要る（2026-11-01）。
+    //   読みに失敗しても「よその行は0件」になるので、読めていない月の0件を
+    //   「混ざりません」と言ってしまう形だった。
+    testShop.readable &&
     (testShop.foreignCount ?? testShop.reportCount) === 0 &&
     testShop.advancesRead === false
   );

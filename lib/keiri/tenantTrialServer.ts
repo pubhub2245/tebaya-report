@@ -11,9 +11,10 @@
  *   初回設定の合言葉・管理画面の合言葉・鍵の値は、ここから外へ1文字も出しません。
  */
 
-import { CASE_BUSINESS_CODE, previousMonthRange } from "@/lib/keiri/caseStats";
+import { CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import { loadKeiriMonthServer } from "@/lib/keiri/loadMonthServer";
 import { TEST_SHOP, type TrialRead } from "@/lib/keiri/tenantTrial";
+import { trialReadMonth } from "@/lib/keiri/tenantTrialSteps";
 
 /** 手順4・5で入れる行の名前の頭。これが付いていない行は「よその行」 */
 const TEST_PREFIX = "【テスト】";
@@ -130,15 +131,28 @@ export function setupElapsedMs(
   return b - a;
 }
 
-/** 手羽屋とテストの店の2通りで、同じ月を読んで件数だけ見る */
+/**
+ * 手羽屋とテストの店の2通りで、同じ月を読んで件数だけ見る。
+ *
+ * ■ 読む月は「手順5の日報が入っている月」です（2026-11-01・f5-4・f3-4）
+ *   前は「先月」を読んでいました。手順5の日報は数え始めの日に固定なので、
+ *   **2026年11月のあいだだけ**たまたま月がそろっており、12月に入ると
+ *   「行が1行も無い月」を読んで「混ざりません」と言ってしまう形でした
+ *   （逆に、その月の手羽屋の日報が0枚なら「まだです」と言ってしまう）。
+ *   決まりは lib/keiri/tenantTrialSteps.ts の trialReadMonth() の1か所です。
+ */
 export async function readBothWays(tenantId: string | null): Promise<{
   tebaya: TrialRead;
   testShop: TrialRead;
   month: string;
   ym: string;
+  monthWhy: string;
 }> {
-  const { start, label } = previousMonthRange(new Date());
-  const ym = start.slice(0, 7);
+  const { ym, label } = trialReadMonth();
+  const monthWhy =
+    "読み比べる月は、手順5の日報が入っている月（テストの店の数え始めの日の月）です。" +
+    "今日の日付では動きません（先月を読むと、行が1行も無い月で『混ざりません』と" +
+    "言ってしまうため・2026-11-01）";
   const mine = await loadKeiriMonthServer({
     ym,
     businessCode: CASE_BUSINESS_CODE,
@@ -152,9 +166,16 @@ export async function readBothWays(tenantId: string | null): Promise<{
   if (!tenantId) {
     return {
       tebaya,
-      testShop: { reportCount: 0, foreignCount: 0, advancesRead: false, readable: false },
+      testShop: {
+        reportCount: 0,
+        foreignCount: 0,
+        ownCount: 0,
+        advancesRead: false,
+        readable: false,
+      },
       month: label,
       ym,
+      monthWhy,
     };
   }
   const other = await loadKeiriMonthServer({
@@ -177,10 +198,13 @@ export async function readBothWays(tenantId: string | null): Promise<{
     testShop: {
       reportCount: other.reports.length,
       foreignCount,
+      // そのお店じしんの行（名前の頭に【テスト】が付くもの）の数
+      ownCount: other.reports.length - foreignCount,
       advancesRead: !other.advancesSkipped,
       readable: !other.reportsUnreadable,
     },
     month: label,
     ym,
+    monthWhy,
   };
 }
