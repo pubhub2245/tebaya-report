@@ -24,6 +24,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import {
   TEBAYA_BUSINESS_CODE,
+  applyTenantScope,
   businessCodeForScope,
   isTebayaScope,
   tenantStamp,
@@ -117,6 +118,7 @@ import {
   compareAlsoKeeps,
   compareResultLine,
   keepButtonLabel,
+  sameCashCountRow,
 } from "@/lib/keiri/cashCountPress";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
 import {
@@ -1988,12 +1990,93 @@ function CashCountCard({
     const pick = pickCashVariant({ variants, counted: amount });
     setVariantPick(pick.hasChoice ? pick : null);
 
-    // ★ここまでで答えは画面に出ています。控えの道なら、そのまま残します。
+    // ★ここまでで答えは画面に出ています。そのまま記録に残します（押すのは1回だけ）。
     //   残せなかったときは、残したと言わずに理由を出します（押し直せます）。
+    //   どちらに残すかは置き場（keiri_cash_events）があるかで決まります。
     if (compareAlsoKeeps(shelfMissing)) {
-      const kept = await saveCountToMemo({ keepPreview: true });
+      const kept = shelfMissing
+        ? await saveCountToMemo({ keepPreview: true })
+        : await saveCountToShelf({ keepPreview: true });
       setKeptByCompare(kept);
     }
+  };
+
+  /**
+   * 数えた1回を、**置き場（keiri_cash_events）に1行 足して**残す
+   * （2026-11-01・kp245・f1-4）。［この金額で比べる］の1押しから呼ばれます。
+   *
+   * ■ なぜ要るのか（やさしい説明）
+   *   じゅんにお願いしている順番は **貼り紙（2分）→ 金庫（1分）**です。
+   *   貼り紙を貼ると置き場ができるので、金庫を押すときには**棚の道**になります。
+   *   その道だけ「比べる → 記録する」の2回 押す形が残っていて、頼み文の
+   *   「押すのは1回だけ」と食い違っていました。1回で終わったつもりで離れると
+   *   **記録が1行も残らず、1分がまるごと無駄**になります（10/15 までと同じ失敗）。
+   *
+   * ■ 何回 押しても行は増えません（ここが大事）
+   *   足す前に「同じ日・同じ金額の『数えた』記録」がもうあるかを見て、
+   *   あれば足しません（決め方は lib/keiri/cashCountPress.ts の sameCashCountRow）。
+   *   金額が1円でもちがえば、別の記録として足します（数え直しを捨てないため）。
+   *
+   * ■ 守っていること
+   *   ・金額は1円も作らない・直さない。入れた金額をそのまま足すだけ。
+   *   ・残せなかったときに「残しました」と言わない。
+   *   ・足すときに読み返し（select）はしない。よその店の行は公開の鍵では
+   *     読み返せないので、読み返すと「入ったのに失敗」と嘘が出ます（10/17 と同じ話）。
+   */
+  const saveCountToShelf = async (opts?: { keepPreview?: boolean }): Promise<boolean> => {
+    const keepPreview = opts?.keepPreview === true;
+    const amount = readYen(countYen);
+    if (!countOn || amount === null) {
+      setMsg("数えた日と金額を入れてください（金額は0以上）");
+      return false;
+    }
+    setSaving("count");
+    setMsg("");
+    // 先に「もう同じものがあるか」を見る。読めなかったときは足す側に倒す
+    // （残らないよりは、同じ行が2つ並ぶほうがまし。金額は作らない）。
+    const { data: already } = await applyTenantScope<any>(
+      supabase
+        .from("keiri_cash_events")
+        .select("kind, happened_on, amount")
+        .eq("kind", "count")
+        .eq("happened_on", countOn) as any,
+      scope,
+    );
+    if (sameCashCountRow(already as any[], { happened_on: countOn, amount })) {
+      setSaving(null);
+      if (!keepPreview) {
+        setCountYen("");
+        setCountNote("");
+        setPreview(null);
+        setVariantPick(null);
+        setKeptByCompare(false);
+      }
+      setMsg("✅ 記録しました（この日・この金額は、もう残っています。行は増えていません）");
+      onSaved();
+      return true;
+    }
+    const { error } = await supabase.from("keiri_cash_events").insert({
+      kind: "count",
+      happened_on: countOn,
+      amount,
+      note: countNote || null,
+      ...tenantStamp(scope),
+    });
+    setSaving(null);
+    if (error) {
+      setMsg(`記録できませんでした：${error.message}`);
+      return false;
+    }
+    if (!keepPreview) {
+      setCountYen("");
+      setCountNote("");
+      setPreview(null);
+      setVariantPick(null);
+      setKeptByCompare(false);
+    }
+    setMsg("✅ 記録しました");
+    onSaved();
+    return true;
   };
 
   const save = async (kind: "count" | "deposit") => {
@@ -2263,15 +2346,17 @@ function CashCountCard({
           </div>
         </div>
         {/* ★「比べる」と「記録に残す」を分けていました（2026-10-09・kp233）。
-               2026-10-20：置き場がまだ無いあいだ＝控えの道は、この1押しで控えまで残します
-               （控えは いちばん新しい1回だけを書き換えるので、押しても行は増えません）。
-               置き場ができたあとは、押すたびに行が増えるので今までどおり2回です。 */}
+               2026-10-20：置き場がまだ無いあいだ＝控えの道を、この1押しで控えまで残す形に。
+               2026-11-01：**棚の道も1押し**にしました。じゅんへのお願いは
+               貼り紙（2分）→ 金庫（1分）の順なので、押すときには棚の道になっており、
+               そこだけ2回 要る形が残っていました（＝頼み文の「1回だけ」と食い違い）。
+               棚の道は「同じ日・同じ金額はもう足さない」ので、押しても行は増えません。 */}
         <button
           className="btn-primary w-full"
           onClick={() => void compare()}
           disabled={saving !== null}
         >
-          {shelfMissing ? "この金額で比べる（そのまま控えに残します）" : "この金額で比べる"}
+          この金額で比べる（そのまま記録に残します）
         </button>
 
         {preview && (
@@ -2381,16 +2466,21 @@ function CashCountCard({
             </p>
           </div>
         ) : (
+          /* ★2026-11-01：棚の道も、比べた1押しで記録に残ります。
+                 ここは「残らなかったときに押し直す所」です（言葉は cashCountPress.ts の1か所）。 */
           <button
-            className={(preview ? "btn-primary" : "btn-secondary") + " w-full"}
-            onClick={() => void save("count")}
+            className={
+              (preview && !keptByCompare ? "btn-primary" : "btn-secondary") + " w-full"
+            }
+            onClick={() => void saveCountToShelf()}
             disabled={saving !== null}
           >
-            {saving === "count"
-              ? "保存中…"
-              : preview
-                ? "あと1回：この結果を記録する（これで終わりです）"
-                : "この結果を記録する"}
+            {keepButtonLabel({
+              shelfMissing,
+              compared: preview !== null,
+              kept: keptByCompare,
+              saving: saving === "count",
+            })}
           </button>
         )}
       </div>

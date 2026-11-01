@@ -547,6 +547,41 @@ want "⑫ よその店の数えない印は、公開の鍵で消しても0行" "
 want "⑫ よその店の数えない印は、直そうとしても残っている" "1" "$(q "select count(*) from public.keiri_expense_ignores where tenant_id is not null and undone_at is null")"
 want "⑫ 手羽屋の数えない印は、公開の鍵で今までどおり直せる" "1" "$(q "set role anon; with u as (update public.keiri_expense_ignores set reason=reason where tenant_id is null returning 1) select count(*) from u")"
 
+# --- 金庫の1押し（じゅんの kp245）を、画面と同じ鍵で通してみる -----------------
+#                                            （2026-11-01 追記・f1-4）
+#   ■ なぜ要るのか
+#     じゅんにお願いしている順番は **貼り紙（2分）→ 金庫（1分）** です。
+#     ＝ 金庫を押すときには、この貼り紙が作った棚（keiri_cash_events）が
+#     もうある状態です。ところが下見は、この棚に**管理者の権限で**入れて
+#     読めるかだけを見ていて、**画面と同じ公開の鍵で「1押しで残るか」**を
+#     一度も通していませんでした（手順4が通っていなかった 10/28 と同じ見落とし）。
+#     f1-4 に残っているのは この1分だけなので、ここで止まると
+#     じゅんの1分がまるごと無駄になり、気づくのは次の日です。
+#   ■ 画面がやること（app/keiri/page.tsx の saveCountToShelf）
+#     ① 同じ日・同じ金額の『数えた』記録があるかを、公開の鍵で読む
+#     ② 無ければ1行 足す（読み返し＝select は付けない）
+#     ③ もう一度 押しても、①で見つかるので足さない＝行は増えない
+KINKO_DAY=2026-10-21
+want "金庫① 押す前は、その日の『数えた』記録は0件（公開の鍵で読める）" "0" "$(q "set role anon; select count(*) from public.keiri_cash_events where kind='count' and happened_on='$KINKO_DAY' and tenant_id is null")"
+psql -q -c "set role anon; insert into public.keiri_cash_events (kind, happened_on, amount, note) values ('count','$KINKO_DAY',1004399,'下見の1押し')" >/dev/null 2>&1 \
+  && say "金庫② 1押しで、公開の鍵のまま棚に1行 残る" "OK" \
+  || say "金庫② 1押しで、公開の鍵のまま棚に1行 残る" "NG（じゅんの1分がむだになります）"
+want "金庫② 残った1行は、画面と同じ鍵で読み返せる" "1" "$(q "set role anon; select count(*) from public.keiri_cash_events where kind='count' and happened_on='$KINKO_DAY' and amount=1004399 and tenant_id is null")"
+# ③ もう一度 押しても増えない（画面は足す前にこの読みで見分ける）
+want "金庫③ もう一度 押しても足さない（同じ日・同じ金額が見つかる）" "1" "$(q "set role anon; select count(*) from public.keiri_cash_events where kind='count' and happened_on='$KINKO_DAY' and amount=1004399 and tenant_id is null")"
+want "金庫③ 金額が1円ちがえば、別の記録として足す側に倒れる" "0" "$(q "set role anon; select count(*) from public.keiri_cash_events where kind='count' and happened_on='$KINKO_DAY' and amount=1004398 and tenant_id is null")"
+want "金庫③ 『銀行に入れた』の行は、数えた記録として数えない" "0" "$(q "set role anon; select count(*) from public.keiri_cash_events where kind='deposit' and happened_on='$KINKO_DAY' and tenant_id is null")"
+# よその店は、見分けの読みが0件に見える＝足す側に倒れる（押しても止まらない）
+want "金庫④ よその店は、見分けの読みが0件（＝足す側に倒れる・止まらない）" "0" "$(q "set role anon; select count(*) from public.keiri_cash_events where kind='count' and happened_on='$KINKO_DAY' and tenant_id='$TEST_TENANT'")"
+psql -q -c "set role anon; insert into public.keiri_cash_events (kind, happened_on, amount, tenant_id) values ('count','$KINKO_DAY',70000,'$TEST_TENANT')" >/dev/null 2>&1 \
+  && say "金庫④ よその店も、公開の鍵で1行 足せる（読み返しは付けない）" "OK" \
+  || say "金庫④ よその店も、公開の鍵で1行 足せる（読み返しは付けない）" "NG（お店が金庫を数えられません）"
+want "金庫④ よその店の行は、窓口ごしなら読める（画面に出る）" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_cash_events(null,'$KINKO_DAY','$KINKO_DAY','test-b2-kensa-1006')")"
+want "金庫④ よその店の行は、手羽屋には混じらない" "0" "$(q "set role anon; select count(*) from public.keiri_cash_events where happened_on='$KINKO_DAY' and amount=70000")"
+# 下見で入れた行は取り消す（手羽屋の件数をはじめに戻す）
+psql -q -c "delete from public.keiri_cash_events where note='下見の1押し'" >/dev/null 2>&1
+want "金庫⑤ 下見で入れた行は取り消せた" "0" "$(q "select count(*) from public.keiri_cash_events where note='下見の1押し'")"
+
 # 入れたテストの行は、確かめが済んだら取り消す（本番ではなく、このパソコンの中の倉庫）
 psql -q -c "delete from public.daily_reports where tenant_id is not null" >/dev/null 2>&1
 psql -q -c "delete from public.advance_expenses where tenant_id is not null" >/dev/null 2>&1
