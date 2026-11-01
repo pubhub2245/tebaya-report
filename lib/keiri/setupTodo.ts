@@ -173,10 +173,12 @@ function cashItem(input: SetupTodoInput["cash"]): SetupTodoItem {
    * 押すボタンの並び。**決まりは lib/keiri/cashCountPress.ts の1か所**に合わせる。
    * ここだけ古いままだと、画面のボタンは1回なのに お願いの文は2回と書く食い違いになる。
    */
-  const pressesFor = (shelfMissing: boolean): string[] =>
-    compareAlsoKeeps(shelfMissing)
-      ? ["この金額で比べる（これで控えに残ります。押すのはこの1回だけです）"]
+  const pressesFor = (shelfMissing: boolean): string[] => {
+    const where = shelfMissing ? "控えに残ります" : "記録に残ります";
+    return compareAlsoKeeps(shelfMissing)
+      ? [`この金額で比べる（これで${where}。押すのはこの1回だけです）`]
       : ["この金額で比べる", "この結果を控えに残す（これで終わりです）"];
+  };
   if (!input) {
     return { ...base, state: "分からない", detail: "いま確かめられませんでした" };
   }
@@ -207,7 +209,10 @@ function cashItem(input: SetupTodoInput["cash"]): SetupTodoItem {
     ...base,
     presses: pressesFor(false),
     state: "のこり",
-    detail: "数えた記録がまだ1件もありません",
+    detail:
+      "数えた記録がまだ1件もありません" +
+      "（押すのは［この金額で比べる］の1回だけで、答えがその場に出て、" +
+      "そのまま記録に残ります。同じ日・同じ金額は足さないので行は増えません）",
   };
 }
 

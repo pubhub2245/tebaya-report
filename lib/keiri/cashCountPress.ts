@@ -16,8 +16,16 @@
  *   置き場（keiri_cash_events）がまだ無いあいだ＝**控え**に残す道では、
  *   ①の1押しで②まで済ませます。控えは「いちばん新しい1回だけ」を
  *   書き換える形なので、**何回 押しても行は増えません**（＝1押しにしても安全）。
- *   置き場ができたあとの道（棚に1行ずつ足す）は、押すたびに行が増えるので
- *   **今までどおり2回**のままにします。
+ *
+ * ■ 2026-11-01 追記（**棚の道も1押しにしました**・f1-4）
+ *   10/20 に1押しにしたのは**控えの道だけ**で、棚の道は2回のままでした。
+ *   ところが じゅんにお願いしている順番は **貼り紙（2分）→ 金庫（1分）**です。
+ *   貼り紙を貼ると置き場ができるので、**金庫を押すときには棚の道**になります。
+ *   ＝ 頼み文に「押すのは1回だけ」と書いてあるのに、画面は2回 要る形でした。
+ *   1回で終わったつもりで離れると**記録が1行も残らず、1分がまるごと無駄**になり、
+ *   気づくのは次の日です（10/15 までと同じ失敗）。
+ *   そこで棚の道も1押しにし、**同じ日・同じ金額の「数えた」記録がすでにあれば
+ *   足さない**（sameCashCountRow）ことで、何回 押しても行が増えないようにしました。
  *
  * ■ 守ること
  *   ・金額は作らない・直さない。入れた金額をそのまま控えるだけ。
@@ -42,15 +50,48 @@ export function cashCountPathOf(shelfMissing: boolean): CashCountPath {
 /**
  * ［この金額で比べる］の1押しで、記録まで残すか。
  *
- * ★控えの道だけ true。棚の道は押すたびに行が増えるので false（今までどおり2回）。
+ * ★2026-11-01 から **どちらの道でも true**（＝押すのは1回だけ）。
+ *   棚の道は「同じ日・同じ金額の『数えた』記録がすでにあれば足さない」
+ *   （sameCashCountRow）ので、何回 押しても行は増えません。
  */
-export function compareAlsoKeeps(shelfMissing: boolean): boolean {
-  return cashCountPathOf(shelfMissing) === "控え";
+export function compareAlsoKeeps(_shelfMissing: boolean): boolean {
+  return true;
 }
 
 /** じゅんが押す回数（比べる＋残す） */
 export function pressesNeeded(shelfMissing: boolean): number {
   return compareAlsoKeeps(shelfMissing) ? 1 : 2;
+}
+
+/** 棚（keiri_cash_events）に残っている1行のうち、見分けに使う所だけ */
+export type CashCountRowLike = {
+  kind?: string | null;
+  happened_on?: string | null;
+  amount?: number | null;
+};
+
+/**
+ * 「同じ日・同じ金額の『数えた』記録が、もう棚にあるか」（**計算だけ**）。
+ *
+ * ■ なぜ要るのか
+ *   棚の道を1押しにすると、押すたびに行が増えてしまいます。
+ *   足す前にここで見分けて、**同じものなら足しません**（＝押しても増えない）。
+ *
+ * ■ 「同じ」の決め方（ゆるくしない）
+ *   `kind` が `count`・**日が同じ**・**金額が1円まで同じ** の3つが揃ったときだけ同じ。
+ *   金額が1円でもちがえば別の記録として足します（数え直した結果を捨てないため）。
+ */
+export function sameCashCountRow(
+  rows: readonly CashCountRowLike[] | null | undefined,
+  target: { happened_on: string; amount: number },
+): boolean {
+  if (!Array.isArray(rows)) return false;
+  return rows.some(
+    (r) =>
+      (r?.kind ?? "count") === "count" &&
+      String(r?.happened_on ?? "") === target.happened_on &&
+      Number(r?.amount) === target.amount,
+  );
 }
 
 /** 比べたあと、画面に出す1行（残ったか・まだ残っていないか） */
@@ -60,9 +101,15 @@ export function compareResultLine(params: {
 }): string {
   const { shelfMissing, kept } = params;
   if (kept) {
+    if (shelfMissing) {
+      return (
+        "この結果は控えに残しました（これで終わりです）。" +
+        "残すのは「いちばん新しい1回だけ」なので、もう一度 比べても行は増えません。"
+      );
+    }
     return (
-      "この結果は控えに残しました（これで終わりです）。" +
-      "残すのは「いちばん新しい1回だけ」なので、もう一度 比べても行は増えません。"
+      "この結果は記録に残しました（これで終わりです）。" +
+      "同じ日・同じ金額はもう足さないので、もう一度 比べても行は増えません。"
     );
   }
   const button = shelfMissing ? "この結果を控えに残す" : "この結果を記録する";
@@ -143,8 +190,9 @@ export function buildCashCountPress(params: {
       willKeep: null,
       reason: null,
       line:
-        "置き場（keiri_cash_events）ができています。数えた1回は棚に1行ずつ足す道で残ります" +
-        `（押すのは ${presses} 回：比べる → 記録する）。この道は外から確かめていません。`,
+        "置き場（keiri_cash_events）ができています。数えた1回は棚に1行 足す道で残ります" +
+        `（押すのは ${presses} 回だけ：［この金額で比べる］を押すと、答えが出て、そのまま棚に残ります）。` +
+        "同じ日・同じ金額の記録がすでにあれば足さないので、何回 押しても行は増えません。",
       existingNote: null,
       note: PRESS_NOTE,
     };

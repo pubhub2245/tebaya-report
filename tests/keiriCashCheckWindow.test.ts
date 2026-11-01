@@ -8,16 +8,23 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  CASH_CHECK_COUNTED_ON,
-  CASH_CHECK_YM,
   buildCashCheck,
+  cashCheckBaseDate,
+  cashCheckCountedOn,
   cashCheckPosition,
+  cashCheckYm,
   checkCases,
 } from "../lib/keiri/cashCheckScenario";
 import { DIFF_CAUSES, NEAR_ENOUGH_YEN } from "../lib/keiri/cashCheck";
 
 /** 今日を固定して、いつ実行しても同じ答えになるようにする */
 const TODAY = "2026-10-10";
+/**
+ * ★比べる相手も、同じ「今日」から出す（2026-11-01・f1-4）。
+ *   読み込んだときの本当の今日から出した定数と比べていたため、
+ *   月が替わった日（11/1）にこの試験が落ちていました。
+ */
+const BASE = cashCheckBaseDate(TODAY);
 
 test("6通りそろっていて、検算が通る", () => {
   const r = buildCashCheck({ today: TODAY });
@@ -94,9 +101,9 @@ test("検算は、つじつまが合っていない行をちゃんと見つけ�
 
 test("架空のお店の数字で、手羽屋の実データを読みに行かない", () => {
   const r = buildCashCheck({ today: TODAY });
-  assert.equal(r.ym, CASH_CHECK_YM);
+  assert.equal(r.ym, cashCheckYm(BASE));
   assert.match(r.shopName, /架空/);
-  assert.equal(r.cases[0].countedOn, CASH_CHECK_COUNTED_ON);
+  assert.equal(r.cases[0].countedOn, cashCheckCountedOn(BASE));
   // 「計算上の現金は、こう数えています」の明細が出ている（数え方を1つに固定する行）
   assert.ok(r.howComputed.length >= 3);
   assert.match(r.howComputed[r.howComputed.length - 1], /＝ 計算上の現金/);
