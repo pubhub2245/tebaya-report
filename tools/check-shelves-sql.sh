@@ -622,6 +622,25 @@ psql -q -c "insert into public.keiri_expense_ignores(source,ref_id,line_index) v
 psql -q -c "insert into public.keiri_expense_ignores(source,ref_id,line_index) values ('report','x',0)" >/dev/null 2>&1 \
   && say "② 同じ行に効いている印は1つだけ" "NG" || say "② 同じ行に効いている印は1つだけ" "OK"
 
+# --- 窓口（よその店が自分の数字を読む11本）がそろっているか ------------------
+# 2026-11-02 追記（f5-4・f3-4）。アプリ側が呼ぶ名前と1文字でもちがうと、
+# 受付は「そんな窓口はありません」と答え、アプリはそれを
+# **「貼り紙がまだ流れていない」** と取ります（＝貼ったのに答えが変わらない）。
+WINDOWS="keiri_tenant_reports keiri_tenant_advances_old keiri_tenant_payments \
+keiri_tenant_settings keiri_tenant_cash_events keiri_tenant_expense_ignores \
+keiri_tenant_advance_expenses keiri_tenant_locations keiri_tenant_staff \
+keiri_tenant_products keiri_tenant_test_peek"
+MISSING=0; NOGRANT=0
+for w in $WINDOWS; do
+  [ "$(q "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='$w'")" = "1" ] || MISSING=$((MISSING+1))
+  [ "$(q "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='$w' and has_function_privilege('anon', p.oid, 'execute')")" = "1" ] || NOGRANT=$((NOGRANT+1))
+done
+want "窓口 11本が、名前のとおりにそろっている" "0" "$MISSING"
+want "窓口 11本すべてを、公開の鍵（anon）で呼べる" "0" "$NOGRANT"
+# 受付の手控えを作り直させる合図が、1枚の最後に入っているか
+want "貼り紙の最後に『窓口の一覧を作り直して』の合図がある" "1" \
+  "$(grep -c "^notify pgrst, 'reload schema';" "$SHEET")"
+
 echo "----------------------------------------------"
 if [ "$NG" = "0" ]; then
   echo "OK：貼り紙は13 ぜんぶ通り、何度 流しても増えません（本番ではなく、同じ形の空の倉庫での結果です）"
