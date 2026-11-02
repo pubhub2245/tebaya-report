@@ -371,7 +371,11 @@ test("貼り紙は、いまある決まりを1本も消さない・取り上げ�
 
   // ⑧⑩⑪⑫⑬で作る窓口のぶんだけ、許可を渡す。渡す相手は anon / authenticated / service_role のみ
   const grants = body.match(/grant execute on function [^;]+/g) ?? [];
-  assert.equal(grants.length, 10, "許可を渡しているのは⑧⑩⑪⑫⑬の窓口10 だけであること");
+  assert.equal(
+    grants.length,
+    11,
+    "許可を渡しているのは⑧⑩⑪⑫⑬の窓口10 と、テストの店を確かめる窓口1（2026-11-02）だけであること",
+  );
   assert.match(grants[0], /public\.keiri_tenant_reports\(text, date, date, text\)/);
   assert.match(grants[1], /public\.keiri_tenant_advances_old\(text, date, date, text\)/);
   assert.match(grants[2], /public\.keiri_tenant_payments\(text, date, date, text\)/);
@@ -382,6 +386,8 @@ test("貼り紙は、いまある決まりを1本も消さない・取り上げ�
   assert.match(grants[7], /public\.keiri_tenant_locations\(text, date, date, text\)/);
   assert.match(grants[8], /public\.keiri_tenant_staff\(text, date, date, text\)/);
   assert.match(grants[9], /public\.keiri_tenant_products\(text, date, date, text\)/);
+  // テストの店ができたかだけを答える窓口（2026-11-02・f5-4）。合言葉は受け取らない
+  assert.match(grants[10], /public\.keiri_tenant_test_peek\(text\)/);
   for (const g of grants) assert.match(g, /to anon, authenticated, service_role/);
   // 渡す前に、だれでも実行できる状態を取り下げている（既存の窓口と同じ形）
   assert.match(
@@ -396,8 +402,9 @@ test("貼り紙は、いまある決まりを1本も消さない・取り上げ�
     body,
     /revoke all on function public\.keiri_tenant_payments\(text, date, date, text\) from public/,
   );
-  // security definer（棚の決まりを飛び越えて読む作り）は、その10 の窓口だけ
-  assert.equal((body.match(/security definer/g) ?? []).length, 10);
+  // security definer（棚の決まりを飛び越えて読む作り）は、その10 の窓口と、
+  // テストの店ができたかだけを答える窓口1（2026-11-02・f5-4）だけ
+  assert.equal((body.match(/security definer/g) ?? []).length, 11);
 
   // ⑪の窓口は、画面が名乗った「お店の番号」を受け取らない（入り口は合言葉とテストの印だけ）
   const paymentsWindow =

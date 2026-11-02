@@ -379,6 +379,29 @@ want "手順４ 手羽屋の担当者の件数は、はじめと同じ" "$STAFF_
 # 担当者・商品の棚も、印が空のままで手羽屋が読めること（日報の選択肢）
 want "手順４ 手羽屋の担当者は、公開の鍵で今までどおり読める" "2" "$(q "set role anon; select count(*) from public.staff_members where tenant_id is null")"
 
+# --- 手順１の確かめ方 「テストの店ができたか」を鍵なしで知れるか（2026-11-02 追記・f5-4） ---
+#   ★ここが NG だと、じゅんが2分で貼ったのに窓口は「テストの店がまだありません」と
+#     答えたままになり、手順4〜6（f5-4）がそこで止まります。
+#   2026-11-02 に下見で測って分かったこと：
+#     ⑥がテストの店と一緒に作る「経理の設定の行」は、**⑫の決まりで公開の鍵では読めません**
+#     （中には1件あるのに 0件で返る）。＝ 鍵を使わない確かめ方が、同じ1枚の中で閉まります。
+#   そこで窓口（keiri_tenant_test_peek）を1本 足したので、ここで縛ります。
+want "手順１ 設定の行は、公開の鍵では読めない（これが窓口が要る理由）" "0" "$(q "set role anon; select count(*) from public.keiri_settings where tenant_id is not null and opening_date='2026-10-06' and opening_balance=30000")"
+want "手順１ でも倉庫の中には設定の行が1件ある" "1" "$(q "select count(*) from public.keiri_settings where tenant_id is not null and opening_date='2026-10-06' and opening_balance=30000")"
+want "手順１ お店の棚は、公開の鍵では1行も読めない" "0" "$(q "set role anon; select count(*) from public.keiri_tenants")"
+want "手順１ 窓口は、テストの店を1件 答える" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_test_peek('test-b2-kensa-1006')")"
+want "手順１ 窓口の答えに、番号と状態が入っている" "active/true" "$(q "set role anon; select (x->>'status')||'/'||(x ? 'id') from public.keiri_tenant_test_peek('test-b2-kensa-1006') x limit 1")"
+want "手順１ 窓口の答えに、作った時刻と終わった時刻が入っている（30分以内を測るため）" "true/true" "$(q "set role anon; select (x ? 'created_at')||'/'||(x ? 'activated_at') from public.keiri_tenant_test_peek('test-b2-kensa-1006') x limit 1")"
+want "手順１ 窓口は、合言葉のかたちを1文字も返さない" "false/false" "$(q "set role anon; select (x ? 'setup_token')||'/'||(x ? 'admin_password_hash') from public.keiri_tenant_test_peek('test-b2-kensa-1006') x limit 1")"
+want "手順１ 窓口は、知らない印には何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_test_peek('test-shiranai-mark')")"
+want "手順１ 窓口は、テストの印でなければ何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_test_peek('honmono-no-mise')")"
+want "手順１ 窓口は、空っぽでは何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_test_peek(null)")"
+# ★本物のお店（店名が【テスト】で始まらない）には、テストの印が付いていても答えない
+psql -q -c "insert into public.keiri_tenants (shop_name, template, setup_token, source, status, external_session_id) values ('ほんものの食堂','generic','tok-honmono','manual','active','test-honmono-1102')" >/dev/null 2>&1
+want "手順１ 窓口は、店名が【テスト】でないお店には答えない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_test_peek('test-honmono-1102')")"
+psql -q -c "delete from public.keiri_tenants where external_session_id='test-honmono-1102'" >/dev/null 2>&1
+want "手順１ 下見で足した本物ふうの行は、取り消せた" "0" "$(q "select count(*) from public.keiri_tenants where external_session_id='test-honmono-1102'")"
+
 # --- ⑬ 選択肢の棚3つが締まったか（2026-10-29 追記・f3-4・kp266） ---------------
 #   ★2026-10-28 まで、ここは「**未完：まだ公開の鍵で読める**」という事実を
 #     そのまま固める課題でした（貼り紙が1行も足していなかったため）。

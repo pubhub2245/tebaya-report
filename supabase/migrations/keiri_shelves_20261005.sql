@@ -1904,6 +1904,83 @@ revoke all on function public.keiri_tenant_products(text, date, date, text) from
 grant execute on function public.keiri_tenant_products(text, date, date, text)
   to anon, authenticated, service_role;
 
+-- ------------------------------------------------------------
+-- テストの店（架空の1軒）が「できたか」だけを確かめる窓口
+--                                        （2026-11-02 追記・f5-4・f3-4）
+--
+-- ■ なぜ要るか（やさしい説明。下見で実測して分かりました）
+--   こちら（Claude）側は「テストの店ができたか」を知る道が2本ありました。
+--     ① サーバー側の鍵（SUPABASE_SERVICE_ROLE_KEY）でお店の棚を読む … 鍵が壊れていて使えない（kp241）
+--     ② ⑥が必ず1行つくる「経理の設定の行」を、公開の鍵で読む
+--   ところが **⑫が、その設定の行に「よその店のぶんは公開の鍵では読めない」決まりを足します。**
+--   ＝ ②は、この貼り紙を流した瞬間に閉まります。
+--   2026-11-02 に同じ形の空の倉庫で測ると、流したあと ②の読みは **0件**（中には1件ある）でした。
+--   そのままだと、じゅんが2分で貼ったのに「テストの店がまだありません」と出たままになり、
+--   仕上げの f5-4（2軒目を入れる手順を一度 通してある）がそこで止まります。
+--
+-- ■ だから、③の道を1本 足します
+--   **テストの印（test-… で始まる）と、店名が【テスト】で始まることの両方**がそろった
+--   1軒だけを答えます。本物のお店のことは1文字も答えません。
+--   返すのは **番号・状態・作った時刻・初回設定が終わった時刻** の4つだけ。
+--   ★ 初回設定の合言葉（setup_token）と管理の合言葉は、ここから1文字も出しません。
+-- ------------------------------------------------------------
+create or replace function public.keiri_tenant_test_peek(
+  p_test_mark text default null
+)
+returns setof jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_tenant uuid;
+  v_n int;
+begin
+  if p_test_mark is null or btrim(p_test_mark) = '' then
+    return;
+  end if;
+  -- テストの印だけ。これ以外のかたちは何も答えない
+  if btrim(p_test_mark) !~ '^test-' then
+    return;
+  end if;
+  -- 店名が【テスト】で始まる1軒に決まるときだけ。ここで引き当てて、返す所では使わない
+  select count(*) into v_n
+    from public.keiri_tenants t
+   where t.external_session_id = btrim(p_test_mark)
+     and coalesce(t.shop_name, '') like '【テスト】%';
+  if v_n <> 1 then
+    return;
+  end if;
+  select t.id into v_tenant
+    from public.keiri_tenants t
+   where t.external_session_id = btrim(p_test_mark)
+     and coalesce(t.shop_name, '') like '【テスト】%'
+   limit 1;
+  if v_tenant is null then
+    return;
+  end if;
+
+  -- ★返すのは番号・状態・時刻の4つだけ（店名も合言葉も返さない）
+  return query
+    select to_jsonb(x)
+      from (
+        select t.id,
+               t.status,
+               t.created_at,
+               t.activated_at
+          from public.keiri_tenants t
+         where t.id = v_tenant
+      ) x;
+end $$;
+
+comment on function public.keiri_tenant_test_peek(text) is
+  '経理：テストの店（架空の1軒）ができたかだけを答える窓口（f5-4）。テストの印と【テスト】の店名がそろった1軒だけ。合言葉は1文字も返さない。読むだけ。';
+
+revoke all on function public.keiri_tenant_test_peek(text) from public;
+grant execute on function public.keiri_tenant_test_peek(text)
+  to anon, authenticated, service_role;
+
+
 
 -- ============================================================
 -- 確かめ方（流したあと、これを貼ると結果が1画面で見えます）
