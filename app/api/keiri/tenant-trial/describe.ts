@@ -55,6 +55,7 @@ export async function describe(params: {
     isTestShop: true,
     month: read.month,
     ym: read.ym,
+    monthWhy: read.monthWhy,
     exists: state.exists,
     createdNow: state.createdNow,
     setupDone: state.active,

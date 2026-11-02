@@ -19,7 +19,8 @@
  *      じゅんの店の内訳を公開することになります。お試し版と同じ架空の店で揃えます。
  *   ③ **新しい約束を足さない。**見本に出してよいのは、offer.ts に既に書いてある
  *      「1枚の要約」と「会計ソフトに取り込めるCSV」の中身だけです。
- *   ④ 月の表示は**お試し版（/keiri/demo）と同じ月**＝日本時間の今月にそろえます
+ *   ④ 月の表示は**お試し版（/keiri/demo）と同じ月**にそろえます（決まりは lib/keiri/demo.ts の demoMonth。
+ *      月の1日〜7日は前の月＝作った日より後の日付を1つも出さないため）
  *      （2026-10-03・kp225-b2）。
  *      以前は「前の月」で作っていたため、お試し版が『2026年10月』なのに
  *      この見本だけ『2026年9月』（CSVの日付も 2026-09-03）になり、
@@ -44,6 +45,7 @@ import {
 import {
   DEMO_SHOP_NAME,
   demoAdvances,
+  demoMonth,
   demoPayments,
   demoReports,
   demoSettings,
@@ -83,16 +85,15 @@ export const SAMPLE_MONTH_NOTE =
   "見本の月は、お試し版（触れる画面）と同じ月にそろえてあります。実際にお渡しするのは、まるまる終わった前の月ぶんです。";
 
 /**
- * 見本に出す月。**お試し版（/keiri/demo）と同じ「日本時間の今月」**。
+ * 見本に出す月。**お試し版（/keiri/demo）と同じ月**（決まりは lib/keiri/demo.ts の demoMonth）。
  *
- * ★お試し版が demoTodayJst（日本時間）で月を決めているので、ここも同じ関数を通します。
- *   日本時間を使わないと、月の変わり目に2つのページが別の月を出します
- *   （置いてあるサーバーの時計は日本時間ではありません）。
+ * ★月を決める所を2つ持たないこと。お試し版と1枚の見本が別の月を出すと、
+ *   店主に見せる道（f5-2）で数字が食い違って見えます。
+ * ★月の1日〜7日は**前の月**を見せます（架空の日報が3日・6日・8日に置いてあるので、
+ *   今月のままだと「まだ来ていない日の日報」が並びます。2026-11-01・f5-2）。
  */
 export function sampleMonth(today: Date = new Date()): { ym: string; label: string } {
-  const ym = demoTodayJst(today).slice(0, 7);
-  const [y, m] = ym.split("-");
-  return { ym, label: `${Number(y)}年${Number(m)}月` };
+  return demoMonth(today);
 }
 
 /**

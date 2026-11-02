@@ -318,11 +318,13 @@ end $$;
 --   ★ 手羽屋には1行も触れません。足すのは お店の棚に1行、
 --     そのお店ぶんの経理の設定に1行（業態コードは t_<お店の番号>）、
 --     **そのお店ぶんの出店場所1件と商品1件**（手順4・2026-10-29／2026-10-30 追記）、
+--     **そのお店ぶんの担当者1人**（手順4・2026-10-31 追記）、
 --     そして **そのお店ぶんの日報1枚**（手順5・架空の金額）だけです。
 --     どれも「どの店か」の印がテストの店で、名前の頭に【テスト】が付きます。
 --     手羽屋の行（印が空）は1行も読み書きしません。
---     経費・申し込み・担当者の行は**1行も作りません**
---     （商品は 2026-10-30 から、そのお店ぶんを1件だけ作ります）。
+--     経費・申し込みの行は**1行も作りません**
+--     （商品は 2026-10-30 から、担当者は 2026-10-31 から、
+--     そのお店ぶんを1件だけ作ります）。
 --
 --   ★ **日報1枚をここで入れる理由（2026-10-17 B・本番の前に実測して分かりました）**
 --     ⑧で足す決まり（印が空の行だけ 読んでよい・restrictive for select）は、
@@ -438,6 +440,36 @@ begin
       insert into public.sale_products (tenant_id, shop, name, price, kind, is_active, sort_order)
       values (v_id, '手羽屋', '【テスト】テスト商品', 500, 'primary', true, 0);
       raise notice '⑥ 手順4の商品を1件 入れました（単価500円・印はテストの店・手羽屋の商品は1行も触っていません）';
+    end if;
+  end if;
+
+  -- ---------------------------------------------------------------
+  -- 手順4：そのお店ぶんの担当者（名前と日当）を1人 入れる（f5-4・2026-10-31 追記）
+  --
+  --   値は lib/keiri/tenantTrialSteps.ts の TEST_STAFF と同じ固定値です
+  --   （tests/keiriShelvesSheet.test.ts で ずれないように縛っています）。
+  --   ★なぜ要るか：日当（1日いくら払うか）は**スタッフマスタが正**です
+  --     （CLAUDE.md 4-3）。ところが申し込んだお店は担当者の一覧を直す画面に
+  --     入れないため、**担当者が1人も無く、日当が分からないまま**になります。
+  --     日報は止まりません（「その他（手入力）」で名前は打てます）が、
+  --     打った名前はマスタに無いので、その日の利益（売上 − 日当 − 経費）が
+  --     手打ち頼みになります。
+  --   ★名前と日当は、手順5の日報とぴったり同じ値（テスト太郎・10,000円）です。
+  --   ★⑬のあとは、公開の鍵では印つきの担当者を入れても番号を読み返せないので、
+  --     出店場所・商品・日報と同じくこの1枚の中で入れます。
+  --   ★同じお店・同じ名前の行があれば何もしません（何度 流しても増えません）。
+  --   ★手羽屋の担当者には1行も触れません（印が空の行は読み書きしません）。
+  -- ---------------------------------------------------------------
+  if v_id is not null then
+    if exists (
+         select 1 from public.staff_members s
+          where s.tenant_id = v_id and s.name = '【テスト】テスト太郎'
+       ) then
+      raise notice '⑥ 手順4の担当者は、もういました（何もしていません）';
+    else
+      insert into public.staff_members (tenant_id, name, daily_wage, is_active)
+      values (v_id, '【テスト】テスト太郎', 10000, true);
+      raise notice '⑥ 手順4の担当者を1人 入れました（日当10,000円・印はテストの店・手羽屋の担当者は1行も触っていません）';
     end if;
   end if;
 
@@ -1702,7 +1734,13 @@ begin
                l.name,
                l.rank,
                l.target,
-               l.is_active
+               l.is_active,
+               -- ★場代（出店料）の決まりも返す（2026-10-31・kp271／f5-4・CLAUDE.md 4-15）。
+               --   そのお店じしんの決まりです。これを返さないと、申し込んだお店の日報は
+               --   場代の行が自動で入らず、毎日 手打ちになります（打ち忘れが起きます）。
+               l.booth_fee_type,
+               l.booth_fee_rate,
+               l.booth_fee_amount
           from public.locations l
          where l.tenant_id = v_tenant
          order by l.name
@@ -1865,6 +1903,83 @@ comment on function public.keiri_tenant_products(text, date, date, text) is
 revoke all on function public.keiri_tenant_products(text, date, date, text) from public;
 grant execute on function public.keiri_tenant_products(text, date, date, text)
   to anon, authenticated, service_role;
+
+-- ------------------------------------------------------------
+-- テストの店（架空の1軒）が「できたか」だけを確かめる窓口
+--                                        （2026-11-02 追記・f5-4・f3-4）
+--
+-- ■ なぜ要るか（やさしい説明。下見で実測して分かりました）
+--   こちら（Claude）側は「テストの店ができたか」を知る道が2本ありました。
+--     ① サーバー側の鍵（SUPABASE_SERVICE_ROLE_KEY）でお店の棚を読む … 鍵が壊れていて使えない（kp241）
+--     ② ⑥が必ず1行つくる「経理の設定の行」を、公開の鍵で読む
+--   ところが **⑫が、その設定の行に「よその店のぶんは公開の鍵では読めない」決まりを足します。**
+--   ＝ ②は、この貼り紙を流した瞬間に閉まります。
+--   2026-11-02 に同じ形の空の倉庫で測ると、流したあと ②の読みは **0件**（中には1件ある）でした。
+--   そのままだと、じゅんが2分で貼ったのに「テストの店がまだありません」と出たままになり、
+--   仕上げの f5-4（2軒目を入れる手順を一度 通してある）がそこで止まります。
+--
+-- ■ だから、③の道を1本 足します
+--   **テストの印（test-… で始まる）と、店名が【テスト】で始まることの両方**がそろった
+--   1軒だけを答えます。本物のお店のことは1文字も答えません。
+--   返すのは **番号・状態・作った時刻・初回設定が終わった時刻** の4つだけ。
+--   ★ 初回設定の合言葉（setup_token）と管理の合言葉は、ここから1文字も出しません。
+-- ------------------------------------------------------------
+create or replace function public.keiri_tenant_test_peek(
+  p_test_mark text default null
+)
+returns setof jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_tenant uuid;
+  v_n int;
+begin
+  if p_test_mark is null or btrim(p_test_mark) = '' then
+    return;
+  end if;
+  -- テストの印だけ。これ以外のかたちは何も答えない
+  if btrim(p_test_mark) !~ '^test-' then
+    return;
+  end if;
+  -- 店名が【テスト】で始まる1軒に決まるときだけ。ここで引き当てて、返す所では使わない
+  select count(*) into v_n
+    from public.keiri_tenants t
+   where t.external_session_id = btrim(p_test_mark)
+     and coalesce(t.shop_name, '') like '【テスト】%';
+  if v_n <> 1 then
+    return;
+  end if;
+  select t.id into v_tenant
+    from public.keiri_tenants t
+   where t.external_session_id = btrim(p_test_mark)
+     and coalesce(t.shop_name, '') like '【テスト】%'
+   limit 1;
+  if v_tenant is null then
+    return;
+  end if;
+
+  -- ★返すのは番号・状態・時刻の4つだけ（店名も合言葉も返さない）
+  return query
+    select to_jsonb(x)
+      from (
+        select t.id,
+               t.status,
+               t.created_at,
+               t.activated_at
+          from public.keiri_tenants t
+         where t.id = v_tenant
+      ) x;
+end $$;
+
+comment on function public.keiri_tenant_test_peek(text) is
+  '経理：テストの店（架空の1軒）ができたかだけを答える窓口（f5-4）。テストの印と【テスト】の店名がそろった1軒だけ。合言葉は1文字も返さない。読むだけ。';
+
+revoke all on function public.keiri_tenant_test_peek(text) from public;
+grant execute on function public.keiri_tenant_test_peek(text)
+  to anon, authenticated, service_role;
+
 
 
 -- ============================================================

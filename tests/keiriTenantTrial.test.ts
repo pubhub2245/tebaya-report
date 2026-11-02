@@ -57,6 +57,44 @@ test("テストの店に立替を読んでしまったら、分かれていな�
   );
 });
 
+/* ---------- 読み比べる月（2026-11-01・f5-4・f3-4） ---------- */
+//  手順5の日報は「数え始めの日」に固定なので、読み比べる月もその月でなければ
+//  意味がない。前は「先月」を読んでいて、2026年11月のあいだだけ たまたま
+//  そろっていた（12月に入ると、行が1行も無い月で『混ざりません』と言ってしまう）。
+
+test("読み比べる月は、手順5の日報の月（数え始めの日の月）", () => {
+  const { trialReadMonth, testReportDate } =
+    require("../lib/keiri/tenantTrialSteps") as typeof import("../lib/keiri/tenantTrialSteps");
+  const m = trialReadMonth();
+  assert.equal(m.ym, testReportDate().slice(0, 7));
+  assert.equal(m.ym, "2026-10");
+  assert.equal(m.label, "2026年10月");
+});
+
+test("読み比べる月は、今日の日付では動かない（何度 呼んでも同じ）", () => {
+  const { trialReadMonth } =
+    require("../lib/keiri/tenantTrialSteps") as typeof import("../lib/keiri/tenantTrialSteps");
+  assert.deepEqual(trialReadMonth(), trialReadMonth());
+});
+
+test("「先月」を読むと、12月には日報の月とずれる（だから先月を使わない）", () => {
+  const { previousMonthRange } =
+    require("../lib/keiri/caseStats") as typeof import("../lib/keiri/caseStats");
+  const { trialReadMonth } =
+    require("../lib/keiri/tenantTrialSteps") as typeof import("../lib/keiri/tenantTrialSteps");
+  // 2026年11月のあいだは、たまたまそろっていた
+  assert.equal(previousMonthRange(new Date(2026, 10, 1)).start.slice(0, 7), trialReadMonth().ym);
+  // 12月に入るとずれる＝テストの店の行が1行も無い月を読むことになる
+  assert.notEqual(previousMonthRange(new Date(2026, 11, 1)).start.slice(0, 7), trialReadMonth().ym);
+});
+
+test("そのお店として読めていないときは「分かれている」と言わない（読んでいない0件を合格にしない）", () => {
+  assert.equal(
+    separationOk({ tebaya: TEBAYA_OK, testShop: { ...TEST_OK, readable: false } }),
+    false,
+  );
+});
+
 test("手羽屋が0件・読めないときは「分かれている」と言わない（棚が落ちているだけかもしれない）", () => {
   assert.equal(
     separationOk({ tebaya: { ...TEBAYA_OK, reportCount: 0 }, testShop: TEST_OK }),

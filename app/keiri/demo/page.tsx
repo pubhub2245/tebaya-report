@@ -4,7 +4,7 @@ import Link from "next/link";
 import { KeiriBreadcrumb, KeiriFooter, KeiriRelated } from "@/app/keiri/components/nav";
 import { keiriMetadata } from "@/lib/keiri/metadata";
 import { cardCheckoutLive, priceSummaryLine } from "@/lib/keiri/caseNumbers";
-import { DEMO_SHOP_NAME, demoTodayJst } from "@/lib/keiri/demo";
+import { DEMO_SHOP_NAME, demoMonth, demoTodayJst } from "@/lib/keiri/demo";
 import {
   TRIAL_APPLY_HREF,
   TRIAL_CTA_LABEL,
@@ -41,14 +41,16 @@ export const metadata: Metadata = keiriMetadata({
   title: "お試し版｜経理パッケージを、申し込まずに触ってみる",
   description:
     "登録も申し込みも要りません。架空のお店の日報が入った本物の経理画面を、そのまま触れます。" +
-    "日報を1件書くと、今月の利益・今の現金・まだ払っていないお金がその場で変わります。" +
+    "日報を1件書くと、その月の利益・今の現金・まだ払っていないお金がその場で変わります。" +
     "会計ソフト（マネーフォワード クラウド会計）に渡す仕訳CSVも、その場で書き出して中身を確かめられます。" +
     "入れた数字はどこにも送られず、保存もされません。",
 });
 
 export default function KeiriDemoPage() {
   const today = demoTodayJst();
-  const ym = today.slice(0, 7);
+  // ★見せる月は lib/keiri/demo.ts の demoMonth が1か所で決めます（2026-11-01・f5-2）。
+  //   月の1日〜7日は前の月を見せます（今月のままだと「まだ来ていない日の日報」が並ぶため）。
+  const { ym } = demoMonth();
 
   return (
     <main className="max-w-2xl mx-auto px-4 pt-10 pb-32 min-h-screen">
@@ -64,7 +66,7 @@ export default function KeiriDemoPage() {
         <p className="mt-4 text-stone-600 leading-relaxed">
           下にあるのは、経理パッケージの<strong>本物の画面</strong>です。
           {DEMO_SHOP_NAME}の日報が3件だけ入った状態から始まります。
-          日報を1件書き足すと、<strong>今月の利益・今の現金・まだ払っていないお金</strong>が
+          日報を1件書き足すと、<strong>その月の利益・今の現金・まだ払っていないお金</strong>が
           その場で変わります。計算は、実際にお店で使っているものと同じ仕組みです。
           <strong>会計ソフトに渡すCSVも、そのまま書き出して中身を確かめられます。</strong>
         </p>

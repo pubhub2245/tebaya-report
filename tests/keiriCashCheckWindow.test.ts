@@ -8,16 +8,23 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  CASH_CHECK_COUNTED_ON,
-  CASH_CHECK_YM,
   buildCashCheck,
+  cashCheckBaseDate,
+  cashCheckCountedOn,
   cashCheckPosition,
+  cashCheckYm,
   checkCases,
 } from "../lib/keiri/cashCheckScenario";
 import { DIFF_CAUSES, NEAR_ENOUGH_YEN } from "../lib/keiri/cashCheck";
 
 /** 今日を固定して、いつ実行しても同じ答えになるようにする */
 const TODAY = "2026-10-10";
+/**
+ * ★比べる相手も、同じ「今日」から出す（2026-11-01・f1-4）。
+ *   読み込んだときの本当の今日から出した定数と比べていたため、
+ *   月が替わった日（11/1）にこの試験が落ちていました。
+ */
+const BASE = cashCheckBaseDate(TODAY);
 
 test("6通りそろっていて、検算が通る", () => {
   const r = buildCashCheck({ today: TODAY });
@@ -74,6 +81,32 @@ test("久しく数えていないときは、その一言が出る", () => {
   assert.ok(c.stale && c.stale.includes("最後に数えたのは"));
 });
 
+/**
+ * 2026-11-01 追加（f1-4）：⑥の場面が、**いつ開いても**成立すること。
+ * 本番で実測したところ、月が替わった直後（11/1）は数えた日から27日しか
+ * たっておらず「久しく数えていません」が出ていなかった（検算は空で返っていた）。
+ */
+test("⑥は、月のどこで開いても『久しく数えていません』が出る（検算も拾う）", () => {
+  for (const day of ["01", "02", "03", "10", "15", "28"]) {
+    for (const ym of ["2026-01", "2026-03", "2026-11", "2027-02"]) {
+      const r = buildCashCheck({ today: `${ym}-${day}` });
+      const six = r.cases[5];
+      assert.ok(
+        six.stale && six.stale.includes("最後に数えたのは"),
+        `${ym}-${day} で ⑥ の一言が出ていません`,
+      );
+      assert.deepEqual(r.problems, [], `${ym}-${day} で検算に問題が出ました`);
+    }
+  }
+});
+
+test("⑥の一言が落ちたら、検算が名前を出して拾う", () => {
+  const six = buildCashCheck({ today: TODAY }).cases[5];
+  const broken = { ...six, stale: null };
+  const found = checkCases([broken]);
+  assert.ok(found.some((m) => m.includes("久しく数えていません")), found.join(" / "));
+});
+
 test("金額を指定すると7通りになり、計算上との差がそのまま出る", () => {
   const computed = cashCheckPosition().balance;
   const r = buildCashCheck({ today: TODAY, countedYen: computed - 10000 });
@@ -94,9 +127,9 @@ test("検算は、つじつまが合っていない行をちゃんと見つけ�
 
 test("架空のお店の数字で、手羽屋の実データを読みに行かない", () => {
   const r = buildCashCheck({ today: TODAY });
-  assert.equal(r.ym, CASH_CHECK_YM);
+  assert.equal(r.ym, cashCheckYm(BASE));
   assert.match(r.shopName, /架空/);
-  assert.equal(r.cases[0].countedOn, CASH_CHECK_COUNTED_ON);
+  assert.equal(r.cases[0].countedOn, cashCheckCountedOn(BASE));
   // 「計算上の現金は、こう数えています」の明細が出ている（数え方を1つに固定する行）
   assert.ok(r.howComputed.length >= 3);
   assert.match(r.howComputed[r.howComputed.length - 1], /＝ 計算上の現金/);

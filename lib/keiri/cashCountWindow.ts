@@ -17,7 +17,8 @@
  *   「数えた日」だけです。合言葉・鍵・お店の名前は1文字も返しません。
  */
 
-import { NEAR_ENOUGH_YEN, type CashReconcile } from "./cashCheck";
+import { NEAR_ENOUGH_YEN, monthDay, type CashReconcile } from "./cashCheck";
+import type { CashBooksGap } from "./cashBooksGap";
 import { CASH_VARIANT_LABEL, type CashVariantPick } from "./cashVariant";
 
 /** 数えた記録がどこにあるか */
@@ -169,6 +170,19 @@ export function buildCashCountWindow(params: {
 export type CashCountReady = {
   /** いま数えてもらえば、合否を出せるか */
   canCompare: boolean;
+  /**
+   * 日報が今日の近くまで入っているか（2026-11-01・f1-4）。
+   *
+   * ★ここが false のときに数えると、**入っていない日の売上と経費のぶんだけ
+   *   必ず食い違います**。差の理由は画面に名指しで出ますが、
+   *   「合っている」とは言えない答えになります（1分がはっきりした結果になりません）。
+   *   日報が1件も読めないときは、判断しないので true のままにします。
+   */
+  booksUpToDate: boolean;
+  /** 日報のいちばん新しい日（金額ではない・無ければ null） */
+  booksLastDate: string | null;
+  /** そこから何日 空いているか（無ければ null） */
+  booksGapDays: number | null;
   /** 比べる相手の数（0なら比べられない） */
   ways: number;
   /** 比べる相手の名前（金額は出さない） */
@@ -190,15 +204,29 @@ export type CashCountReady = {
 export function buildCashCountReady(params: {
   variants: { key: string; label: string }[];
   registerFloatOn: string | null;
+  /** 日報がどこまで入っているか（渡さなければ、判断しない＝今までどおり） */
+  booksGap?: CashBooksGap | null;
 }): CashCountReady {
   const { variants, registerFloatOn } = params;
+  const booksGap = params.booksGap ?? null;
   const wayLabels = variants.map((v) => v.label);
   const safeOnlyIncluded = variants.some(
     (v) => v.key === "nowScreenSafeOnly" || v.key === "withEarlierRepaidSafeOnly",
   );
   const canCompare = variants.length > 0;
 
-  const line = !canCompare
+  // ★日報が空いているかは、相手がそろっているかとは別の話（2026-11-01・f1-4）。
+  //   相手は4通り そろっていても、日報が2週間 入っていなければ必ず食い違います。
+  const booksUpToDate = !(booksGap?.wide ?? false);
+  const booksLine =
+    !booksUpToDate && booksGap?.lastDate
+      ? `ただし**日報が ${monthDay(booksGap.lastDate)} までしか入っていません**` +
+        `（そこから ${booksGap.days}日）。それ以降に営業した日があると、` +
+        "そのぶんだけ必ず食い違います。先に日報を入れてから数えると、差の意味がはっきりします" +
+        "（いま数えても、差の理由は画面に名指しで出ます）"
+      : "";
+
+  const base = !canCompare
     ? "いま数えてもらっても、計算上の現金が出せないので合否が出ません（お店の設定が読めていません）"
     : safeOnlyIncluded
       ? `用意はできています。比べる相手が ${variants.length} 通り 並び、` +
@@ -209,5 +237,17 @@ export function buildCashCountReady(params: {
         "（閉店後のレジ金が日報から読めていません）。" +
         "金庫だけを数えると、つり銭ぶんだけ食い違って見えるおそれがあります";
 
-  return { canCompare, ways: variants.length, wayLabels, safeOnlyIncluded, registerFloatOn, line };
+  const line = booksLine ? `${base}。${booksLine}` : base;
+
+  return {
+    canCompare,
+    booksUpToDate,
+    booksLastDate: booksGap?.lastDate ?? null,
+    booksGapDays: booksGap?.days ?? null,
+    ways: variants.length,
+    wayLabels,
+    safeOnlyIncluded,
+    registerFloatOn,
+    line,
+  };
 }

@@ -67,6 +67,7 @@ import {
   demoPayments,
   demoReports,
   demoSettings,
+  demoInputDate,
   emptyDemoInput,
   sortDemoReports,
 } from "@/lib/keiri/demo";
@@ -78,7 +79,14 @@ const JOURNAL_PREVIEW = 6;
 
 export default function DemoBoard({ ym, today }: { ym: string; today: string }) {
   const [reports, setReports] = useState<KeiriReport[]>(() => demoReports(ym));
-  const [input, setInput] = useState<DemoInput>(() => emptyDemoInput(today));
+  /**
+   * 「日報を1件 足す」欄にはじめから入れておく日（2026-11-01・f5-2）。
+   * ★見せている月の外の日を入れると、足した1件が集計に入らず
+   *   「書いても数字が変わらない」画面になります。決まりは lib/keiri/demo.ts の1か所。
+   */
+  const [input, setInput] = useState<DemoInput>(() =>
+    emptyDemoInput(demoInputDate(ym, today)),
+  );
   const [problem, setProblem] = useState<string | null>(null);
   const [added, setAdded] = useState(0);
   /**
@@ -255,13 +263,13 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
     }
     setProblem(null);
     setReports((prev) => sortDemoReports([...prev, demoInputToReport(input)]));
-    setInput(emptyDemoInput(today));
+    setInput(emptyDemoInput(demoInputDate(ym, today)));
     setAdded((n) => n + 1);
   };
 
   const reset = () => {
     setReports(demoReports(ym));
-    setInput(emptyDemoInput(today));
+    setInput(emptyDemoInput(demoInputDate(ym, today)));
     setProblem(null);
     setAdded(0);
   };
@@ -280,7 +288,8 @@ export default function DemoBoard({ ym, today }: { ym: string; today: string }) 
         </div>
         <dl className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
           <DemoNumber
-            title="今月の利益"
+            // ★「今月」と言い切らない（月の1日〜7日は前の月を見せているため・2026-11-01・f5-2）
+            title={`${Number(m)}月の利益`}
             value={summary.profit}
             color={summary.profit >= 0 ? "text-emerald-600" : "text-red-600"}
             note={`売上 ${yen(summary.sales)} − 経費 ${yen(summary.expenseTotal)}`}

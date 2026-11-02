@@ -157,14 +157,17 @@ test("棚がまだ無いあいだは、押すボタンは1つ（比べた1押し
   assert.match(cash.detail, /貼り紙を待ちません/);
 });
 
-test("棚ができたあとは、押すボタンを2つとも持つ（2回目を落とさない）", () => {
+test("棚ができたあとも、押すボタンは1つ（2026-11-01・貼り紙のあとに金庫を押すため）", () => {
   const cash = buildSetupTodo({
     ...ALL_UNDONE,
     cash: { shelfMissing: false, counted: false },
   }).items.find((i) => i.id === "cash")!;
-  assert.equal(cash.presses?.length, 2);
+  assert.equal(cash.presses?.length, 1);
   assert.match(cash.presses![0], /比べる/);
-  assert.match(cash.presses![1], /記録する|控えに残す/);
+  assert.match(cash.presses![0], /この1回だけ/);
+  // 棚の道では「控え」ではなく「記録」に残ると言う（置き場ができているため）
+  assert.match(cash.presses![0], /記録に残ります/);
+  assert.match(cash.detail, /行は増えません/);
 });
 
 test("のこりが3件のときは、金庫（1分・1押し）をいちばん上に出す", () => {

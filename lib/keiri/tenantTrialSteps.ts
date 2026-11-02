@@ -74,9 +74,57 @@ export const TEST_REPORT = {
   shop: "手羽屋",
 } as const;
 
+/**
+ * 手順4で入れる担当者1人（名前と日当）。
+ *
+ * ■ なぜ要るのか（2026-10-31・f5-4・f3-4）
+ *   日当（1日いくら払うか）は**スタッフマスタが正**です（CLAUDE.md 4-3）。
+ *   ところが申し込んだお店は、担当者の一覧を直す画面に入れません
+ *   （設定センターは手羽屋だけ）。
+ *   ＝ **担当者が1人も無いので、2軒目のお店は日当が分からないまま**になります。
+ *   日報は止まりません（担当者には「その他（手入力）」があるので名前は打てます）が、
+ *   打った名前はマスタに無いので画面に「スタッフマスタに入っていません」と出て、
+ *   **その日の利益（売上 − 日当 − 経費）が手打ち頼み**になります。
+ *   そこで、2軒目を入れる手順の中で担当者を1人 入れます。
+ *
+ * ■ 名前と日当は、手順5の日報とぴったり同じ値にしてあります
+ *   名前は日報の担当（TEST_REPORT.staffName）、日当は日報の日当（TEST_REPORT.labor）。
+ *   ＝ 手順6で「マスタの日当がそのまま日報の日当になる」ことを確かめられます
+ *   （testStaffMatchesReport() で縛っています）。
+ */
+export const TEST_STAFF = {
+  name: "【テスト】テスト太郎",
+  /** 日当（円）。手順5の日報の日当と同じ値にしてある */
+  dailyWage: 10000,
+} as const;
+
 /** 手順5の日報の日付。数え始めの日（テストの店の固定値）をそのまま使う */
 export function testReportDate(): string {
   return TEST_SHOP.openingDate;
+}
+
+/**
+ * 手順6（混ざらないか）で**読み比べる月**。
+ *
+ * ■ なぜ「先月」ではいけないのか（2026-11-01・f5-4・f3-4）
+ *   手順5で入れる日報は、数え始めの日（{@link TEST_SHOP.openingDate}）に**固定**です。
+ *   ところが読み比べる所は「先月」を読んでいました（previousMonthRange）。
+ *   ＝ **たまたま 2026年11月のあいだだけ**、先月（10月）と日報の月（10月）が
+ *   そろっていただけで、
+ *     ・12月に入ると先月＝11月になり、テストの店の行は**1行も無い月**を読む
+ *       → よその行は0件なので「混ざりません」と**読んでもいないのに言ってしまう**
+ *     ・その月に手羽屋の日報が1枚も無いと（いまは10月18日が最後）
+ *       → 手羽屋の件数が0件になり、分かれているのに「まだです」と**逆に言う**
+ *   のどちらかになります。どちらも f5-4 の合否を誤らせます。
+ *
+ * ■ だから、日報が入っている月（＝手順5の日報の月）を読みます
+ *   この月は手羽屋にも行がある月なので、両方を**同じ月**で見比べられます。
+ *   今日の日付では変わりません（テストで固定）。
+ */
+export function trialReadMonth(): { ym: string; label: string } {
+  const ym = testReportDate().slice(0, 7);
+  const [y, m] = ym.split("-");
+  return { ym, label: `${Number(y)}年${Number(m)}月` };
 }
 
 /** 出店場所の棚に入れる1行 */
@@ -107,6 +155,34 @@ export function buildTestProduct(tenantId: string): Record<string, unknown> {
     is_active: true,
     sort_order: TEST_PRODUCT.sortOrder,
   };
+}
+
+/**
+ * 担当者の棚に入れる1行。
+ *
+ * ★お店を分ける印はテストの店。名前は手順5の日報の担当とまったく同じです
+ *   （日報の画面は、担当者の名前でマスタの日当を引くため）。
+ * ★番隊（unit_number）・別名（aliases）は入れません（手羽屋だけの決まりなので、
+ *   よそのお店に意味のない値を作らないため）。
+ */
+export function buildTestStaff(tenantId: string): Record<string, unknown> {
+  return {
+    tenant_id: tenantId,
+    name: TEST_STAFF.name,
+    daily_wage: TEST_STAFF.dailyWage,
+    is_active: true,
+  };
+}
+
+/**
+ * 手順4の担当者が、手順5の日報とそろっているか（名前も日当も）。
+ * **そろっていなければ false**（＝日当の突き合わせに使える固定値になっていない）。
+ */
+export function testStaffMatchesReport(): boolean {
+  return (
+    TEST_STAFF.name === TEST_REPORT.staffName &&
+    TEST_STAFF.dailyWage === TEST_REPORT.labor
+  );
 }
 
 /**
@@ -180,6 +256,8 @@ export type TebayaVisible = {
   reports: number | null;
   /** 商品（名前と単価）の件数。読めなかったときは null（2026-10-30） */
   products: number | null;
+  /** 担当者（名前と日当）の件数。読めなかったときは null（2026-10-31） */
+  staff: number | null;
 };
 
 /**
@@ -193,10 +271,12 @@ export function rollbackNeeded(before: TebayaVisible, after: TebayaVisible): boo
   if (before.locations === null || after.locations === null) return true;
   if (before.reports === null || after.reports === null) return true;
   if (before.products === null || after.products === null) return true;
+  if (before.staff === null || after.staff === null) return true;
   return (
     before.locations !== after.locations ||
     before.reports !== after.reports ||
-    before.products !== after.products
+    before.products !== after.products ||
+    before.staff !== after.staff
   );
 }
 
@@ -208,6 +288,8 @@ export type StepsState = {
   locationReady: boolean;
   /** 手順4：そのお店の商品（名前と単価）が1件あるか（2026-10-30） */
   productReady: boolean;
+  /** 手順4：そのお店の担当者（名前と日当）が1人あるか（2026-10-31） */
+  staffReady: boolean;
   /** 手順5：そのお店の日報が1枚あるか */
   reportReady: boolean;
   /** 手順6：そのお店として読むと、手羽屋の数字が1件も混ざらないか */
@@ -222,6 +304,7 @@ export function stepsAllDone(s: StepsState): boolean {
     s.shopReady &&
     s.locationReady &&
     s.productReady &&
+    s.staffReady &&
     s.reportReady &&
     s.separated &&
     s.numbersShown
@@ -245,12 +328,13 @@ export function stepsSummary(s: StepsState, rolledBack = false): string {
   if (stepsAllDone(s)) {
     return (
       "手順4・5・6 まで通りました" +
-      "（出店場所1件・商品1件・日報1枚・そのお店の数字だけが出る）"
+      "（出店場所1件・商品1件・担当者1人・日報1枚・そのお店の数字だけが出る）"
     );
   }
   const left: string[] = [];
   if (!s.locationReady) left.push("手順4（出店場所）");
   if (!s.productReady) left.push("手順4（商品と単価）");
+  if (!s.staffReady) left.push("手順4（担当者と日当）");
   if (!s.reportReady) left.push("手順5（日報1枚）");
   if (!s.numbersShown) left.push("手順5の数字（今月の利益・今の現金）");
   if (!s.separated) left.push("手順6（よその数字が混ざらないこと）");

@@ -326,6 +326,12 @@ want "手順４ ⑥が、そのお店の出店場所を1件 入れた" "1" "$(q 
 want "手順４ 何度 流しても増えない（印つきは1件のまま）" "1" "$(q "select count(*) from public.locations where tenant_id='$TEST_TENANT' and name='【テスト】テスト広場'")"
 want "手順４ そのお店の出店場所は、窓口ごしに読める" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_locations(null, null, null, 'test-b2-kensa-1006')")"
 want "手順４ 窓口の答えに、手羽屋の場所は混じらない" "0" "$(q "set role anon; select count(*) from (select (x->>'name') as n from public.keiri_tenant_locations(null,null,null,'test-b2-kensa-1006') x) y where n not like '【テスト】%'")"
+# ★2026-10-31（kp271）：窓口が**場代（出店料）の決まり**も返すこと。
+#   返らないと、申し込んだお店の日報は場代の行が自動で入らず毎日 手打ちになる
+#   （CLAUDE.md 4-15。手打ちは打ち忘れが起きると実データで分かっている）。
+want "手順４ 窓口の答えに、場代の決まりの欄がある" "t" "$(q "set role anon; select (x ? 'booth_fee_type') from public.keiri_tenant_locations(null,null,null,'test-b2-kensa-1006') x limit 1")"
+want "手順４ その出店場所の場代の決まりは『なし』（0円の行を作らない）" "none" "$(q "set role anon; select (x->>'booth_fee_type') from public.keiri_tenant_locations(null,null,null,'test-b2-kensa-1006') x limit 1")"
+want "手順４ 窓口の答えに、場代の％と定額の欄もある" "true/true" "$(q "set role anon; select (x ? 'booth_fee_rate')||'/'||(x ? 'booth_fee_amount') from public.keiri_tenant_locations(null,null,null,'test-b2-kensa-1006') x limit 1")"
 want "手順４ そのお店の出店場所は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.locations where tenant_id='$TEST_TENANT'")"
 want "手順４ 手羽屋の出店場所の件数は、はじめと同じ" "$LOC_TEBAYA" "$(q "set role anon; select count(*) from public.locations where tenant_id is null")"
 # ★ここが要です：手羽屋の毎日の画面（日報の選択肢・シフト・管理のマスタ）が
@@ -351,8 +357,50 @@ want "手順４ 窓口の答えに、手羽屋の商品は混じらない" "0" "
 want "手順４ その商品は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.sale_products where tenant_id='$TEST_TENANT'")"
 want "手順４ 手羽屋の商品の件数は、はじめと同じ" "$PROD_TEBAYA_0" "$(q "set role anon; select count(*) from public.sale_products where tenant_id is null")"
 
+# --- 手順４（3つめ） そのお店の担当者（名前と日当）が1人 入るか（2026-10-31 追記・f5-4） ---
+#   日当はスタッフマスタが正（CLAUDE.md 4-3）。申し込んだお店は担当者の一覧を直す画面に
+#   入れないので、⑥がそのお店ぶんを1人 入れる。入っていないと、そのお店の利益
+#   （売上 − 日当 − 経費）が毎日 手打ち頼みになる。
+#   見るのは：⑥が1人 入れたか／何度 流しても増えないか／日当が日報と同じか／
+#   窓口ごしに読めるか／公開の鍵からは隠れているか／**手羽屋の担当者に触っていないか**。
+STAFF_TEBAYA_0="$(q "select count(*) from public.staff_members where tenant_id is null")"
+want "手順４ ⑥が、そのお店の担当者を1人 入れた" "1" "$(q "select count(*) from public.staff_members where tenant_id is not null")"
+want "手順４ 何度 流しても増えない（印つきは1人のまま）" "1" "$(q "select count(*) from public.staff_members where tenant_id='$TEST_TENANT' and name='【テスト】テスト太郎'")"
+want "手順４ その担当者の日当は、手順5の日報と同じ（10,000円・在籍）" "10000/true" "$(q "select daily_wage||'/'||is_active from public.staff_members where tenant_id='$TEST_TENANT' and name='【テスト】テスト太郎'")"
+# ★その店の日報の担当が、ぜんぶマスタに居ること（居ないと「日当が分かりません」になる）
+want "手順４ マスタに居ない担当の日報は、1枚も無い" "0" "$(q "select count(*) from public.daily_reports r where r.tenant_id='$TEST_TENANT' and not exists (select 1 from public.staff_members s where s.tenant_id=r.tenant_id and s.name=r.staff_name)")"
+want "手順４ 日報の日当と、マスタの日当がちがう日報は無い" "0" "$(q "select count(*) from public.daily_reports r join public.staff_members s on s.name=r.staff_name and s.tenant_id=r.tenant_id where r.tenant_id='$TEST_TENANT' and r.labor <> s.daily_wage")"
+want "手順４ その担当者は、窓口ごしに読める" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_staff(null, null, null, 'test-b2-kensa-1006')")"
+want "手順４ 窓口の答えに、手羽屋の担当者は混じらない" "0" "$(q "set role anon; select count(*) from (select (x->>'name') as n from public.keiri_tenant_staff(null,null,null,'test-b2-kensa-1006') x) y where n not like '【テスト】%'")"
+want "手順４ 窓口の答えに、日当が入っている" "10000" "$(q "set role anon; select (x->>'daily_wage') from public.keiri_tenant_staff(null,null,null,'test-b2-kensa-1006') x limit 1")"
+want "手順４ その担当者は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.staff_members where tenant_id='$TEST_TENANT'")"
+want "手順４ 手羽屋の担当者の件数は、はじめと同じ" "$STAFF_TEBAYA_0" "$(q "set role anon; select count(*) from public.staff_members where tenant_id is null")"
+
 # 担当者・商品の棚も、印が空のままで手羽屋が読めること（日報の選択肢）
 want "手順４ 手羽屋の担当者は、公開の鍵で今までどおり読める" "2" "$(q "set role anon; select count(*) from public.staff_members where tenant_id is null")"
+
+# --- 手順１の確かめ方 「テストの店ができたか」を鍵なしで知れるか（2026-11-02 追記・f5-4） ---
+#   ★ここが NG だと、じゅんが2分で貼ったのに窓口は「テストの店がまだありません」と
+#     答えたままになり、手順4〜6（f5-4）がそこで止まります。
+#   2026-11-02 に下見で測って分かったこと：
+#     ⑥がテストの店と一緒に作る「経理の設定の行」は、**⑫の決まりで公開の鍵では読めません**
+#     （中には1件あるのに 0件で返る）。＝ 鍵を使わない確かめ方が、同じ1枚の中で閉まります。
+#   そこで窓口（keiri_tenant_test_peek）を1本 足したので、ここで縛ります。
+want "手順１ 設定の行は、公開の鍵では読めない（これが窓口が要る理由）" "0" "$(q "set role anon; select count(*) from public.keiri_settings where tenant_id is not null and opening_date='2026-10-06' and opening_balance=30000")"
+want "手順１ でも倉庫の中には設定の行が1件ある" "1" "$(q "select count(*) from public.keiri_settings where tenant_id is not null and opening_date='2026-10-06' and opening_balance=30000")"
+want "手順１ お店の棚は、公開の鍵では1行も読めない" "0" "$(q "set role anon; select count(*) from public.keiri_tenants")"
+want "手順１ 窓口は、テストの店を1件 答える" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_test_peek('test-b2-kensa-1006')")"
+want "手順１ 窓口の答えに、番号と状態が入っている" "active/true" "$(q "set role anon; select (x->>'status')||'/'||(x ? 'id') from public.keiri_tenant_test_peek('test-b2-kensa-1006') x limit 1")"
+want "手順１ 窓口の答えに、作った時刻と終わった時刻が入っている（30分以内を測るため）" "true/true" "$(q "set role anon; select (x ? 'created_at')||'/'||(x ? 'activated_at') from public.keiri_tenant_test_peek('test-b2-kensa-1006') x limit 1")"
+want "手順１ 窓口は、合言葉のかたちを1文字も返さない" "false/false" "$(q "set role anon; select (x ? 'setup_token')||'/'||(x ? 'admin_password_hash') from public.keiri_tenant_test_peek('test-b2-kensa-1006') x limit 1")"
+want "手順１ 窓口は、知らない印には何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_test_peek('test-shiranai-mark')")"
+want "手順１ 窓口は、テストの印でなければ何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_test_peek('honmono-no-mise')")"
+want "手順１ 窓口は、空っぽでは何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_test_peek(null)")"
+# ★本物のお店（店名が【テスト】で始まらない）には、テストの印が付いていても答えない
+psql -q -c "insert into public.keiri_tenants (shop_name, template, setup_token, source, status, external_session_id) values ('ほんものの食堂','generic','tok-honmono','manual','active','test-honmono-1102')" >/dev/null 2>&1
+want "手順１ 窓口は、店名が【テスト】でないお店には答えない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_test_peek('test-honmono-1102')")"
+psql -q -c "delete from public.keiri_tenants where external_session_id='test-honmono-1102'" >/dev/null 2>&1
+want "手順１ 下見で足した本物ふうの行は、取り消せた" "0" "$(q "select count(*) from public.keiri_tenants where external_session_id='test-honmono-1102'")"
 
 # --- ⑬ 選択肢の棚3つが締まったか（2026-10-29 追記・f3-4・kp266） ---------------
 #   ★2026-10-28 まで、ここは「**未完：まだ公開の鍵で読める**」という事実を
@@ -372,7 +420,9 @@ want "⑬ 窓口が3つ できた" "3" "$(q "select count(*) from pg_proc where 
 want "⑬ よその店の担当者は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.staff_members where tenant_id is not null")"
 want "⑬ よその店の商品は、公開の鍵では読めない" "0" "$(q "set role anon; select count(*) from public.sale_products where tenant_id is not null")"
 want "⑬ 書き換えて取り出す道でも読めない" "0" "$(q "set role anon; select count(*) from public.staff_members where tenant_id::text like '%'")"
-want "⑬ 窓口は、その店の担当者を返す" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_staff(null,null,null,'test-b2-kensa-1006')")"
+# ★2026-10-31：⑥がそのお店ぶんの担当者を1人 入れるようになったので、
+#   ここでは「⑥の1人＋この試しの1人」＝2件 返るのが正しい。
+want "⑬ 窓口は、その店の担当者を返す" "2" "$(q "set role anon; select count(*) from public.keiri_tenant_staff(null,null,null,'test-b2-kensa-1006')")"
 # ★2026-10-30：⑥がそのお店ぶんの商品を1件 入れるようになったので、
 #   ここでは「⑥の1件＋この試しの1件」＝2件 返るのが正しい。
 want "⑬ 窓口は、その店の商品を返す" "2" "$(q "set role anon; select count(*) from public.keiri_tenant_products(null,null,null,'test-b2-kensa-1006')")"
@@ -392,7 +442,8 @@ psql -tA -c "set role anon; insert into public.sale_products (name, price, kind)
   || say "⑬ 手羽屋の商品は、公開の鍵で入れて番号も読み返せる" "NG（商品マスタの画面が止まります）"
 want "⑬ 手羽屋の商品は、公開の鍵で消せる" "1" "$(q "set role anon; with d as (delete from public.sale_products where name='【下見】新しい商品' returning 1) select count(*) from d")"
 want "⑬ 手羽屋の商品の件数は、はじめと同じ" "$PROD_TEBAYA" "$(q "select count(*) from public.sale_products where tenant_id is null")"
-psql -q -c "delete from public.staff_members where tenant_id is not null" >/dev/null 2>&1
+# ★⑥が入れた担当者（【テスト】テスト太郎）は消さない。この節で入れた試しの行だけを消す
+psql -q -c "delete from public.staff_members where name='【テスト】よその人'" >/dev/null 2>&1
 # ★⑥が入れた商品（【テスト】テスト商品）は消さない。この節で入れた試しの行だけを消す
 psql -q -c "delete from public.sale_products where name='【テスト】よその商品'" >/dev/null 2>&1
 
@@ -518,6 +569,41 @@ want "⑫ よその店の数えない印は、公開の鍵で直しても0行" "
 want "⑫ よその店の数えない印は、公開の鍵で消しても0行" "0" "$(q "set role anon; with d as (delete from public.keiri_expense_ignores where tenant_id is not null returning 1) select count(*) from d")"
 want "⑫ よその店の数えない印は、直そうとしても残っている" "1" "$(q "select count(*) from public.keiri_expense_ignores where tenant_id is not null and undone_at is null")"
 want "⑫ 手羽屋の数えない印は、公開の鍵で今までどおり直せる" "1" "$(q "set role anon; with u as (update public.keiri_expense_ignores set reason=reason where tenant_id is null returning 1) select count(*) from u")"
+
+# --- 金庫の1押し（じゅんの kp245）を、画面と同じ鍵で通してみる -----------------
+#                                            （2026-11-01 追記・f1-4）
+#   ■ なぜ要るのか
+#     じゅんにお願いしている順番は **貼り紙（2分）→ 金庫（1分）** です。
+#     ＝ 金庫を押すときには、この貼り紙が作った棚（keiri_cash_events）が
+#     もうある状態です。ところが下見は、この棚に**管理者の権限で**入れて
+#     読めるかだけを見ていて、**画面と同じ公開の鍵で「1押しで残るか」**を
+#     一度も通していませんでした（手順4が通っていなかった 10/28 と同じ見落とし）。
+#     f1-4 に残っているのは この1分だけなので、ここで止まると
+#     じゅんの1分がまるごと無駄になり、気づくのは次の日です。
+#   ■ 画面がやること（app/keiri/page.tsx の saveCountToShelf）
+#     ① 同じ日・同じ金額の『数えた』記録があるかを、公開の鍵で読む
+#     ② 無ければ1行 足す（読み返し＝select は付けない）
+#     ③ もう一度 押しても、①で見つかるので足さない＝行は増えない
+KINKO_DAY=2026-10-21
+want "金庫① 押す前は、その日の『数えた』記録は0件（公開の鍵で読める）" "0" "$(q "set role anon; select count(*) from public.keiri_cash_events where kind='count' and happened_on='$KINKO_DAY' and tenant_id is null")"
+psql -q -c "set role anon; insert into public.keiri_cash_events (kind, happened_on, amount, note) values ('count','$KINKO_DAY',1004399,'下見の1押し')" >/dev/null 2>&1 \
+  && say "金庫② 1押しで、公開の鍵のまま棚に1行 残る" "OK" \
+  || say "金庫② 1押しで、公開の鍵のまま棚に1行 残る" "NG（じゅんの1分がむだになります）"
+want "金庫② 残った1行は、画面と同じ鍵で読み返せる" "1" "$(q "set role anon; select count(*) from public.keiri_cash_events where kind='count' and happened_on='$KINKO_DAY' and amount=1004399 and tenant_id is null")"
+# ③ もう一度 押しても増えない（画面は足す前にこの読みで見分ける）
+want "金庫③ もう一度 押しても足さない（同じ日・同じ金額が見つかる）" "1" "$(q "set role anon; select count(*) from public.keiri_cash_events where kind='count' and happened_on='$KINKO_DAY' and amount=1004399 and tenant_id is null")"
+want "金庫③ 金額が1円ちがえば、別の記録として足す側に倒れる" "0" "$(q "set role anon; select count(*) from public.keiri_cash_events where kind='count' and happened_on='$KINKO_DAY' and amount=1004398 and tenant_id is null")"
+want "金庫③ 『銀行に入れた』の行は、数えた記録として数えない" "0" "$(q "set role anon; select count(*) from public.keiri_cash_events where kind='deposit' and happened_on='$KINKO_DAY' and tenant_id is null")"
+# よその店は、見分けの読みが0件に見える＝足す側に倒れる（押しても止まらない）
+want "金庫④ よその店は、見分けの読みが0件（＝足す側に倒れる・止まらない）" "0" "$(q "set role anon; select count(*) from public.keiri_cash_events where kind='count' and happened_on='$KINKO_DAY' and tenant_id='$TEST_TENANT'")"
+psql -q -c "set role anon; insert into public.keiri_cash_events (kind, happened_on, amount, tenant_id) values ('count','$KINKO_DAY',70000,'$TEST_TENANT')" >/dev/null 2>&1 \
+  && say "金庫④ よその店も、公開の鍵で1行 足せる（読み返しは付けない）" "OK" \
+  || say "金庫④ よその店も、公開の鍵で1行 足せる（読み返しは付けない）" "NG（お店が金庫を数えられません）"
+want "金庫④ よその店の行は、窓口ごしなら読める（画面に出る）" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_cash_events(null,'$KINKO_DAY','$KINKO_DAY','test-b2-kensa-1006')")"
+want "金庫④ よその店の行は、手羽屋には混じらない" "0" "$(q "set role anon; select count(*) from public.keiri_cash_events where happened_on='$KINKO_DAY' and amount=70000")"
+# 下見で入れた行は取り消す（手羽屋の件数をはじめに戻す）
+psql -q -c "delete from public.keiri_cash_events where note='下見の1押し'" >/dev/null 2>&1
+want "金庫⑤ 下見で入れた行は取り消せた" "0" "$(q "select count(*) from public.keiri_cash_events where note='下見の1押し'")"
 
 # 入れたテストの行は、確かめが済んだら取り消す（本番ではなく、このパソコンの中の倉庫）
 psql -q -c "delete from public.daily_reports where tenant_id is not null" >/dev/null 2>&1

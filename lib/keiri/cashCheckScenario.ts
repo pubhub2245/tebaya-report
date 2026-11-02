@@ -92,10 +92,53 @@ export function cashCheckStaleOn(today: Date = new Date()): string {
   return `${cashCheckYm(today)}-05`;
 }
 
+/**
+ * ⑥「久しく数えていない」の場面だけ使う“その場面の今日”（2026-11-01・f1-4）。
+ *
+ * ■ なぜ要るのか（やさしい説明）
+ *   この場面は「最後に数えてから 30日 以上たった」ことを見せるためのものです。
+ *   ところが比べる相手が**本当の今日**だったので、月が替わった直後は
+ *   数えた日（前の月の5日）から 30日 たっておらず、
+ *   **「久しく数えていません」の一言が出ない**＝名前と中身が食い違っていました
+ *   （2026-11-01 に本番で実測：27日しかたっていなかった）。
+ *   検算（problems）も空で返るので、気づけない形でした。
+ *   この場面は架空の筋書きなので、**その場面の今日**を数えた日の 40日 後に
+ *   固定します。いつ開いても同じ答えになり、名前と中身が必ず合います。
+ */
+export function cashCheckStaleToday(today: Date = new Date()): string {
+  const on = new Date(`${cashCheckStaleOn(today)}T09:00:00Z`);
+  on.setUTCDate(on.getUTCDate() + 40);
+  return on.toISOString().slice(0, 10);
+}
+
 /** 以前の書き方で読んでいる所のために残す（中身は「前の月」） */
 export const CASH_CHECK_YM = cashCheckYm();
 export const CASH_CHECK_COUNTED_ON = cashCheckCountedOn();
 export const CASH_CHECK_STALE_ON = cashCheckStaleOn();
+
+/**
+ * 渡された「今日」（YYYY-MM-DD）を日付に直す（2026-11-01・f1-4）。
+ *
+ * ■ なぜ要るのか（やさしい説明）
+ *   この筋書きは「前の月」を使います。ところが月の名前（ym）と末日は
+ *   **読み込んだときの本当の今日**から1回だけ決めていて、
+ *   窓口に渡した「今日」には従っていませんでした。
+ *   本番は本当の今日で動くので正しく出ますが、**試験で今日を固定すると
+ *   月が替わった日に答えが食い違い、試験が落ちます**
+ *   （2026-11-01 に実際に2本 落ちました：ym が1か月ズレ、
+ *     「久しく数えていない」の場面が5日前になって出なくなった）。
+ *   ＝「外から確かめる窓口が正しい」と言う根拠そのものが、月替わりで崩れる形でした。
+ *   渡された今日から毎回 出し直せば、いつ実行しても同じ答えになります。
+ *
+ * 読めない文字が来たら、本当の今日に倒します（落とさない）。
+ */
+export function cashCheckBaseDate(today?: string): Date {
+  if (today && /^\d{4}-\d{2}-\d{2}$/.test(today)) {
+    const d = new Date(`${today}T09:00:00Z`);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return new Date();
+}
 
 /** ③で使うズレ（1,000円 以上＝原因を出す側） */
 const SHORT_BY = 3576;
@@ -111,8 +154,10 @@ const NEAR_BY = 500;
 const DEMO_REGISTER_FLOAT_YEN = 60000;
 
 /** 架空のお店の現金の様子（お試し版とまったく同じ作り方） */
-export function cashCheckPosition(asOf: string = CASH_CHECK_COUNTED_ON): CashPosition {
-  const ym = CASH_CHECK_YM;
+export function cashCheckPosition(
+  asOf: string = CASH_CHECK_COUNTED_ON,
+  ym: string = CASH_CHECK_YM,
+): CashPosition {
   return calcCashPosition({
     reports: demoReports(ym),
     payments: demoPayments(),
@@ -249,13 +294,17 @@ export function buildCashCheck(params?: {
   today?: string;
 }): CashCheckResult {
   const today = params?.today ?? new Date().toISOString().slice(0, 10);
-  const ym = CASH_CHECK_YM;
-  const pos = cashCheckPosition();
+  // ★渡された「今日」から出し直す（月替わりで答えが食い違わないように・2026-11-01）
+  const base = cashCheckBaseDate(params?.today);
+  const ym = cashCheckYm(base);
+  const countedOnDay = cashCheckCountedOn(base);
+  const staleOnDay = cashCheckStaleOn(base);
+  const pos = cashCheckPosition(countedOnDay, ym);
   const computed = pos.balance;
 
-  const preview = (counted: number, countedOn = CASH_CHECK_COUNTED_ON): CashReconcile =>
+  const preview = (counted: number, countedOn = countedOnDay): CashReconcile =>
     previewCashCount({
-      computedAtCount: cashCheckPosition(countedOn).balance,
+      computedAtCount: cashCheckPosition(countedOn, ym).balance,
       countedOn,
       counted,
       today,
@@ -265,22 +314,22 @@ export function buildCashCheck(params?: {
     caseOf({
       name: "① ぴったり合う",
       r: preview(computed),
-      countedOn: CASH_CHECK_COUNTED_ON,
+      countedOn: countedOnDay,
     }),
     caseOf({
       name: `② ほぼ合う（${NEAR_BY.toLocaleString("ja-JP")}円 のズレ＝おつりの誤差の範囲）`,
       r: preview(computed - NEAR_BY),
-      countedOn: CASH_CHECK_COUNTED_ON,
+      countedOn: countedOnDay,
     }),
     caseOf({
       name: `③ 金庫のほうが少ない（${SHORT_BY.toLocaleString("ja-JP")}円）`,
       r: preview(computed - SHORT_BY),
-      countedOn: CASH_CHECK_COUNTED_ON,
+      countedOn: countedOnDay,
     }),
     caseOf({
       name: `④ 金庫のほうが多い（${OVER_BY.toLocaleString("ja-JP")}円）`,
       r: preview(computed + OVER_BY),
-      countedOn: CASH_CHECK_COUNTED_ON,
+      countedOn: countedOnDay,
     }),
     caseOf({
       name: "⑤ まだ1回も数えていない",
@@ -288,15 +337,15 @@ export function buildCashCheck(params?: {
       countedOn: "",
     }),
     caseOf({
-      name: `⑥ 久しく数えていない（${CASH_CHECK_STALE_ON} に数えたまま）`,
+      name: `⑥ 久しく数えていない（${staleOnDay} に数えたまま、その40日後に開いたとき）`,
       r: reconcileCash({
-        events: [
-          { kind: "count", happened_on: CASH_CHECK_STALE_ON, amount: 120000 },
-        ],
-        computedAtCount: cashCheckPosition(CASH_CHECK_STALE_ON).balance,
-        today,
+        events: [{ kind: "count", happened_on: staleOnDay, amount: 120000 }],
+        computedAtCount: cashCheckPosition(staleOnDay, ym).balance,
+        // ★この場面だけ「その場面の今日」を使う（本当の今日だと、月が替わった直後に
+        //   30日 たっておらず「久しく数えていません」が出ない・2026-11-01）
+        today: cashCheckStaleToday(base),
       }),
-      countedOn: CASH_CHECK_STALE_ON,
+      countedOn: staleOnDay,
     }),
   ];
 
@@ -306,7 +355,7 @@ export function buildCashCheck(params?: {
       caseOf({
         name: `⑦ 指定された金額で試す（${asked.toLocaleString("ja-JP")}円）`,
         r: preview(asked),
-        countedOn: CASH_CHECK_COUNTED_ON,
+        countedOn: countedOnDay,
       }),
     );
   }
@@ -396,6 +445,12 @@ export function checkCases(cases: CashCheckCase[]): string[] {
       problems.push(`${c.name}：数えていないのに、差や原因が出ています`);
     }
     if (!c.verdict) problems.push(`${c.name}：差の言い方が空です`);
+    // ★名前と中身が食い違っていないか（2026-11-01・f1-4）。
+    //   ⑥「久しく数えていない」は、その一言が出て初めて場面として成立する。
+    //   本当の今日と比べていたため、月が替わった直後は出ていなかった（検算は空で返っていた）。
+    if (c.name.includes("久しく数えていない") && !c.stale) {
+      problems.push(`${c.name}：「久しく数えていません」の一言が出ていません`);
+    }
   }
   return problems;
 }
@@ -426,8 +481,10 @@ function demoRepaidEarlierYen(nowScreen: number): number {
  * ★架空の金額だけを使います（手羽屋の実データは1円も入りません）。
  */
 export function buildCashVariantCheck(params?: { today?: string }): CashVariantCheck {
-  void params;
-  const nowScreen = cashCheckPosition().balance;
+  // ★渡された「今日」から前の月を出し直す（2026-11-01・f1-4）
+  const base = cashCheckBaseDate(params?.today);
+  const ym = cashCheckYm(base);
+  const nowScreen = cashCheckPosition(cashCheckCountedOn(base), ym).balance;
   const repaidEarlierYen = demoRepaidEarlierYen(nowScreen);
   const withRepaid = nowScreen - repaidEarlierYen;
   // 架空の「レジに残してあるつり銭」（2号車ぶん）。金庫の外にあるお金
@@ -644,8 +701,8 @@ function gapDemoReports(ym: string) {
 }
 
 export function buildCashOpeningGapCheck(params?: { today?: string }): CashOpeningGapCheck {
-  void params;
-  const ym = CASH_CHECK_YM;
+  // ★渡された「今日」から前の月を出し直す（2026-11-01・f1-4）
+  const ym = cashCheckYm(cashCheckBaseDate(params?.today));
   const openingDate = gapOpeningDate(ym);
   const reports = gapDemoReports(ym);
   const gap: CashOpeningGap = expensesBeforeOpening({ reports, openingDate });

@@ -20,8 +20,10 @@ import {
   TEST_LOCATION,
   TEST_PRODUCT,
   TEST_REPORT,
+  TEST_STAFF,
   testProductCount,
   testReportDate,
+  testStaffMatchesReport,
 } from "../lib/keiri/tenantTrialSteps";
 import {
   MASTER_SHELF_TABLES,
@@ -98,6 +100,26 @@ test("⑥の商品の中身が、コード側の固定値と同じ", () => {
   assert.equal(testProductCount(), TEST_REPORT.sales / TEST_PRODUCT.price);
 });
 
+test("⑥は手順4の担当者を1人だけ入れる（増やさない形になっている・2026-10-31）", () => {
+  const six = stepSix();
+  assert.ok(six.includes("insert into public.staff_members"), "担当者を入れる所がありません");
+  assert.ok(
+    six.includes("where s.tenant_id = v_id and s.name = '【テスト】テスト太郎'"),
+    "同じお店・同じ名前の行があるかを見ていません（名前は重なれないので2回目で落ちます）",
+  );
+});
+
+test("⑥の担当者の中身が、コード側の固定値と同じ", () => {
+  const six = stepSix();
+  const insert = six.slice(six.indexOf("insert into public.staff_members"));
+  for (const v of [TEST_STAFF.name, String(TEST_STAFF.dailyWage)]) {
+    assert.ok(insert.includes(v), `⑥の担当者に ${v} がありません（コード側とずれています）`);
+  }
+  // マスタの日当が、そのまま手順5の日報の日当になること（利益が手打ちにならない）
+  assert.equal(testStaffMatchesReport(), true);
+  assert.equal(TEST_STAFF.dailyWage, TEST_REPORT.labor);
+});
+
 test("⑥が入れる行は、ぜんぶテストの店の印（手羽屋の行に混ざらない）", () => {
   const six = stepSix();
   const insert = six.slice(six.indexOf("insert into public.daily_reports"));
@@ -105,6 +127,12 @@ test("⑥が入れる行は、ぜんぶテストの店の印（手羽屋の行�
   const prod = six.slice(six.indexOf("insert into public.sale_products"));
   assert.ok(prod.includes("tenant_id"), "商品に『どの店か』の印を入れていません");
   assert.ok(prod.includes("values (v_id,"), "商品の印にテストの店の番号（v_id）を入れていません");
+  const staff = six.slice(six.indexOf("insert into public.staff_members"));
+  assert.ok(staff.includes("tenant_id"), "担当者に『どの店か』の印を入れていません");
+  assert.ok(
+    staff.includes("values (v_id,"),
+    "担当者の印にテストの店の番号（v_id）を入れていません",
+  );
   assert.ok(
     insert.includes("v_id, c_date"),
     "印にテストの店の番号（v_id）を入れていません",

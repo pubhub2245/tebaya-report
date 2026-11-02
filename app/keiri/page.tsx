@@ -24,6 +24,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import {
   TEBAYA_BUSINESS_CODE,
+  applyTenantScope,
   businessCodeForScope,
   isTebayaScope,
   tenantStamp,
@@ -117,7 +118,13 @@ import {
   compareAlsoKeeps,
   compareResultLine,
   keepButtonLabel,
+  sameCashCountRow,
 } from "@/lib/keiri/cashCountPress";
+import {
+  cashBooksGapLines,
+  measureBooksGap,
+  type CashBooksGap,
+} from "@/lib/keiri/cashBooksGap";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
 import {
   cashOpeningGapLines,
@@ -358,6 +365,21 @@ function KeiriInner() {
   const openingGap = useMemo(
     () => expensesBeforeOpening({ reports, openingDate: effective.opening_date }),
     [reports, effective.opening_date],
+  );
+
+  /**
+   * 「日報がどこまで入っているか」（2026-11-01・f1-4）。
+   *
+   * ★日報がまだ入っていない営業日があると、その分だけ計算上の現金がずれます。
+   *   金庫を数えたときに出る「差」の内わけとして、まず見る所を名指しします。
+   *   数字は1円も直しません（出すのは説明の行だけ）。
+   * ★空きは**数えた日に揃えて**数えます（今日ではありません）。
+   *   突き合わせそのものが数えた日に揃えてあるので、ここだけ今日で数えると
+   *   さかのぼって数えた月で空きが出すぎます。
+   */
+  const booksGapAsOf = useCallback(
+    (date: string): CashBooksGap => measureBooksGap({ reports, asOf: date }),
+    [reports],
   );
 
   /**
@@ -1196,6 +1218,7 @@ function KeiriInner() {
         registerCloses={registerCloses}
         openingDate={effective.opening_date}
         openingGap={openingGap}
+        booksGapAsOf={booksGapAsOf}
       />
 
       {/* 毎月お渡しする1枚（2026-10-04・kp231）。
@@ -1868,6 +1891,7 @@ function CashCountCard({
   registerCloses,
   openingDate,
   openingGap,
+  booksGapAsOf,
 }: {
   reconcile: ReturnType<typeof reconcileCash>;
   balanceNow: number;
@@ -1890,6 +1914,8 @@ function CashCountCard({
   openingDate: string;
   /** 数え始めの日より前に払った経費（差の内わけに出す・2026-10-28・kp265・f1-4） */
   openingGap: CashOpeningGap;
+  /** その日に揃えた「日報がどこまで入っているか」（差の内わけに出す・2026-11-01・f1-4） */
+  booksGapAsOf: (date: string) => CashBooksGap;
 }) {
   const [countOn, setCountOn] = useState(todayStr());
   const [countYen, setCountYen] = useState("");
@@ -1988,12 +2014,93 @@ function CashCountCard({
     const pick = pickCashVariant({ variants, counted: amount });
     setVariantPick(pick.hasChoice ? pick : null);
 
-    // ★ここまでで答えは画面に出ています。控えの道なら、そのまま残します。
+    // ★ここまでで答えは画面に出ています。そのまま記録に残します（押すのは1回だけ）。
     //   残せなかったときは、残したと言わずに理由を出します（押し直せます）。
+    //   どちらに残すかは置き場（keiri_cash_events）があるかで決まります。
     if (compareAlsoKeeps(shelfMissing)) {
-      const kept = await saveCountToMemo({ keepPreview: true });
+      const kept = shelfMissing
+        ? await saveCountToMemo({ keepPreview: true })
+        : await saveCountToShelf({ keepPreview: true });
       setKeptByCompare(kept);
     }
+  };
+
+  /**
+   * 数えた1回を、**置き場（keiri_cash_events）に1行 足して**残す
+   * （2026-11-01・kp245・f1-4）。［この金額で比べる］の1押しから呼ばれます。
+   *
+   * ■ なぜ要るのか（やさしい説明）
+   *   じゅんにお願いしている順番は **貼り紙（2分）→ 金庫（1分）**です。
+   *   貼り紙を貼ると置き場ができるので、金庫を押すときには**棚の道**になります。
+   *   その道だけ「比べる → 記録する」の2回 押す形が残っていて、頼み文の
+   *   「押すのは1回だけ」と食い違っていました。1回で終わったつもりで離れると
+   *   **記録が1行も残らず、1分がまるごと無駄**になります（10/15 までと同じ失敗）。
+   *
+   * ■ 何回 押しても行は増えません（ここが大事）
+   *   足す前に「同じ日・同じ金額の『数えた』記録」がもうあるかを見て、
+   *   あれば足しません（決め方は lib/keiri/cashCountPress.ts の sameCashCountRow）。
+   *   金額が1円でもちがえば、別の記録として足します（数え直しを捨てないため）。
+   *
+   * ■ 守っていること
+   *   ・金額は1円も作らない・直さない。入れた金額をそのまま足すだけ。
+   *   ・残せなかったときに「残しました」と言わない。
+   *   ・足すときに読み返し（select）はしない。よその店の行は公開の鍵では
+   *     読み返せないので、読み返すと「入ったのに失敗」と嘘が出ます（10/17 と同じ話）。
+   */
+  const saveCountToShelf = async (opts?: { keepPreview?: boolean }): Promise<boolean> => {
+    const keepPreview = opts?.keepPreview === true;
+    const amount = readYen(countYen);
+    if (!countOn || amount === null) {
+      setMsg("数えた日と金額を入れてください（金額は0以上）");
+      return false;
+    }
+    setSaving("count");
+    setMsg("");
+    // 先に「もう同じものがあるか」を見る。読めなかったときは足す側に倒す
+    // （残らないよりは、同じ行が2つ並ぶほうがまし。金額は作らない）。
+    const { data: already } = await applyTenantScope<any>(
+      supabase
+        .from("keiri_cash_events")
+        .select("kind, happened_on, amount")
+        .eq("kind", "count")
+        .eq("happened_on", countOn) as any,
+      scope,
+    );
+    if (sameCashCountRow(already as any[], { happened_on: countOn, amount })) {
+      setSaving(null);
+      if (!keepPreview) {
+        setCountYen("");
+        setCountNote("");
+        setPreview(null);
+        setVariantPick(null);
+        setKeptByCompare(false);
+      }
+      setMsg("✅ 記録しました（この日・この金額は、もう残っています。行は増えていません）");
+      onSaved();
+      return true;
+    }
+    const { error } = await supabase.from("keiri_cash_events").insert({
+      kind: "count",
+      happened_on: countOn,
+      amount,
+      note: countNote || null,
+      ...tenantStamp(scope),
+    });
+    setSaving(null);
+    if (error) {
+      setMsg(`記録できませんでした：${error.message}`);
+      return false;
+    }
+    if (!keepPreview) {
+      setCountYen("");
+      setCountNote("");
+      setPreview(null);
+      setVariantPick(null);
+      setKeptByCompare(false);
+    }
+    setMsg("✅ 記録しました");
+    onSaved();
+    return true;
   };
 
   const save = async (kind: "count" | "deposit") => {
@@ -2121,6 +2228,25 @@ function CashCountCard({
   const gapLinesSaved = cashOpeningGapLines(openingGap, reconcile.diff);
   const gapLinesPreview = preview ? cashOpeningGapLines(openingGap, preview.diff) : [];
   /**
+   * 差の内わけ「日報はここまで入っています」（2026-11-01・f1-4）。
+   * 3日以上 空いていて、差が1,000円以上のときだけ出ます。
+   */
+  const booksLinesSaved = reconcile.countedOn
+    ? cashBooksGapLines(booksGapAsOf(reconcile.countedOn), reconcile.diff)
+    : [];
+  const booksLinesPreview =
+    preview && preview.countedOn
+      ? cashBooksGapLines(booksGapAsOf(preview.countedOn), preview.diff)
+      : [];
+  /**
+   * 数える前の一言（2026-11-01・f1-4）。
+   *
+   * ★日報が3日以上 空いていると、数えても「入っていない日のぶん」で必ず食い違います。
+   *   数えたあとに言っても1分は戻らないので、**押す前に**ここに出します。
+   *   止めはしません（数えれば差の理由は名指しで出ます）。
+   */
+  const booksGapToday = booksGapAsOf(todayStr());
+  /**
    * 「よくある原因3つ」を出すか（2026-10-28・kp265・f1-4）。
    * ★決め方は lib/keiri/cashOpeningGap.ts の1か所（画面と、外から確かめる窓口で同じ答え）。
    */
@@ -2189,6 +2315,18 @@ function CashCountCard({
               ))}
             </div>
           )}
+          {/* ★差の内わけ「日報はここまで入っています」（2026-11-01・f1-4）。
+                 日報がまだ入っていない営業日があると、その分だけ必ずずれます。
+                 これを出さないと、探す先が「全部」になってしまいます。 */}
+          {booksLinesSaved.length > 0 && (
+            <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
+              {booksLinesSaved.map((l) => (
+                <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
+                  {l}
+                </p>
+              ))}
+            </div>
+          )}
           {reconcile.stale && (
             <p className="text-xs text-amber-700">{reconcile.stale}</p>
           )}
@@ -2206,6 +2344,16 @@ function CashCountCard({
              手羽屋が毎日使う現金の画面＝cash_settings）、どちらを読むかで金額が丸ごと変わります。
              経理が読むのは keiri_settings だけ。迷わせないよう、ここに1行で書きます。 */}
       <p className="text-xs text-stone-500 leading-relaxed">{openingSourceLine}</p>
+
+      {/* ★数える前の一言「日報はここまでしか入っていません」（2026-11-01・f1-4）。
+             押したあとに言っても1分は戻らないので、押す前に出します。 */}
+      {booksGapToday.wide && booksGapToday.lastDate && (
+        <p className="text-xs text-amber-700 leading-relaxed">
+          日報は {monthDay(booksGapToday.lastDate)} までしか入っていません（そこから{" "}
+          {booksGapToday.days}日）。それ以降に営業した日があると、そのぶんだけ差が出ます。
+          先に日報を入れてから数えると、差の意味がはっきりします。
+        </p>
+      )}
 
       {/* ① 金庫を数えた */}
       <div className="pt-3 border-t border-stone-200 space-y-2">
@@ -2263,15 +2411,17 @@ function CashCountCard({
           </div>
         </div>
         {/* ★「比べる」と「記録に残す」を分けていました（2026-10-09・kp233）。
-               2026-10-20：置き場がまだ無いあいだ＝控えの道は、この1押しで控えまで残します
-               （控えは いちばん新しい1回だけを書き換えるので、押しても行は増えません）。
-               置き場ができたあとは、押すたびに行が増えるので今までどおり2回です。 */}
+               2026-10-20：置き場がまだ無いあいだ＝控えの道を、この1押しで控えまで残す形に。
+               2026-11-01：**棚の道も1押し**にしました。じゅんへのお願いは
+               貼り紙（2分）→ 金庫（1分）の順なので、押すときには棚の道になっており、
+               そこだけ2回 要る形が残っていました（＝頼み文の「1回だけ」と食い違い）。
+               棚の道は「同じ日・同じ金額はもう足さない」ので、押しても行は増えません。 */}
         <button
           className="btn-primary w-full"
           onClick={() => void compare()}
           disabled={saving !== null}
         >
-          {shelfMissing ? "この金額で比べる（そのまま控えに残します）" : "この金額で比べる"}
+          この金額で比べる（そのまま記録に残します）
         </button>
 
         {preview && (
@@ -2314,6 +2464,16 @@ function CashCountCard({
             {cashDiffCauses(preview).length > 0 && gapLinesPreview.length > 0 && (
               <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
                 {gapLinesPreview.map((l) => (
+                  <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
+                    {l}
+                  </p>
+                ))}
+              </div>
+            )}
+            {/* ★差の内わけ「日報はここまで入っています」（2026-11-01・f1-4） */}
+            {booksLinesPreview.length > 0 && (
+              <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
+                {booksLinesPreview.map((l) => (
                   <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
                     {l}
                   </p>
@@ -2381,16 +2541,21 @@ function CashCountCard({
             </p>
           </div>
         ) : (
+          /* ★2026-11-01：棚の道も、比べた1押しで記録に残ります。
+                 ここは「残らなかったときに押し直す所」です（言葉は cashCountPress.ts の1か所）。 */
           <button
-            className={(preview ? "btn-primary" : "btn-secondary") + " w-full"}
-            onClick={() => void save("count")}
+            className={
+              (preview && !keptByCompare ? "btn-primary" : "btn-secondary") + " w-full"
+            }
+            onClick={() => void saveCountToShelf()}
             disabled={saving !== null}
           >
-            {saving === "count"
-              ? "保存中…"
-              : preview
-                ? "あと1回：この結果を記録する（これで終わりです）"
-                : "この結果を記録する"}
+            {keepButtonLabel({
+              shelfMissing,
+              compared: preview !== null,
+              kept: keptByCompare,
+              saving: saving === "count",
+            })}
           </button>
         )}
       </div>
