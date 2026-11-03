@@ -158,7 +158,19 @@ export function buildSelfCheck(params: {
       noncashCount: sheet.cash?.noncashCount ?? 0,
     },
     sheetReady: v.ok,
-    problems: v.problems.map(maskYen),
+    // ★「問題0件」と「同じ日報を二重に数えている」が同時に出ないようにする
+    //   （2026-11-03 09:58 B2 の指摘）。1枚そのものは止めません
+    //   ——止めると、人が決めるまで毎月の1枚が1枚も出なくなるためです。
+    problems: [
+      ...v.problems.map(maskYen),
+      ...(needsHuman.duplicateReports > 0
+        ? [
+            `同じ日報が2枚あるかもしれません（${needsHuman.duplicateReports}組・余分な行 ${
+              sheet.review.sameReport?.extraReports ?? 0
+            }件）。どちらを数えるかを人が決めるまで、売上と経費がその分 二重に入ったままです。`,
+          ]
+        : []),
+    ],
     needsHuman,
     summary,
     note: SELF_CHECK_NOTE,

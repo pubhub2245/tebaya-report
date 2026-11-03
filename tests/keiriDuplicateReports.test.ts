@@ -11,6 +11,7 @@ function rep(over: Partial<KeiriReport> & { date: string }): KeiriReport {
     location: over.location ?? "ながやま三股",
     staff_name: over.staff_name ?? "イデ",
     shop: over.shop ?? "手羽屋",
+    unit_number: over.unit_number ?? null,
     sales_amount: over.sales_amount ?? 21_400,
     labor: over.labor ?? 0,
     expenses: over.expenses ?? [{ description: "氷", amount: 500 }],
@@ -169,4 +170,71 @@ test("二重が無い月では、1枚に「同じ日報が2回」を出さない
     madeOn: "2026-11-03",
   });
   assert.equal(sheet.review.sameReport, null);
+});
+
+/* ---- 2026-11-03 09:58 B2 の決まりに合わせた所 ---- */
+
+test("号車が違えば別物（同じ日に2台で出ただけ）", () => {
+  const got = findDuplicateReports({
+    ym: "2026-10",
+    reports: [
+      rep({ date: "2026-10-11", unit_number: "1" }),
+      rep({ date: "2026-10-11", unit_number: "2" }),
+    ],
+  });
+  assert.equal(got.groups.length, 0);
+});
+
+test("同じ号車なら疑いにする（号車も答えに入れる）", () => {
+  const got = findDuplicateReports({
+    ym: "2026-10",
+    reports: [
+      rep({ date: "2026-10-11", unit_number: "1" }),
+      rep({ date: "2026-10-11", unit_number: "1" }),
+    ],
+  });
+  assert.equal(got.groups.length, 1);
+  assert.equal(got.groups[0].unit, "1");
+});
+
+test("号車が読めないときは、その欄を空として比べる（決めつけない）", () => {
+  const got = findDuplicateReports({
+    ym: "2026-10",
+    reports: [rep({ date: "2026-10-11" }), rep({ date: "2026-10-11" })],
+  });
+  assert.equal(got.groups.length, 1);
+  assert.equal(got.groups[0].unit, "");
+});
+
+test("経費は合計で比べる（書き方が違っても合計が同じなら疑い・B2 の決まり）", () => {
+  const got = findDuplicateReports({
+    ym: "2026-10",
+    reports: [
+      rep({ date: "2026-10-11", expenses: [{ description: "場代", amount: 5_000 }] }),
+      rep({
+        date: "2026-10-11",
+        expenses: [
+          { description: "出店料", amount: 4_000 },
+          { description: "氷", amount: 1_000 },
+        ],
+      }),
+    ],
+  });
+  assert.equal(got.groups.length, 1);
+  assert.equal(got.extraExpenseTotal, 5_000);
+});
+
+test("10月の実例（B2 の材料どおり）を2組として出す", () => {
+  const got = findDuplicateReports({
+    ym: "2026-10",
+    reports: [
+      rep({ date: "2026-10-11", unit_number: "1", location: "ニシムタ", staff_name: "ゆうや", sales_amount: 21_400, expenses: [{ description: "場代", amount: 5_000 }] }),
+      rep({ date: "2026-10-11", unit_number: "1", location: "ニシムタ", staff_name: "ゆうや", sales_amount: 21_400, expenses: [{ description: "場代", amount: 5_000 }] }),
+      rep({ date: "2026-10-12", unit_number: "1", location: "ニシムタ", staff_name: "ゆうや", sales_amount: 23_650, expenses: [{ description: "場代", amount: 5_000 }, { description: "キッチンペーパー", amount: 317 }] }),
+      rep({ date: "2026-10-12", unit_number: "1", location: "ニシムタ", staff_name: "ゆうや", sales_amount: 23_650, expenses: [{ description: "場代", amount: 5_000 }, { description: "キッチンペーパー", amount: 317 }] }),
+    ],
+  });
+  assert.equal(got.groups.length, 2);
+  assert.equal(got.extraSalesTotal, 45_050);
+  assert.equal(got.extraExpenseTotal, 10_317);
 });

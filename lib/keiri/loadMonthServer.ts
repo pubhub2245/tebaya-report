@@ -390,6 +390,8 @@ async function loadKeiriMonthServerInner(params: {
         location: (r.location ?? null) as any,
         staff_name: (r.staff_name ?? null) as any,
         shop: (r.shop ?? null) as any,
+        // ★号車は「同じ日報が2枚あるかも」の見分けだけに使う（f1-1）
+        unit_number: (r.unit_number ?? null) as any,
         sales_amount: (r.sales_amount ?? 0) as any,
         labor: (r.labor ?? 0) as any,
         expenses: (r.expenses ?? []) as any,
@@ -575,11 +577,13 @@ async function loadKeiriMonthServerInner(params: {
     // 窓口が同じ1回で返してくれているので、もう一度 倉庫に聞かない
     registerCloses = normalizeRegisterCloses(windowRows as unknown[]);
   } else {
-    const got = await readAllRows<unknown>(() =>
+    const got = await readAllRows<any>(() =>
       applyTenantScope<any>(
         db
           .from("daily_reports")
-          .select("date, unit_number, register_total", { count: "exact" }) as any,
+          // ★id と号車も取る。号車は「同じ日報が2枚あるかも」の見分けに使う（f1-1）。
+          //   経費の明細は取らない（3つの欄だけ＝CLAUDE.md 4-2 を守る）。
+          .select("id, date, unit_number, register_total", { count: "exact" }) as any,
         scope,
       )
         .gte("date", from)
@@ -587,7 +591,22 @@ async function loadKeiriMonthServerInner(params: {
         .order("id"),
     );
     if (got.error) registerUnreadable = true;
-    else registerCloses = normalizeRegisterCloses(got.rows);
+    else {
+      registerCloses = normalizeRegisterCloses(got.rows);
+      // ★日報に号車を結びつける（お金の計算には使わない。f1-1 の見分けだけ）
+      const unitById = new Map<string, unknown>();
+      for (const row of got.rows) {
+        const id = (row as any)?.id;
+        if (id !== null && id !== undefined) unitById.set(String(id), (row as any)?.unit_number ?? null);
+      }
+      if (unitById.size > 0) {
+        reports = reports.map((r) =>
+          r.unit_number === undefined || r.unit_number === null
+            ? ({ ...r, unit_number: (unitById.get(String(r.id)) ?? null) as any } as KeiriReport)
+            : r,
+        );
+      }
+    }
   }
 
   // 「同じ支払いが2か所にある」ときの印（kp230）。棚がまだ無い倉庫でも落とさずに先へ進む。
