@@ -31,6 +31,7 @@ import {
   type ReportDupChoice,
   type ReportDupMarks,
 } from "@/lib/keiri/reportDups";
+import { RESAVE_WORDS, type ResavedReportGroup } from "@/lib/keiri/reportResave";
 
 const yen = (n: number) => `${n.toLocaleString("ja-JP")}円`;
 
@@ -42,6 +43,8 @@ export default function SameReportChoices({
   message,
   onChoose,
   onUndo,
+  autoKeys,
+  autoInfo,
 }: {
   /** 疑いの組（決めたものも渡してよい。決めた組は「決まっています」と出る） */
   groups: DuplicateReportGroup[];
@@ -56,6 +59,15 @@ export default function SameReportChoices({
   message?: string | null;
   onChoose: (group: DuplicateReportGroup, choice: ReportDupChoice) => void;
   onUndo: (group: DuplicateReportGroup) => void;
+  /**
+   * **機械が「同じ日の入れ直し」とみて、押さずに1枚だけ数えた**組の合言葉
+   *                                               （2026-11-03・f1-5・kp273）。
+   * ★この組には「元に戻す」を出しません（控えに行が無いため）。
+   *   代わりに［2枚とも本物］を出し、押せば人の決めたほうが勝ちます。
+   */
+  autoKeys?: Set<string>;
+  /** その組の「なぜ自動で決めたか」（入った日と、入った時刻の差） */
+  autoInfo?: readonly ResavedReportGroup[];
 }) {
   if (groups.length === 0) {
     return <p className="text-xs text-stone-500">{SAME_REPORT_WORDS.allClear}</p>;
@@ -63,6 +75,9 @@ export default function SameReportChoices({
 
   const pending = groups.filter((g) => reportDupDecision(g, marks) === "pending");
   const ready = store !== "none";
+  const autoBy = new Map<string, ResavedReportGroup>();
+  for (const a of autoInfo ?? []) autoBy.set(a.key, a);
+  const autoCount = (autoKeys?.size ?? 0);
 
   return (
     <div className="rounded-lg border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900 space-y-3">
@@ -75,6 +90,14 @@ export default function SameReportChoices({
           : "同じ日報の疑いは、ぜんぶ片付いています"}
       </p>
       {pending.length > 0 && <p className="leading-relaxed">{SAME_REPORT_WORDS.lead}</p>}
+      {autoCount > 0 && (
+        <p className="rounded bg-white/70 px-2 py-1 leading-relaxed text-amber-800">
+          このうち <span className="font-bold">{autoCount}組</span>
+          は、同じ日に入れ直されたものとみて、
+          <span className="font-bold">押さなくても1枚だけ数えています</span>
+          （日報は消していません）。{RESAVE_WORDS.override}
+        </p>
+      )}
 
       {store === "none" && (
         <p className="rounded bg-white/70 px-2 py-1 leading-relaxed text-amber-800">
@@ -130,6 +153,23 @@ export default function SameReportChoices({
                       : SAME_REPORT_WORDS.notReady}
                   </p>
                 )
+              ) : autoBy.has(key) ? (
+                /* ★機械が入れ直しとみて自動で1枚にした組。
+                     控えに行が無いので「元に戻す」は出さず、［2枚とも本物］を出す */
+                <div className="space-y-1">
+                  <p className="font-bold">{RESAVE_WORDS.decided}</p>
+                  <p className="text-amber-800">{RESAVE_WORDS.why(autoBy.get(key)!)}</p>
+                  {ready && (
+                    <button
+                      type="button"
+                      disabled={working}
+                      onClick={() => onChoose(g, "both")}
+                      className="rounded border border-stone-400 bg-white px-2 py-1 text-stone-700 disabled:opacity-50"
+                    >
+                      {SAME_REPORT_WORDS.both}
+                    </button>
+                  )}
+                </div>
               ) : (
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-bold">

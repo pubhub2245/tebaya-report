@@ -42,6 +42,14 @@ export type KeiriReport = {
    *   お金の計算には1円も使いません。
    */
   unit_number?: string | number | null;
+  /**
+   * その行が**倉庫に入った日時**（daily_reports.created_at）。読めないことがある。
+   * ★「同じ中身の日報が2枚」が、**入れ直し（同じ日に数分あけて もう1回 保存された）**
+   *   なのかどうかの見分けだけに使う（2026-11-03・f1-5・lib/keiri/reportResave.ts）。
+   *   営業日は `date` のほうで数える（現金主義）。**お金の計算には1円も使わない。**
+   *   読めなければ、今までどおり「まだ決めていない」に倒す（＝黙って減らさない）。
+   */
+  created_at?: string | null;
   /** その日の売上（円） */
   sales_amount?: number | null;
   /** その日の給与（日当・円）。日報1件ぶんの合計 */

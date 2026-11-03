@@ -22,6 +22,7 @@ import {
   reportDupGroupKey,
   type ReportDupMarks,
 } from "./reportDups";
+import { resavedKeySet, type ResavedReportGroup } from "./reportResave";
 
 export type ReportDupWindow = {
   /** 疑いの組（決めたものも入れた全部） */
@@ -34,6 +35,14 @@ export type ReportDupWindow = {
   extraReports: number;
   /** いま押して決められる組の数（行の番号が読めているもの） */
   choosable: number;
+  /**
+   * **機械が「同じ日の入れ直し」とみて、押さずに1枚だけ数えた**組の数
+   *                                             （2026-11-03・f1-5・kp273）。
+   * ★この組は pending に入りません（＝人の手なしで片付いています）。
+   */
+  auto: number;
+  /** その組ぜんぶで、入った時刻が読めた組の数（読めないと機械は決めません） */
+  enteredTimesRead: number;
   /** 決めた内容をどこに残せるか（shelf＝置き場／memo＝ひとこと欄の控え／none＝残せない） */
   store: "shelf" | "memo" | "none";
   /** 1行の説明（人が読む） */
@@ -92,14 +101,20 @@ export function buildReportDupWindow(params: {
   store: "shelf" | "memo" | "none";
   /** 「1枚だけ数える」を選んだ場合に作り直した1枚（無ければ null） */
   ifCountedOnce?: MonthlySample | null;
+  /** 機械が「入れ直し」とみた組（lib/keiri/reportResave.ts の結果） */
+  resaved?: readonly ResavedReportGroup[];
 }): ReportDupWindow {
   const { check, marks, store } = params;
+  const resaved = params.resaved ?? [];
+  const autoKeys = resavedKeySet(resaved);
   const decided = check.groups.filter((g) => {
     const key = reportDupGroupKey(g);
     return !!marks && (marks.countOnce.has(key) || marks.bothCounted.has(key));
   }).length;
   const pendingGroups = check.groups.filter((g) => {
     const key = reportDupGroupKey(g);
+    // ★機械が入れ直しとみた組は、押さずに片付いているので「残り」に数えない
+    if (autoKeys.has(key)) return false;
     return !marks || (!marks.countOnce.has(key) && !marks.bothCounted.has(key));
   });
   const sheet = params.ifCountedOnce ?? null;
@@ -109,10 +124,14 @@ export function buildReportDupWindow(params: {
     decided,
     extraReports: pendingGroups.reduce((t, g) => t + (g.count - 1), 0),
     choosable: pendingGroups.filter((g) => canChooseReportDup(g)).length,
+    auto: autoKeys.size,
+    enteredTimesRead: resaved.length,
     store,
     note:
       pendingGroups.length === 0
-        ? "同じ日報が2枚 入っている疑いは残っていません。"
+        ? autoKeys.size > 0
+        ? `同じ日報が2枚 入っている疑いは残っていません（うち ${autoKeys.size}組は、同じ日の入れ直しとみて機械が自動で1枚だけ数えました）。`
+        : "同じ日報が2枚 入っている疑いは残っていません。"
         : store === "none"
           ? "どちらを数えるかを残しておく置き場が無いので、いまは疑いを出すだけです。"
           : "経理の画面（/keiri）で、1組ごとに［同じ中身なので1枚だけ数える］［2枚とも本物］を押して決められます。日報は消えません。",

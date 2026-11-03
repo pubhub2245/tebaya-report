@@ -274,6 +274,12 @@ export default function OneSheetView({ sheet }: { sheet: MonthlySample }) {
               <p className="mt-1 text-xs text-stone-500 leading-relaxed">
                 同じ中身の日報が2枚 入っていたので、1枚だけ数えました。日報は消していません。
               </p>
+              {/* ★機械が「同じ日の入れ直し」とみて自動で1枚にした分は、必ずそう書く（kp273） */}
+              {review.sameReportSkipped.autoNote && (
+                <p className="mt-1 text-xs text-stone-500 leading-relaxed">
+                  {review.sameReportSkipped.autoNote}
+                </p>
+              )}
             </div>
           )}
 
