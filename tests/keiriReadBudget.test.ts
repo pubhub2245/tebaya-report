@@ -127,6 +127,8 @@ test("ふだんの日（倉庫が答える）は readTimedOut を付けない＝
     or: () => ok,
     order: () => ok,
     limit: () => ok,
+    // ★続きから読む読み方（lib/keiri/readAll.ts）に合わせて range も答える
+    range: () => Promise.resolve({ data: [], error: null, count: 0 }),
     maybeSingle: () => Promise.resolve({ data: null, error: null }),
     then: (res: (v: { data: unknown[]; error: null }) => void) => res({ data: [], error: null }),
   };
