@@ -27,6 +27,7 @@ import {
   readWindowOutcome,
 } from "./readSource";
 import { normalizeFieldAdvance, normalizeOwnerAdvance } from "./advances";
+import { readAllRows } from "@/lib/keiri/readAll";
 import { advanceReadRange, advanceRepaidEarlierRange } from "./advanceRange";
 import {
   ignoreShelfStateOf,
@@ -269,22 +270,36 @@ export async function loadKeiriMonthDirect(
   const gte = `${ym}-01` < from ? `${ym}-01` : from;
 
   // 日報。経費の種類を決めるのに「説明の文字」が要るので明細も取る。
-  const repQuery = supabase
-    .from("keiri_reports")
-    // ★id を取るのは「同じ支払いが2か所にある」ときの印を、どの行に付けたか分かるようにするため（kp230）
-    .select("id, date, location, staff_name, shop, sales_amount, labor, expenses");
-  const { data: reps, error: rErr } = await applyTenantScope<any>(repQuery as any, scope)
-    .gte("date", gte)
-    .order("date");
-  if (rErr) throw rErr;
+  // ★行が多い月でも切り落とされないように、足りなければ続きを読み足す（2026-11-03・lib/keiri/readAll.ts）
+  const repsGot = await readAllRows<KeiriReport>(() =>
+    applyTenantScope<any>(
+      supabase
+        .from("keiri_reports")
+        // ★id を取るのは「同じ支払いが2か所にある」ときの印を、どの行に付けたか分かるようにするため（kp230）
+        .select("id, date, location, staff_name, shop, sales_amount, labor, expenses", {
+          count: "exact",
+        }) as any,
+      scope,
+    )
+      .gte("date", gte)
+      // ★続きから読むので、並びは1通りに決まっていないといけない（日付が同じ行があるため）
+      .order("date")
+      .order("id"),
+  );
+  if (repsGot.error) throw repsGot.error;
+  const reps = repsGot.rows;
 
   // 支払い記録
-  const { data: pays, error: pErr } = await supabase
-    .from("keiri_payments")
-    .select("id, paid_on, amount, kind, memo")
-    .eq("business_type_code", businessCode)
-    .order("paid_on", { ascending: false });
-  if (pErr) throw pErr;
+  const paysGot = await readAllRows<KeiriPayment & { id: number }>(() =>
+    supabase
+      .from("keiri_payments")
+      .select("id, paid_on, amount, kind, memo", { count: "exact" })
+      .eq("business_type_code", businessCode)
+      .order("paid_on", { ascending: false })
+      .order("id") as any,
+  );
+  if (paysGot.error) throw paysGot.error;
+  const pays = paysGot.rows;
 
   // 立替。棚が2つあり（現場／経営側）、列の名前も違うので形を揃えてから使う。
   const advances: KeiriAdvance[] = [];
@@ -294,25 +309,31 @@ export async function loadKeiriMonthDirect(
     //   サーバー側の窓口（loadMonthServer.ts）と同じ関数を呼ぶので、もうずれません。
     //   いまの決まりでは from は下の gte と同じ日・上は区切らない＝画面は1日も変わりません。
     const advRange = advanceReadRange({ ym, openingDate: from });
-    const fieldQuery = supabase
-      .from("keiri_advance_expenses")
-      .select("id, expense_date, amount, payer, source_type, memo")
-      .eq("business_type_code", businessCode)
-      .gte("expense_date", advRange.from);
-    const { data: field } = await (advRange.to
-      ? fieldQuery.lte("expense_date", advRange.to)
-      : fieldQuery);
-    for (const row of (field as any[]) ?? []) {
+    const fieldGot = await readAllRows<any>(() => {
+      const fieldQuery = supabase
+        .from("keiri_advance_expenses")
+        .select("id, expense_date, amount, payer, source_type, memo", { count: "exact" })
+        .eq("business_type_code", businessCode)
+        .gte("expense_date", advRange.from)
+        .order("expense_date")
+        .order("id");
+      return (advRange.to ? fieldQuery.lte("expense_date", advRange.to) : fieldQuery) as any;
+    });
+    for (const row of fieldGot.rows) {
       advances.push(normalizeFieldAdvance(row));
     }
-    const ownerQuery = supabase
-      .from("advance_expenses")
-      .select("id, date, amount, payer, description, settled, settled_date")
-      .gte("date", advRange.from);
-    const { data: owner } = await (advRange.to
-      ? ownerQuery.lte("date", advRange.to)
-      : ownerQuery);
-    for (const row of (owner as any[]) ?? []) {
+    const ownerGot = await readAllRows<any>(() => {
+      const ownerQuery = supabase
+        .from("advance_expenses")
+        .select("id, date, amount, payer, description, settled, settled_date", {
+          count: "exact",
+        })
+        .gte("date", advRange.from)
+        .order("date")
+        .order("id");
+      return (advRange.to ? ownerQuery.lte("date", advRange.to) : ownerQuery) as any;
+    });
+    for (const row of ownerGot.rows) {
       advances.push(normalizeOwnerAdvance(row));
     }
     // 「前の月までに立て替えて、この期間に返した立替」を**別の入れ物**で読む（kp250・f1-4）。
@@ -320,16 +341,22 @@ export async function loadKeiriMonthDirect(
     //   （混ぜると月の経費と会計ソフト向けCSVが黙って動きます）。
     try {
       const repaidRange = advanceRepaidEarlierRange(advRange);
-      const repaidQuery = supabase
-        .from("advance_expenses")
-        .select("id, date, amount, payer, description, settled, settled_date")
-        .lt("date", repaidRange.advancedBefore)
-        .eq("settled", true)
-        .gte("settled_date", repaidRange.repaidFrom);
-      const { data: repaidRows } = await (repaidRange.repaidTo
-        ? repaidQuery.lte("settled_date", repaidRange.repaidTo)
-        : repaidQuery);
-      for (const row of (repaidRows as any[]) ?? []) {
+      const repaidGot = await readAllRows<any>(() => {
+        const repaidQuery = supabase
+          .from("advance_expenses")
+          .select("id, date, amount, payer, description, settled, settled_date", {
+            count: "exact",
+          })
+          .lt("date", repaidRange.advancedBefore)
+          .eq("settled", true)
+          .gte("settled_date", repaidRange.repaidFrom)
+          .order("settled_date")
+          .order("id");
+        return (repaidRange.repaidTo
+          ? repaidQuery.lte("settled_date", repaidRange.repaidTo)
+          : repaidQuery) as any;
+      });
+      for (const row of repaidGot.rows) {
         advancesRepaidEarlier.push(normalizeOwnerAdvance(row));
       }
     } catch {
@@ -344,16 +371,21 @@ export async function loadKeiriMonthDirect(
   let cashEvents: CashEvent[] = [];
   let cashShelfMissing = false;
   {
-    const cashQuery = supabase
-      .from("keiri_cash_events")
-      .select("kind, happened_on, amount, actor, note");
-    const { data: cash, error: cErr } = await applyTenantScope<any>(cashQuery as any, scope)
-      .gte("happened_on", gte)
-      .order("happened_on", { ascending: false });
-    if (cErr) {
+    const cashGot = await readAllRows<unknown>(() =>
+      applyTenantScope<any>(
+        supabase
+          .from("keiri_cash_events")
+          .select("kind, happened_on, amount, actor, note", { count: "exact" }) as any,
+        scope,
+      )
+        .gte("happened_on", gte)
+        .order("happened_on", { ascending: false })
+        .order("id"),
+    );
+    if (cashGot.error) {
       cashShelfMissing = true;
     } else {
-      cashEvents = normalizeCashEvents((cash as unknown[]) ?? []);
+      cashEvents = normalizeCashEvents(cashGot.rows);
     }
     // ★置き場がまだ無いあいだ、経理の設定のおまけ欄に控えた「数えた1回」も読む（f1-4）。
     //   置き場ができたあとも読み、同じ日・同じ金額は1件として数える（二重に数えない）。
@@ -366,13 +398,18 @@ export async function loadKeiriMonthDirect(
   // ★経費の明細は取らない（3つの欄だけ＝CLAUDE.md 4-2 を守る）。
   let registerCloses: RegisterCloseRow[] = [];
   try {
-    const regQuery = supabase
-      .from("daily_reports")
-      .select("date, unit_number, register_total");
-    const { data: regs, error: regErr } = await applyTenantScope<any>(regQuery as any, scope)
-      .gte("date", gte)
-      .order("date");
-    if (!regErr) registerCloses = normalizeRegisterCloses((regs as unknown[]) ?? []);
+    const regGot = await readAllRows<unknown>(() =>
+      applyTenantScope<any>(
+        supabase
+          .from("daily_reports")
+          .select("date, unit_number, register_total", { count: "exact" }) as any,
+        scope,
+      )
+        .gte("date", gte)
+        .order("date")
+        .order("id"),
+    );
+    if (!regGot.error) registerCloses = normalizeRegisterCloses(regGot.rows);
   } catch {
     // 読めなければ空のまま
   }

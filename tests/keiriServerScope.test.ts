@@ -40,7 +40,15 @@ function fakeDb(
       gt: () => q,
       lt: (c: string, v: string) => (call.filters.push(`lt:${c}<${v}`), q),
       lte: () => q,
-      order: () => Promise.resolve({ data: rowsByTable[table] ?? [], error: null }),
+      // ★並べ替えは重ねて呼べる（続きから読むときは「日付→id」の2段で並べる）
+      order: () => q,
+      // ★続きから読む読み方（lib/keiri/readAll.ts）。ぜんぶで何行あるかも答える
+      range: () =>
+        Promise.resolve({
+          data: rowsByTable[table] ?? [],
+          error: null,
+          count: (rowsByTable[table] ?? []).length,
+        }),
       maybeSingle: () => Promise.resolve({ data: null, error: null }),
       then: (res: (v: { data: unknown[]; error: null }) => void) =>
         res({ data: rowsByTable[table] ?? [], error: null }),
