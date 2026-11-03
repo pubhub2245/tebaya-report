@@ -41,7 +41,7 @@ import {
   notFromSafeSentence,
   type CashEvent,
 } from "./cashCheck";
-import { findDuplicateExpenses } from "./duplicates";
+import { findDuplicateExpenses, findDuplicateReports } from "./duplicates";
 import { pendingSuspects, type IgnoreMarks } from "./expenseIgnores";
 import {
   shopScopeNotes,
@@ -136,12 +136,37 @@ export type SampleDuplicate = {
   profitAfter: number;
 };
 
+/**
+ * 同じ日報が2回 入っている疑い（2026-11-03・f1-1／f1-5）。
+ * ★金額は直しません。どちらを消すかは人が決めることなので、出すだけです。
+ */
+export type SampleSameReport = {
+  /** 疑いの組の数 */
+  count: number;
+  /** 余分に入っている行の数 */
+  extraReports: number;
+  /** 余分に入っている売上（この分だけ月の売上が多く出ている） */
+  extraSalesYen: number;
+  /** 余分に入っている経費 */
+  extraExpenseYen: number;
+  /** それぞれの組（日・出店先・お店の区分・行数） */
+  groups: {
+    date: string;
+    location: string | null;
+    shop: string | null;
+    count: number;
+    salesYen: number;
+  }[];
+};
+
 /** 確かめてほしいこと（無ければ枠ごと出さない） */
 export type SampleReview = {
   /** 種類が分からず「雑費」に入れたもの */
   unmatched: { date: string; description: string; amount: number }[];
   /** 同じ支払いが2か所にある疑い（無ければ null） */
   duplicate: SampleDuplicate | null;
+  /** 同じ日報が2回 入っている疑い（無ければ null・2026-11-03） */
+  sameReport: SampleSameReport | null;
   /**
    * レシートの写真が無い支払いの件数。
    * ★写真の有無が読めないデータのときは null（＝この行は出さない）。
@@ -441,15 +466,41 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     amount: u.amount,
   }));
 
+  /**
+   * 同じ日報が2回 入っていないか（2026-11-03・f1-1／f1-5）。
+   * ★10月の実データで、10/11・10/12 が2行ずつ入っていた（売上 45,050円・経費 10,317円が二重）。
+   *   上の duplicate は「経費と立替の二重」だけを見ているので、ここは別に数えます。
+   *   **金額は直しません。**どちらを消すかは人が決めることなので、出すだけです。
+   */
+  const sameReportCheck = findDuplicateReports({ ym, reports });
+  const sameReport: SampleSameReport | null =
+    sameReportCheck.groups.length > 0
+      ? {
+          count: sameReportCheck.groups.length,
+          extraReports: sameReportCheck.extraReports,
+          extraSalesYen: sameReportCheck.extraSalesTotal,
+          extraExpenseYen: sameReportCheck.extraExpenseTotal,
+          groups: sameReportCheck.groups.map((g) => ({
+            date: g.date,
+            location: g.location,
+            shop: g.shop,
+            count: g.count,
+            salesYen: g.sales,
+          })),
+        }
+      : null;
+
   const review: SampleReview = {
     unmatched,
     duplicate,
+    sameReport,
     noReceiptCount: countExpensesWithoutReceipt(reports, ym),
     any: false,
   };
   review.any =
     review.unmatched.length > 0 ||
     review.duplicate !== null ||
+    review.sameReport !== null ||
     (review.noReceiptCount ?? 0) > 0;
 
   // ---- 出す前の検算（3つとも合わなければ1枚を出さない）----

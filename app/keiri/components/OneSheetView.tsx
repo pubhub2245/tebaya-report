@@ -225,6 +225,34 @@ export default function OneSheetView({ sheet }: { sheet: MonthlySample }) {
             </div>
           )}
 
+          {/* ★同じ日報が2回 入っていないか（2026-11-03・f1-1／f1-5）。
+               10月の実データで 10/11・10/12 が2行ずつ入っていた（売上 45,050円が二重）。
+               売上がそのまま多く出るので、**金額は直さずに必ず出す**。 */}
+          {review.sameReport && (
+            <div className="mt-3">
+              <p className="text-sm font-bold text-stone-800">
+                同じ日報が2回 入っているかもしれないもの：{review.sameReport.count}組・余分な行{" "}
+                {review.sameReport.extraReports}件
+              </p>
+              <ul className="mt-1 text-sm text-stone-700 leading-relaxed tabular-nums">
+                {review.sameReport.groups.map((g, i) => (
+                  <li key={i}>
+                    {sheetDayLabel(g.date)}
+                    {g.location ? `　${g.location}` : ""}
+                    {g.shop ? `（${g.shop}）` : ""}　{sheetYen(g.salesYen)} × {g.count}行
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 text-sm text-stone-700 leading-relaxed tabular-nums">
+                余分な行を1つずつ消すと、売上が {sheetYen(review.sameReport.extraSalesYen)} 減り、
+                かかったお金が {sheetYen(review.sameReport.extraExpenseYen)} 減ります。
+              </p>
+              <p className="mt-1 text-xs text-stone-500 leading-relaxed">
+                どちらを消すかはこちらでは決めません。金額は直さずに、そのまま出しています。
+              </p>
+            </div>
+          )}
+
           {review.noReceiptCount !== null && review.noReceiptCount > 0 && (
             <p className="mt-3 text-sm font-bold text-stone-800">
               レシートの写真が無い支払い：{review.noReceiptCount}件

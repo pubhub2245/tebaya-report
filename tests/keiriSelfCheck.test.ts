@@ -126,12 +126,20 @@ test("人に確かめてもらうものは件数だけ返す（金額は返さ�
           expenseAfter: 0,
           profitAfter: 0,
         },
+        // 同じ日報が2回 入っている疑い（2026-11-03 に足した欄。この見本では無し）
+        sameReport: null,
         noReceiptCount: null,
         any: true,
       },
     }),
   });
-  assert.deepEqual(r.needsHuman, { unmatched: 1, duplicate: 3, noReceipt: null });
+  assert.deepEqual(r.needsHuman, {
+    unmatched: 1,
+    duplicate: 3,
+    // 同じ日報が2回 入っている疑い（2026-11-03 に足した欄。この見本では0組）
+    duplicateReports: 0,
+    noReceipt: null,
+  });
   assert.ok(!JSON.stringify(r).includes("90571"));
   assert.ok(!JSON.stringify(r).includes("385000"));
   assert.ok(r.summary.includes("疑い 3件"));
@@ -142,4 +150,34 @@ test("読めなかったときは数字を作らず、読めなかったと返�
   assert.equal(r.readable, false);
   assert.equal(r.sheetReady, false);
   assert.equal(r.reportCount, 0);
+});
+
+test("同じ日報が2回 入っている疑いも、件数だけ返して言葉に出す（2026-11-03・f1-1）", () => {
+  const r = buildSelfCheck({
+    month: "2026年10月",
+    ym: "2026-10",
+    sheet: sheet({
+      review: {
+        unmatched: [],
+        duplicate: null,
+        sameReport: {
+          count: 2,
+          extraReports: 2,
+          extraSalesYen: 45050,
+          extraExpenseYen: 10317,
+          groups: [
+            { date: "2026-10-11", location: "ながやま三股", shop: "手羽屋", count: 2, salesYen: 21400 },
+            { date: "2026-10-12", location: "ながやま三股", shop: "手羽屋", count: 2, salesYen: 23650 },
+          ],
+        },
+        noReceiptCount: null,
+        any: true,
+      },
+    }),
+  });
+  assert.equal(r.needsHuman.duplicateReports, 2);
+  assert.ok(r.summary.includes("同じ日報が2回 入っている疑い 2組"), r.summary);
+  // ★金額は1円も返さない（この窓口の約束）
+  assert.ok(!JSON.stringify(r).includes("45050"));
+  assert.ok(!JSON.stringify(r).includes("21400"));
 });
