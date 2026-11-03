@@ -102,6 +102,7 @@ import { findDuplicateReports, type DuplicateReportGroup } from "@/lib/keiri/dup
 import {
   SAME_REPORT_WORDS,
   excludeDecidedDuplicateReports,
+  pendingReportDupGroups,
   readReportDupMarks,
   reportDupGroupKey,
   pendingReportIds,
@@ -377,6 +378,31 @@ function KeiriInner() {
     () => findDuplicateReports({ ym, reports: allReports }).groups,
     [ym, allReports],
   );
+
+  /**
+   * **いま見ていない月**に、まだ決めていない「同じ日報が2枚」の組があるか（2026-11-03・kp246）。
+   *
+   * ★なぜ要るか：二重が入っているのは10月で、この画面は**今日の月**（11月）から開きます。
+   *   だから10月を選びに行かないと、黄色い枠そのものが目に入りません。
+   *   読んでいる日報は数え始めの日から今日までの全部なので、**月を数えるだけ**で分かります
+   *   （倉庫をもう一度 読みに行きません。金額も1円も動きません）。
+   */
+  const otherMonthsWithSameReport = useMemo(() => {
+    const months = new Set<string>();
+    for (const r of allReports) {
+      const m = String(r.date ?? "").slice(0, 7);
+      if (/^\d{4}-\d{2}$/.test(m) && m !== ym) months.add(m);
+    }
+    const out: { ym: string; groups: number }[] = [];
+    for (const m of Array.from(months).sort().reverse()) {
+      const pending = pendingReportDupGroups(
+        findDuplicateReports({ ym: m, reports: allReports }),
+        reportDupMarks,
+      );
+      if (pending.groups.length > 0) out.push({ ym: m, groups: pending.groups.length });
+    }
+    return out;
+  }, [allReports, ym, reportDupMarks]);
 
   /**
    * まだ人が決めていない組に入っている日報の番号（kp246）。
@@ -1008,6 +1034,36 @@ function KeiriInner() {
           次の月 →
         </button>
       </div>
+
+      {/* ★ほかの月に「同じ日報が2枚」の決めていない組があれば、その月へ行けるようにする
+             （2026-11-03・kp246・f1-5）。二重は10月なのに、この画面は今日の月から開くため。 */}
+      {otherMonthsWithSameReport.length > 0 && (
+        <div className="card border border-amber-400 bg-amber-50 text-sm text-amber-900 space-y-2">
+          <p className="font-bold">
+            ほかの月に、同じ日報が2枚 入っているかもしれない組があります
+          </p>
+          <p className="text-xs leading-relaxed">
+            そのままだと、その月の売上とかかったお金がその分 多く出ます。月を開くと、1組ごとに
+            ［同じ中身なので1枚だけ数える］［2枚とも本物］を押して決められます。日報は消えません。
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {otherMonthsWithSameReport.map((m) => (
+              <button
+                key={m.ym}
+                type="button"
+                className="rounded border border-amber-500 bg-white px-2 py-1 text-xs font-bold text-amber-900"
+                onClick={() => {
+                  const [y, mo] = m.ym.split("-");
+                  setYear(Number(y));
+                  setMonth(Number(mo));
+                }}
+              >
+                {Number(m.ym.slice(5, 7))}月をひらく（{m.groups}組）
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {error && (
         <p className="card bg-red-50 text-red-700 border border-red-200 text-sm">
