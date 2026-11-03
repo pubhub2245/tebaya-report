@@ -114,6 +114,11 @@ import {
   addReportDupToMemo,
   undoReportDupInMemo,
 } from "@/lib/keiri/reportDupMemo";
+import {
+  findResavedAllMonths,
+  withResaveMarks,
+  resavedKeySet,
+} from "@/lib/keiri/reportResave";
 import SetupTodoCard from "@/app/keiri/components/SetupTodoCard";
 import type { DuplicateSuspect } from "@/lib/keiri/duplicates";
 import { readAuthedKeiriScope } from "@/lib/keiri/readSource";
@@ -362,14 +367,30 @@ function KeiriInner() {
   const reportDupMarks = useMemo(() => readReportDupMarks(reportDups), [reportDups]);
 
   /**
+   * **人が押さなくても**、同じ日に入れ直された1枚は自動で数えない（2026-11-03・f1-5・kp273）。
+   * ★人が決めた印のほうが必ず勝ちます（［2枚とも本物］を押した組は触りません）。
+   * ★入った時刻が読めない組は機械は決めません（今までどおり押して決めます）。
+   */
+  const resavedDups = useMemo(
+    () => findResavedAllMonths({ reports: allReports, marks: reportDupMarks }),
+    [allReports, reportDupMarks],
+  );
+  const resavedKeys = useMemo(() => resavedKeySet(resavedDups), [resavedDups]);
+  /** 画面・CSV・試算表・1枚がぜんぶ見る印（人の印＋機械が決めた入れ直しの分） */
+  const effectiveDupMarks = useMemo(
+    () => withResaveMarks(resavedDups, reportDupMarks),
+    [resavedDups, reportDupMarks],
+  );
+
+  /**
    * 「同じ日報なので1枚だけ数える」と決まった余分な1枚を、**行ごと外す**（kp246）。
    * ★外すのはこの1か所だけです。ここから下の画面・CSV・試算表・現金・1枚の要約は
    *   ぜんぶこの `reports` を数えるので、3通りの数え方がずれません。
    * ★印が無ければ1行も外しません（＝今までとまったく同じ数字）。
    */
   const reportDupSkip = useMemo(
-    () => excludeDecidedDuplicateReports({ reports: allReports, marks: reportDupMarks }),
-    [allReports, reportDupMarks],
+    () => excludeDecidedDuplicateReports({ reports: allReports, marks: effectiveDupMarks }),
+    [allReports, effectiveDupMarks],
   );
   const reports = reportDupSkip.reports;
 
@@ -397,12 +418,12 @@ function KeiriInner() {
     for (const m of Array.from(months).sort().reverse()) {
       const pending = pendingReportDupGroups(
         findDuplicateReports({ ym: m, reports: allReports }),
-        reportDupMarks,
+        effectiveDupMarks,
       );
       if (pending.groups.length > 0) out.push({ ym: m, groups: pending.groups.length });
     }
     return out;
-  }, [allReports, ym, reportDupMarks]);
+  }, [allReports, ym, effectiveDupMarks]);
 
   /**
    * まだ人が決めていない組に入っている日報の番号（kp246）。
@@ -412,9 +433,9 @@ function KeiriInner() {
     () =>
       pendingReportIds(
         findDuplicateReports({ ym, reports: allReports }),
-        reportDupMarks,
+        effectiveDupMarks,
       ),
-    [ym, allReports, reportDupMarks],
+    [ym, allReports, effectiveDupMarks],
   );
 
   /**
@@ -1259,7 +1280,9 @@ function KeiriInner() {
           {sameReportGroups.length > 0 && (
             <SameReportChoices
               groups={sameReportGroups}
-              marks={reportDupMarks}
+              marks={effectiveDupMarks}
+              autoKeys={resavedKeys}
+              autoInfo={resavedDups}
               store={sameReportStore}
               busy={sameReportBusy}
               message={sameReportMsg}
@@ -1284,6 +1307,9 @@ function KeiriInner() {
               ))}
               <p className="text-stone-500">
                 日報は消していません。上の「元に戻す」でいつでも戻せます。
+                {resavedKeys.size > 0
+                  ? "（同じ日に入れ直された分は、押さなくても自動で1枚だけ数えています。上の［2枚とも本物］で両方数えに戻せます。）"
+                  : ""}
               </p>
             </div>
           )}

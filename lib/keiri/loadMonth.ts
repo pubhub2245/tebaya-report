@@ -441,6 +441,41 @@ export async function loadKeiriMonthDirect(
     // 読めなければ空のまま
   }
 
+  // 日報が**倉庫に入った日時**（f1-5・lib/keiri/reportResave.ts）。
+  // ★「同じ中身の日報が2枚」が入れ直しかどうかの見分けだけに使う。お金の計算には1円も使わない。
+  // ★**別の問い合わせ**にしてあるのは、この欄が読めない倉庫でも
+  //   上のつり銭の読み取り（f1-4）を道連れにしないため。読めなければ何も起きない
+  //   （＝その組は今までどおり「まだ決めていない」で画面に出る）。
+  try {
+    const entGot = await readAllRows<any>(() =>
+      applyTenantScope<any>(
+        supabase.from("daily_reports").select("id, created_at", { count: "exact" }) as any,
+        scope,
+      )
+        .gte("date", gte)
+        .order("date")
+        .order("id"),
+    );
+    if (!entGot.error) {
+      const enteredById = new Map<string, unknown>();
+      for (const row of entGot.rows) {
+        const id = (row as any)?.id;
+        if (id !== null && id !== undefined) {
+          enteredById.set(String(id), (row as any)?.created_at ?? null);
+        }
+      }
+      if (enteredById.size > 0) {
+        for (const r of reps) {
+          if (r.created_at === undefined || r.created_at === null) {
+            (r as any).created_at = (enteredById.get(String(r.id)) ?? null) as any;
+          }
+        }
+      }
+    }
+  } catch {
+    // 読めなければ何も起きない（今までとまったく同じ数字）
+  }
+
   // 「同じ支払いが2か所にある」ときの印（kp230）。
   // ★棚がまだ無い倉庫では、落とさずに「まだ無い」とだけ覚えて先へ進む（金庫の記録と同じ形）。
   let ignores: ExpenseIgnoreRow[] = [];

@@ -52,6 +52,11 @@ import {
   type ReportDupMarks,
 } from "./reportDups";
 import {
+  findResavedReportDups,
+  withResaveMarks,
+  RESAVE_WORDS,
+} from "./reportResave";
+import {
   shopScopeNotes,
   shopScopeSentence,
   summarizeShopScope,
@@ -182,6 +187,13 @@ export type SampleSkippedReports = {
   /** 数えなかった売上の合計 */
   salesYen: number;
   rows: { date: string; location: string | null; shop: string | null; salesYen: number }[];
+  /**
+   * そのうち、**機械が「入れ直し」とみて自動で1枚にした**数（2026-11-03・f1-5）。
+   * ★0 なら、ぜんぶ人が押して決めた分です。
+   */
+  autoCount?: number;
+  /** 自動で1枚にした分があるときの、ひとこと説明（無ければ null） */
+  autoNote?: string | null;
 };
 
 /** 確かめてほしいこと（無ければ枠ごと出さない） */
@@ -400,8 +412,29 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
    *   現金・1枚の要約がぜんぶ同じ `reports` を数えるので、3通りの数え方がずれません。
    * ★印が無ければ1行も外しません（＝今までとまったく同じ数字）。
    */
-  const dupSkip = excludeDecidedDuplicateReports({ reports: rawReports, marks: reportDupMarks });
+  /**
+   * **人が押さなくても**、同じ日に入れ直された1枚は自動で数えない（2026-11-03・f1-5・kp273）。
+   * ★仕上げの ① は「人の手を借りずに正しく出る」ことなので、
+   *   入れ直しだと機械で分かる組は、押すのを待たずにここで1枚にします。
+   * ★人が決めた印のほうが必ず勝ちます（［2枚とも本物］を押した組は触りません）。
+   * ★入った日が違う・時刻が離れている・入った時刻が読めない 組は**機械は決めません**
+   *   （今までどおり画面に出して、人が押して決めます＝黙って減らさない）。
+   */
+  const resaved = findResavedReportDups({
+    check: findDuplicateReports({ ym, reports: rawReports }),
+    reports: rawReports,
+    marks: reportDupMarks,
+  });
+  const effectiveDupMarks = withResaveMarks(resaved, reportDupMarks);
+
+  const dupSkip = excludeDecidedDuplicateReports({
+    reports: rawReports,
+    marks: effectiveDupMarks,
+  });
   const reports = dupSkip.reports;
+  /** 自動で数えなかった行の番号（画面に「自動です」と出すため） */
+  const autoSkipIds = new Set<string>();
+  for (const r of resaved) for (const id of r.skipIds) autoSkipIds.add(id);
 
   const summary = summarizeMonth({ ym, reports, template, settings, advances, ignoreMarks });
   // 銀行に入れた分は**現金だけ**を減らす（経費・利益には1円も入れない・kp233）
@@ -445,9 +478,9 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
    *   まだ決めていない組と、「2枚とも本物」と決めた組だけが残ります。
    */
   const sameReportFound = findDuplicateReports({ ym, reports });
-  const sameReportPending = pendingReportDupGroups(sameReportFound, reportDupMarks);
+  const sameReportPending = pendingReportDupGroups(sameReportFound, effectiveDupMarks);
   // まだ決めていない組の行は、会計ソフト向けの表の摘要に「要確認」を足す（金額は変えない）
-  const reviewIds = pendingReportIds(sameReportFound, reportDupMarks);
+  const reviewIds = pendingReportIds(sameReportFound, effectiveDupMarks);
 
   // ★CSV（仕訳）も、画面と同じ印を見る。見ないと3通りの数え方がずれて1枚が出せない
   const rows = buildJournalRows({
@@ -547,7 +580,7 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
             unit: g.unit,
             count: g.count,
             salesYen: g.sales,
-            decision: reportDupDecision(g, reportDupMarks ?? emptyReportDupMarks()),
+            decision: reportDupDecision(g, effectiveDupMarks ?? emptyReportDupMarks()),
           })),
         }
       : null;
@@ -567,6 +600,13 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
             shop: r.shop,
             salesYen: r.sales,
           })),
+          autoCount: dupSkip.skipped.filter((r) => autoSkipIds.has(String(r.id ?? ""))).length,
+          autoNote:
+            dupSkip.skipped.some((r) => autoSkipIds.has(String(r.id ?? "")))
+              ? RESAVE_WORDS.note(
+                  dupSkip.skipped.filter((r) => autoSkipIds.has(String(r.id ?? ""))).length,
+                )
+              : null,
         }
       : null;
 
