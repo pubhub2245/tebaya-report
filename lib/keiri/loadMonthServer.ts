@@ -18,6 +18,7 @@
  *   ・手羽屋の日報・シフト・レジ・LINE には触れない
  */
 
+import { readAllRows } from "@/lib/keiri/readAll";
 import { serverClient } from "@/lib/supabaseServer";
 import {
   KEIRI_READ_BUDGET_MS,
@@ -51,6 +52,8 @@ import {
   decodeExpenseIgnoreMemo,
   mergeIgnoreRows,
 } from "@/lib/keiri/expenseIgnoreMemo";
+import { decodeReportDupMemo } from "@/lib/keiri/reportDupMemo";
+import type { ReportDupRow } from "@/lib/keiri/reportDups";
 import {
   normalizeRegisterCloses,
   type RegisterCloseRow,
@@ -119,6 +122,12 @@ export type KeiriMonthServerData = {
   ignores: ExpenseIgnoreRow[];
   /** 印を置く棚の様子（ready／missing／unknown） */
   ignoreShelf: IgnoreShelfState;
+  /**
+   * 「同じ日報が2枚ある」ときに、どちらを数えるかを決めた印（2026-11-03・kp246・f1-5）。
+   * ★置き場が無いあいだは、経理の設定のひとこと欄の控えから読みます。
+   *   1件も無ければ空＝今までと同じ数字になります。
+   */
+  reportDups: ReportDupRow[];
   /**
    * 倉庫からの返事を**待つのをやめた**か（2026-10-16・kp255・f4-1・f5-1）。
    * ★true のときは、ここから下の数字はぜんぶ「読めませんでした」の形です。
@@ -389,22 +398,30 @@ async function loadKeiriMonthServerInner(params: {
         location: (r.location ?? null) as any,
         staff_name: (r.staff_name ?? null) as any,
         shop: (r.shop ?? null) as any,
+        // ★号車は「同じ日報が2枚あるかも」の見分けだけに使う（f1-1）
+        unit_number: (r.unit_number ?? null) as any,
         sales_amount: (r.sales_amount ?? 0) as any,
         labor: (r.labor ?? 0) as any,
         expenses: (r.expenses ?? []) as any,
       })) as KeiriReport[];
   } else {
-    let q = applyTenantScope<any>(
-      db
-        .from("keiri_reports")
-        // ★id も取る（「同じ支払いが2か所にある」ときの印を、どの行に付けたか分かるように・kp230）
-        .select("id, date, location, staff_name, shop, sales_amount, labor, expenses") as any,
-      scope,
-    ).gte("date", from);
-    if (params.monthOnly) q = q.lte("date", monthEndDate);
-    const { data, error } = await q.order("date");
-    if (error) reportsUnreadable = true;
-    else reports = (data as KeiriReport[]) ?? [];
+    // ★行が多い月でも切り落とされないように、足りなければ続きを読み足す（2026-11-03・lib/keiri/readAll.ts）
+    const got = await readAllRows<KeiriReport>(() => {
+      let q = applyTenantScope<any>(
+        db
+          .from("keiri_reports")
+          // ★id も取る（「同じ支払いが2か所にある」ときの印を、どの行に付けたか分かるように・kp230）
+          .select("id, date, location, staff_name, shop, sales_amount, labor, expenses", {
+            count: "exact",
+          }) as any,
+        scope,
+      ).gte("date", from);
+      if (params.monthOnly) q = q.lte("date", monthEndDate);
+      // ★続きから読むので、並びは1通りに決まっていないといけない（日付が同じ行があるため）
+      return q.order("date").order("id");
+    });
+    if (got.error) reportsUnreadable = true;
+    else reports = got.rows;
   }
 
   // 支払い記録（まだ払っていないお金を出すのに要る）
@@ -430,14 +447,17 @@ async function loadKeiriMonthServerInner(params: {
   if (!paymentsViaWindow && !tebaya && !tenantFallbackAllowed(paymentsOutcome)) {
     paymentsUnreadable = true;
   } else if (!paymentsViaWindow) {
-    const { data } = await db
-      .from("keiri_payments")
-      // ★id も取る。経理画面（サーバー側の窓口ごしに読むとき）が、
-      //   払った記録を消すのにこの番号を使う。事例ページは使わないので影響しない。
-      .select("id, paid_on, amount, kind, memo")
-      .eq("business_type_code", businessCode)
-      .order("paid_on", { ascending: false });
-    payments = (data as KeiriPayment[]) ?? [];
+    const got = await readAllRows<KeiriPayment>(() =>
+      db
+        .from("keiri_payments")
+        // ★id も取る。経理画面（サーバー側の窓口ごしに読むとき）が、
+        //   払った記録を消すのにこの番号を使う。事例ページは使わないので影響しない。
+        .select("id, paid_on, amount, kind, memo", { count: "exact" })
+        .eq("business_type_code", businessCode)
+        .order("paid_on", { ascending: false })
+        .order("id") as any,
+    );
+    payments = got.rows;
   }
 
   // 立替。棚が2つあり列の名前も違うので形をそろえる。
@@ -457,44 +477,54 @@ async function loadKeiriMonthServerInner(params: {
   const advancesSkipped = !tebaya;
   if (tebaya) {
     {
-      const fieldQuery = db
-        .from("keiri_advance_expenses")
-        .select("id, expense_date, amount, payer, source_type, memo")
-        .eq("business_type_code", businessCode)
-        .gte("expense_date", advRange.from);
-      const { data, error } = await (advRange.to
-        ? fieldQuery.lte("expense_date", advRange.to)
-        : fieldQuery);
-      if (error) advancesUnreadable = true;
-      for (const row of (data as any[]) ?? []) advances.push(normalizeFieldAdvance(row));
+      const got = await readAllRows<any>(() => {
+        const fieldQuery = db
+          .from("keiri_advance_expenses")
+          .select("id, expense_date, amount, payer, source_type, memo", { count: "exact" })
+          .eq("business_type_code", businessCode)
+          .gte("expense_date", advRange.from)
+          .order("expense_date")
+          .order("id");
+        return (advRange.to ? fieldQuery.lte("expense_date", advRange.to) : fieldQuery) as any;
+      });
+      if (got.error) advancesUnreadable = true;
+      for (const row of got.rows) advances.push(normalizeFieldAdvance(row));
     }
     {
-      const ownerQuery = db
-        .from("advance_expenses")
-        .select("id, date, amount, payer, description, settled, settled_date")
-        .gte("date", advRange.from);
-      const { data, error } = await (advRange.to
-        ? ownerQuery.lte("date", advRange.to)
-        : ownerQuery);
-      if (error) advancesUnreadable = true;
-      for (const row of (data as any[]) ?? []) advances.push(normalizeOwnerAdvance(row));
+      const got = await readAllRows<any>(() => {
+        const ownerQuery = db
+          .from("advance_expenses")
+          .select("id, date, amount, payer, description, settled, settled_date", {
+            count: "exact",
+          })
+          .gte("date", advRange.from)
+          .order("date")
+          .order("id");
+        return (advRange.to ? ownerQuery.lte("date", advRange.to) : ownerQuery) as any;
+      });
+      if (got.error) advancesUnreadable = true;
+      for (const row of got.rows) advances.push(normalizeOwnerAdvance(row));
     }
     // 「前の月までに立て替えて、この期間に返した立替」を**別の入れ物**で読む（kp250・f1-4）。
     // ★読めなくても落とさない・上の advances には1行も混ぜない
     //   （混ぜると月の経費と会計ソフト向けCSVが黙って動きます）。
     try {
       const repaid = advanceRepaidEarlierRange(advRange);
-      const q = db
-        .from("advance_expenses")
-        .select("id, date, amount, payer, description, settled, settled_date")
-        .lt("date", repaid.advancedBefore)
-        .eq("settled", true)
-        .gte("settled_date", repaid.repaidFrom);
-      const { data, error } = await (repaid.repaidTo
-        ? q.lte("settled_date", repaid.repaidTo)
-        : q);
-      if (!error) {
-        for (const row of (data as any[]) ?? []) {
+      const got = await readAllRows<any>(() => {
+        const q = db
+          .from("advance_expenses")
+          .select("id, date, amount, payer, description, settled, settled_date", {
+            count: "exact",
+          })
+          .lt("date", repaid.advancedBefore)
+          .eq("settled", true)
+          .gte("settled_date", repaid.repaidFrom)
+          .order("settled_date")
+          .order("id");
+        return (repaid.repaidTo ? q.lte("settled_date", repaid.repaidTo) : q) as any;
+      });
+      if (!got.error) {
+        for (const row of got.rows) {
           advancesRepaidEarlier.push(normalizeOwnerAdvance(row));
         }
       }
@@ -527,16 +557,19 @@ async function loadKeiriMonthServerInner(params: {
     if (!cashViaWindow && !tebaya && !tenantFallbackAllowed(cashOutcome)) {
       cashUnreadable = true;
     } else if (!cashViaWindow) {
-      const { data, error } = await applyTenantScope<any>(
-        db
-          .from("keiri_cash_events")
-          .select("kind, happened_on, amount, actor, note") as any,
-        scope,
-      )
-        .gte("happened_on", from)
-        .order("happened_on", { ascending: false });
-      if (error) cashShelfMissing = true;
-      else cashEvents = normalizeCashEvents((data as unknown[]) ?? []);
+      const got = await readAllRows<unknown>(() =>
+        applyTenantScope<any>(
+          db
+            .from("keiri_cash_events")
+            .select("kind, happened_on, amount, actor, note", { count: "exact" }) as any,
+          scope,
+        )
+          .gte("happened_on", from)
+          .order("happened_on", { ascending: false })
+          .order("id"),
+      );
+      if (got.error) cashShelfMissing = true;
+      else cashEvents = normalizeCashEvents(got.rows);
     }
     // ★置き場がまだ無いあいだ、経理の設定のおまけ欄に控えた「数えた1回」も読む（f1-4）。
     //   画面（/keiri）はこの窓口から読むので、ここを通さないと控えが画面に出ない。
@@ -552,14 +585,36 @@ async function loadKeiriMonthServerInner(params: {
     // 窓口が同じ1回で返してくれているので、もう一度 倉庫に聞かない
     registerCloses = normalizeRegisterCloses(windowRows as unknown[]);
   } else {
-    const { data, error } = await applyTenantScope<any>(
-      db.from("daily_reports").select("date, unit_number, register_total") as any,
-      scope,
-    )
-      .gte("date", from)
-      .order("date");
-    if (error) registerUnreadable = true;
-    else registerCloses = normalizeRegisterCloses((data as unknown[]) ?? []);
+    const got = await readAllRows<any>(() =>
+      applyTenantScope<any>(
+        db
+          .from("daily_reports")
+          // ★id と号車も取る。号車は「同じ日報が2枚あるかも」の見分けに使う（f1-1）。
+          //   経費の明細は取らない（3つの欄だけ＝CLAUDE.md 4-2 を守る）。
+          .select("id, date, unit_number, register_total", { count: "exact" }) as any,
+        scope,
+      )
+        .gte("date", from)
+        .order("date")
+        .order("id"),
+    );
+    if (got.error) registerUnreadable = true;
+    else {
+      registerCloses = normalizeRegisterCloses(got.rows);
+      // ★日報に号車を結びつける（お金の計算には使わない。f1-1 の見分けだけ）
+      const unitById = new Map<string, unknown>();
+      for (const row of got.rows) {
+        const id = (row as any)?.id;
+        if (id !== null && id !== undefined) unitById.set(String(id), (row as any)?.unit_number ?? null);
+      }
+      if (unitById.size > 0) {
+        reports = reports.map((r) =>
+          r.unit_number === undefined || r.unit_number === null
+            ? ({ ...r, unit_number: (unitById.get(String(r.id)) ?? null) as any } as KeiriReport)
+            : r,
+        );
+      }
+    }
   }
 
   // 「同じ支払いが2か所にある」ときの印（kp230）。棚がまだ無い倉庫でも落とさずに先へ進む。
@@ -624,6 +679,8 @@ async function loadKeiriMonthServerInner(params: {
     advancesSkipped,
     ignores,
     ignoreShelf,
+    // 「同じ日報が2枚」の決めごと（2026-11-03・kp246）。置き場ができるまでは控えから読む
+    reportDups: decodeReportDupMemo((s as any)?.memo),
   };
 }
 
@@ -655,6 +712,7 @@ function timedOutData(businessCode: string): KeiriMonthServerData {
     advancesSkipped: false,
     ignores: [],
     ignoreShelf: "unknown",
+    reportDups: [],
     readTimedOut: true,
   };
 }

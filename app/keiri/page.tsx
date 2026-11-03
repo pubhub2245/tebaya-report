@@ -97,6 +97,22 @@ import {
   undoIgnoresInMemo,
 } from "@/lib/keiri/expenseIgnoreMemo";
 import DuplicateChoices from "@/app/keiri/components/DuplicateChoices";
+import SameReportChoices from "@/app/keiri/components/SameReportChoices";
+import { findDuplicateReports, type DuplicateReportGroup } from "@/lib/keiri/duplicates";
+import {
+  SAME_REPORT_WORDS,
+  excludeDecidedDuplicateReports,
+  readReportDupMarks,
+  reportDupGroupKey,
+  pendingReportIds,
+  reportDupWriteFor,
+  type ReportDupChoice,
+  type ReportDupRow,
+} from "@/lib/keiri/reportDups";
+import {
+  addReportDupToMemo,
+  undoReportDupInMemo,
+} from "@/lib/keiri/reportDupMemo";
 import SetupTodoCard from "@/app/keiri/components/SetupTodoCard";
 import type { DuplicateSuspect } from "@/lib/keiri/duplicates";
 import { readAuthedKeiriScope } from "@/lib/keiri/readSource";
@@ -221,7 +237,12 @@ function KeiriInner() {
   const [tab, setTab] = useState<Tab>("table");
 
   const [settings, setSettings] = useState<KeiriSettings | null>(null);
-  const [reports, setReports] = useState<KeiriReport[]>([]);
+  /**
+   * 倉庫から読んだ日報ぜんぶ（2026-11-03・kp246）。
+   * ★「同じ日報なので1枚だけ数える」と決めた分を外したものを、下の `reports` で使います。
+   *   外す前と後を分けておかないと、疑いの一覧そのものが消えてしまいます。
+   */
+  const [allReports, setAllReports] = useState<KeiriReport[]>([]);
   const [payments, setPayments] = useState<(KeiriPayment & { id: number })[]>([]);
   /**
    * 立替（誰かが自分のお金で先に払った経費）。
@@ -249,6 +270,13 @@ function KeiriInner() {
    * ★棚（keiri_expense_ignores）がまだ無い倉庫では空のまま＝今までどおり「出すだけ」。
    */
   const [ignores, setIgnores] = useState<ExpenseIgnoreRow[]>([]);
+  /**
+   * 「同じ日報が2枚ある」ときに、どちらを数えるかを決めた印（2026-11-03・kp246・f1-5）。
+   * ★1件も無ければ空＝今までどおり「出すだけ」（数字は1円も変わりません）。
+   */
+  const [reportDups, setReportDups] = useState<ReportDupRow[]>([]);
+  const [sameReportBusy, setSameReportBusy] = useState<string | null>(null);
+  const [sameReportMsg, setSameReportMsg] = useState<string | null>(null);
   const [ignoreShelf, setIgnoreShelf] = useState<IgnoreShelfState>("unknown");
   const [ignoreBusy, setIgnoreBusy] = useState<string | null>(null);
   const [ignoreMsg, setIgnoreMsg] = useState<string | null>(null);
@@ -303,7 +331,7 @@ function KeiriInner() {
       });
       setSettingsMissing(data.settingsMissing);
       setSettings(data.settings);
-      setReports(data.reports);
+      setAllReports(data.reports);
       setPayments(data.payments);
       setAdvances(data.advances);
       setAdvancesRepaidEarlier(data.advancesRepaidEarlier ?? []);
@@ -311,6 +339,7 @@ function KeiriInner() {
       setCashShelfMissing(data.cashShelfMissing);
       setRegisterCloses(data.registerCloses ?? []);
       setIgnores(data.ignores);
+      setReportDups(data.reportDups ?? []);
       setIgnoreShelf(data.ignoreShelf);
     } catch (e: any) {
       setError(e?.message || String(e));
@@ -328,6 +357,40 @@ function KeiriInner() {
   /** いま効いている「数えない」の印（kp230） */
   const ignoreMarks = useMemo(() => readIgnoreMarks(ignores), [ignores]);
 
+  /** いま効いている「同じ日報なので数えない」の印（2026-11-03・kp246・f1-5） */
+  const reportDupMarks = useMemo(() => readReportDupMarks(reportDups), [reportDups]);
+
+  /**
+   * 「同じ日報なので1枚だけ数える」と決まった余分な1枚を、**行ごと外す**（kp246）。
+   * ★外すのはこの1か所だけです。ここから下の画面・CSV・試算表・現金・1枚の要約は
+   *   ぜんぶこの `reports` を数えるので、3通りの数え方がずれません。
+   * ★印が無ければ1行も外しません（＝今までとまったく同じ数字）。
+   */
+  const reportDupSkip = useMemo(
+    () => excludeDecidedDuplicateReports({ reports: allReports, marks: reportDupMarks }),
+    [allReports, reportDupMarks],
+  );
+  const reports = reportDupSkip.reports;
+
+  /** 同じ日報が2枚 入っている疑い（決めた組も入れた全部。決めた組は「決まっています」と出る） */
+  const sameReportGroups = useMemo(
+    () => findDuplicateReports({ ym, reports: allReports }).groups,
+    [ym, allReports],
+  );
+
+  /**
+   * まだ人が決めていない組に入っている日報の番号（kp246）。
+   * ★会計ソフト向けの表の摘要に「要確認」を足すのに使います（金額は変えません）。
+   */
+  const pendingSameReportIds = useMemo(
+    () =>
+      pendingReportIds(
+        findDuplicateReports({ ym, reports: allReports }),
+        reportDupMarks,
+      ),
+    [ym, allReports, reportDupMarks],
+  );
+
   /**
    * 決めた内容をどこに残すか（2026-10-22・kp230・f1-5）。
    *   棚（keiri_expense_ignores）があれば今までどおり棚へ。
@@ -338,6 +401,17 @@ function KeiriInner() {
   const ignoreStore = useMemo(
     () => ignoreStoreOf({ shelf: ignoreShelf, settingsRowExists: !settingsMissing }),
     [ignoreShelf, settingsMissing],
+  );
+
+  /**
+   * 「同じ日報が2枚」の決めごとをどこに残すか（2026-11-03・kp246・f1-5）。
+   * ★専用の置き場（棚）はまだ作っていないので、**経理の設定のひとこと欄の控え**に残します
+   *   （貼り紙を待たずに決められるようにするため。同じ支払いの二重と同じ考え方）。
+   *   設定の行そのものが読めないときは、今までどおり「出すだけ」にします。
+   */
+  const sameReportStore = useMemo(
+    () => ignoreStoreOf({ shelf: "missing", settingsRowExists: !settingsMissing }),
+    [settingsMissing],
   );
 
   const summary = useMemo(
@@ -521,9 +595,23 @@ function KeiriInner() {
    *   ・**1行も変わっていなければ「残しました」と言いません**
    *     （lib/keiri/keiriSettingsWrite.ts の決まり）。
    */
-  const saveIgnoreToMemo = async (
+  const saveIgnoreToMemo = (
     build: (memo: string | null) => string | null,
     /** 控えの文が作れなかったときに出す1行（渡さなければ既定の言い方） */
+    cannotBuildMessage?: string,
+  ): Promise<boolean> => saveMemoBlock(build, setIgnoreMsg, cannotBuildMessage);
+
+  /**
+   * 経理の設定のひとこと欄に、控えの印を足す／直す（2026-11-03・kp246 で共通化）。
+   *
+   * ★「同じ支払いの二重」と「同じ日報が2枚」の2つが同じ欄を使いますが、
+   *   お互いの印の外は1文字も触りません（挟み込みの印がちがいます）。
+   * ★**1行も変わっていなければ「残しました」と言いません**
+   *   （lib/keiri/keiriSettingsWrite.ts の決まり）。
+   */
+  const saveMemoBlock = async (
+    build: (memo: string | null) => string | null,
+    setMsg: (message: string | null) => void,
     cannotBuildMessage?: string,
   ): Promise<boolean> => {
     // いま書いてあるひとことを消さないよう、先に読んでから足す
@@ -539,12 +627,12 @@ function KeiriInner() {
       target: "数えない印の控え",
     });
     if (!pre.proceed) {
-      if (pre.message) setIgnoreMsg(pre.message);
+      if (pre.message) setMsg(pre.message);
       return false;
     }
     const next = build(((data as any)?.memo as string | null) ?? null);
     if (next === null) {
-      setIgnoreMsg(
+      setMsg(
         cannotBuildMessage ??
           "決めた内容を控えられませんでした（控えに置ける数を超えているか、中身が読めません）。" +
             "記録は1行も消していません。",
@@ -562,8 +650,59 @@ function KeiriInner() {
       changedRows: Array.isArray(changed) ? changed.length : null,
       target: "数えない印の控え",
     });
-    setIgnoreMsg(verdict.message);
+    setMsg(verdict.message);
     return verdict.ok;
+  };
+
+  /**
+   * 「同じ日報が2枚」で押して決めたときの保存（2026-11-03・kp246・f1-5）。
+   *
+   * ★足すだけです。**日報そのものは1行も消しません・書き換えません。**
+   *   置き場（専用の棚）はまだ無いので、経理の設定のひとこと欄に控えます
+   *   （同じ支払いの二重・金庫の控えで先にうまくいった形と同じ）。
+   */
+  const chooseSameReport = async (group: DuplicateReportGroup, choice: ReportDupChoice) => {
+    const key = reportDupGroupKey(group);
+    const row = reportDupWriteFor(group, choice);
+    if (!row) {
+      setSameReportMsg("この組は日報の番号が読めないので、ここでは決められません。");
+      return;
+    }
+    if (sameReportStore === "none") {
+      setSameReportMsg(SAME_REPORT_WORDS.notReady);
+      return;
+    }
+    setSameReportBusy(key);
+    setSameReportMsg(null);
+    const ok = await saveMemoBlock(
+      (memo) => addReportDupToMemo(memo, row),
+      (message) => setSameReportMsg(message),
+    );
+    setSameReportBusy(null);
+    if (ok) await load();
+  };
+
+  /**
+   * 「元に戻す」。印は消さずに、**効かなくする**だけ（残した跡がそのまま証拠になる）。
+   */
+  const undoSameReport = async (group: DuplicateReportGroup) => {
+    const key = reportDupGroupKey(group);
+    // 「元に戻す」は控えの中の印を直すだけなので、手羽屋でも申し込んだお店でも同じ道です
+    setSameReportBusy(key);
+    setSameReportMsg(null);
+    const ok = await saveMemoBlock(
+      (memo) => {
+        const { memo: next, changed } = undoReportDupInMemo(memo, key);
+        return changed > 0 ? next : null;
+      },
+      (message) => setSameReportMsg(message),
+      "この組の印は、控えの中に見つかりませんでした（1つも戻していません）。画面を開き直して、いまの状態を確かめてください。",
+    );
+    setSameReportBusy(null);
+    if (ok) {
+      setSameReportMsg("↩ 元に戻しました（日報は消していません）");
+      await load();
+    }
   };
 
   /**
@@ -712,8 +851,11 @@ function KeiriInner() {
         advances,
         // ★画面と同じ印を見る（見ないと画面・CSV・1枚の3つがずれる・kp230）
         ignoreMarks,
+        // ★まだ決めていない「同じ日報が2枚」の行は、摘要に「要確認」を足す（kp246）。
+        //   金額は1円も変えません（足すのは文字だけ）。
+        reviewReportIds: pendingSameReportIds,
       }),
-    [ym, reports, payments, template, effective, advances, ignoreMarks],
+    [ym, reports, payments, template, effective, advances, ignoreMarks, pendingSameReportIds],
   );
 
   /** 試算表（科目ごとの借方・貸方の合計）。CSVと同じ仕訳から作る */
@@ -1053,6 +1195,41 @@ function KeiriInner() {
               onChoose={chooseDuplicate}
               onUndo={undoDuplicate}
             />
+          )}
+
+          {/* ★同じ日報が2枚 入っていないか（2026-11-03・kp246・f1-5）。
+               10月の実データで 10/11・10/12 が2枚ずつ入っていた（売上 45,050円・経費 10,317円が二重）。
+               **日報は消さない。**どちらを数えるかを人が押して決め、決めた分だけ数えない。 */}
+          {sameReportGroups.length > 0 && (
+            <SameReportChoices
+              groups={sameReportGroups}
+              marks={reportDupMarks}
+              store={sameReportStore}
+              busy={sameReportBusy}
+              message={sameReportMsg}
+              onChoose={chooseSameReport}
+              onUndo={undoSameReport}
+            />
+          )}
+
+          {/* ★「1枚だけ数える」と決めて数えなかった分は、黙って減らさずに必ず出す（kp246） */}
+          {reportDupSkip.skipped.length > 0 && (
+            <div className="rounded-lg border border-stone-300 bg-stone-50 p-3 text-xs text-stone-700 space-y-1">
+              <p className="font-bold">
+                同じ日報なので数えていない分：
+                {yen(reportDupSkip.skipped.reduce((t, r) => t + r.sales, 0))}（
+                {reportDupSkip.skipped.length}枚）
+              </p>
+              {reportDupSkip.skipped.map((x, i) => (
+                <p key={i} className="tabular-nums">
+                  {slashDate(x.date)}　{x.location ?? ""}
+                  {x.shop ? `（${x.shop}）` : ""}　売上 {yen(x.sales)}
+                </p>
+              ))}
+              <p className="text-stone-500">
+                日報は消していません。上の「元に戻す」でいつでも戻せます。
+              </p>
+            </div>
           )}
 
           {/* ★数えないことにした分は、黙って減らさずに必ず出す（kp230） */}

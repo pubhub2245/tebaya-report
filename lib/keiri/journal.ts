@@ -52,6 +52,12 @@ export const JOURNAL_HEADERS = [
 ] as const;
 
 /**
+ * 会計ソフト向けの表（CSV）の摘要に足す「要確認」の言葉（2026-11-03・kp246・f1-5）。
+ * ★ここだけが文を持ちます（2か所に書かない）。
+ */
+export const REVIEW_SAME_REPORT_NOTE = "（要確認：同じ日報が2枚かもしれません）";
+
+/**
  * その月の仕訳を組み立てる。
  *
  * - 売上　　　： 現金 ／ 売上高
@@ -80,9 +86,20 @@ export function buildJournalRows(params: {
    *   検算が合わなくなり1枚そのものが出せなくなります。
    */
   ignoreMarks?: IgnoreMarks;
+  /**
+   * 「同じ日報が2枚あるかもしれない」ので、まだ人が決めていない日報の行の番号
+   *                                       （2026-11-03・kp246・f1-5）。
+   * ★ここに入っている行から作った仕訳の摘要に **「要確認」** を足します。
+   *   金額は1円も変えません（足すのは文字だけ）。会計ソフトに読ませたときに、
+   *   税理士さん・店主が「この日は二重かもしれない」と気づけるようにするためです。
+   * ★「1枚だけ数える」と決まった行は、そもそもここへ渡される日報から外れています
+   *   （lib/keiri/reportDups.ts の excludeDecidedDuplicateReports）。
+   */
+  reviewReportIds?: ReadonlySet<string>;
 }): JournalRow[] {
   const { ym, reports, payments, template, settings } = params;
   const marks = params.ignoreMarks ?? emptyIgnoreMarks();
+  const reviewIds = params.reviewReportIds ?? new Set<string>();
   const advances = (params.advances ?? [])
     .filter((a) => !a.skipReason)
     // 数えないと決めた立替は、発生も返金も作らない（片方だけ消すと未払金が狂う）
@@ -98,6 +115,9 @@ export function buildJournalRows(params: {
 
   for (const r of target) {
     const place = (r.location || "").trim();
+    // ★まだ人が決めていない「同じ日報が2枚」の行は、摘要に「要確認」を足す（金額は変えない）
+    const reviewing = reviewIds.has(String(r.id ?? "").trim());
+    const withReview = (note: string) => (reviewing ? `${note}${REVIEW_SAME_REPORT_NOTE}` : note);
 
     // 売上
     const sales = Number(r.sales_amount) || 0;
@@ -109,7 +129,7 @@ export function buildJournalRows(params: {
         debitAmount: sales,
         creditAccount: accountLabel("sales"),
         creditAmount: sales,
-        note: place ? `売上 ${place}` : "売上",
+        note: withReview(place ? `売上 ${place}` : "売上"),
       });
     }
 
@@ -133,9 +153,10 @@ export function buildJournalRows(params: {
         debitAmount: amount,
         creditAccount: means === "cash" ? CASH : ACCRUED,
         creditAmount: amount,
-        note:
+        note: withReview(
           ((item.description || "").trim() || "経費") +
-          (means === "cash" ? "" : `（${CASH_MEANS_LABEL[means]}）`),
+            (means === "cash" ? "" : `（${CASH_MEANS_LABEL[means]}）`),
+        ),
       });
     });
 
@@ -150,7 +171,7 @@ export function buildJournalRows(params: {
         debitAmount: labor,
         creditAccount: ACCRUED,
         creditAmount: labor,
-        note: parts ? `日当 ${parts}` : "日当",
+        note: withReview(parts ? `日当 ${parts}` : "日当"),
       });
     }
   }
