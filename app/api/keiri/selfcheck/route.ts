@@ -6,6 +6,7 @@ import { readIgnoreMarks } from "@/lib/keiri/expenseIgnores";
 import { ignoreStoreOf } from "@/lib/keiri/expenseIgnoreMemo";
 import { findDuplicateReports } from "@/lib/keiri/duplicates";
 import { readReportDupMarks } from "@/lib/keiri/reportDups";
+import { findResavedReportDups } from "@/lib/keiri/reportResave";
 import {
   buildReportDupWindow,
   simulateCountOnceMarks,
@@ -169,6 +170,12 @@ export async function GET(req: NextRequest) {
         marks: reportDupMarks,
         store: sameReportStore,
         ifCountedOnce: simulated,
+        // ★機械が「同じ日の入れ直し」とみて、押さずに1枚だけ数えた組（2026-11-03・kp273）
+        resaved: findResavedReportDups({
+          check: sameReportCheck,
+          reports: data.reports,
+          marks: reportDupMarks,
+        }),
       }),
       duplicateMarks: {
         shelf: data.ignoreShelf,
