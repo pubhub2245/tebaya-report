@@ -69,6 +69,8 @@ export type KeiriSelfCheck = {
     unmatched: number;
     /** 同じ支払いが2か所にある疑いの件数 */
     duplicate: number;
+    /** 同じ日報が2回 入っている疑いの組の数（2026-11-03） */
+    duplicateReports: number;
     /** レシートの写真が無い支払いの件数（分からないときは null） */
     noReceipt: number | null;
   };
@@ -95,7 +97,7 @@ export function unreadableSelfCheck(params: { month: string; ym: string; reason:
     cash: { reconciles: false, advanceCount: 0, noncashCount: 0 },
     sheetReady: false,
     problems: [maskYen(params.reason)],
-    needsHuman: { unmatched: 0, duplicate: 0, noReceipt: null },
+    needsHuman: { unmatched: 0, duplicate: 0, duplicateReports: 0, noReceipt: null },
     summary: `${params.month}：倉庫から読めませんでした（${params.reason}）`,
     note: SELF_CHECK_NOTE,
   };
@@ -112,10 +114,20 @@ export function buildSelfCheck(params: {
   const needsHuman = {
     unmatched: sheet.review.unmatched.length,
     duplicate: sheet.review.duplicate?.count ?? 0,
+    // 同じ日報が2回 入っている疑い（2026-11-03・f1-1／f1-5）。
+    // ★上の duplicate は「経費と立替の二重」だけなので、こちらは別に数える。
+    duplicateReports: sheet.review.sameReport?.count ?? 0,
     noReceipt: sheet.review.noReceiptCount,
   };
   const waiting: string[] = [];
   if (needsHuman.duplicate > 0) waiting.push(`同じ支払いが2か所にある疑い ${needsHuman.duplicate}件`);
+  if (needsHuman.duplicateReports > 0) {
+    waiting.push(
+      `同じ日報が2回 入っている疑い ${needsHuman.duplicateReports}組（余分な行 ${
+        sheet.review.sameReport?.extraReports ?? 0
+      }件）`,
+    );
+  }
   if (needsHuman.unmatched > 0) waiting.push(`種類が分からない経費 ${needsHuman.unmatched}件`);
 
   const summary = v.ok

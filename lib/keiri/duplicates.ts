@@ -212,3 +212,140 @@ export function findDuplicateExpenses(params: {
       .reduce((t, s) => t + s.amount, 0),
   };
 }
+
+/* ------------------------------------------------------------------
+ * 同じ日報が2回 入っていないか（2026-11-03・f1-1／f1-5）
+ *
+ * ■ なぜ要るか（10月の実データで分かったこと）
+ *   10/11 と 10/12 が、**同じ日・同じ出店先・同じ担当・同じ売上・同じ経費**で
+ *   2行ずつ入っていました（どちらも 10/13 の朝に続けて入力されたもの）。
+ *   二重ぶんは売上 45,050円・経費 10,317円。
+ *   上の findDuplicateExpenses は「経費と立替の二重」だけを見ているので、
+ *   **同じ日報が2回 入った形は、どこも見ていませんでした**（締めの窓口は「0件」と答えます）。
+ *   売上がそのまま多く出るので、月の締めの数字が狂います。
+ *
+ * ■ ここでやらないこと（上と同じ考え方）
+ *   ① **金額を勝手に直さない・片方を黙って落とさない。** どちらを消すかは人が決めること
+ *      （管理者ページの日報一覧 →「編集」。集計から外すだけなら CLAUDE.md 4-14 のスイッチ）
+ *   ② **決めつけない。**「疑い」としてしか言いません
+ *   ③ 1円も書き込みません
+ *
+ * ■ 疑いと見なす条件（厳しめ。空振りで騒がないため、ぜんぶ同じときだけ）
+ *   同じ月の中で、**日・お店の区分・出店先・担当・売上・人件費・経費の明細**が
+ *   すべて同じ行が2つ以上あるとき。売上も経費も0の行は数えません
+ *   （金額が動かないので、二重でも締めの数字は狂わないため）。
+ *   ★号車（unit_number）は経理の読み方に入っていないので見ていません。
+ *     1号車と2号車が同じ出店先・同じ担当で、売上と経費の明細まで1円まで同じになることは
+ *     まず無いので、「疑い」として出すには足ります（決めつけないので安全側）。
+ * ------------------------------------------------------------------ */
+
+/** 同じ日報が2回 入っている疑いの1組 */
+export type DuplicateReportGroup = {
+  date: string;
+  shop: string | null;
+  location: string | null;
+  staff: string | null;
+  /** 同じ中身の行が何行あるか（2以上） */
+  count: number;
+  /** 1行ぶんの売上 */
+  sales: number;
+  /** 1行ぶんの経費（明細の合計） */
+  expenseTotal: number;
+  /** 1行ぶんの人件費 */
+  labor: number;
+  /** それぞれの行の番号（読めないデータでは空が入る） */
+  ids: (string | number | null)[];
+  /** 余分に入っている売上（1行ぶん × 余分な行数） */
+  extraSales: number;
+  /** 余分に入っている経費 */
+  extraExpense: number;
+};
+
+export type DuplicateReportCheck = {
+  groups: DuplicateReportGroup[];
+  /** 余分に入っている行数の合計（Σ 行数−1） */
+  extraReports: number;
+  /** 余分に入っている売上の合計（この分だけ月の売上が多く出ている） */
+  extraSalesTotal: number;
+  /** 余分に入っている経費の合計 */
+  extraExpenseTotal: number;
+};
+
+/** 経費の明細を「中身が同じなら同じ文字列」になる形にそろえる */
+function expenseSignature(report: KeiriReport): string {
+  const lines = expenseItemsOf(report.expenses)
+    .map((item) => `${String(item.description ?? "").trim()}|${amountOf(item)}`)
+    .sort();
+  return lines.join("/");
+}
+
+function textKey(v: unknown): string {
+  return String(v ?? "").trim();
+}
+
+/**
+ * 同じ日報が2回 入っている疑いを探す。
+ *
+ * @param ym 見る月（YYYY-MM）。その月の行だけを見る
+ * @param reports 日報（月の外の行が混ざっていてもよい）
+ */
+export function findDuplicateReports(params: {
+  ym: string;
+  reports: KeiriReport[];
+}): DuplicateReportCheck {
+  const ym = String(params.ym ?? "");
+  const buckets = new Map<string, KeiriReport[]>();
+  for (const r of params.reports ?? []) {
+    const date = String(r.date ?? "");
+    if (!date.startsWith(`${ym}-`)) continue;
+    const sales = Number(r.sales_amount) || 0;
+    const labor = Number(r.labor) || 0;
+    const sig = expenseSignature(r);
+    const expenseTotal = expenseItemsOf(r.expenses).reduce((t, x) => t + amountOf(x), 0);
+    // 金額がまったく動かない行は、二重でも締めの数字が狂わないので数えない
+    if (sales === 0 && expenseTotal === 0 && labor === 0) continue;
+    const key = [
+      date,
+      textKey(r.shop),
+      textKey(r.location),
+      textKey(r.staff_name),
+      sales,
+      labor,
+      sig,
+    ].join("\u0001");
+    const got = buckets.get(key);
+    if (got) got.push(r);
+    else buckets.set(key, [r]);
+  }
+
+  const groups: DuplicateReportGroup[] = [];
+  for (const rows of buckets.values()) {
+    if (rows.length < 2) continue;
+    const first = rows[0];
+    const sales = Number(first.sales_amount) || 0;
+    const labor = Number(first.labor) || 0;
+    const expenseTotal = expenseItemsOf(first.expenses).reduce((t, x) => t + amountOf(x), 0);
+    const extra = rows.length - 1;
+    groups.push({
+      date: String(first.date ?? ""),
+      shop: first.shop ?? null,
+      location: first.location ?? null,
+      staff: first.staff_name ?? null,
+      count: rows.length,
+      sales,
+      expenseTotal,
+      labor,
+      ids: rows.map((r) => r.id ?? null),
+      extraSales: sales * extra,
+      extraExpense: expenseTotal * extra,
+    });
+  }
+  groups.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  return {
+    groups,
+    extraReports: groups.reduce((t, g) => t + (g.count - 1), 0),
+    extraSalesTotal: groups.reduce((t, g) => t + g.extraSales, 0),
+    extraExpenseTotal: groups.reduce((t, g) => t + g.extraExpense, 0),
+  };
+}
