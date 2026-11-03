@@ -230,19 +230,22 @@ export function findDuplicateExpenses(params: {
  *   ② **決めつけない。**「疑い」としてしか言いません
  *   ③ 1円も書き込みません
  *
- * ■ 疑いと見なす条件（厳しめ。空振りで騒がないため、ぜんぶ同じときだけ）
- *   同じ月の中で、**日・お店の区分・出店先・担当・売上・人件費・経費の明細**が
- *   すべて同じ行が2つ以上あるとき。売上も経費も0の行は数えません
- *   （金額が動かないので、二重でも締めの数字は狂わないため）。
- *   ★号車（unit_number）は経理の読み方に入っていないので見ていません。
- *     1号車と2号車が同じ出店先・同じ担当で、売上と経費の明細まで1円まで同じになることは
- *     まず無いので、「疑い」として出すには足ります（決めつけないので安全側）。
+ * ■ 疑いと見なす条件（2026-11-03 09:58 B2 が実データから出した決まりに合わせています）
+ *   同じ月・同じお店の区分の中で、**日・号車・出店先・担当・売上・経費の合計**が
+ *   すべて同じ行が2つ以上あるとき。保存した時刻の差は問いません。
+ *   ★**号車が違えば別物**（同じ日に2台で出ただけ）なので数えません。
+ *     号車が読めなかったときは、その欄を空として比べます（決めつけずに「疑い」として出す）。
+ *   ★売上も経費も人件費も0の行は数えません
+ *     （金額が動かないので、二重でも締めの数字は狂わないため）。
+ *   8月以降の実データで、この形に当たるのは 10/11 と 10/12 の2組だけでした。
  * ------------------------------------------------------------------ */
 
 /** 同じ日報が2回 入っている疑いの1組 */
 export type DuplicateReportGroup = {
   date: string;
   shop: string | null;
+  /** 号車（読めなければ空文字） */
+  unit: string;
   location: string | null;
   staff: string | null;
   /** 同じ中身の行が何行あるか（2以上） */
@@ -271,14 +274,6 @@ export type DuplicateReportCheck = {
   extraExpenseTotal: number;
 };
 
-/** 経費の明細を「中身が同じなら同じ文字列」になる形にそろえる */
-function expenseSignature(report: KeiriReport): string {
-  const lines = expenseItemsOf(report.expenses)
-    .map((item) => `${String(item.description ?? "").trim()}|${amountOf(item)}`)
-    .sort();
-  return lines.join("/");
-}
-
 function textKey(v: unknown): string {
   return String(v ?? "").trim();
 }
@@ -300,18 +295,18 @@ export function findDuplicateReports(params: {
     if (!date.startsWith(`${ym}-`)) continue;
     const sales = Number(r.sales_amount) || 0;
     const labor = Number(r.labor) || 0;
-    const sig = expenseSignature(r);
     const expenseTotal = expenseItemsOf(r.expenses).reduce((t, x) => t + amountOf(x), 0);
     // 金額がまったく動かない行は、二重でも締めの数字が狂わないので数えない
     if (sales === 0 && expenseTotal === 0 && labor === 0) continue;
     const key = [
       date,
       textKey(r.shop),
+      // ★号車が違えば別物（同じ日に2台で出ただけ）
+      textKey(r.unit_number),
       textKey(r.location),
       textKey(r.staff_name),
       sales,
-      labor,
-      sig,
+      expenseTotal,
     ].join("\u0001");
     const got = buckets.get(key);
     if (got) got.push(r);
@@ -329,6 +324,7 @@ export function findDuplicateReports(params: {
     groups.push({
       date: String(first.date ?? ""),
       shop: first.shop ?? null,
+      unit: textKey(first.unit_number),
       location: first.location ?? null,
       staff: first.staff_name ?? null,
       count: rows.length,

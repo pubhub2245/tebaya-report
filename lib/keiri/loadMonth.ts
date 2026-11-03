@@ -398,18 +398,35 @@ export async function loadKeiriMonthDirect(
   // ★経費の明細は取らない（3つの欄だけ＝CLAUDE.md 4-2 を守る）。
   let registerCloses: RegisterCloseRow[] = [];
   try {
-    const regGot = await readAllRows<unknown>(() =>
+    const regGot = await readAllRows<any>(() =>
       applyTenantScope<any>(
         supabase
           .from("daily_reports")
-          .select("date, unit_number, register_total", { count: "exact" }) as any,
+          // ★id と号車も取る。号車は「同じ日報が2枚あるかも」の見分けに使う（f1-1）。
+          //   経費の明細は取らない（3つの欄だけ＝CLAUDE.md 4-2 を守る）。
+          .select("id, date, unit_number, register_total", { count: "exact" }) as any,
         scope,
       )
         .gte("date", gte)
         .order("date")
         .order("id"),
     );
-    if (!regGot.error) registerCloses = normalizeRegisterCloses(regGot.rows);
+    if (!regGot.error) {
+      registerCloses = normalizeRegisterCloses(regGot.rows);
+      // ★日報に号車を結びつける（お金の計算には使わない。f1-1 の見分けだけ）
+      const unitById = new Map<string, unknown>();
+      for (const row of regGot.rows) {
+        const id = (row as any)?.id;
+        if (id !== null && id !== undefined) unitById.set(String(id), (row as any)?.unit_number ?? null);
+      }
+      if (unitById.size > 0) {
+        for (const r of reps) {
+          if (r.unit_number === undefined || r.unit_number === null) {
+            (r as any).unit_number = unitById.get(String(r.id)) ?? null;
+          }
+        }
+      }
+    }
   } catch {
     // 読めなければ空のまま
   }

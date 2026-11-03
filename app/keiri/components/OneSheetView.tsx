@@ -239,6 +239,7 @@ export default function OneSheetView({ sheet }: { sheet: MonthlySample }) {
                   <li key={i}>
                     {sheetDayLabel(g.date)}
                     {g.location ? `　${g.location}` : ""}
+                    {g.unit ? `　${g.unit}号車` : ""}
                     {g.shop ? `（${g.shop}）` : ""}　{sheetYen(g.salesYen)} × {g.count}行
                   </li>
                 ))}

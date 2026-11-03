@@ -35,6 +35,13 @@ export type KeiriReport = {
    *   空を「手羽屋」と決めつけないこと（lib/keiri/shopScope.ts）。
    */
   shop?: string | null;
+  /**
+   * 号車（1号車 / 2号車）。読めないことがある（空のこともある）。
+   * ★「同じ日報が2枚あるかも」の見分けだけに使う（2026-11-03・f1-1）。
+   *   **号車が違えば別物**（同じ日に2台で出ただけ）なので、数えません。
+   *   お金の計算には1円も使いません。
+   */
+  unit_number?: string | number | null;
   /** その日の売上（円） */
   sales_amount?: number | null;
   /** その日の給与（日当・円）。日報1件ぶんの合計 */

@@ -154,6 +154,8 @@ export type SampleSameReport = {
     date: string;
     location: string | null;
     shop: string | null;
+    /** 号車（読めなければ空文字） */
+    unit: string;
     count: number;
     salesYen: number;
   }[];
@@ -484,6 +486,7 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
             date: g.date,
             location: g.location,
             shop: g.shop,
+            unit: g.unit,
             count: g.count,
             salesYen: g.sales,
           })),

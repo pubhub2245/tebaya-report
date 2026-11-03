@@ -166,8 +166,8 @@ test("同じ日報が2回 入っている疑いも、件数だけ返して言葉
           extraSalesYen: 45050,
           extraExpenseYen: 10317,
           groups: [
-            { date: "2026-10-11", location: "ながやま三股", shop: "手羽屋", count: 2, salesYen: 21400 },
-            { date: "2026-10-12", location: "ながやま三股", shop: "手羽屋", count: 2, salesYen: 23650 },
+            { date: "2026-10-11", location: "ながやま三股", shop: "手羽屋", unit: "1", count: 2, salesYen: 21400 },
+            { date: "2026-10-12", location: "ながやま三股", shop: "手羽屋", unit: "1", count: 2, salesYen: 23650 },
           ],
         },
         noReceiptCount: null,
@@ -180,4 +180,47 @@ test("同じ日報が2回 入っている疑いも、件数だけ返して言葉
   // ★金額は1円も返さない（この窓口の約束）
   assert.ok(!JSON.stringify(r).includes("45050"));
   assert.ok(!JSON.stringify(r).includes("21400"));
+});
+
+test("同じ日報が2枚あるときは『問題0件』と言わない（2026-11-03 B2 の指摘・f1-5）", () => {
+  const r = buildSelfCheck({
+    month: "2026年10月",
+    ym: "2026-10",
+    sheet: sheet({
+      review: {
+        unmatched: [],
+        duplicate: null,
+        sameReport: {
+          count: 2,
+          extraReports: 2,
+          extraSalesYen: 45050,
+          extraExpenseYen: 10317,
+          groups: [
+            { date: "2026-10-11", location: "ニシムタ", shop: "手羽屋", unit: "1", count: 2, salesYen: 21400 },
+            { date: "2026-10-12", location: "ニシムタ", shop: "手羽屋", unit: "1", count: 2, salesYen: 23650 },
+          ],
+        },
+        noReceiptCount: null,
+        any: true,
+      },
+    }),
+  });
+  assert.equal(r.problems.length, 1);
+  assert.ok(r.problems[0].includes("同じ日報が2枚あるかもしれません（2組"), r.problems[0]);
+  // ★1枚そのものは止めない（止めると人が決めるまで毎月の1枚が出なくなる）
+  assert.equal(r.sheetReady, true);
+  // ★金額は1円も返さない
+  assert.ok(!JSON.stringify(r).includes("45050"));
+});
+
+test("二重が無い月は、今までどおり問題0件（増やしていない）", () => {
+  const r = buildSelfCheck({
+    month: "2026年9月",
+    ym: "2026-09",
+    sheet: sheet({
+      review: { unmatched: [], duplicate: null, sameReport: null, noReceiptCount: null, any: false },
+    }),
+  });
+  assert.deepEqual(r.problems, []);
+  assert.equal(r.needsHuman.duplicateReports, 0);
 });
