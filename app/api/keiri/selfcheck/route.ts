@@ -4,6 +4,12 @@ import { loadKeiriMonthServer } from "@/lib/keiri/loadMonthServer";
 import { buildOneSheet } from "@/lib/keiri/oneSheet";
 import { readIgnoreMarks } from "@/lib/keiri/expenseIgnores";
 import { ignoreStoreOf } from "@/lib/keiri/expenseIgnoreMemo";
+import { findDuplicateReports } from "@/lib/keiri/duplicates";
+import { readReportDupMarks } from "@/lib/keiri/reportDups";
+import {
+  buildReportDupWindow,
+  simulateCountOnceMarks,
+} from "@/lib/keiri/reportDupWindow";
 import { buildSelfCheck, unreadableSelfCheck } from "@/lib/keiri/selfCheck";
 import { previousMonthRange, CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import { templateFor } from "@/lib/keiri/index";
@@ -75,6 +81,9 @@ export async function GET(req: NextRequest) {
     }
 
     const marks = readIgnoreMarks(data.ignores);
+    // 「同じ日報が2枚」の決めごと（2026-11-03・kp246・f1-5）。
+    // 1件も無ければ空＝今までとまったく同じ数字になります。
+    const reportDupMarks = readReportDupMarks(data.reportDups ?? []);
     const sheet = buildOneSheet({
       ym,
       monthLabel: label,
@@ -88,7 +97,37 @@ export async function GET(req: NextRequest) {
       // 「同じ支払いが2か所にある」ときに人が決めた印（kp230）。
       // 棚がまだ無い倉庫では空なので、数字は今までどおり。
       ignoreMarks: marks,
+      reportDupMarks,
     });
+
+    /**
+     * 「同じ日報が2枚」を押して片付けられるか（2026-11-03・kp246・f1-5）。
+     * ★金額は1円も返しません（件数と○×だけ）。**1行も書き込みません。**
+     *   「もし1枚だけ数えるを選んだら」は、押したのではなく**計算してみせている**だけです。
+     */
+    const sameReportCheck = findDuplicateReports({ ym, reports: data.reports });
+    const sameReportStore = ignoreStoreOf({
+      // 置き場（専用の棚）はまだ無いので、いまは「ひとこと欄の控え」で決めます。
+      // ★経費の二重と同じ関数で決めるので、画面の見え方と窓口の答えがずれません。
+      shelf: "missing",
+      settingsRowExists: !data.settingsMissing,
+    });
+    const simulated =
+      sameReportCheck.groups.length > 0
+        ? buildOneSheet({
+            ym,
+            monthLabel: label,
+            shopName: "",
+            reports: data.reports,
+            payments: data.payments,
+            advances: data.advances,
+            settings: data.settings,
+            template: templateFor(CASE_BUSINESS_CODE),
+            cashEvents: data.cashEvents,
+            ignoreMarks: marks,
+            reportDupMarks: simulateCountOnceMarks(sameReportCheck, reportDupMarks),
+          })
+        : null;
 
     // 「同じ支払いが2か所にある」ときに、どちらを数えるかを決められる状態か（kp230・f1-5）。
     // ★金額は1円も返しません。返すのは「置き場があるか」と「決めた件数」だけです。
@@ -124,6 +163,13 @@ export async function GET(req: NextRequest) {
       // レジに残してあるつり銭（金庫の外のお金）を見分けられる状態か（2026-10-12・f1-4）。
       // ★金額は1円も返しません。返すのは号車の数・最後の日・相手の数だけです。
       registerFloat: registerFloatOf(data),
+      // 同じ日報が2枚 入っているときに、押して片付けられるか（2026-11-03・kp246・f1-5）
+      sameReportMarks: buildReportDupWindow({
+        check: sameReportCheck,
+        marks: reportDupMarks,
+        store: sameReportStore,
+        ifCountedOnce: simulated,
+      }),
       duplicateMarks: {
         shelf: data.ignoreShelf,
         decided: marked,

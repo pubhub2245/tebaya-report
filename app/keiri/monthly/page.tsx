@@ -28,6 +28,7 @@ import { keiriLoginNoScriptHtml } from "@/lib/keiri/noscriptFallback";
 import { loadKeiriMonth, type KeiriMonthData } from "@/lib/keiri/loadMonth";
 import { buildOneSheet } from "@/lib/keiri/oneSheet";
 import { readIgnoreMarks } from "@/lib/keiri/expenseIgnores";
+import { readReportDupMarks } from "@/lib/keiri/reportDups";
 import {
   filterReportsByShop,
   summarizeShopScope,
@@ -138,6 +139,9 @@ function MonthlyInner() {
       // 「同じ支払いが2か所にある」ときに人が決めた印（kp230）。
       // 印が無ければ今までと同じ数字。経理画面・CSV・この1枚が同じ印を見ます。
       ignoreMarks: readIgnoreMarks(data.ignores),
+      // 「同じ日報が2枚ある」ときに人が決めた印（2026-11-03・kp246）。
+      // 印が無ければ今までと同じ数字。経理画面・CSV・この1枚が同じ印を見ます。
+      reportDupMarks: readReportDupMarks(data.reportDups ?? []),
     });
   }, [data, ym, monthLabel, shopName, shopFilter, template, todayYm, today]);
 

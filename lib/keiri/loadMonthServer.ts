@@ -52,6 +52,8 @@ import {
   decodeExpenseIgnoreMemo,
   mergeIgnoreRows,
 } from "@/lib/keiri/expenseIgnoreMemo";
+import { decodeReportDupMemo } from "@/lib/keiri/reportDupMemo";
+import type { ReportDupRow } from "@/lib/keiri/reportDups";
 import {
   normalizeRegisterCloses,
   type RegisterCloseRow,
@@ -120,6 +122,12 @@ export type KeiriMonthServerData = {
   ignores: ExpenseIgnoreRow[];
   /** 印を置く棚の様子（ready／missing／unknown） */
   ignoreShelf: IgnoreShelfState;
+  /**
+   * 「同じ日報が2枚ある」ときに、どちらを数えるかを決めた印（2026-11-03・kp246・f1-5）。
+   * ★置き場が無いあいだは、経理の設定のひとこと欄の控えから読みます。
+   *   1件も無ければ空＝今までと同じ数字になります。
+   */
+  reportDups: ReportDupRow[];
   /**
    * 倉庫からの返事を**待つのをやめた**か（2026-10-16・kp255・f4-1・f5-1）。
    * ★true のときは、ここから下の数字はぜんぶ「読めませんでした」の形です。
@@ -671,6 +679,8 @@ async function loadKeiriMonthServerInner(params: {
     advancesSkipped,
     ignores,
     ignoreShelf,
+    // 「同じ日報が2枚」の決めごと（2026-11-03・kp246）。置き場ができるまでは控えから読む
+    reportDups: decodeReportDupMemo((s as any)?.memo),
   };
 }
 
@@ -702,6 +712,7 @@ function timedOutData(businessCode: string): KeiriMonthServerData {
     advancesSkipped: false,
     ignores: [],
     ignoreShelf: "unknown",
+    reportDups: [],
     readTimedOut: true,
   };
 }

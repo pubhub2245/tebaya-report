@@ -44,6 +44,14 @@ import {
 import { findDuplicateExpenses, findDuplicateReports } from "./duplicates";
 import { pendingSuspects, type IgnoreMarks } from "./expenseIgnores";
 import {
+  excludeDecidedDuplicateReports,
+  pendingReportDupGroups,
+  pendingReportIds,
+  emptyReportDupMarks,
+  reportDupDecision,
+  type ReportDupMarks,
+} from "./reportDups";
+import {
   shopScopeNotes,
   shopScopeSentence,
   summarizeShopScope,
@@ -158,7 +166,22 @@ export type SampleSameReport = {
     unit: string;
     count: number;
     salesYen: number;
+    /** いまどうなっているか（ここに出るのは「まだ決めていない」だけ・kp246） */
+    decision?: "pending" | "count-once" | "both";
   }[];
+};
+
+/**
+ * 「同じ日報なので1枚だけ数える」と人が決めて、**数えなかった**ぶん
+ *                                       （2026-11-03・kp246・f1-5）。
+ * ★黙って減らさないために出します。日報そのものは1行も消していません。
+ */
+export type SampleSkippedReports = {
+  /** 数えなかった日報の数 */
+  count: number;
+  /** 数えなかった売上の合計 */
+  salesYen: number;
+  rows: { date: string; location: string | null; shop: string | null; salesYen: number }[];
 };
 
 /** 確かめてほしいこと（無ければ枠ごと出さない） */
@@ -167,8 +190,13 @@ export type SampleReview = {
   unmatched: { date: string; description: string; amount: number }[];
   /** 同じ支払いが2か所にある疑い（無ければ null） */
   duplicate: SampleDuplicate | null;
-  /** 同じ日報が2回 入っている疑い（無ければ null・2026-11-03） */
+  /** 同じ日報が2回 入っている疑い（まだ決めていない組だけ。無ければ null・2026-11-03） */
   sameReport: SampleSameReport | null;
+  /**
+   * 「同じ日報なので1枚だけ数える」と決めて数えなかったぶん（無ければ null・kp246）。
+   * ★これがあるときは、月の売上・かかったお金がその分**下がっています**。
+   */
+  sameReportSkipped?: SampleSkippedReports | null;
   /**
    * レシートの写真が無い支払いの件数。
    * ★写真の有無が読めないデータのときは null（＝この行は出さない）。
@@ -314,6 +342,15 @@ export type OneSheetInput = {
    *   「確かめてほしいこと」から**決めた組が外れます**。
    */
   ignoreMarks?: IgnoreMarks;
+  /**
+   * 「同じ日報が2枚ある」ときに、どちらを数えるかを人が決めた印
+   *                                   （2026-11-03・kp246・f1-5）。
+   * ★渡さなければ印なし＝**いままでとまったく同じ1枚**になります。
+   *   「1枚だけ数える」と決まった組があるときは、余分な1枚を**行まるごと外して**
+   *   数えます（売上・かかったお金・現金・会計ソフト向けCSV・試算表のすべてが
+   *   同じ1か所から同じ数字になります）。決めた組は「確かめてほしいこと」から外れます。
+   */
+  reportDupMarks?: ReportDupMarks;
 };
 
 /** 日本時間の今日（YYYY-MM-DD）。置いてあるサーバーの時計は日本時間ではないため */
@@ -342,7 +379,7 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     ym,
     monthLabel,
     shopName,
-    reports,
+    reports: rawReports,
     payments,
     advances,
     settings,
@@ -353,7 +390,18 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     shopFilter = null,
     cashEvents = [],
     ignoreMarks,
+    reportDupMarks,
   } = input;
+
+  /**
+   * 「同じ日報なので1枚だけ数える」と決まった余分な1枚を、ここで**行ごと外す**
+   *                                           （2026-11-03・kp246・f1-5）。
+   * ★外すのはこの1か所だけです。ここから下は、画面・会計ソフト向けCSV・試算表・
+   *   現金・1枚の要約がぜんぶ同じ `reports` を数えるので、3通りの数え方がずれません。
+   * ★印が無ければ1行も外しません（＝今までとまったく同じ数字）。
+   */
+  const dupSkip = excludeDecidedDuplicateReports({ reports: rawReports, marks: reportDupMarks });
+  const reports = dupSkip.reports;
 
   const summary = summarizeMonth({ ym, reports, template, settings, advances, ignoreMarks });
   // 銀行に入れた分は**現金だけ**を減らす（経費・利益には1円も入れない・kp233）
@@ -391,6 +439,16 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     .filter((e) => e.yen > 0)
     .sort((a, b) => b.yen - a.yen);
 
+  /**
+   * 同じ日報が2回 入っていないか（2026-11-03・f1-1／f1-5／kp246）。
+   * ★「1枚だけ数える」と決まった組は、上で行ごと外してあるので、ここには出てきません。
+   *   まだ決めていない組と、「2枚とも本物」と決めた組だけが残ります。
+   */
+  const sameReportFound = findDuplicateReports({ ym, reports });
+  const sameReportPending = pendingReportDupGroups(sameReportFound, reportDupMarks);
+  // まだ決めていない組の行は、会計ソフト向けの表の摘要に「要確認」を足す（金額は変えない）
+  const reviewIds = pendingReportIds(sameReportFound, reportDupMarks);
+
   // ★CSV（仕訳）も、画面と同じ印を見る。見ないと3通りの数え方がずれて1枚が出せない
   const rows = buildJournalRows({
     ym,
@@ -400,6 +458,7 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     settings,
     advances,
     ignoreMarks,
+    reviewReportIds: reviewIds,
   });
 
   // ★月の経費を、別々の道で3通り数える（f1-2）。
@@ -469,26 +528,44 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
   }));
 
   /**
-   * 同じ日報が2回 入っていないか（2026-11-03・f1-1／f1-5）。
-   * ★10月の実データで、10/11・10/12 が2行ずつ入っていた（売上 45,050円・経費 10,317円が二重）。
-   *   上の duplicate は「経費と立替の二重」だけを見ているので、ここは別に数えます。
-   *   **金額は直しません。**どちらを消すかは人が決めることなので、出すだけです。
+   * 「確かめてほしいこと」に出すのは、**まだ人が決めていない組だけ**（kp246）。
+   * ★決めた組（1枚だけ数える／2枚とも本物）は、ここから外れます。
+   *   「1枚だけ数える」を選んだ分は、下の `sameReportSkipped` に理由つきで出します
+   *   （黙って減らさない）。
    */
-  const sameReportCheck = findDuplicateReports({ ym, reports });
   const sameReport: SampleSameReport | null =
-    sameReportCheck.groups.length > 0
+    sameReportPending.groups.length > 0
       ? {
-          count: sameReportCheck.groups.length,
-          extraReports: sameReportCheck.extraReports,
-          extraSalesYen: sameReportCheck.extraSalesTotal,
-          extraExpenseYen: sameReportCheck.extraExpenseTotal,
-          groups: sameReportCheck.groups.map((g) => ({
+          count: sameReportPending.groups.length,
+          extraReports: sameReportPending.extraReports,
+          extraSalesYen: sameReportPending.extraSalesTotal,
+          extraExpenseYen: sameReportPending.extraExpenseTotal,
+          groups: sameReportPending.groups.map((g) => ({
             date: g.date,
             location: g.location,
             shop: g.shop,
             unit: g.unit,
             count: g.count,
             salesYen: g.sales,
+            decision: reportDupDecision(g, reportDupMarks ?? emptyReportDupMarks()),
+          })),
+        }
+      : null;
+
+  /**
+   * 「同じ日報なので1枚だけ数えた」ぶん（2026-11-03・kp246）。
+   * ★黙って減らさないために、何件・いくら外したかを必ず出します。
+   */
+  const sameReportSkipped: SampleSkippedReports | null =
+    dupSkip.skipped.length > 0
+      ? {
+          count: dupSkip.skipped.length,
+          salesYen: dupSkip.skipped.reduce((t, r) => t + r.sales, 0),
+          rows: dupSkip.skipped.map((r) => ({
+            date: r.date,
+            location: r.location,
+            shop: r.shop,
+            salesYen: r.sales,
           })),
         }
       : null;
@@ -497,6 +574,7 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     unmatched,
     duplicate,
     sameReport,
+    sameReportSkipped,
     noReceiptCount: countExpensesWithoutReceipt(reports, ym),
     any: false,
   };
@@ -504,6 +582,7 @@ export function buildOneSheet(input: OneSheetInput): MonthlySample {
     review.unmatched.length > 0 ||
     review.duplicate !== null ||
     review.sameReport !== null ||
+    review.sameReportSkipped !== null ||
     (review.noReceiptCount ?? 0) > 0;
 
   // ---- 出す前の検算（3つとも合わなければ1枚を出さない）----

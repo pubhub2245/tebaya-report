@@ -37,6 +37,8 @@ import {
 import { normalizeCashEvents, type CashEvent } from "./cashCheck";
 import { decodeCashCountMemo, mergeCashEvents } from "./cashCountMemo";
 import { decodeExpenseIgnoreMemo, mergeIgnoreRows } from "./expenseIgnoreMemo";
+import { decodeReportDupMemo } from "./reportDupMemo";
+import type { ReportDupRow } from "./reportDups";
 import { normalizeRegisterCloses, type RegisterCloseRow } from "./registerFloat";
 import type {
   KeiriAdvance,
@@ -81,6 +83,12 @@ export type KeiriMonthData = {
   ignores: ExpenseIgnoreRow[];
   /** 印を置く棚がまだ無いか（まだ無いときは選ぶボタンを出さない） */
   ignoreShelf: IgnoreShelfState;
+  /**
+   * 「同じ日報が2枚ある」ときに、どちらを数えるかを決めた印（2026-11-03・kp246・f1-5）。
+   * ★置き場が無いあいだは、経理の設定のひとこと欄の控えから読みます。
+   *   1件も無ければ空＝今までどおり「出すだけ」（数字は1円も変わりません）。
+   */
+  reportDups: ReportDupRow[];
 };
 
 /**
@@ -173,6 +181,8 @@ async function loadViaServerWindow(params: {
     registerCloses: (d.registerCloses as RegisterCloseRow[]) ?? [],
     ignores: (d.ignores as ExpenseIgnoreRow[]) ?? [],
     ignoreShelf: (d.ignoreShelf as IgnoreShelfState) ?? "unknown",
+    // ★窓口がまだこの欄を返さない版でも落ちないように、無ければ空のまま（＝今までどおり）
+    reportDups: (d.reportDups as ReportDupRow[]) ?? [],
   };
 }
 
@@ -459,5 +469,7 @@ export async function loadKeiriMonthDirect(
     registerCloses,
     ignores,
     ignoreShelf,
+    // 「同じ日報が2枚」の決めごと（2026-11-03・kp246）。置き場ができるまでは控えから読む
+    reportDups: decodeReportDupMemo((s as any)?.memo),
   };
 }
