@@ -11,6 +11,9 @@ import {
   CASH_COUNT_KIND_LABEL,
   cashCountKind,
   cashDiffCauses,
+  causesForDiff,
+  DIFF_CAUSES,
+  DIFF_CAUSES_OVER,
   daysBetween,
   depositsOf,
   diffDirection,
@@ -350,4 +353,44 @@ test("5通りの畳み方（金額を出さずに合否が分かる）", () => {
   assert.equal(cashCountKind({ ...base, computed: null, diff: null }), "unknown");
   // 「合った」とみなすのは ぴったり と ほぼ合う の2つだけ
   for (const k of ["exact", "near"] as const) assert.ok(CASH_COUNT_KIND_LABEL[k]);
+});
+
+/**
+ * よくある原因は「差の向き」で言い分ける（2026-11-04・f1-4）。
+ *
+ * ■ ここで守りたいこと
+ *   金庫のほうが**多い**とき、「返した立替」「銀行に入れたお金」は
+ *   どちらも金庫を**減らす**側なので起こりえません。
+ *   起こりえない心当たりを渡すと、じゅんの1分が無い探し物で終わります。
+ */
+test("金庫のほうが少ないときと多いときで、よくある原因が入れ替わる", () => {
+  assert.deepEqual([...causesForDiff(5000)], [...DIFF_CAUSES]);
+  assert.deepEqual([...causesForDiff(-5000)], [...DIFF_CAUSES_OVER]);
+  // どちらも3つ。向きで中身だけが変わる
+  assert.equal(DIFF_CAUSES.length, 3);
+  assert.equal(DIFF_CAUSES_OVER.length, 3);
+  assert.notDeepEqual([...DIFF_CAUSES], [...DIFF_CAUSES_OVER]);
+});
+
+test("金庫を減らす側の心当たりは、多い側には出さない", () => {
+  const over = causesForDiff(-5000).join("｜");
+  assert.ok(!over.includes("金庫から返した"), "返した立替が多い側に出ています");
+  assert.ok(!over.includes("銀行に入れた"), "銀行に入れたお金が多い側に出ています");
+  const under = causesForDiff(5000).join("｜");
+  assert.ok(!under.includes("銀行から下ろして"), "下ろしたお金が少ない側に出ています");
+});
+
+test("差が小さい・まだ数えていないときは、向きに関わらず出さない", () => {
+  assert.deepEqual([...causesForDiff(999)], []);
+  assert.deepEqual([...causesForDiff(-999)], []);
+  assert.deepEqual([...causesForDiff(0)], []);
+  assert.deepEqual([...causesForDiff(null)], []);
+  assert.deepEqual([...causesForDiff(undefined)], []);
+});
+
+test("cashDiffCauses も同じ答えを返す（画面と窓口で食い違わない）", () => {
+  const under = { diff: 5000 } as Parameters<typeof cashDiffCauses>[0];
+  const over = { diff: -5000 } as Parameters<typeof cashDiffCauses>[0];
+  assert.deepEqual([...cashDiffCauses(under)], [...causesForDiff(5000)]);
+  assert.deepEqual([...cashDiffCauses(over)], [...causesForDiff(-5000)]);
 });
