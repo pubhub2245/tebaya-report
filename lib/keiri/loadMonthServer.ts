@@ -58,6 +58,10 @@ import {
   normalizeRegisterCloses,
   type RegisterCloseRow,
 } from "@/lib/keiri/registerFloat";
+import {
+  normalizeRegisterDiffs,
+  type RegisterDiffRow,
+} from "@/lib/keiri/registerDiffGap";
 import { defaultSettingsFor } from "@/lib/keiri/index";
 import type {
   KeiriAdvance,
@@ -107,6 +111,14 @@ export type KeiriMonthServerData = {
   registerCloses: RegisterCloseRow[];
   /** 閉店後のレジ金を読めなかったか（**0円と取り違えない**ため） */
   registerUnreadable: boolean;
+  /**
+   * 日報に入っている「レジの過不足」（2026-11-04・f1-4）。
+   * ★月の経費・利益・会計ソフト向けCSV・試算表には1円も入れません。
+   *   金庫を数えたときに「そのぶんずれます」と名指しするためだけに使います。
+   * ★null は**読めなかった**という意味（0件と取り違えないため）。
+   *   よそのお店として窓口ごしに読んでいるときは、この欄が返ってこないので null です。
+   */
+  registerDiffs: RegisterDiffRow[] | null;
   /**
    * 立替の棚を**読まずに飛ばした**か（手羽屋以外のお店のとき）。
    * ★立替の2つの棚には「どの店のものか」の欄がまだ無いので、
@@ -581,9 +593,12 @@ async function loadKeiriMonthServerInner(params: {
   // ★読めなくても落とさない。経費の明細は取らない（3つの欄だけ＝CLAUDE.md 4-2）。
   let registerCloses: RegisterCloseRow[] = [];
   let registerUnreadable = false;
+  // 日報に入っている「レジの過不足」（2026-11-04・f1-4）。読めなければ null のまま
+  let registerDiffs: RegisterDiffRow[] | null = null;
   if (windowRows) {
     // 窓口が同じ1回で返してくれているので、もう一度 倉庫に聞かない
     registerCloses = normalizeRegisterCloses(windowRows as unknown[]);
+    // ★窓口は「レジの過不足」の欄を返しません。0件と言わずに null のままにします
   } else {
     const got = await readAllRows<any>(() =>
       applyTenantScope<any>(
@@ -591,7 +606,7 @@ async function loadKeiriMonthServerInner(params: {
           .from("daily_reports")
           // ★id と号車も取る。号車は「同じ日報が2枚あるかも」の見分けに使う（f1-1）。
           //   経費の明細は取らない（3つの欄だけ＝CLAUDE.md 4-2 を守る）。
-          .select("id, date, unit_number, register_total", { count: "exact" }) as any,
+          .select("id, date, unit_number, register_total, register_diff", { count: "exact" }) as any,
         scope,
       )
         .gte("date", from)
@@ -601,6 +616,7 @@ async function loadKeiriMonthServerInner(params: {
     if (got.error) registerUnreadable = true;
     else {
       registerCloses = normalizeRegisterCloses(got.rows);
+      registerDiffs = normalizeRegisterDiffs(got.rows);
       // ★日報に号車を結びつける（お金の計算には使わない。f1-1 の見分けだけ）
       const unitById = new Map<string, unknown>();
       for (const row of got.rows) {
@@ -712,6 +728,7 @@ async function loadKeiriMonthServerInner(params: {
     cashShelfMissing,
     registerCloses,
     registerUnreadable,
+    registerDiffs,
     advancesSkipped,
     ignores,
     ignoreShelf,
@@ -745,6 +762,7 @@ function timedOutData(businessCode: string): KeiriMonthServerData {
     cashShelfMissing: true,
     registerCloses: [],
     registerUnreadable: true,
+    registerDiffs: null,
     advancesSkipped: false,
     ignores: [],
     ignoreShelf: "unknown",
