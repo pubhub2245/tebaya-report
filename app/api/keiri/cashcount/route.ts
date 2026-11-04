@@ -19,6 +19,10 @@ import {
   buildFieldRepayGapWindow,
   measureFieldRepayGap,
 } from "@/lib/keiri/advanceFieldRepayGap";
+import {
+  buildCashShopScopeWindow,
+  measureCashShopScope,
+} from "@/lib/keiri/cashShopScope";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
 import {
   buildCashOpeningGapWindow,
@@ -151,6 +155,19 @@ export async function GET() {
       asOf: last ? last.happened_on : todayJst,
     });
 
+    // ★「どの屋号の日報から数えているのか」（2026-11-04・f1-4）。
+    //   金庫は1つとして数えるので、手羽屋ともも屋を分けていません
+    //   （lib/keiri/cashCheck.ts の決まり①）。＝ 売上も経費も立替も両方の屋号ぶんが入ります。
+    //   ここを外から読めるようにしておくと、「売上だけ片方の屋号を除いている」という
+    //   取り違えを、読むだけで確かめられます。
+    //   **金額も屋号の名前も返しません**（読めたか・屋号がいくつか・件数だけ）。
+    const shopScope = measureCashShopScope({
+      reports: data.reports,
+      unreadable: data.reportsUnreadable,
+      openingDate: data.settingsMissing ? "" : (settings.opening_date ?? ""),
+      asOf: last ? last.happened_on : todayJst,
+    });
+
     const floatToday = latestRegisterFloat(data.registerCloses ?? [], todayJst);
     const ready = buildCashCountReady({
       booksGap: booksGapToday,
@@ -212,6 +229,8 @@ export async function GET() {
         gap: fieldRepayGap,
         diff: reconcile.diff,
       }),
+      // どの屋号の日報から数えているのか（件数だけ・金額も屋号の名前も出さない）
+      shopScope: buildCashShopScopeWindow(shopScope),
       shelfMissing: data.cashShelfMissing,
       // じゅんが押す回数と、いま押したら残るか（金額は出さない）
       press,
