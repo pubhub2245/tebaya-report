@@ -155,9 +155,12 @@ export type CashShopScopeWindow = {
 
 export function buildCashShopScopeWindow(scope: CashShopScope): CashShopScopeWindow {
   const line = cashShopScopeLine(scope);
+  // ★屋号の「数」を使うこと。`scope.shops` は並び（屋号ごとの件数）なので、
+  //   そのまま文に入れると「[object Object]つの屋号」になります（2026-11-04 に本番で出しました）。
+  const shops = scope.shops.length;
   return {
     readable: scope.readable,
-    shops: scope.shops.length,
+    shops,
     reports: scope.reports,
     multi: scope.multi,
     shown: line !== "",
@@ -166,7 +169,7 @@ export function buildCashShopScopeWindow(scope: CashShopScope): CashShopScopeWin
       : scope.reports === 0
         ? "数え始めの日から数えた日までに、日報が1件も入っていません（この行は出ません）。"
         : scope.multi
-          ? `金庫の計算には ${scope.shops}つの屋号の日報 ${scope.reports}件ぜんぶが入っています` +
+          ? `金庫の計算には ${shops}つの屋号の日報 ${scope.reports}件ぜんぶが入っています` +
             "（売上も経費も立替も、屋号で分けずに足し引きしています）。画面にその1行が出ます。"
           : `金庫の計算に入っているのは1つの屋号の日報 ${scope.reports}件だけです` +
             "（取り違えようがないので、この行は出ません）。",

@@ -160,4 +160,8 @@ test("外から確かめる窓口は、金額も屋号の名前も返さない",
   assert.equal(win.shops, 2);
   assert.equal(win.reports, 2);
   assert.equal(win.shown, true);
+  // ★ひとことには屋号の「数」を入れる（並びをそのまま入れると
+  //   「[object Object]つの屋号」になる。2026-11-04 に本番で1回 出した）
+  assert.match(win.note, /2つの屋号の日報 2件/);
+  assert.equal(/object Object/.test(text), false);
 });
