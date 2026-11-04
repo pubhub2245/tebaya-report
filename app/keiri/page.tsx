@@ -160,6 +160,11 @@ import {
   measureFieldRepayGap,
   type FieldRepayGap,
 } from "@/lib/keiri/advanceFieldRepayGap";
+import {
+  cashShopScopeLine,
+  measureCashShopScope,
+  type CashShopScope,
+} from "@/lib/keiri/cashShopScope";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
 import {
   cashOpeningGapLines,
@@ -546,6 +551,24 @@ function KeiriInner() {
         asOf: date,
       }),
     [advances, scope, effective.opening_date],
+  );
+
+  /**
+   * 「この金庫の計算は、どの屋号の日報から数えているか」（2026-11-04・f1-4）。
+   * ★金庫は1つとして数えるので、手羽屋ともも屋を分けません
+   *   （lib/keiri/cashCheck.ts の決まり①）。＝ 売上も経費も立替も、両方の屋号ぶんが
+   *   入っています。そのことが画面に書いていないと、
+   *   「この金額は手羽屋だけのもの」と取り違えて、合っているのに原因を探し始めます。
+   * ★金額は1円も直しません（出すのは説明の1行だけ）。
+   */
+  const cashShopScopeAsOf = useCallback(
+    (date: string): CashShopScope =>
+      measureCashShopScope({
+        reports,
+        openingDate: effective.opening_date,
+        asOf: date,
+      }),
+    [reports, effective.opening_date],
   );
 
   const registerDiffGapAsOf = useCallback(
@@ -1535,6 +1558,7 @@ function KeiriInner() {
         booksGapAsOf={booksGapAsOf}
         registerDiffGapAsOf={registerDiffGapAsOf}
         fieldRepayGapAsOf={fieldRepayGapAsOf}
+        cashShopScopeAsOf={cashShopScopeAsOf}
       />
 
       {/* 毎月お渡しする1枚（2026-10-04・kp231）。
@@ -2210,6 +2234,7 @@ function CashCountCard({
   booksGapAsOf,
   registerDiffGapAsOf,
   fieldRepayGapAsOf,
+  cashShopScopeAsOf,
 }: {
   reconcile: ReturnType<typeof reconcileCash>;
   balanceNow: number;
@@ -2238,6 +2263,8 @@ function CashCountCard({
   registerDiffGapAsOf: (date: string) => RegisterDiffGap;
   /** その日に揃えた「現場スタッフの立替」（差の内わけに出す・2026-11-04・f1-4） */
   fieldRepayGapAsOf: (date: string) => FieldRepayGap;
+  /** その日に揃えた「どの屋号の日報から数えているか」（2026-11-04・f1-4） */
+  cashShopScopeAsOf: (date: string) => CashShopScope;
 }) {
   const [countOn, setCountOn] = useState(todayStr());
   const [countYen, setCountYen] = useState("");
@@ -2609,6 +2636,13 @@ function CashCountCard({
         diff: preview.diff,
       })
     : [];
+  /**
+   * どの屋号の日報から数えているのか（1行・2026-11-04・f1-4）。
+   * ★数えた日に揃えて見る（まだ数えていなければ今日）。屋号が1つだけなら出ません。
+   */
+  const shopScopeLine = cashShopScopeLine(
+    cashShopScopeAsOf(reconcile.countedOn || todayStr()),
+  );
   /** どの数え始めから数えた金額と比べているのか（1行・2026-10-19・f1-4） */
   const openingSourceLine = buildCashOpeningSource({
     openingDate: openingDate || null,
@@ -2720,6 +2754,15 @@ function CashCountCard({
              手羽屋が毎日使う現金の画面＝cash_settings）、どちらを読むかで金額が丸ごと変わります。
              経理が読むのは keiri_settings だけ。迷わせないよう、ここに1行で書きます。 */}
       <p className="text-xs text-stone-500 leading-relaxed">{openingSourceLine}</p>
+
+      {/* ★どの屋号の日報から数えているのかを、はっきり出す（2026-11-04・f1-4）。
+             金庫は1つとして数えるので、手羽屋ともも屋を分けていません
+             （lib/keiri/cashCheck.ts の決まり①）。＝ 売上も経費も立替も両方ぶんが入っています。
+             ここに書いていないと、「この金額は手羽屋だけのもの」と取り違えて、
+             合っているのに もも屋ぶんの大きさの差を探し始めてしまいます。 */}
+      {shopScopeLine && (
+        <p className="text-xs text-stone-500 leading-relaxed">{shopScopeLine}</p>
+      )}
 
       {/* ★数える前の一言「日報はここまでしか入っていません」（2026-11-01・f1-4）。
              押したあとに言っても1分は戻らないので、押す前に出します。 */}
