@@ -154,6 +154,12 @@ import {
   type RegisterDiffGap,
   type RegisterDiffRow,
 } from "@/lib/keiri/registerDiffGap";
+import {
+  fieldRepayGapLines,
+  fieldRepayGapNotice,
+  measureFieldRepayGap,
+  type FieldRepayGap,
+} from "@/lib/keiri/advanceFieldRepayGap";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
 import {
   cashOpeningGapLines,
@@ -523,6 +529,25 @@ function KeiriInner() {
    * ★数え始めの日より前の過不足は、数え始めの残高にもう入っているので数えません。
    * ★金額は1円も直しません（出すのは説明の行だけ）。
    */
+  /**
+   * 「現場スタッフが立て替えた分」を、数えた日に揃えて足したもの（2026-11-04・f1-4）。
+   * ★現場ぶんの立替には「お返しした」を残す欄がまだ無いので、お返ししても
+   *   「計算上の現金」はいつまでも減りません（CLAUDE.md 5-4 の残課題）。
+   *   そのぶん金庫のほうが少なく出るので、差の内わけとして名前を付けて出します。
+   * ★金額は1円も直しません（出すのは説明の行だけ）。
+   * ★手羽屋いがいのお店では立替の棚をそもそも読まないので、「0件」とは言いません。
+   */
+  const fieldRepayGapAsOf = useCallback(
+    (date: string): FieldRepayGap =>
+      measureFieldRepayGap({
+        advances,
+        unreadable: !isTebayaScope(scope),
+        openingDate: effective.opening_date,
+        asOf: date,
+      }),
+    [advances, scope, effective.opening_date],
+  );
+
   const registerDiffGapAsOf = useCallback(
     (date: string): RegisterDiffGap =>
       measureRegisterDiffGap({
@@ -1509,6 +1534,7 @@ function KeiriInner() {
         openingGap={openingGap}
         booksGapAsOf={booksGapAsOf}
         registerDiffGapAsOf={registerDiffGapAsOf}
+        fieldRepayGapAsOf={fieldRepayGapAsOf}
       />
 
       {/* 毎月お渡しする1枚（2026-10-04・kp231）。
@@ -2183,6 +2209,7 @@ function CashCountCard({
   openingGap,
   booksGapAsOf,
   registerDiffGapAsOf,
+  fieldRepayGapAsOf,
 }: {
   reconcile: ReturnType<typeof reconcileCash>;
   balanceNow: number;
@@ -2209,6 +2236,8 @@ function CashCountCard({
   booksGapAsOf: (date: string) => CashBooksGap;
   /** その日に揃えた「レジの過不足」（差の内わけに出す・2026-11-04・f1-4） */
   registerDiffGapAsOf: (date: string) => RegisterDiffGap;
+  /** その日に揃えた「現場スタッフの立替」（差の内わけに出す・2026-11-04・f1-4） */
+  fieldRepayGapAsOf: (date: string) => FieldRepayGap;
 }) {
   const [countOn, setCountOn] = useState(todayStr());
   const [countYen, setCountYen] = useState("");
@@ -2554,6 +2583,21 @@ function CashCountCard({
   /** 数える前の一言（押したあとでは1分が戻らないので、押す前に出す） */
   const regDiffNoticeToday = registerDiffGapNotice(registerDiffGapAsOf(todayStr()));
   /**
+   * 差の内わけ「現場スタッフの立替をお返しした分」（2026-11-04・f1-4）。
+   * お返しした日に金庫から出るのに、その記録を残す欄がまだ無いので引けていない分です。
+   * ★「お返し済み」と決めつけず、合計の中に収まるかどうかまでを言います。
+   * ★金額は1円も直していません（「計算上の現金」はそのままです）。
+   */
+  const fieldRepayLinesSaved = reconcile.countedOn
+    ? fieldRepayGapLines(fieldRepayGapAsOf(reconcile.countedOn), reconcile.diff)
+    : [];
+  const fieldRepayLinesPreview =
+    preview && preview.countedOn
+      ? fieldRepayGapLines(fieldRepayGapAsOf(preview.countedOn), preview.diff)
+      : [];
+  /** 数える前の一言（押したあとでは1分が戻らないので、押す前に出す） */
+  const fieldRepayNoticeToday = fieldRepayGapNotice(fieldRepayGapAsOf(todayStr()));
+  /**
    * 「よくある原因3つ」を出すか（2026-10-28・kp265・f1-4）。
    * ★決め方は lib/keiri/cashOpeningGap.ts の1か所（画面と、外から確かめる窓口で同じ答え）。
    */
@@ -2646,6 +2690,19 @@ function CashCountCard({
               ))}
             </div>
           )}
+          {/* ★差の内わけ「現場スタッフの立替をお返しした分」（2026-11-04・f1-4）。
+                 お返しした日に金庫から出るのに、その記録を残す欄がまだ無いので
+                 「計算上の現金」から引けていない分です。これを出さないと、
+                 書き忘れが1件も無いのに探し物をさせてしまいます。 */}
+          {fieldRepayLinesSaved.length > 0 && (
+            <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
+              {fieldRepayLinesSaved.map((l) => (
+                <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
+                  {l}
+                </p>
+              ))}
+            </div>
+          )}
           {reconcile.stale && (
             <p className="text-xs text-amber-700">{reconcile.stale}</p>
           )}
@@ -2679,6 +2736,13 @@ function CashCountCard({
              押したあとに言っても1分は戻らないので、押す前に出します。止めはしません。 */}
       {regDiffNoticeToday && (
         <p className="text-xs text-amber-700 leading-relaxed">{regDiffNoticeToday}</p>
+      )}
+
+      {/* ★数える前の一言「現場スタッフの立替がこれだけあります」（2026-11-04・f1-4）。
+             お返しした分は金庫から出ているのに、計算上の現金からは引けていません。
+             押したあとに言っても1分は戻らないので、押す前に出します。止めはしません。 */}
+      {fieldRepayNoticeToday && (
+        <p className="text-xs text-amber-700 leading-relaxed">{fieldRepayNoticeToday}</p>
       )}
 
       {/* ① 金庫を数えた */}
@@ -2810,6 +2874,16 @@ function CashCountCard({
             {regDiffLinesPreview.length > 0 && (
               <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
                 {regDiffLinesPreview.map((l) => (
+                  <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
+                    {l}
+                  </p>
+                ))}
+              </div>
+            )}
+            {/* ★差の内わけ「現場スタッフの立替をお返しした分」（2026-11-04・f1-4） */}
+            {fieldRepayLinesPreview.length > 0 && (
+              <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
+                {fieldRepayLinesPreview.map((l) => (
                   <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
                     {l}
                   </p>

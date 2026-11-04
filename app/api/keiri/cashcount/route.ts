@@ -15,6 +15,10 @@ import {
   buildRegisterDiffGapWindow,
   measureRegisterDiffGap,
 } from "@/lib/keiri/registerDiffGap";
+import {
+  buildFieldRepayGapWindow,
+  measureFieldRepayGap,
+} from "@/lib/keiri/advanceFieldRepayGap";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
 import {
   buildCashOpeningGapWindow,
@@ -134,6 +138,19 @@ export async function GET() {
       asOf: last ? last.happened_on : todayJst,
     });
 
+    // ★「現場スタッフが立て替えた分」（2026-11-04・f1-4）。
+    //   お返しした日に金庫からお金が出ますが、現場ぶんの立替には「お返しした」を
+    //   残す欄がまだ無いので（CLAUDE.md 5-4 の残課題）、計算上の現金から引けていません。
+    //   そのぶん金庫のほうが少なく出るので、差の内わけとして名前を付けて出します。
+    //   **金額は1円も返しません**（読めたか・件数・日付・説明がどこまでつくかだけ）。
+    const fieldRepayGap = measureFieldRepayGap({
+      advances: data.advances,
+      // 読めなかった・そもそも読んでいない（手羽屋いがいのお店）ときは「0件」と言わない
+      unreadable: data.advancesUnreadable || data.advancesSkipped,
+      openingDate: data.settingsMissing ? "" : (settings.opening_date ?? ""),
+      asOf: last ? last.happened_on : todayJst,
+    });
+
     const floatToday = latestRegisterFloat(data.registerCloses ?? [], todayJst);
     const ready = buildCashCountReady({
       booksGap: booksGapToday,
@@ -188,6 +205,11 @@ export async function GET() {
       // 差の内わけ（日報に入っているレジの過不足・金額は出さない）
       registerDiffGap: buildRegisterDiffGapWindow({
         gap: regDiffGap,
+        diff: reconcile.diff,
+      }),
+      // 差の内わけ（現場スタッフの立替をお返しした分・金額は出さない）
+      fieldRepayGap: buildFieldRepayGapWindow({
+        gap: fieldRepayGap,
         diff: reconcile.diff,
       }),
       shelfMissing: data.cashShelfMissing,
