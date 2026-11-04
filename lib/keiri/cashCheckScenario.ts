@@ -28,6 +28,8 @@ import { calcCashPosition, type CashPosition } from "./aggregate";
 import { previousMonthRange } from "./caseStats";
 import {
   DIFF_CAUSES,
+  DIFF_CAUSES_OVER,
+  causesForDiff,
   NEAR_ENOUGH_YEN,
   STALE_DAYS,
   cashDiffCauses,
@@ -263,8 +265,10 @@ export type CashCheckResult = {
   nearEnoughYen: number;
   /** 何日 数えていなければ「久しく数えていない」と言うか */
   staleDays: number;
-  /** 差が大きいときに出す原因の一覧（画面に出るものと同じ） */
+  /** 差が大きいときに出す原因の一覧（金庫のほうが**少ない**とき・画面に出るものと同じ） */
   causeList: readonly string[];
+  /** 金庫のほうが**多い**ときに出す原因の一覧（2026-11-04・f1-4） */
+  causeListOver: readonly string[];
   cases: CashCheckCase[];
   /**
    * 数え方が2通りに分かれたときに、どちらに合うかを言えるか（2026-10-12・kp250・f1-4）。
@@ -398,6 +402,8 @@ export function buildCashCheck(params?: {
     nearEnoughYen: NEAR_ENOUGH_YEN,
     staleDays: STALE_DAYS,
     causeList: DIFF_CAUSES,
+    // ★金庫のほうが多いときは、別の3つを出す（2026-11-04・f1-4）
+    causeListOver: DIFF_CAUSES_OVER,
     cases,
     variants,
     openingGap,
@@ -435,8 +441,13 @@ export function checkCases(cases: CashCheckCase[]): string[] {
         problems.push(`${c.name}：差の向きの言葉が符号と合っていません`);
       }
       const big = Math.abs(c.diff ?? 0) >= NEAR_ENOUGH_YEN;
-      if (big && c.causes.length !== DIFF_CAUSES.length) {
+      const wantCauses = causesForDiff(c.diff);
+      if (big && c.causes.length !== wantCauses.length) {
         problems.push(`${c.name}：差が大きいのに、よくある原因が出ていません`);
+      }
+      // ★向きと中身が合っているか（金庫のほうが多いのに「返した立替」を出していないか）
+      if (big && c.causes.join("｜") !== wantCauses.join("｜")) {
+        problems.push(`${c.name}：よくある原因が、差の向きと合っていません`);
       }
       if (!big && c.causes.length !== 0) {
         problems.push(`${c.name}：差が小さいのに、よくある原因が出ています`);
@@ -721,7 +732,8 @@ export function buildCashOpeningGapCheck(params?: { today?: string }): CashOpeni
       diff,
       gapLines,
       causes: diffCausesToShow({
-        causes: big ? DIFF_CAUSES : [],
+        // ★よくある原因は向きで変わる（2026-11-04・f1-4）。本物の画面と同じ関数で出す
+        causes: causesForDiff(diff),
         variantMatched: false,
         gap: g,
         diff,
@@ -754,13 +766,13 @@ export function buildCashOpeningGapCheck(params?: { today?: string }): CashOpeni
   if (cases[0].causes.length !== 0) {
     problems.push("① 理由が分かっているのに、よくある原因（探し物）が出ています");
   }
-  if (cases[1].fit !== "no" || cases[1].causes.length !== DIFF_CAUSES.length) {
+  if (cases[1].fit !== "no" || cases[1].causes.length !== causesForDiff(cases[1].diff).length) {
     problems.push("② 別の大きさの差なのに、よくある原因が出ていません");
   }
   if (cases[1].gapLines.length !== 2) {
     problems.push("② 内わけの2行（金額と説明）が出ていません");
   }
-  if (cases[2].fit !== "no" || cases[2].causes.length !== DIFF_CAUSES.length) {
+  if (cases[2].fit !== "no" || cases[2].causes.length !== causesForDiff(cases[2].diff).length) {
     problems.push("③ 金庫のほうが多いのに、この分で説明したことになっています");
   }
   if (cases[3].gapLines.length !== 0 || cases[3].shown) {

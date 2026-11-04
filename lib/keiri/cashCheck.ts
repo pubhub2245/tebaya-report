@@ -337,17 +337,47 @@ export function cashCountMatched(kind: CashCountKind, variantMatched: boolean): 
  * 差が大きいとき（1,000円以上）に、よくある原因として出す3つ。
  * ★「正しい処理」は税務の判断にあたるので書きません（docs/keiri.md 5-2）。
  *   心当たりを人が確かめるための手がかりだけを出します。
+ *
+ * ■ **向きで言い分けます（2026-11-04・f1-4）**
+ *   2026-11-04 まで、**差がどちら向きでも同じ3つ**を出していました。
+ *   ところがこの3つは「金庫のほうが**少ない**」ときの心当たりで、
+ *   **金庫のほうが多いときは3つのうち2つが起こりえません**
+ *   （返した立替・銀行に入れたお金は、どちらも金庫を**減らす**側なので、
+ *   多い側の説明にはなりません）。
+ *   ＝ じゅんが1分 数えて金庫のほうが多かったとき、
+ *   **起こりえない心当たりを2つ渡して探させてしまう**形でした
+ *   （レジのつり銭・日報の空き・レジの過不足・現場の立替と同じ筋で5件目）。
+ *   金額・合否・差の出し方は1文字も変えていません。出す文を向きで分けただけです。
  */
+
+/** 金庫のほうが**少ない**とき（計算上 − 数えた がプラス）の心当たり */
 export const DIFF_CAUSES: readonly string[] = [
-  "日報に書いていない売上や支払いがある",
+  "日報に書いていない支払いがある",
   "立て替えたお金を金庫から返したのに、まだ書いていない",
   "銀行に入れたお金を書いていない",
 ];
 
+/** 金庫のほうが**多い**とき（計算上 − 数えた がマイナス）の心当たり */
+export const DIFF_CAUSES_OVER: readonly string[] = [
+  "日報に書いていない売上がある（入れていない営業日がある）",
+  "銀行から下ろして金庫に入れたお金を、まだ書いていない",
+  "自分のお財布やカードで払った支払いが、日報では金庫から出た扱いになっている",
+];
+
+/**
+ * 差の大きさと向きから、よくある原因を返す（小さければ空）。
+ *
+ * @param diff 計算上の残高 − 数えた金額（プラス＝金庫のほうが少ない）
+ */
+export function causesForDiff(diff: number | null | undefined): readonly string[] {
+  if (diff === null || diff === undefined || !Number.isFinite(diff)) return [];
+  if (Math.abs(diff) < NEAR_ENOUGH_YEN) return [];
+  return diff > 0 ? DIFF_CAUSES : DIFF_CAUSES_OVER;
+}
+
 /** 差が大きいときだけ、よくある原因を返す（小さければ空） */
 export function cashDiffCauses(r: CashReconcile): readonly string[] {
-  if (r.diff === null) return [];
-  return Math.abs(r.diff) >= NEAR_ENOUGH_YEN ? DIFF_CAUSES : [];
+  return causesForDiff(r.diff);
 }
 
 /**

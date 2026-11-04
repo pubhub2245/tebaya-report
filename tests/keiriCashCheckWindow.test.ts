@@ -15,7 +15,7 @@ import {
   cashCheckYm,
   checkCases,
 } from "../lib/keiri/cashCheckScenario";
-import { DIFF_CAUSES, NEAR_ENOUGH_YEN } from "../lib/keiri/cashCheck";
+import { DIFF_CAUSES, DIFF_CAUSES_OVER, NEAR_ENOUGH_YEN } from "../lib/keiri/cashCheck";
 
 /** 今日を固定して、いつ実行しても同じ答えになるようにする */
 const TODAY = "2026-10-10";
@@ -59,11 +59,15 @@ test("金庫のほうが少ないときは、向きの言葉と原因3つが出�
   assert.match(c.lines[2], /金庫のほうが少ない/);
 });
 
-test("金庫のほうが多いときも、向きの言葉と原因3つが出る", () => {
+test("金庫のほうが多いときは、向きの言葉と『多い側の』原因3つが出る", () => {
+  // ★2026-11-04・f1-4：ここは以前「少ない側と同じ3つ」を固定していました。
+  //   返した立替・銀行に入れたお金は、どちらも金庫を減らす側なので、
+  //   多い側では起こりえません（起こりえない探し物を渡していた）。
   const c = buildCashCheck({ today: TODAY }).cases[3];
   assert.ok(c.diff !== null && c.diff < 0);
   assert.equal(c.direction, "金庫のほうが多い");
-  assert.deepEqual([...c.causes], [...DIFF_CAUSES]);
+  assert.deepEqual([...c.causes], [...DIFF_CAUSES_OVER]);
+  assert.notDeepEqual([...c.causes], [...DIFF_CAUSES]);
   assert.match(c.verdict, /金庫のほうが .* 多いです/);
 });
 
