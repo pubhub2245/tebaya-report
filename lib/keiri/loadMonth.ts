@@ -40,6 +40,10 @@ import { decodeExpenseIgnoreMemo, mergeIgnoreRows } from "./expenseIgnoreMemo";
 import { decodeReportDupMemo } from "./reportDupMemo";
 import type { ReportDupRow } from "./reportDups";
 import { normalizeRegisterCloses, type RegisterCloseRow } from "./registerFloat";
+import {
+  normalizeRegisterDiffs,
+  type RegisterDiffRow,
+} from "./registerDiffGap";
 import type {
   KeiriAdvance,
   KeiriPayment,
@@ -76,6 +80,13 @@ export type KeiriMonthData = {
    *   （lib/keiri/registerFloat.ts）。読めなければ空のまま＝今までどおり。
    */
   registerCloses: RegisterCloseRow[];
+  /**
+   * 日報に入っている「レジの過不足」（2026-11-04・f1-4）。
+   * ★月の経費・利益・会計ソフト向けCSV・試算表には1円も入れません。
+   *   金庫を数えたときに「そのぶんずれます」と名指しするためだけに使います。
+   * ★null は**読めなかった**という意味（0件と取り違えないため）。
+   */
+  registerDiffs: RegisterDiffRow[] | null;
   /**
    * 「同じ支払いが2か所にある」ときの印（kp230・f1-5）。
    * ★棚（keiri_expense_ignores）がまだ無い倉庫では空のまま＝今までどおり「出すだけ」。
@@ -179,6 +190,8 @@ async function loadViaServerWindow(params: {
     cashShelfMissing: !!d.cashShelfMissing,
     // ★窓口がまだこの欄を返さない版でも落ちないように、無ければ空のまま（＝今までどおり）
     registerCloses: (d.registerCloses as RegisterCloseRow[]) ?? [],
+    // ★窓口がまだこの欄を返さない版では null（＝読めていない）。0件と取り違えない
+    registerDiffs: (d.registerDiffs as RegisterDiffRow[] | null) ?? null,
     ignores: (d.ignores as ExpenseIgnoreRow[]) ?? [],
     ignoreShelf: (d.ignoreShelf as IgnoreShelfState) ?? "unknown",
     // ★窓口がまだこの欄を返さない版でも落ちないように、無ければ空のまま（＝今までどおり）
@@ -407,6 +420,8 @@ export async function loadKeiriMonthDirect(
   // ★読めなくても落とさない。読めなければ相手が増えないだけで、今までの数字は1円も動かない。
   // ★経費の明細は取らない（3つの欄だけ＝CLAUDE.md 4-2 を守る）。
   let registerCloses: RegisterCloseRow[] = [];
+  // 日報に入っている「レジの過不足」（2026-11-04・f1-4）。読めなければ null のまま
+  let registerDiffs: RegisterDiffRow[] | null = null;
   try {
     const regGot = await readAllRows<any>(() =>
       applyTenantScope<any>(
@@ -414,7 +429,7 @@ export async function loadKeiriMonthDirect(
           .from("daily_reports")
           // ★id と号車も取る。号車は「同じ日報が2枚あるかも」の見分けに使う（f1-1）。
           //   経費の明細は取らない（3つの欄だけ＝CLAUDE.md 4-2 を守る）。
-          .select("id, date, unit_number, register_total", { count: "exact" }) as any,
+          .select("id, date, unit_number, register_total, register_diff", { count: "exact" }) as any,
         scope,
       )
         .gte("date", gte)
@@ -423,6 +438,7 @@ export async function loadKeiriMonthDirect(
     );
     if (!regGot.error) {
       registerCloses = normalizeRegisterCloses(regGot.rows);
+      registerDiffs = normalizeRegisterDiffs(regGot.rows);
       // ★日報に号車を結びつける（お金の計算には使わない。f1-1 の見分けだけ）
       const unitById = new Map<string, unknown>();
       for (const row of regGot.rows) {
@@ -502,6 +518,7 @@ export async function loadKeiriMonthDirect(
     cashEvents,
     cashShelfMissing,
     registerCloses,
+    registerDiffs,
     ignores,
     ignoreShelf,
     // 「同じ日報が2枚」の決めごと（2026-11-03・kp246）。置き場ができるまでは控えから読む

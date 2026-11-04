@@ -11,6 +11,10 @@ import {
   buildCashBooksGapWindow,
   measureBooksGap,
 } from "@/lib/keiri/cashBooksGap";
+import {
+  buildRegisterDiffGapWindow,
+  measureRegisterDiffGap,
+} from "@/lib/keiri/registerDiffGap";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
 import {
   buildCashOpeningGapWindow,
@@ -121,6 +125,15 @@ export async function GET() {
     // 数える前の用意にも、同じ答えを渡す（今日に揃えて見る）
     const booksGapToday = measureBooksGap({ reports: data.reports, asOf: todayJst });
 
+    // ★「日報に入っている レジの過不足」（2026-11-04・f1-4）。
+    //   この分は「計算上の現金」に入れていないので、必ずそのぶん食い違います。
+    //   **金額は1円も返しません**（読めたか・件数・向きだけ）。
+    const regDiffGap = measureRegisterDiffGap({
+      rows: data.registerDiffs ?? null,
+      openingDate: data.settingsMissing ? "" : (settings.opening_date ?? ""),
+      asOf: last ? last.happened_on : todayJst,
+    });
+
     const floatToday = latestRegisterFloat(data.registerCloses ?? [], todayJst);
     const ready = buildCashCountReady({
       booksGap: booksGapToday,
@@ -172,6 +185,11 @@ export async function GET() {
       openingGap: buildCashOpeningGapWindow({ gap: openingGap, diff: reconcile.diff }),
       // 差の内わけ（日報がどこまで入っているか・金額は出さない）
       booksGap: buildCashBooksGapWindow({ gap: booksGap, diff: reconcile.diff }),
+      // 差の内わけ（日報に入っているレジの過不足・金額は出さない）
+      registerDiffGap: buildRegisterDiffGapWindow({
+        gap: regDiffGap,
+        diff: reconcile.diff,
+      }),
       shelfMissing: data.cashShelfMissing,
       // じゅんが押す回数と、いま押したら残るか（金額は出さない）
       press,

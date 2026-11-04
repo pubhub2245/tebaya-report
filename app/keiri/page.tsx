@@ -147,6 +147,13 @@ import {
   measureBooksGap,
   type CashBooksGap,
 } from "@/lib/keiri/cashBooksGap";
+import {
+  measureRegisterDiffGap,
+  registerDiffGapLines,
+  registerDiffGapNotice,
+  type RegisterDiffGap,
+  type RegisterDiffRow,
+} from "@/lib/keiri/registerDiffGap";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
 import {
   cashOpeningGapLines,
@@ -272,6 +279,13 @@ function KeiriInner() {
    */
   const [registerCloses, setRegisterCloses] = useState<RegisterCloseRow[]>([]);
   /**
+   * 日報に入っている「レジの過不足」（2026-11-04・f1-4）。
+   * ★月の経費・利益・会計ソフト向けCSV・試算表には**1円も入れません**。
+   *   金庫を数えたときの差の内わけに名前を付けるためだけに使います。
+   * ★null は**読めなかった**（0件と取り違えない）。
+   */
+  const [registerDiffs, setRegisterDiffs] = useState<RegisterDiffRow[] | null>(null);
+  /**
    * 「同じ支払いが2か所にある」ときに、どちらを数えるかを決めた印（kp230・f1-5）。
    * ★棚（keiri_expense_ignores）がまだ無い倉庫では空のまま＝今までどおり「出すだけ」。
    */
@@ -344,6 +358,7 @@ function KeiriInner() {
       setCashEvents(data.cashEvents);
       setCashShelfMissing(data.cashShelfMissing);
       setRegisterCloses(data.registerCloses ?? []);
+      setRegisterDiffs(data.registerDiffs ?? null);
       setIgnores(data.ignores);
       setReportDups(data.reportDups ?? []);
       setIgnoreShelf(data.ignoreShelf);
@@ -501,6 +516,21 @@ function KeiriInner() {
   const booksGapAsOf = useCallback(
     (date: string): CashBooksGap => measureBooksGap({ reports, asOf: date }),
     [reports],
+  );
+
+  /**
+   * 「レジの過不足」を、数えた日に揃えて足したもの（2026-11-04・f1-4）。
+   * ★数え始めの日より前の過不足は、数え始めの残高にもう入っているので数えません。
+   * ★金額は1円も直しません（出すのは説明の行だけ）。
+   */
+  const registerDiffGapAsOf = useCallback(
+    (date: string): RegisterDiffGap =>
+      measureRegisterDiffGap({
+        rows: registerDiffs,
+        openingDate: effective.opening_date,
+        asOf: date,
+      }),
+    [registerDiffs, effective.opening_date],
   );
 
   /**
@@ -1478,6 +1508,7 @@ function KeiriInner() {
         openingDate={effective.opening_date}
         openingGap={openingGap}
         booksGapAsOf={booksGapAsOf}
+        registerDiffGapAsOf={registerDiffGapAsOf}
       />
 
       {/* 毎月お渡しする1枚（2026-10-04・kp231）。
@@ -2151,6 +2182,7 @@ function CashCountCard({
   openingDate,
   openingGap,
   booksGapAsOf,
+  registerDiffGapAsOf,
 }: {
   reconcile: ReturnType<typeof reconcileCash>;
   balanceNow: number;
@@ -2175,6 +2207,8 @@ function CashCountCard({
   openingGap: CashOpeningGap;
   /** その日に揃えた「日報がどこまで入っているか」（差の内わけに出す・2026-11-01・f1-4） */
   booksGapAsOf: (date: string) => CashBooksGap;
+  /** その日に揃えた「レジの過不足」（差の内わけに出す・2026-11-04・f1-4） */
+  registerDiffGapAsOf: (date: string) => RegisterDiffGap;
 }) {
   const [countOn, setCountOn] = useState(todayStr());
   const [countYen, setCountYen] = useState("");
@@ -2506,6 +2540,20 @@ function CashCountCard({
    */
   const booksGapToday = booksGapAsOf(todayStr());
   /**
+   * 差の内わけ「レジの過不足として、これだけ入っています」（2026-11-04・f1-4）。
+   * 0 でない過不足が1日でもあり、差が1,000円以上のときだけ出ます。
+   * ★金額は1円も直していません（「計算上の現金」はそのままです）。
+   */
+  const regDiffLinesSaved = reconcile.countedOn
+    ? registerDiffGapLines(registerDiffGapAsOf(reconcile.countedOn), reconcile.diff)
+    : [];
+  const regDiffLinesPreview =
+    preview && preview.countedOn
+      ? registerDiffGapLines(registerDiffGapAsOf(preview.countedOn), preview.diff)
+      : [];
+  /** 数える前の一言（押したあとでは1分が戻らないので、押す前に出す） */
+  const regDiffNoticeToday = registerDiffGapNotice(registerDiffGapAsOf(todayStr()));
+  /**
    * 「よくある原因3つ」を出すか（2026-10-28・kp265・f1-4）。
    * ★決め方は lib/keiri/cashOpeningGap.ts の1か所（画面と、外から確かめる窓口で同じ答え）。
    */
@@ -2586,6 +2634,18 @@ function CashCountCard({
               ))}
             </div>
           )}
+          {/* ★差の内わけ「レジの過不足」（2026-11-04・f1-4）。
+                 日報にちゃんと書いてあるのに「計算上の現金」に入っていない分なので、
+                 これを出さないと、書き忘れが1件も無いのに探し物をさせてしまいます。 */}
+          {regDiffLinesSaved.length > 0 && (
+            <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
+              {regDiffLinesSaved.map((l) => (
+                <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
+                  {l}
+                </p>
+              ))}
+            </div>
+          )}
           {reconcile.stale && (
             <p className="text-xs text-amber-700">{reconcile.stale}</p>
           )}
@@ -2612,6 +2672,13 @@ function CashCountCard({
           {booksGapToday.days}日）。それ以降に営業した日があると、そのぶんだけ差が出ます。
           先に日報を入れてから数えると、差の意味がはっきりします。
         </p>
+      )}
+
+      {/* ★数える前の一言「レジの過不足がこれだけ入っています」（2026-11-04・f1-4）。
+             この分は計算上の現金に入れていないので、必ずそのぶん食い違います。
+             押したあとに言っても1分は戻らないので、押す前に出します。止めはしません。 */}
+      {regDiffNoticeToday && (
+        <p className="text-xs text-amber-700 leading-relaxed">{regDiffNoticeToday}</p>
       )}
 
       {/* ① 金庫を数えた */}
@@ -2733,6 +2800,16 @@ function CashCountCard({
             {booksLinesPreview.length > 0 && (
               <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
                 {booksLinesPreview.map((l) => (
+                  <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
+                    {l}
+                  </p>
+                ))}
+              </div>
+            )}
+            {/* ★差の内わけ「レジの過不足」（2026-11-04・f1-4） */}
+            {regDiffLinesPreview.length > 0 && (
+              <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
+                {regDiffLinesPreview.map((l) => (
                   <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
                     {l}
                   </p>
