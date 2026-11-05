@@ -12,8 +12,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  KEIRI_SLOW_READ_MS,
   describeKeiriReadFailure,
   describeKeiriWriteFailure,
+  keiriLoadingNotice,
   mayShowKeiriNumbers,
 } from "../lib/keiri/readFailure";
 import {
@@ -126,4 +128,23 @@ test("戻したときの文は『まだ残っていない』と言う", () => {
 
 test("控えの置き場の名前は、ほかの控えと混ざらない", () => {
   assert.equal(CASH_COUNT_DRAFT_KEY, "keiri.cashCount.draft.v1");
+});
+
+test("読み終わるまでは『数字を出さない』理由を出し、押し直させない", () => {
+  const n = keiriLoadingNotice(false);
+  assert.match(n.title, /読み込んでいます/);
+  assert.equal(n.retry, false);
+  assert.ok(n.lines.some((l) => l.includes("数字はいっさい出しません")));
+  // 待っているだけのときに、倉庫の話まで出すと不安にさせるだけなので出さない
+  assert.ok(!n.lines.some((l) => l.includes("眠っている")));
+});
+
+test("長くかかっているときだけ、倉庫が眠っているかもしれないと伝えて押し直させる", () => {
+  const n = keiriLoadingNotice(true);
+  assert.equal(n.retry, true);
+  assert.ok(n.lines.some((l) => l.includes("眠っているかもしれません")));
+  assert.ok(n.lines.some((l) => l.includes("お金はかかっていません")));
+  assert.ok(n.lines.some((l) => l.includes("金庫を数える1分")));
+  // 待ち始めてすぐには言わない（ふだんの読み込みでも出てしまうため）
+  assert.ok(KEIRI_SLOW_READ_MS >= 8000);
 });

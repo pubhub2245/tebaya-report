@@ -40,8 +40,10 @@ import {
   readCashCountDraft,
 } from "@/lib/keiri/cashCountDraft";
 import {
+  KEIRI_SLOW_READ_MS,
   describeKeiriReadFailure,
   describeKeiriWriteFailure,
+  keiriLoadingNotice,
 } from "@/lib/keiri/readFailure";
 import {
   paymentRowForScope,
@@ -328,6 +330,16 @@ function KeiriInner() {
   const [ignoreBusy, setIgnoreBusy] = useState<string | null>(null);
   const [ignoreMsg, setIgnoreMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  /**
+   * **一度でも本当に読めたか**（2026-11-05・f1-4）。
+   * 読めるまで数字を1つも出さないための印です。倉庫が眠っているときの返事は
+   * エラーで返ってくるとは限らず、返ってこないまま待ち続けます。
+   * そのあいだ既定の決まりだけから作った数字を出すと、
+   * じゅんが金庫を数えた1分が「0円との差」を探す時間に変わります。
+   */
+  const [loaded, setLoaded] = useState(false);
+  /** 読むのに時間がかかっているか（長いときだけ、倉庫が眠っている話を出す） */
+  const [slowRead, setSlowRead] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /**
    * そのお店ぶんの「設定の行」が見つからなかったか。
@@ -389,6 +401,8 @@ function KeiriInner() {
       setIgnores(data.ignores);
       setReportDups(data.reportDups ?? []);
       setIgnoreShelf(data.ignoreShelf);
+      // ★ここまで来たら「本当に読めた」。読めるまで数字を出さないための印（f1-4）
+      setLoaded(true);
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
@@ -399,6 +413,16 @@ function KeiriInner() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // 読み終わらないまま時間がたったら、倉庫が眠っているかもしれないと伝える
+  useEffect(() => {
+    if (loaded) {
+      setSlowRead(false);
+      return;
+    }
+    const t = setTimeout(() => setSlowRead(true), KEIRI_SLOW_READ_MS);
+    return () => clearTimeout(t);
+  }, [loaded, ym]);
 
   const effective = settings ?? fallbackSettings;
 
@@ -1174,6 +1198,51 @@ function KeiriInner() {
             </p>
           ))}
           {failure.retry && (
+            <button
+              type="button"
+              className="btn-primary text-sm"
+              disabled={loading}
+              onClick={() => void load()}
+            >
+              {loading ? "ためしています…" : "もう一度ためす"}
+            </button>
+          )}
+        </section>
+      </main>
+    );
+  }
+
+  /**
+   * **まだ一度も読めていないあいだは、数字を1つも出しません**（2026-11-05・f1-4）。
+   *
+   * 前は「読み込み中…」という小さな1行を出しながら、その下に数字を並べていました。
+   * 手元で倉庫に届かない形にして測ると、1件も読めていないのに
+   *   今月の利益 −35,000円／今の現金 0円／まだ払っていないお金 140,000円
+   * と出ました（どれも既定の決まりだけから作られた数字です）。
+   */
+  if (!loaded) {
+    const notice = keiriLoadingNotice(slowRead);
+    return (
+      <main className="max-w-4xl mx-auto px-4 py-6 space-y-5">
+        <header className="flex items-center justify-between flex-wrap gap-2">
+          <h1 className="text-2xl font-bold text-brand-dark">🧮 経理</h1>
+          <div className="flex gap-2">
+            <Link href="/keiri/help" className="btn-secondary text-sm">
+              ❓ 困ったとき
+            </Link>
+            <Link href="/" className="btn-secondary text-sm">
+              🏠 トップ
+            </Link>
+          </div>
+        </header>
+        <section className="card space-y-2">
+          <p className="text-base font-bold text-brand-dark">{notice.title}</p>
+          {notice.lines.map((line) => (
+            <p key={line} className="text-sm leading-relaxed text-stone-700">
+              {line}
+            </p>
+          ))}
+          {notice.retry && (
             <button
               type="button"
               className="btn-primary text-sm"
