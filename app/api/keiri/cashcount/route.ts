@@ -20,6 +20,10 @@ import {
   measureFieldRepayGap,
 } from "@/lib/keiri/advanceFieldRepayGap";
 import {
+  buildUnpaidPayrollGapWindow,
+  measureUnpaidPayrollGap,
+} from "@/lib/keiri/unpaidPayrollGap";
+import {
   buildCashShopScopeWindow,
   measureCashShopScope,
 } from "@/lib/keiri/cashShopScope";
@@ -155,6 +159,20 @@ export async function GET() {
       asOf: last ? last.happened_on : todayJst,
     });
 
+    // ★「日当のうち、まだ払った記録が無い分」（2026-11-05・f1-4）。
+    //   「計算上の現金」から引いているのは**払った記録がある分だけ**で、日報の日当は
+    //   「まだ払っていないお金」として別に置いてあります（この数え方そのものは正しい）。
+    //   ところが払った記録を付けずに金庫のお金からお渡ししていると、そのぶん
+    //   金庫のほうが少なく出ます。日当は営業日ごとに付くので、ここは**ほかの内わけより
+    //   ずっと大きくなりえます**。差の内わけとして名前を付けて出します。
+    //   **金額は1円も返しません**（読めたか・件数・日付・説明がどこまでつくかだけ）。
+    const unpaidPayrollGap = measureUnpaidPayrollGap({
+      reports: data.reports,
+      payments: data.payments,
+      openingDate: data.settingsMissing ? "" : (settings.opening_date ?? ""),
+      asOf: last ? last.happened_on : todayJst,
+    });
+
     // ★「どの屋号の日報から数えているのか」（2026-11-04・f1-4）。
     //   金庫は1つとして数えるので、手羽屋ともも屋を分けていません
     //   （lib/keiri/cashCheck.ts の決まり①）。＝ 売上も経費も立替も両方の屋号ぶんが入ります。
@@ -227,6 +245,11 @@ export async function GET() {
       // 差の内わけ（現場スタッフの立替をお返しした分・金額は出さない）
       fieldRepayGap: buildFieldRepayGapWindow({
         gap: fieldRepayGap,
+        diff: reconcile.diff,
+      }),
+      // 差の内わけ（払った記録が無い日当・金額は出さない）
+      unpaidPayrollGap: buildUnpaidPayrollGapWindow({
+        gap: unpaidPayrollGap,
         diff: reconcile.diff,
       }),
       // どの屋号の日報から数えているのか（件数だけ・金額も屋号の名前も出さない）
