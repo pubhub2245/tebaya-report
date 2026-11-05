@@ -10,7 +10,7 @@
  *   読み取るだけです（keiri_reports ビュー＝日報からレシート写真を抜いた見え方）。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Cell,
@@ -33,6 +33,16 @@ import {
 import { yen, slashDate, todayStr } from "@/lib/format";
 import AdminGate from "@/app/components/AdminGate";
 import { keiriLoginNoScriptHtml } from "@/lib/keiri/noscriptFallback";
+import {
+  CASH_COUNT_DRAFT_KEY,
+  cashCountDraftNotice,
+  cashCountDraftValue,
+  readCashCountDraft,
+} from "@/lib/keiri/cashCountDraft";
+import {
+  describeKeiriReadFailure,
+  describeKeiriWriteFailure,
+} from "@/lib/keiri/readFailure";
 import {
   paymentRowForScope,
   planWhenTenantColumnMissing,
@@ -1124,6 +1134,60 @@ function KeiriInner() {
 
   const ratePct = Math.round(effective.outsourcing_rate * 1000) / 10;
 
+  /**
+   * 帳簿が読めなかったときは、**ここで止めます**（2026-11-05・f1-4）。
+   *
+   * ■ なぜ止めるのか（やさしい説明）
+   *   前は、赤い帯で「読み込みに失敗しました」と出したうえで、
+   *   そのまま下に数字を並べていました。読めなかった中身は空のままなので、
+   *   出ていたのは「今月の利益 0円」「今の現金＝数え始めの残高のまま」
+   *   「まだ払っていないお金 0円」という、**1円も確かめていない数字**です。
+   *   じゅんが金庫を数える1分をそこに当てると、
+   *   数えた金額と作られた数字のあいだに**大きな差が必ず出ます**。
+   *   出どころを探しても見つからないので、「この道具は合わない」と見ることになります。
+   *   読めていないときは、数字をいっさい出さないのが正しい形です
+   *   （lib/keiri/loadMonth.ts が「読めなかった棚を0件と取り違えない」ために
+   *   わざと止めているのと、同じ考え方です）。
+   *
+   * ★出す言葉は lib/keiri/readFailure.ts の1か所から作ります（金額・鍵は1文字も入りません）。
+   */
+  if (error) {
+    const failure = describeKeiriReadFailure(error);
+    return (
+      <main className="max-w-4xl mx-auto px-4 py-6 space-y-5">
+        <header className="flex items-center justify-between flex-wrap gap-2">
+          <h1 className="text-2xl font-bold text-brand-dark">🧮 経理</h1>
+          <div className="flex gap-2">
+            <Link href="/keiri/help" className="btn-secondary text-sm">
+              ❓ 困ったとき
+            </Link>
+            <Link href="/" className="btn-secondary text-sm">
+              🏠 トップ
+            </Link>
+          </div>
+        </header>
+        <section className="card border border-red-200 bg-red-50 space-y-3">
+          <h2 className="text-base font-bold text-red-800">{failure.title}</h2>
+          {failure.lines.map((line) => (
+            <p key={line} className="text-sm leading-relaxed text-red-900">
+              {line}
+            </p>
+          ))}
+          {failure.retry && (
+            <button
+              type="button"
+              className="btn-primary text-sm"
+              disabled={loading}
+              onClick={() => void load()}
+            >
+              {loading ? "ためしています…" : "もう一度ためす"}
+            </button>
+          )}
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="max-w-4xl mx-auto px-4 py-6 space-y-5">
       <header className="flex items-center justify-between flex-wrap gap-2">
@@ -1191,11 +1255,6 @@ function KeiriInner() {
         </div>
       )}
 
-      {error && (
-        <p className="card bg-red-50 text-red-700 border border-red-200 text-sm">
-          読み込みに失敗しました：{error}
-        </p>
-      )}
       {loading && <p className="text-stone-500 text-sm px-1">読み込み中…</p>}
 
       {/*
@@ -2316,6 +2375,60 @@ function CashCountCard({
   const [keptByCompare, setKeptByCompare] = useState(false);
   /** 比べたときに使った「レジに残してあるつり銭」（2026-10-12・f1-4） */
   const [variantFloat, setVariantFloat] = useState(0);
+
+  /**
+   * 入れている途中の金額を、**そのブラウザの中にだけ**控えておく
+   * （2026-11-05・kp245・f1-4）。倉庫へは送りません。
+   *
+   * ■ なぜ要るのか（やさしい説明）
+   *   じゅんにお願いしているのは「金庫を数えて、1回 押す」だけ（1分）です。
+   *   ところが押した先は倉庫（データのしまい場所）なので、
+   *   **倉庫が眠っているときに押すと、何も残りません**（2026-11-05 に実際に止まりました）。
+   *   そのまま画面を閉じると、数えた金額はどこにも残っていません。
+   *   もう一度 金庫を開けて数え直すことになり、1分が2回に増えます。
+   *   29日ぶん動いていないお願いなので、2回目が来ない可能性のほうが高いです。
+   *   決まりは lib/keiri/cashCountDraft.ts の1か所です。
+   */
+  const restoredDraft = useRef(false);
+
+  /** 控えを消す（＝ちゃんと残せたとき。残っているのに控えが居ると見まちがえる） */
+  const dropCountDraft = () => {
+    try {
+      window.localStorage.removeItem(CASH_COUNT_DRAFT_KEY);
+    } catch {
+      // ブラウザが控えを断ることがあります（ひとりで開く窓など）。画面はふつうに動きます
+    }
+  };
+
+  // 開いたときに、前に入れたままの金額を戻す（1回だけ）
+  useEffect(() => {
+    try {
+      const draft = readCashCountDraft(
+        window.localStorage.getItem(CASH_COUNT_DRAFT_KEY),
+      );
+      if (draft) {
+        setCountOn(draft.on);
+        setCountYen(draft.yen);
+        setMsg(cashCountDraftNotice(draft));
+      }
+    } catch {
+      // 読めなくても、ふだんの画面のままです
+    } finally {
+      restoredDraft.current = true;
+    }
+  }, []);
+
+  // 入れた金額が変わるたびに控える（戻し終わるまでは書きません）
+  useEffect(() => {
+    if (!restoredDraft.current) return;
+    try {
+      const value = cashCountDraftValue({ on: countOn, yen: countYen });
+      if (value) window.localStorage.setItem(CASH_COUNT_DRAFT_KEY, value);
+      else window.localStorage.removeItem(CASH_COUNT_DRAFT_KEY);
+    } catch {
+      // 控えを断られても、画面はふつうに動きます
+    }
+  }, [countOn, countYen]);
   /** いま入れている「数えた日」の時点で、レジに残してあるつり銭（画面に出すため） */
   const floatNow = useMemo(
     () => latestRegisterFloat(registerCloses, countOn),
@@ -2456,6 +2569,7 @@ function CashCountCard({
         setKeptByCompare(false);
       }
       setMsg("✅ 記録しました（この日・この金額は、もう残っています。行は増えていません）");
+      dropCountDraft();
       onSaved();
       return true;
     }
@@ -2468,7 +2582,7 @@ function CashCountCard({
     });
     setSaving(null);
     if (error) {
-      setMsg(`記録できませんでした：${error.message}`);
+      setMsg(describeKeiriWriteFailure(error.message, "記録"));
       return false;
     }
     if (!keepPreview) {
@@ -2479,6 +2593,7 @@ function CashCountCard({
       setKeptByCompare(false);
     }
     setMsg("✅ 記録しました");
+    dropCountDraft();
     onSaved();
     return true;
   };
@@ -2502,7 +2617,7 @@ function CashCountCard({
     });
     setSaving(null);
     if (error) {
-      setMsg(`保存できませんでした：${error.message}`);
+      setMsg(describeKeiriWriteFailure(error.message, "保存"));
       return;
     }
     if (kind === "count") {
@@ -2510,6 +2625,7 @@ function CashCountCard({
       setCountNote("");
       setPreview(null);
       setVariantPick(null);
+      dropCountDraft();
     } else {
       setDepositYen("");
     }
@@ -2596,6 +2712,7 @@ function CashCountCard({
       setKeptByCompare(false);
     }
     setMsg(verdict.message);
+    dropCountDraft();
     onSaved();
     return true;
   };
