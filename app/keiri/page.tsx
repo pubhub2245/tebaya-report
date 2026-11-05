@@ -161,6 +161,12 @@ import {
   type FieldRepayGap,
 } from "@/lib/keiri/advanceFieldRepayGap";
 import {
+  measureUnpaidPayrollGap,
+  unpaidPayrollGapLines,
+  unpaidPayrollGapNotice,
+  type UnpaidPayrollGap,
+} from "@/lib/keiri/unpaidPayrollGap";
+import {
   cashShopScopeLine,
   measureCashShopScope,
   type CashShopScope,
@@ -551,6 +557,27 @@ function KeiriInner() {
         asOf: date,
       }),
     [advances, scope, effective.opening_date],
+  );
+
+  /**
+   * 「日当のうち、まだ払った記録が無い分」を、数えた日に揃えて足したもの
+   * （2026-11-05・f1-4）。
+   * ★「計算上の現金」から引いているのは**払った記録がある分だけ**で、
+   *   日報の日当そのものは「まだ払っていないお金」として別に置いてあります。
+   *   この数え方は正しいのですが、払った記録を付けずに金庫のお金からお渡ししていると
+   *   そのぶん金庫のほうが少なく出ます。日当は営業日ごとに付くので、
+   *   **ほかの内わけよりずっと大きくなりえます**。
+   * ★金額は1円も直しません（出すのは説明の行だけ）。
+   */
+  const unpaidPayrollGapAsOf = useCallback(
+    (date: string): UnpaidPayrollGap =>
+      measureUnpaidPayrollGap({
+        reports,
+        payments,
+        openingDate: effective.opening_date,
+        asOf: date,
+      }),
+    [reports, payments, effective.opening_date],
   );
 
   /**
@@ -1558,6 +1585,7 @@ function KeiriInner() {
         booksGapAsOf={booksGapAsOf}
         registerDiffGapAsOf={registerDiffGapAsOf}
         fieldRepayGapAsOf={fieldRepayGapAsOf}
+        unpaidPayrollGapAsOf={unpaidPayrollGapAsOf}
         cashShopScopeAsOf={cashShopScopeAsOf}
       />
 
@@ -2234,6 +2262,7 @@ function CashCountCard({
   booksGapAsOf,
   registerDiffGapAsOf,
   fieldRepayGapAsOf,
+  unpaidPayrollGapAsOf,
   cashShopScopeAsOf,
 }: {
   reconcile: ReturnType<typeof reconcileCash>;
@@ -2263,6 +2292,8 @@ function CashCountCard({
   registerDiffGapAsOf: (date: string) => RegisterDiffGap;
   /** その日に揃えた「現場スタッフの立替」（差の内わけに出す・2026-11-04・f1-4） */
   fieldRepayGapAsOf: (date: string) => FieldRepayGap;
+  /** その日に揃えた「払った記録が無い日当」（差の内わけに出す・2026-11-05・f1-4） */
+  unpaidPayrollGapAsOf: (date: string) => UnpaidPayrollGap;
   /** その日に揃えた「どの屋号の日報から数えているか」（2026-11-04・f1-4） */
   cashShopScopeAsOf: (date: string) => CashShopScope;
 }) {
@@ -2625,6 +2656,24 @@ function CashCountCard({
   /** 数える前の一言（押したあとでは1分が戻らないので、押す前に出す） */
   const fieldRepayNoticeToday = fieldRepayGapNotice(fieldRepayGapAsOf(todayStr()));
   /**
+   * 差の内わけ「払った記録が無い日当」（2026-11-05・f1-4）。
+   * 日当は「まだ払っていないお金」として別に置いてあり、現金からは引いていません。
+   * 払った記録を付けずに金庫のお金からお渡ししていると、そのぶん差になります。
+   * ★「もうお渡しした」と決めつけず、残りの中に収まるかどうかまでを言います。
+   * ★金額は1円も直していません（「計算上の現金」はそのままです）。
+   */
+  const unpaidPayrollLinesSaved = reconcile.countedOn
+    ? unpaidPayrollGapLines(unpaidPayrollGapAsOf(reconcile.countedOn), reconcile.diff)
+    : [];
+  const unpaidPayrollLinesPreview =
+    preview && preview.countedOn
+      ? unpaidPayrollGapLines(unpaidPayrollGapAsOf(preview.countedOn), preview.diff)
+      : [];
+  /** 数える前の一言（押したあとでは1分が戻らないので、押す前に出す） */
+  const unpaidPayrollNoticeToday = unpaidPayrollGapNotice(
+    unpaidPayrollGapAsOf(todayStr()),
+  );
+  /**
    * 「よくある原因3つ」を出すか（2026-10-28・kp265・f1-4）。
    * ★決め方は lib/keiri/cashOpeningGap.ts の1か所（画面と、外から確かめる窓口で同じ答え）。
    */
@@ -2737,6 +2786,20 @@ function CashCountCard({
               ))}
             </div>
           )}
+          {/* ★差の内わけ「払った記録が無い日当」（2026-11-05・f1-4）。
+                 日当は「まだ払っていないお金」として別に置いてあり、現金からは
+                 引いていません。払った記録を付けずに金庫からお渡ししていると、
+                 そのぶん金庫のほうが少なく出ます。日当は営業日ごとに付くので、
+                 ここはほかの内わけよりずっと大きくなりえます。 */}
+          {unpaidPayrollLinesSaved.length > 0 && (
+            <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
+              {unpaidPayrollLinesSaved.map((l) => (
+                <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
+                  {l}
+                </p>
+              ))}
+            </div>
+          )}
           {reconcile.stale && (
             <p className="text-xs text-amber-700">{reconcile.stale}</p>
           )}
@@ -2786,6 +2849,15 @@ function CashCountCard({
              押したあとに言っても1分は戻らないので、押す前に出します。止めはしません。 */}
       {fieldRepayNoticeToday && (
         <p className="text-xs text-amber-700 leading-relaxed">{fieldRepayNoticeToday}</p>
+      )}
+
+      {/* ★数える前の一言「日当のうち、払った記録が無い分がこれだけあります」
+             （2026-11-05・f1-4）。押したあとに言っても1分は戻らないので、押す前に出します。
+             止めはしません。 */}
+      {unpaidPayrollNoticeToday && (
+        <p className="text-xs text-amber-700 leading-relaxed">
+          {unpaidPayrollNoticeToday}
+        </p>
       )}
 
       {/* ① 金庫を数えた */}
@@ -2927,6 +2999,16 @@ function CashCountCard({
             {fieldRepayLinesPreview.length > 0 && (
               <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
                 {fieldRepayLinesPreview.map((l) => (
+                  <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
+                    {l}
+                  </p>
+                ))}
+              </div>
+            )}
+            {/* ★差の内わけ「払った記録が無い日当」（2026-11-05・f1-4） */}
+            {unpaidPayrollLinesPreview.length > 0 && (
+              <div className="mt-2 rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-1">
+                {unpaidPayrollLinesPreview.map((l) => (
                   <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
                     {l}
                   </p>
