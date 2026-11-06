@@ -148,8 +148,31 @@ test("人に確かめてもらうものは件数だけ返す（金額は返さ�
 test("読めなかったときは数字を作らず、読めなかったと返す", () => {
   const r = unreadableSelfCheck({ month: "2026年9月", ym: "2026-09", reason: "日報の棚が読めませんでした" });
   assert.equal(r.readable, false);
-  assert.equal(r.sheetReady, false);
   assert.equal(r.reportCount, 0);
+});
+
+test("読めなかったときは、○×を「×」にしない（測っていないことを不合格にしない・2026-11-06・f1-5）", () => {
+  const r = unreadableSelfCheck({ month: "2026年9月", ym: "2026-09", reason: "日報の棚が読めませんでした" });
+  assert.equal(r.measurable, false, "いまは測れていない");
+  // ★ここが「×」だと、読んだ人は『利益が合っていない＝不合格』と読んでしまう
+  assert.equal(r.sheetReady, null);
+  assert.equal(r.expenseSame, null);
+  assert.equal(r.profitOk, null);
+  assert.equal(r.unpaidOk, null);
+  assert.equal(r.trial.ready, null);
+  assert.equal(r.trial.balanced, null);
+  assert.equal(r.trial.matchesScreen, null);
+  assert.equal(r.cash.reconciles, null);
+  assert.ok(r.summary.includes("いまは測れませんでした"));
+  assert.ok(r.summary.includes("合格にも不合格にもしていません"));
+});
+
+test("読めた月は、今までどおり○×で返す（measurable は true・2026-11-06）", () => {
+  const r = buildSelfCheck({ month: "2026年9月", ym: "2026-09", sheet: sheet() });
+  assert.equal(r.measurable, true);
+  assert.equal(typeof r.sheetReady, "boolean");
+  assert.equal(typeof r.profitOk, "boolean");
+  assert.equal(typeof r.expenseSame, "boolean");
 });
 
 test("同じ日報が2回 入っている疑いも、件数だけ返して言葉に出す（2026-11-03・f1-1）", () => {
