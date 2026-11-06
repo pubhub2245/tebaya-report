@@ -311,6 +311,17 @@ async function loadKeiriMonthServerInner(params: {
    */
   db?: unknown;
   /**
+   * 倉庫の答えを**ためずに**毎回 取りに行くか（2026-11-06・f3-3）。
+   *
+   * ★合否を外から測る窓口は必ず true にすること。
+   *   2026-11-06 の朝、倉庫に届かないのに /api/keiri/firstmonth が **0.37秒で
+   *   「読めました・0件」** と答えていました（＝前の答えがためられていた）。
+   *   0件は「よその店の行が1件も無い＝合格」と読めてしまうので、測る窓口では
+   *   ためた答えを使ってはいけません。
+   * ★手羽屋が毎日使う画面の読み方は変えません（渡さなければ今までどおり）。
+   */
+  fresh?: boolean;
+  /**
    * 倉庫からの返事を待つのをやめる線（ミリ秒・2026-10-16・kp255）。
    * 渡さなければ lib/keiri/readBudget.ts の既定（10秒）。0以下を渡すと線を引かない。
    */
@@ -322,7 +333,9 @@ async function loadKeiriMonthServerInner(params: {
   const monthStart = `${ym}-01`;
   const monthEndDate = shiftDate(shiftDate(monthStart, 32).slice(0, 7) + "-01", -1);
 
-  const db = (params.db as ReturnType<typeof serverClient>) ?? serverClient();
+  const db =
+    (params.db as ReturnType<typeof serverClient>) ??
+    serverClient(params.fresh ? { fresh: true } : undefined);
 
   // よその店として読むときに、倉庫の窓口ごしに聞けるか（f3-4・2026-10-18・kp253 ③）。
   // ★手羽屋のときは false ＝ 読み方はこれまでと1行も変わりません。

@@ -52,6 +52,8 @@ export async function GET(req: NextRequest) {
       ym,
       businessCode: CASE_BUSINESS_CODE,
       scope: TEBAYA_SCOPE,
+      // fresh ＝ ためた答えを使わない（2026-11-06）
+      fresh: true,
       monthOnly: false,
       db,
     });
@@ -132,6 +134,8 @@ async function compareAdvanceWindow(params: {
     ym,
     businessCode: CASE_BUSINESS_CODE,
     scope: TEBAYA_SCOPE,
+    // fresh ＝ ためた答えを使わない（2026-11-06）
+    fresh: true,
     monthOnly: true,
     db,
   });

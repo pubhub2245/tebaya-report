@@ -17,6 +17,7 @@ import {
   FIRST_MONTH_REPORT,
   FIRST_MONTH_SHOP_NAME,
 } from "../lib/keiri/firstMonth";
+import type { WarehouseAlive } from "../lib/keiri/warehouseAlive";
 import { templateFor, TENANT_FALLBACK_SETTINGS } from "../lib/keiri/index";
 import { businessCodeForScope } from "../lib/tenantScope";
 
@@ -42,12 +43,24 @@ function sheets() {
   };
 }
 
-function check(emptyShop = {
-  readable: true,
-  reportCount: 0,
-  cashEventCount: 0,
-  advancesSkipped: true,
-}) {
+/** 倉庫は生きている（対照が取れた）という答え */
+const ALIVE: WarehouseAlive = { alive: true, state: "alive", reason: "手羽屋の行が見えました" };
+/** 倉庫が読めていない（＝測れない）という答え */
+const DOWN: WarehouseAlive = {
+  alive: false,
+  state: "unreachable",
+  reason: "倉庫から返事がありませんでした",
+};
+
+function check(
+  emptyShop = {
+    readable: true,
+    reportCount: 0,
+    cashEventCount: 0,
+    advancesSkipped: true,
+  },
+  warehouse: WarehouseAlive = ALIVE,
+) {
   const { withSetup, withoutSetup } = sheets();
   return buildFirstMonthCheck({
     month: "2026年11月",
@@ -56,6 +69,7 @@ function check(emptyShop = {
     emptyShop,
     withSetup,
     withoutSetup,
+    warehouse,
   });
 }
 
@@ -115,4 +129,24 @@ test("手羽屋の実データは1円も使わない（材料は架空のお店�
   for (const word of ["手羽屋", "もも屋", "ながやま", "PASIO"]) {
     assert.equal(text.includes(word), false);
   }
+});
+
+test("倉庫が読めていないときは、合格にも不合格にもしない（0件を合格と取り違えない）", () => {
+  // 2026-11-06 の朝、本番でこの形が ok: true と答えていた
+  //（よその店として読んで0件・0.37秒・倉庫は止まっていた）
+  const r = check(
+    { readable: true, reportCount: 0, cashEventCount: 0, advancesSkipped: true },
+    DOWN,
+  );
+  assert.equal(r.measurable, false);
+  assert.equal(r.ok, null);
+  assert.ok(r.summary.includes("測れません"));
+  assert.ok(r.problems.some((p) => p.includes("測れません")));
+});
+
+test("倉庫が生きているときは、今までどおり合格と答える", () => {
+  const r = check();
+  assert.equal(r.measurable, true);
+  assert.equal(r.ok, true);
+  assert.equal(r.warehouse.state, "alive");
 });

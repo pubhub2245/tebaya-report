@@ -5,6 +5,7 @@ import { serverClient } from "@/lib/supabaseServer";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 import { resolveReadScope } from "@/lib/keiri/readScope";
 import { probeTenantRpc } from "@/lib/keiri/tenantAccess";
+import { probeWarehouseAlive } from "@/lib/keiri/warehouseAlive";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +36,16 @@ export const dynamic = "force-dynamic";
 const IMPOSSIBLE = "0".repeat(64);
 
 export async function GET() {
-  const db = serverClient();
+  // fresh ＝ 前の答えをためずに毎回 取りに行く（2026-11-06・f3-4）
+  const db = serverClient({ fresh: true });
+
+  // ⓪ 対照：同じつなぎ方で手羽屋の行が1件でも見えるか（2026-11-06・f3-4）
+  //
+  //   ここが要るのは、**断られたことが合格の材料になっている**からです。
+  //   倉庫に届かないとき、でっちあげた合言葉は「決まりが働いたから」ではなく
+  //   「倉庫に聞けなかったから」断られます。それを ok: true と答えると、
+  //   **止まっているのに合格**になります（2026-11-06 の朝、本番でそうなっていました）。
+  const warehouse = await probeWarehouseAlive(db as any);
 
   // ① 倉庫の窓口が生きているか
   const probe = await probeTenantRpc(db as any);
@@ -81,14 +91,24 @@ export async function GET() {
   if (!checks.malformedDenied) problems.push("形になっていない値で入れてしまいます");
   if (!checks.tebayaSecretConfigured) problems.push("手羽屋の合言葉が未設定です");
 
-  const ok = problems.length === 0;
+  // ★倉庫が読めていないときは、上の○×に意味がありません（＝測れない）
+  const measurable = warehouse.alive;
+  if (!measurable) problems.unshift(`いまは測れません：${warehouse.reason}`);
+
+  // null ＝ 測れなかった。**合格にも不合格にもしません**
+  const ok: boolean | null = measurable ? problems.length === 0 : null;
 
   return NextResponse.json(
     stampCheckWindow({
       ok,
+      measurable,
+      warehouse: { alive: warehouse.alive, state: warehouse.state, reason: warehouse.reason },
       checks,
       problems,
-      summary: ok
+      summary: !measurable
+        ? `いまは測れませんでした（${warehouse.reason}）。` +
+          "合格にも不合格にもしていません。倉庫が読めるようになってから、もう一度 開いてください。"
+        : ok
         ? "お店の数字を読む窓口（/api/keiri/month）は、合言葉から お店を決めています。" +
           "でっちあげた合言葉・形になっていない値は、どちらも断りました。" +
           "画面から送られてきたお店の番号は受け取りません（受け取る道がコードにありません）。"

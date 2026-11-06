@@ -20,6 +20,7 @@
  */
 
 import type { KeiriReport, KeiriSettings } from "./types";
+import type { WarehouseAlive } from "@/lib/keiri/warehouseAlive";
 import type { MonthlySample } from "./oneSheet";
 
 /** 確かめに使う架空のお店の名前（実在の店名を入れないこと） */
@@ -114,7 +115,15 @@ export type FirstMonthCheck = {
     /** 設定がまだ読めないときに、払っていない家賃・外注費を勝手に作らないか */
     noFabricatedCost: boolean;
   };
-  ok: boolean;
+  /**
+   * いま測れたか（2026-11-06・f3-3）。
+   * false ＝ 倉庫が読めていないので、**合格にも不合格にもしていません**。
+   */
+  measurable: boolean;
+  /** 倉庫が生きているかを先に1回 確かめた結果（対照） */
+  warehouse: WarehouseAlive;
+  /** 合格か。**null ＝ 測れなかった**（0件を「合格」と取り違えないため） */
+  ok: boolean | null;
   problems: string[];
   summary: string;
   note: string;
@@ -149,8 +158,14 @@ export function buildFirstMonthCheck(params: {
   emptyShop: EmptyShopProbe;
   withSetup: MonthlySample;
   withoutSetup: MonthlySample;
+  /**
+   * 倉庫が生きているかの対照（lib/keiri/warehouseAlive.ts）。
+   * ★**よその店が0件だった**ことだけでは何も証明できません。
+   *   同じつなぎ方で手羽屋の行が見えて初めて、0件に意味が出ます。
+   */
+  warehouse: WarehouseAlive;
 }): FirstMonthCheck {
-  const { month, ym, reportDate, emptyShop, withSetup, withoutSetup } = params;
+  const { month, ym, reportDate, emptyShop, withSetup, withoutSetup, warehouse } = params;
 
   const sales = withSetup.headline.find((h) => h.label === "売上")?.yen ?? NaN;
   const expenseTotal = withSetup.expenseTotal;
@@ -175,8 +190,12 @@ export function buildFirstMonthCheck(params: {
   const sheetReady = withSetup.verify.ok;
   const noFabricatedCost = !hasFabricatedCost(withoutSetup);
 
+  // 倉庫が読めていないときは、ここから下の「0件」に意味がありません（＝測れない）
+  const measurable = warehouse.alive;
+
   const problems: string[] = [];
-  if (!startsEmpty)
+  if (!measurable) problems.push(`いまは測れません：${warehouse.reason}`);
+  else if (!startsEmpty)
     problems.push(
       "まっさらなお店として読んだのに、よそのお店の行が出ています（または倉庫から読めませんでした）",
     );
@@ -188,7 +207,8 @@ export function buildFirstMonthCheck(params: {
   if (!noFabricatedCost)
     problems.push("設定がまだ読めないときに、払っていない家賃・外注費が経費として出ています");
 
-  const ok = problems.length === 0;
+  // ★測れなかったときは null。**合格にも不合格にもしません**
+  const ok: boolean | null = measurable ? problems.length === 0 : null;
 
   return {
     month,
@@ -203,9 +223,14 @@ export function buildFirstMonthCheck(params: {
       cashBalance,
     },
     checks: { startsEmpty, profitShown, cashShown, sheetReady, noFabricatedCost },
+    measurable,
+    warehouse,
     ok,
     problems,
-    summary: ok
+    summary: !measurable
+      ? `いまは測れませんでした（${warehouse.reason}）。` +
+        "合格にも不合格にもしていません。倉庫が読めるようになってから、もう一度 開いてください。"
+      : ok
       ? `まっさらなお店（倉庫の行は0件）に日報を1枚 書いた${reportDate}の時点で、` +
         `今月の利益 ${profit.toLocaleString("ja-JP")}円 と 今の現金 ${cashBalance.toLocaleString(
           "ja-JP",
