@@ -107,6 +107,31 @@ export function canFallbackToBrowserOnDenied(scope: TenantScope): boolean {
   return normalizeTenantScope(scope) === null;
 }
 
+/**
+ * 窓口に **聞けなかった** とき（窓口がまだ無い・通信できない・サーバー側の不調）、
+ * 今までどおりの読み方（ブラウザから倉庫を直にのぞく）に戻してよいか。
+ *
+ * ■ なぜ「断られたとき」と別に書くのか（やさしい説明）
+ *   断られた（合言葉が合わない）のと、聞けなかった（倉庫が止まっている）のは別です。
+ *   ところが **戻してよい相手は同じ**で、手羽屋だけです。
+ *   お店で戻すと、合言葉を確かめられていないのに
+ *   **ブラウザが名乗った番号のお店の帳簿**を開いてしまいます（f3-4 そのもの）。
+ *
+ * ■ ここを1か所にした理由（2026-11-06）
+ *   この決まりは lib/keiri/loadMonth.ts の中に直接書かれていて、
+ *   **外から確かめられませんでした。** そのため合否を測る窓口
+ *   （/api/keiri/readcheck）は「倉庫に聞けない日は、お店の経理画面は今までどおり
+ *   ブラウザから読む道に落ちます」と、**事実と違うことを言っていました**。
+ *   決まりをここに出したので、窓口はこの関数を呼んで ありのままを答えられます。
+ *
+ * ■ 答えは変わっていません（大事）
+ *   お店＝戻さない（何も出さずに止まる）／手羽屋＝戻る。
+ *   2026-10-18 からの動きと1行も同じです。手羽屋の毎日の画面にも触っていません。
+ */
+export function canFallbackToBrowserOnUnavailable(scope: TenantScope): boolean {
+  return normalizeTenantScope(scope) === null;
+}
+
 /** 窓口に聞いた結果の読み分け */
 export type WindowOutcome =
   /** 読めた */

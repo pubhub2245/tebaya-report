@@ -23,6 +23,7 @@ import { applyTenantScope, isTebayaScope, type TenantScope } from "../tenantScop
 import { readKeiriSecret } from "./browserSecret";
 import {
   canFallbackToBrowserOnDenied,
+  canFallbackToBrowserOnUnavailable,
   decideReadSource,
   readWindowOutcome,
 } from "./readSource";
@@ -240,7 +241,11 @@ export async function loadKeiriMonth(params: KeiriMonthParams): Promise<KeiriMon
   // ■ 手羽屋は1行も変わりません
   //   手羽屋（印が空）は、これまでどおり下の「棚を直に読む道」に戻ります。
   //   戻った先が手羽屋の帳簿そのものなので、よその店の数字は1円も出ません。
-  if (!isTebayaScope(scope)) {
+  // ★決まりそのものは lib/keiri/readSource.ts の1か所から引きます（2026-11-06・f3-4）。
+  //   ここに直接書いていたぶん、合否を測る窓口が外から確かめられず、
+  //   「お店もブラウザ直読みに落ちます」と事実と違うことを言っていました。
+  //   答えは1行も変わりません（お店＝止まる／手羽屋＝戻る）。
+  if (!canFallbackToBrowserOnUnavailable(scope)) {
     throw new Error(
       "いまは帳簿を読めませんでした（通信か、サーバー側の窓口の不調）。" +
         "数字を作らないために、ここでは何も出しません。少し待ってから開き直してください。",
