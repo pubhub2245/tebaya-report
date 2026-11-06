@@ -183,6 +183,15 @@ want() { # 期待する値と実際の値を比べる： want 名前 期待 実�
   return 0
 }
 
+# ★「流す前の数」が本当に数で返ったかを確かめる（2026-11-06・B／f3-4・f5-4）
+#   なぜ要るか：流す前の問いが落ちると（棚や欄がまだ無い等）答えは空っぽになります。
+#   空っぽのまま「ほしい値」に使うと $(( + 1)) が 1 になり、
+#   **数えていないのに OK が出ます**（⑪の『入れた1行ぶんだけ』が実際にそうなっていました。
+#   流す前に `keiri_payments.tenant_id` を数えようとして落ち、空っぽのまま通っていました）。
+#   ここで気づいて NG を出し、あわせて -1 に置き換えて後ろの比べ物も必ず外れるようにします。
+num_ok() { case "$1" in ''|*[!0-9]*) echo "数ではありません（$1）" ;; *) echo "数" ;; esac; }
+or_minus1() { case "$1" in ''|*[!0-9]*) echo "-1" ;; *) echo "$1" ;; esac; }
+
 BEFORE_REPORTS="$(q "select count(*)||'/'||count(tenant_id) from public.daily_reports")"
 BEFORE_TEBAYA="$(q "select count(*) from public.daily_reports where tenant_id is null")"
 BEFORE_BACKUP="$(q "select count(*) from public.daily_reports_backup_20260902")"
@@ -190,7 +199,24 @@ BEFORE_BACKUP="$(q "select count(*) from public.daily_reports_backup_20260902")"
 BEFORE_ADV_POLICIES="$(q "select count(*) from pg_policies where tablename='advance_expenses'")"
 # 2026-10-18：⑪は払った記録に読む決まりを1本 足す（流す前の本数と比べる）
 BEFORE_PAY_POLICIES_ALL="$(q "select count(*) from pg_policies where tablename='keiri_payments'")"
-PAY_TEBAYA_BEFORE="$(q "select count(*) from public.keiri_payments where tenant_id is null")"
+# ★2026-11-06：ここは「印の欄」で絞らずに数えます。
+#   貼り紙を流す**前**は、払った記録の棚に『どの店か』の欄そのものがありません（⑨が足します）。
+#   欄で絞ると問いが落ちて空っぽになり、あとの『入れた1行ぶんだけ』が
+#   数えていないのに OK になっていました。流す前の行はぜんぶ手羽屋のもの（印が空）なので、
+#   そのまま総数を数えるのが正しい「流す前の数」です。
+PAY_TEBAYA_BEFORE="$(q "select count(*) from public.keiri_payments")"
+
+# 流す前の数が、ぜんぶ数で返ったか（1つでも NG なら、あとの比べ物は信じられません）
+want "流す前に数えられた：手羽屋の日報" "数" "$(num_ok "$BEFORE_TEBAYA")"
+want "流す前に数えられた：日報の控え" "数" "$(num_ok "$BEFORE_BACKUP")"
+want "流す前に数えられた：立替（経営）の決まりの本数" "数" "$(num_ok "$BEFORE_ADV_POLICIES")"
+want "流す前に数えられた：払った記録の決まりの本数" "数" "$(num_ok "$BEFORE_PAY_POLICIES_ALL")"
+want "流す前に数えられた：払った記録の行数" "数" "$(num_ok "$PAY_TEBAYA_BEFORE")"
+BEFORE_TEBAYA="$(or_minus1 "$BEFORE_TEBAYA")"
+BEFORE_BACKUP="$(or_minus1 "$BEFORE_BACKUP")"
+BEFORE_ADV_POLICIES="$(or_minus1 "$BEFORE_ADV_POLICIES")"
+BEFORE_PAY_POLICIES_ALL="$(or_minus1 "$BEFORE_PAY_POLICIES_ALL")"
+PAY_TEBAYA_BEFORE="$(or_minus1 "$PAY_TEBAYA_BEFORE")"
 
 # --- 貼り紙を3回 流す ---------------------------------------------------------
 for i in 1 2 3; do
@@ -275,6 +301,13 @@ want "⑧ 書き換えて取り出す道でも読めない" "0" "$(q "set role a
 want "⑧ 窓口は、その店の日報を返す" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_reports(null,'2026-09-07','2026-09-07','test-b2-kensa-1006')")"
 want "⑧ 窓口は、⑥で入れた手順5の日報も返す" "1" "$(q "set role anon; select count(*) from public.keiri_tenant_reports(null,'2026-10-06','2026-10-06','test-b2-kensa-1006')")"
 want "⑧ 窓口は、知らない印には何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_reports(null,null,null,'test-knowhere')")"
+# ★2026-11-06：**合否を決めるときと同じ聞き方**でも返るか（f3-4）。
+#   合否を測る所（lib/keiri/tenantReadGuard.ts）は、期間を**両方 null**にして
+#   テストの印だけで聞きます。上の2行は期間を日付で指定しているので、
+#   この聞き方は一度も試していませんでした。ここで0件が返る作りだと、
+#   貼り紙を貼っても『よその行はあるのに見えない』が成り立たず、
+#   **f3-4 はいつまでも「まだ試せていません」のまま**になります。
+want "⑧ 窓口は、期間を指定しなくても その店の日報を返す（合否の聞き方）" "2" "$(q "set role anon; select count(*) from public.keiri_tenant_reports(null,null,null,'test-b2-kensa-1006')")"
 want "⑧ 窓口は、合言葉のかたちでなければ何も返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_reports('ちがう合言葉',null,null,null)")"
 want "⑧ 窓口はレシート写真の住所を返さない" "0" "$(q "set role anon; select count(*) from public.keiri_tenant_reports(null,null,null,'test-b2-kensa-1006') w, jsonb_array_elements(w -> 'expenses') x where x ? 'receipt_image_url'")"
 # --- ⑧のあと、アプリ側（公開の鍵）で何ができないか（2026-10-17 追記・f5-4） --------
