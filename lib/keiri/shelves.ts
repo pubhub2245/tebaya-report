@@ -267,12 +267,12 @@ export function summarizeShelves(reports: ShelfReport[]): {
  */
 export const SHELF_SQL_DRYRUN = {
   /** 下見をした日 */
-  at: "2026-11-02",
+  at: "2026-11-06",
   by: "B",
   /** 続けて何回 流したか（2回目以降は「何も起きない」ことを見るため） */
   runs: 3,
   /** その回に「OK」が出た確かめの数（NG は0件） */
-  checks: 204,
+  checks: 210,
   /**
    * 下見を通した**そのときの貼り紙の指紋**（SHA-256）。
    *
