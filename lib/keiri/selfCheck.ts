@@ -25,32 +25,37 @@ export type KeiriSelfCheck = {
   ym: string;
   /** 倉庫から前の月のデータが読めたか */
   readable: boolean;
+  /**
+   * いま測れたか（2026-11-06・f1-5）。
+   * false のときは、下の○×は**ぜんぶ null**です（合格にも不合格にもしていません）。
+   */
+  measurable: boolean;
   /** 集計に使った日報の件数（金額ではないので出す） */
   reportCount: number;
   /** 会計ソフト向けCSVの行数（0なら作れていない） */
   csvRowCount: number;
-  /** かかったお金を3通りに数えて、3つとも同じ数字になったか（f1-2） */
-  expenseSame: boolean;
-  /** 売上 − かかったお金 ＝ 残ったお金 になっているか */
-  profitOk: boolean;
-  /** まだ払っていないお金の内訳の合計が、その見出しと合っているか */
-  unpaidOk: boolean;
+  /** かかったお金を3通りに数えて、3つとも同じ数字になったか（f1-2）。null ＝ 測れていない */
+  expenseSame: boolean | null;
+  /** 売上 − かかったお金 ＝ 残ったお金 になっているか。null ＝ 測れていない */
+  profitOk: boolean | null;
+  /** まだ払っていないお金の内訳の合計が、その見出しと合っているか。null ＝ 測れていない */
+  unpaidOk: boolean | null;
   /**
    * 試算表（科目ごとの借方・貸方の合計）が出て、左右の合計が合っているか（f1-7）。
    * ★金額は返しません。合っているかと、何科目あるかだけです。
    */
   trial: {
-    /** 試算表が作れたか（科目が1つ以上あるか） */
-    ready: boolean;
-    /** 左の合計 ＝ 右の合計 */
-    balanced: boolean;
+    /** 試算表が作れたか（科目が1つ以上あるか）。null ＝ 測れていない */
+    ready: boolean | null;
+    /** 左の合計 ＝ 右の合計。null ＝ 測れていない */
+    balanced: boolean | null;
     /** 科目の数 */
     accountCount: number;
-    /** 試算表の売上・かかったお金・利益が、画面の数字と1円まで同じか */
-    matchesScreen: boolean;
+    /** 試算表の売上・かかったお金・利益が、画面の数字と1円まで同じか。null ＝ 測れていない */
+    matchesScreen: boolean | null;
   };
-  /** 3つとも合ったか（＝1枚をお店に出せる状態か） */
-  sheetReady: boolean;
+  /** 3つとも合ったか（＝1枚をお店に出せる状態か）。null ＝ 測れていない */
+  sheetReady: boolean | null;
   /** 合っていない所（金額は伏せてある） */
   problems: string[];
   /**
@@ -59,7 +64,8 @@ export type KeiriSelfCheck = {
    * ・advanceCount / noncashCount … 金庫から出ていないと見分けた行の数
    */
   cash: {
-    reconciles: boolean;
+    /** null ＝ 測れていない */
+    reconciles: boolean | null;
     advanceCount: number;
     noncashCount: number;
   };
@@ -82,23 +88,39 @@ export type KeiriSelfCheck = {
 export const SELF_CHECK_NOTE =
   "読むだけの窓口です。金額・お店の名前・連絡先・鍵の値は1文字も返しません。";
 
-/** 読めなかったときの返事（数字を作らない） */
+/**
+ * 読めなかったときの返事（数字を作らない）。
+ *
+ * ★2026-11-06（f1-5・f1-2・f1-7）：**○×を「×」にしません。**
+ *   それまでは、倉庫が読めなかった日も
+ *   `expenseSame: false` `profitOk: false` `trial.balanced: false` `cash.reconciles: false`
+ *   と「×」で返していました。読んでいないのに×なので、
+ *   これを見た検査役は「利益が合っていない＝不合格」と読めてしまいます
+ *   （**測っていないことを不合格にする**形）。
+ *   逆向きの同じ間違い（止まっているのに合格）は 11/6 のお昼に
+ *   合否を測る3つの窓口でふさぎました。ここは**まとめの窓口**の同じ穴です。
+ *   いまは `measurable: false` と、○×ぜんぶ **null（測れていない）** で返します。
+ */
 export function unreadableSelfCheck(params: { month: string; ym: string; reason: string }): KeiriSelfCheck {
   return {
     month: params.month,
     ym: params.ym,
     readable: false,
+    measurable: false,
     reportCount: 0,
     csvRowCount: 0,
-    expenseSame: false,
-    profitOk: false,
-    unpaidOk: false,
-    trial: { ready: false, balanced: false, accountCount: 0, matchesScreen: false },
-    cash: { reconciles: false, advanceCount: 0, noncashCount: 0 },
-    sheetReady: false,
+    expenseSame: null,
+    profitOk: null,
+    unpaidOk: null,
+    trial: { ready: null, balanced: null, accountCount: 0, matchesScreen: null },
+    cash: { reconciles: null, advanceCount: 0, noncashCount: 0 },
+    sheetReady: null,
     problems: [maskYen(params.reason)],
     needsHuman: { unmatched: 0, duplicate: 0, duplicateReports: 0, noReceipt: null },
-    summary: `${params.month}：倉庫から読めませんでした（${params.reason}）`,
+    summary:
+      `${params.month}：いまは測れませんでした（${params.reason}）。` +
+      "合格にも不合格にもしていません（○×はぜんぶ「測れていない」で返しています）。" +
+      "倉庫が読めるようになってから、もう一度 開いてください。",
     note: SELF_CHECK_NOTE,
   };
 }
@@ -139,6 +161,7 @@ export function buildSelfCheck(params: {
     month: params.month,
     ym: params.ym,
     readable: true,
+    measurable: true,
     reportCount: sheet.reportCount,
     csvRowCount: sheet.journalRowCount,
     expenseSame: sheet.expenseCheck.same,
