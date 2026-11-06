@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import {
   KEIRI_SHOP_AUTH_KEY,
   canFallbackToBrowserOnDenied,
+  canFallbackToBrowserOnUnavailable,
   decideReadSource,
   effectiveKeiriScope,
   readAuthedKeiriScope,
@@ -182,4 +183,31 @@ test("マスタに足す行の印：手羽屋は今までどおり印が空", ()
     tenantStamp(currentShopScope(fakeStore(null), fakeStore(null))),
     { tenant_id: null },
   );
+});
+
+/* ------------------------------------------------------------------ *
+ *  窓口に「聞けなかった」とき、戻してよいのは手羽屋だけ（2026-11-06・f3-4）
+ *
+ *  ■ ここが狂うと何が起きるか
+ *    倉庫が止まっている日に、合言葉を確かめられていない相手へ
+ *    **ブラウザが名乗った番号のお店の帳簿**を出してしまいます。
+ *    この決まりは lib/keiri/loadMonth.ts の中に直接書かれていて外から見えず、
+ *    合否を測る窓口が「お店もブラウザ直読みに落ちます」と事実と違うことを
+ *    言っていました（A が 11/6 18:04 に指摘）。
+ * ------------------------------------------------------------------ */
+test("聞けなかったときに戻してよいのは手羽屋だけ", () => {
+  assert.equal(canFallbackToBrowserOnUnavailable(null), true);
+  assert.equal(canFallbackToBrowserOnUnavailable(""), true);
+  assert.equal(canFallbackToBrowserOnUnavailable(SHOP), false);
+  assert.equal(canFallbackToBrowserOnUnavailable(OTHER), false);
+});
+
+test("断られたときと、聞けなかったときで、戻してよい相手は同じ", () => {
+  for (const scope of [null, SHOP, OTHER]) {
+    assert.equal(
+      canFallbackToBrowserOnUnavailable(scope),
+      canFallbackToBrowserOnDenied(scope),
+      "片方だけ変えると、どちらかの道だけが開きます",
+    );
+  }
 });

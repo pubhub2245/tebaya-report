@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { serverClient } from "@/lib/supabaseServer";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 import { resolveReadScope } from "@/lib/keiri/readScope";
+import { canFallbackToBrowserOnUnavailable } from "@/lib/keiri/readSource";
 import { probeTenantRpc } from "@/lib/keiri/tenantAccess";
 import { probeWarehouseAlive } from "@/lib/keiri/warehouseAlive";
 
@@ -27,6 +28,9 @@ export const dynamic = "force-dynamic";
  *      ★当たるはずのない合言葉（0が64個）で1回だけ叩きます。必ず0行が返ります。
  *   ② でっちあげた合言葉では入れないか（断るか）
  *   ③ 形になっていない値では、倉庫を叩く前に断るか
+ *   ④ ★窓口に聞けないとき、お店の経理画面が**ブラウザ直読みに落ちない**か
+ *      （2026-11-06 追加。ここは通信をしない ただの決まりなので、
+ *        **倉庫が止まっている日でも測れます**。f3-4 の中身そのもの）
  *
  * ■ 返さないもの
  *   金額・お店の名前・連絡先・合言葉・鍵の値は**1文字も返しません**。
@@ -69,27 +73,62 @@ export async function GET() {
     rpc: db as any,
   });
 
+  // ★「断った」と「聞けなかった」を取り違えない（2026-11-06・f3-4）。
+  //   倉庫が止まっている日、でっちあげた合言葉は「決まりが働いたから」ではなく
+  //   「倉庫に聞けなかったから」通りません。それを ○ と書くのも × と書くのも嘘になります。
+  //   null ＝ いまは確かめられなかった、とだけ答えます。
+  const madeUpSecretDenied: boolean | null =
+    made.outcome === "denied"
+      ? true
+      : made.outcome === "unavailable"
+      ? null
+      : false;
+
+  // ★倉庫が止まっていても確かめられる決まり（2026-11-06・f3-4）。
+  //   窓口に聞けなかったとき、お店の経理画面は**今までどおりの読み方に戻りません**
+  //   （何も出さずに止まります）。戻るのは手羽屋だけ＝戻った先が手羽屋の帳簿そのもの。
+  //   ここは通信をしない ただの決まりなので、**倉庫が止まっている日でも測れます。**
+  const shopStopsWhenWindowUnavailable =
+    canFallbackToBrowserOnUnavailable("11111111-2222-3333-4444-555555555555") === false &&
+    canFallbackToBrowserOnUnavailable(null) === true;
+
   const checks = {
     /** 倉庫の窓口が生きている（合言葉からお店を探せる） */
     loginWindowAlive: probe.usable,
-    /** でっちあげた合言葉では入れない */
-    madeUpSecretDenied: made.outcome === "denied",
+    /** でっちあげた合言葉では入れない（null ＝ いまは確かめられなかった） */
+    madeUpSecretDenied,
     /** 形になっていない値も入れない */
     malformedDenied: malformed.outcome === "denied",
     /** 手羽屋の合言葉が設定されている（未設定だと誰も入れない） */
     tebayaSecretConfigured: tebayaHash !== "",
+    /** ★窓口に聞けないとき、お店の画面は止まる（ブラウザ直読みに落ちない）。倉庫が止まっていても測れる */
+    shopStopsWhenWindowUnavailable,
   };
 
   const problems: string[] = [];
   if (!checks.loginWindowAlive) {
     problems.push(
       "倉庫の窓口（合言葉からお店を探す窓口）が呼べません。" +
-        "このあいだ、お店の経理画面は今までどおりブラウザから読む道に落ちます",
+        "このあいだ お店の経理画面は、今までどおりの読み方に戻らず**何も出さずに止まります**" +
+        "（戻るのは手羽屋だけ＝戻った先が手羽屋の帳簿そのものです）",
     );
   }
-  if (!checks.madeUpSecretDenied) problems.push("でっちあげた合言葉で入れてしまいます");
+  // ★ null（いまは確かめられなかった）を「入れてしまいます」と書かない
+  if (checks.madeUpSecretDenied === false) {
+    problems.push("でっちあげた合言葉で入れてしまいます");
+  } else if (checks.madeUpSecretDenied === null) {
+    problems.push(
+      "でっちあげた合言葉を断るかは、いまは確かめられませんでした" +
+        "（倉庫に聞けないので「断った」のか「聞けなかった」のか分けられません）",
+    );
+  }
   if (!checks.malformedDenied) problems.push("形になっていない値で入れてしまいます");
   if (!checks.tebayaSecretConfigured) problems.push("手羽屋の合言葉が未設定です");
+  if (!checks.shopStopsWhenWindowUnavailable) {
+    problems.push(
+      "窓口に聞けないときに、お店の経理画面がブラウザから倉庫を直に読む道に落ちます（f3-4）",
+    );
+  }
 
   // ★倉庫が読めていないときは、上の○×に意味がありません（＝測れない）
   const measurable = warehouse.alive;
@@ -107,7 +146,12 @@ export async function GET() {
       problems,
       summary: !measurable
         ? `いまは測れませんでした（${warehouse.reason}）。` +
-          "合格にも不合格にもしていません。倉庫が読めるようになってから、もう一度 開いてください。"
+          "合格にも不合格にもしていません。倉庫が読めるようになってから、もう一度 開いてください。" +
+          `｜倉庫が止まっていても測れることが1つあります：窓口に聞けないとき、お店の経理画面は${
+            checks.shopStopsWhenWindowUnavailable
+              ? "何も出さずに止まります（ブラウザ直読みには落ちません）"
+              : "ブラウザから倉庫を直に読む道に落ちます（ここが開いています）"
+          }。`
         : ok
         ? "お店の数字を読む窓口（/api/keiri/month）は、合言葉から お店を決めています。" +
           "でっちあげた合言葉・形になっていない値は、どちらも断りました。" +
