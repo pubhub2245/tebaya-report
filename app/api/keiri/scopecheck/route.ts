@@ -4,6 +4,8 @@ import { loadKeiriMonthServer } from "@/lib/keiri/loadMonthServer";
 import { previousMonthRange, CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import { businessCodeForScope } from "@/lib/tenantScope";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
+import { serverClient } from "@/lib/supabaseServer";
+import { probeWarehouseAlive } from "@/lib/keiri/warehouseAlive";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,22 +36,55 @@ export async function GET() {
   const { start, label } = previousMonthRange(new Date());
   const ym = start.slice(0, 7);
 
+  // ★つなぐものは1つ作って、対照と2通りの読みで**同じもの**を使う。
+  //   fresh ＝ 前の答えをためずに毎回 取りに行く（2026-11-06・f3-4）
+  const db = serverClient({ fresh: true });
+
   try {
+    // ⓪ 対照：同じつなぎ方で手羽屋の行が1件でも見えるか（見えなければ測れない）
+    const warehouse = await probeWarehouseAlive(db as any);
+
+    // ★測れないと分かったら、2通りの読みには行きません（白い時間を短くする・kp255）
+    if (!warehouse.alive) {
+      return jsonWindow({
+        month: label,
+        ym,
+        measurable: false,
+        warehouse: { alive: false, state: warehouse.state, reason: warehouse.reason },
+        separated: null,
+        summary:
+          `いまは測れませんでした（${warehouse.reason}）。` +
+          "合格にも不合格にもしていません。倉庫が読めるようになってから、もう一度 開いてください",
+        note: "読むだけの窓口です。金額・お店の名前・連絡先・鍵の値は1文字も返しません",
+      });
+    }
+
     const [mine, other] = await Promise.all([
-      loadKeiriMonthServer({ ym, businessCode: CASE_BUSINESS_CODE, monthOnly: true }),
+      loadKeiriMonthServer({ ym, businessCode: CASE_BUSINESS_CODE, monthOnly: true, db }),
       loadKeiriMonthServer({
         ym,
         businessCode: businessCodeForScope(NOBODY),
         scope: NOBODY,
         monthOnly: true,
+        db,
       }),
     ]);
 
-    const separated =
-      !mine.reportsUnreadable &&
-      other.reports.length === 0 &&
-      other.advances.length === 0 &&
-      other.advancesSkipped === true;
+    /**
+     * いま測れるか（2026-11-06・f3-4）。
+     * ★倉庫が読めていないときの「0件」は、分かれている証拠になりません。
+     *   それどころか、これまでは **「よそのお店として読んだのに行が出ています」**
+     *   という**事実と違う理由**を返していました（行は0件なのに）。
+     *   じゅんや検査役がその理由を追いかけても、どこにも見つかりません。
+     *   ＝ 測れないときは「測れません」と答えます（合格にも不合格にもしません）。
+     */
+    const measurable = warehouse.alive && !mine.reportsUnreadable;
+
+    const separated: boolean | null = !measurable
+      ? null
+      : other.reports.length === 0 &&
+        other.advances.length === 0 &&
+        other.advancesSkipped === true;
 
     return jsonWindow({
       month: label,
@@ -79,8 +114,13 @@ export async function GET() {
           other.cashUnreadable &&
           other.ignoresUnreadable,
       },
+      measurable,
+      warehouse: { alive: warehouse.alive, state: warehouse.state, reason: warehouse.reason },
       separated,
-      summary: separated
+      summary: !measurable
+        ? `いまは測れませんでした（${warehouse.reason}）。` +
+          "合格にも不合格にもしていません。倉庫が読めるようになってから、もう一度 開いてください"
+        : separated
         ? `${label}：手羽屋として読むと日報 ${mine.reports.length}件、居ないお店として読むと 0件。` +
           "立替の棚は手羽屋のときだけ読み、よそのお店には読みません（混ざりません）"
         : "分かれていません。よそのお店として読んだのに行が出ています",
@@ -97,8 +137,9 @@ export async function GET() {
     return jsonWindow({
       month: label,
       ym,
-      separated: false,
-      summary: "倉庫との通信に失敗したので、確かめられませんでした",
+      measurable: false,
+      separated: null,
+      summary: "倉庫との通信に失敗したので、確かめられませんでした（合格にも不合格にもしていません）",
       note: "読むだけの窓口です。金額・お店の名前・連絡先・鍵の値は1文字も返しません",
     });
   }

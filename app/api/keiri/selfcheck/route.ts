@@ -60,7 +60,13 @@ export async function GET(req: NextRequest) {
   const ym = /^\d{4}-(0[1-9]|1[0-2])$/.test(asked) ? asked : start.slice(0, 7);
   const label = monthLabelOf(ym);
   try {
-    const data = await loadKeiriMonthServer({ ym, businessCode: CASE_BUSINESS_CODE });
+    // fresh ＝ 前の答えをためずに毎回 取りに行く（2026-11-06・f1-5）。
+    // ためた答えを使うと、倉庫が止まっている日に**古い月の答え**がそのまま返ります。
+    const data = await loadKeiriMonthServer({
+      ym,
+      businessCode: CASE_BUSINESS_CODE,
+      fresh: true,
+    });
     if (data.reportsUnreadable) {
       return jsonWindow(
         unreadableSelfCheck({ month: label, ym, reason: "日報の棚が読めませんでした" }),

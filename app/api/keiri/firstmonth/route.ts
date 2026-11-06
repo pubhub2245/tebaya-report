@@ -10,6 +10,8 @@ import {
 } from "@/lib/keiri/firstMonth";
 import { templateFor, TENANT_FALLBACK_SETTINGS } from "@/lib/keiri/index";
 import { businessCodeForScope } from "@/lib/tenantScope";
+import { serverClient } from "@/lib/supabaseServer";
+import { probeWarehouseAlive } from "@/lib/keiri/warehouseAlive";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 
 export const runtime = "nodejs";
@@ -25,6 +27,13 @@ export const dynamic = "force-dynamic";
  *   ① 倉庫を**まっさらなお店として**読む … 日報0件・金庫の記録0件＝新しいお店の状態
  *   ② そこへ**架空の日報を1枚だけ**置き、**本物と同じ関数**に1枚の要約を作らせる
  *   → 利益と現金が出るか、別の道で数え直して合うかを返します。
+ *
+ * ■ 先に「倉庫が生きているか」を確かめます（2026-11-06・f3-3）
+ *   よその店として読んで0件だったことだけでは、何も証明できません。
+ *   倉庫に届かないとき「0件」が返ると、**止まっているのに合格**と読めてしまいます
+ *   （2026-11-06 の朝、本番で実際にそうなっていました）。
+ *   そこで同じつなぎ方で**手羽屋の行が1件でも見えるか**を先に見て、
+ *   見えないときは `ok: null`（＝いまは測れません）と答えます。
  *
  * ★1行も書き込みません。
  * ★出している金額はすべて架空のお店のもので、手羽屋の実データは1円も入りません。
@@ -48,6 +57,15 @@ export async function GET() {
   const businessCode = businessCodeForScope(NOBODY);
   const template = templateFor(businessCode);
 
+  // ★倉庫につなぐものを**ここで1つ作って、対照と本番の読みで同じものを使う**
+  //   （別のつなぎ方で確かめると「あちらは読めるがこちらは読めない」を見逃します）。
+  //   fresh ＝ 前の答えをためずに毎回 取りに行く（2026-11-06・f3-3）。
+  const db = serverClient({ fresh: true });
+
+  // ⓪ 対照：同じつなぎ方で**手羽屋の行が1件でも見えるか**。
+  //    見えなければ、このあとの「よその店は0件」には意味がありません（＝測れない）。
+  const warehouse = await probeWarehouseAlive(db as any);
+
   // ① まっさらなお店として倉庫を読む（読むだけ・件数しか見ない）
   let emptyShop = {
     readable: false,
@@ -55,12 +73,16 @@ export async function GET() {
     cashEventCount: 0,
     advancesSkipped: false,
   };
+  // ★測れないと分かったら、月の数字は読みに行きません
+  //   （倉庫に届かないとき、1つの棚につき4回 試して7.1秒かかるため・kp255）
   try {
+    if (!warehouse.alive) throw new Error("skip");
     const data = await loadKeiriMonthServer({
       ym,
       businessCode,
       scope: NOBODY,
       monthOnly: true,
+      db,
     });
     emptyShop = {
       readable: !data.reportsUnreadable,
@@ -96,6 +118,7 @@ export async function GET() {
     emptyShop,
     withSetup,
     withoutSetup,
+    warehouse,
   });
 
   return NextResponse.json(stampCheckWindow(result), { status: 200, headers: CHECK_WINDOW_HEADERS });
