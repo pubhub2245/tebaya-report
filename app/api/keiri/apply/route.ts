@@ -244,6 +244,14 @@ export async function POST(req: NextRequest) {
   if (dryRun) {
     // ★ここで終わり。知らせも控えも、読み取りもしません。
     const route = routeFromNote(parsed.value.note);
+    /**
+     * ★「控えが残らなかったとき」の2通目も、下見で読めるようにする（2026-11-07・f2-1）。
+     *   2通目は本物の失敗のときだけ出るので、外からは一度も確かめられませんでした
+     *   （確かめるために本物を失敗させるわけにはいきません）。
+     *   下見は**何も送らず・何も書かず**なので、ここに「出るはずの文」を返します。
+     *   返すのは送られてきた中身から組んだ文だけで、倉庫の中身・鍵・合言葉は1文字も入りません。
+     */
+    const wouldRestoreUrl = applyRestoreUrl(new URL(req.url).origin, parsed.value);
     return NextResponse.json({
       ok: true,
       test: true,
@@ -262,6 +270,20 @@ export async function POST(req: NextRequest) {
         note: parsed.value.note,
       },
       notice: APPLY_TEST_NOTICE,
+      // ★控えが残らなかったときに出す2通目（出るはずの中身・ここでは送りません）
+      saveFailureNotice: {
+        sentNow: false,
+        when: "本物のお申し込みで、知らせは届いたが棚に1行も残らなかったときだけ送ります",
+        restoreUrl: wouldRestoreUrl,
+        restoreUrlNote: wouldRestoreUrl
+          ? "このリンクを開くと、お申し込みの画面が同じ中身のまま開きます（送信を1回 押すと棚に残ります）"
+          : "中身が長いためリンクは付きません（文に中身だけを残します）",
+        text: applySaveFailureNoticeText({
+          application: parsed.value,
+          restoreUrl: wouldRestoreUrl,
+          reason: "（下見なので、理由はまだ分かりません）",
+        }),
+      },
     });
   }
 
