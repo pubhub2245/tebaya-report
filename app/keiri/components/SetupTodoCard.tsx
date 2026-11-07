@@ -62,6 +62,14 @@ export default function SetupTodoCard({ here }: { here?: string } = {}) {
         🙋 のこりの手続き（じゅんだけ・{todo.remaining}件）
       </h2>
       <p className="mt-1 text-sm leading-relaxed text-amber-900">{todo.summary}</p>
+      {/* ★倉庫から返事が来ていない日は、いちばん先に言う（2026-11-07・f1-4）。
+             この1行が無いと「のこり2件・3分ほど」とだけ読めて、押した1分が
+             何も残らないまま終わります（押しても答えが出ません）。 */}
+      {todo.warehouseNote && (
+        <p className="mt-2 rounded-lg border border-amber-400 bg-white p-2 text-sm font-bold leading-relaxed text-amber-900">
+          {todo.warehouseNote}
+        </p>
+      )}
       {/* ★「上が済むまで下は意味が無い」と読まれないように出す（2026-10-15・f1-4）。
              実際にそう読まれて、1分で済む手続きが2分の手続きを待っていました。 */}
       {todo.independentNote && (

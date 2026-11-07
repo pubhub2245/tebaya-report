@@ -232,6 +232,8 @@ export function summarizeShelves(reports: ShelfReport[]): {
   allDone: boolean;
   done: number;
   total: number;
+  /** 確かめられなかった本数（2026-11-07 追加・のこりと混ぜないため） */
+  unknown: number;
   summary: string;
 } {
   const done = reports.filter((r) => r.state === "ある").length;
@@ -243,7 +245,7 @@ export function summarizeShelves(reports: ShelfReport[]): {
     : unknown > 0
       ? `${done}／${total} が流れています。${unknown} 件は確かめられませんでした`
       : `${done}／${total} が流れています。残りは /keiri/sql の貼り紙を1回 貼るだけです`;
-  return { allDone, done, total, summary };
+  return { allDone, done, total, unknown, summary };
 }
 
 /* ------------------------------------------------------------------ *

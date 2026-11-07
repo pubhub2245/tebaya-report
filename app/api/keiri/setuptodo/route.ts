@@ -49,7 +49,13 @@ export async function GET() {
   });
 
   const todo = buildSetupTodo({
-    shelves: { done: shelfSummary.done, total: shelfSummary.total },
+    // ★unknown も渡す（2026-11-07）。渡さないと「確かめられなかった本数」が
+    //   「のこり」に混ざり、倉庫が眠っている日に『のこり 9 本』と数えたふりをする
+    shelves: {
+      done: shelfSummary.done,
+      total: shelfSummary.total,
+      unknown: shelfSummary.unknown,
+    },
     key: { configured: key.configured, usable: key.usable },
     cash: cash.unreadable
       ? null

@@ -13,7 +13,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildSetupTodo, minutesOf, totalMinutes } from "../lib/keiri/setupTodo";
+import {
+  buildSetupTodo,
+  minutesOf,
+  totalMinutes,
+  warehouseAnswering,
+} from "../lib/keiri/setupTodo";
 
 const ALL_UNDONE = {
   shelves: { done: 0, total: 6 },
@@ -259,4 +264,67 @@ test("写真の1タップだけは鍵のあと、と1行で言う", () => {
   const t = buildSetupTodo({ ...ALL_UNDONE, photo: { bucketPublic: true, keyUsable: false } });
   assert.ok(t.independentNote);
   assert.match(t.independentNote!, /鍵を貼り直す/);
+});
+
+
+/* ------------------------------------------------------------------ *
+ *  倉庫から返事が来ていない日（2026-11-07・B／f1-4）
+ *
+ *  ■ なぜこの試験が要るのか（本番でそうなっていた）
+ *    2026-11-07、倉庫が眠っているのに この一覧は
+ *    「のこりの手続きは 2 件です（合わせて 3分ほど）」と出し、
+ *    貼り紙の行は **「4／13 が流れています（のこり 9 本）」**と、
+ *    1本も確かめられていないのに数えたふりをしていました。
+ *    じゅんが開くと「いま押せる」と読めますが、押しても答えは出ません。
+ * ------------------------------------------------------------------ */
+
+const ASLEEP = {
+  // 13本ぜんぶ「確かめられませんでした」＝数えていない
+  shelves: { done: 0, total: 13, unknown: 13 },
+  key: { configured: true, usable: false },
+  cash: null,
+  photo: null,
+};
+
+test("1本も確かめられなかった貼り紙は「のこり◯本」と言わない", () => {
+  const row = buildSetupTodo(ASLEEP).items.find((i) => i.id === "shelves")!;
+  assert.equal(row.state, "分からない");
+  assert.match(row.detail, /確かめられませんでした/);
+  assert.doesNotMatch(row.detail, /流れています/);
+  assert.doesNotMatch(row.detail, /のこり/);
+});
+
+test("一部だけ確かめられなかったときは、のこりと分けて書く", () => {
+  const row = buildSetupTodo({
+    ...ASLEEP,
+    shelves: { done: 4, total: 13, unknown: 2 },
+  }).items.find((i) => i.id === "shelves")!;
+  assert.equal(row.state, "のこり");
+  assert.match(row.detail, /のこり 7 本/);
+  assert.match(row.detail, /2 本は確かめられませんでした/);
+});
+
+test("倉庫から返事が来ていない日は、押しても進まないものを名指しする", () => {
+  const t = buildSetupTodo(ASLEEP);
+  assert.equal(warehouseAnswering(ASLEEP), false);
+  assert.ok(t.warehouseNote, "倉庫が眠っている1行が出ていません");
+  assert.match(t.warehouseNote!, /貼り紙/);
+  assert.match(t.warehouseNote!, /金庫/);
+  // いまでもできる1つ（鍵は倉庫を使わないので押せる）を言う
+  assert.match(t.warehouseNote!, /鍵を貼り直す/);
+  // 鍵の行だけは「のこり」のまま（押せるものを消さない）
+  const key = t.items.find((i) => i.id === "key")!;
+  assert.equal(key.state, "のこり");
+});
+
+test("倉庫が答えているときは、その1行を出さない", () => {
+  // 片方でも答えていれば出さない（1つの棚が読めないのは前からあるため）
+  const answering = {
+    ...ASLEEP,
+    shelves: { done: 0, total: 13, unknown: 13 },
+    cash: { shelfMissing: true, counted: false },
+  };
+  assert.equal(warehouseAnswering(answering), true);
+  assert.equal(buildSetupTodo(answering).warehouseNote, null);
+  assert.equal(buildSetupTodo(ALL_UNDONE).warehouseNote, null);
 });

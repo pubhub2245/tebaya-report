@@ -76,6 +76,18 @@ export type SetupTodo = {
   /** 1行のまとめ */
   summary: string;
   /**
+   * 倉庫（データのしまい場所）から返事が来ていないときの1行（2026-11-07・f1-4）。
+   *
+   * ■ なぜ要るのか
+   *   倉庫が眠っている日は、貼り紙と金庫の1分は**押しても答えが出ません**。
+   *   ところがこの一覧は「のこり2件・3分ほど」とだけ出していたので、
+   *   じゅんが開くと**いま押せるように見えます**（押した1分は何も残りません）。
+   *   いまでもできるのは［サーバー側の鍵を貼り直す］だけなので、そこまで書きます。
+   *   答えが来ていないかどうかは、2つの別々の読み（貼り紙の13本・金庫の記録）が
+   *   **両方とも**答えなかったときだけ言います（1つだけなら、その棚の都合かもしれないため）。
+   */
+  warehouseNote: string | null;
+  /**
    * 「3つは互いに待っていない」ことを1行で（2026-10-15・f1-4）。
    *
    * のこりが2件以上のときだけ出す。順番に見えると
@@ -87,8 +99,13 @@ export type SetupTodo = {
 
 /** 窓口が倉庫を読んで分かったこと。読めなければ null（＝分からない） */
 export type SetupTodoInput = {
-  /** 貼り紙が何本 流れたか */
-  shelves: { done: number; total: number } | null;
+  /**
+   * 貼り紙が何本 流れたか。
+   * unknown＝**確かめられなかった本数**（2026-11-07 追加）。
+   * これを渡さないと「確かめられなかった」が「まだ流れていない（のこり）」に
+   * 混ざり、倉庫が眠っている日に『のこり 9 本』と**数えたふり**をしてしまいます。
+   */
+  shelves: { done: number; total: number; unknown?: number } | null;
   /** サーバー側の鍵 */
   key: { configured: boolean; usable: boolean } | null;
   /**
@@ -140,13 +157,23 @@ function shelvesItem(input: SetupTodoInput["shelves"]): SetupTodoItem {
   if (input.total > 0 && input.done >= input.total) {
     return { ...base, state: "済み", detail: `${input.done}／${input.total} が流れています` };
   }
+  const unknown = Math.max(0, Math.min(input.unknown ?? 0, input.total));
+  // 1本も確かめられなかった＝**数えていない**。「のこり◯本」と言わない（2026-11-07・f3-4）
+  if (input.total > 0 && unknown >= input.total) {
+    return {
+      ...base,
+      state: "分からない",
+      detail: `${input.total} 本ぜんぶ、いま確かめられませんでした（倉庫から返事が来ていません）`,
+    };
+  }
+  const left = Math.max(0, input.total - input.done - unknown);
   return {
     ...base,
     state: "のこり",
-    detail: `${input.done}／${input.total} が流れています（のこり ${Math.max(
-      0,
-      input.total - input.done,
-    )} 本）`,
+    detail:
+      `${input.done}／${input.total} が流れています（のこり ${left} 本` +
+      (unknown > 0 ? `・ほかに ${unknown} 本は確かめられませんでした` : "") +
+      "）",
   };
 }
 
@@ -337,9 +364,37 @@ export function buildSetupTodo(input: SetupTodoInput): SetupTodo {
     unknown,
     allDone,
     summary,
+    warehouseNote: warehouseAnswering(input) === false ? WAREHOUSE_ASLEEP_NOTE : null,
     independentNote: remaining >= 2 ? INDEPENDENT_NOTE : null,
   };
 }
+
+/**
+ * 倉庫から返事が来ているか（**分からないときは null**）。
+ *
+ * ■ 決め方（2026-11-07・f1-4）
+ *   別々の2つの読みを見ます：貼り紙の13本（棚を1つずつ聞く）と、金庫の記録。
+ *   ・両方とも答えなかった … false（倉庫から返事が来ていない）
+ *   ・どちらかが答えた     … true
+ *   ・片方しか渡っていない … null（**言い切らない**）
+ *   1つの棚だけが読めないことは前からあるので、1つでは言いません。
+ */
+export function warehouseAnswering(input: SetupTodoInput): boolean | null {
+  const sh = input.shelves;
+  const shelvesAnswered =
+    sh === null ? false : sh.total > 0 ? (sh.unknown ?? 0) < sh.total : null;
+  const cashAnswered = input.cash === null ? false : true;
+  if (shelvesAnswered === null) return null;
+  if (shelvesAnswered || cashAnswered) return true;
+  return false;
+}
+
+/** 倉庫から返事が来ていない日に、じゅんに出す1行（押しても進まないものを名指しする） */
+export const WAREHOUSE_ASLEEP_NOTE =
+  "いま倉庫（データのしまい場所＝売上や日報が入っている所）から返事が来ていません。" +
+  "［倉庫に貼り紙を貼る］と［金庫を数えて入れる］は、いま押しても答えが出ません" +
+  "（起きてから押してください）。" +
+  "いまでもできるのは［サーバー側の鍵を貼り直す］の1分だけです。";
 
 /**
  * 3つの手続きは、互いに待っていない（2026-10-15・f1-4）。

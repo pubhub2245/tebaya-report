@@ -5,6 +5,7 @@ import {
   PENDING_SHELVES,
   SHARED_SHELVES,
   decideShelfScoped,
+  decideWindowReady,
   shelfNote,
   summarizeShelfScopes,
   type ShelfScopeReport,
@@ -189,4 +190,57 @@ test("まとめには、分けない棚が理由つきで入る", () => {
   const r = summarizeShelfScopes([shelf({ table: "advance_expenses" })]);
   assert.equal(r.shared.length, SHARED_SHELVES.length);
   assert.ok(r.how.includes("shared"), "分けない棚の扱いが説明に書かれていません");
+});
+
+
+/* ------------------------------------------------------------------ *
+ *  倉庫まで届かなかったときは「ある」と答えない（2026-11-07・B／f3-4）
+ *
+ *  ■ なぜこの試験が要るのか（本番で実際に起きていた）
+ *    2026-11-07、倉庫が眠っているあいだ 貼り紙の⑩⑪⑫⑬ が
+ *    **「流れています」**と答えていました（/api/keiri/shelves で実測・4／13）。
+ *    倉庫が起きていた 10-31 の実測は 0／13 なので、この4本は
+ *    倉庫が止まったせいで出た嘘です。原因は窓口を呼んで返ってきた
+ *    「TypeError: fetch failed」を "引数ちがいで断られた＝窓口はある" と
+ *    読んでいたこと＝**止まっているのに合格**。
+ *    f3-4 を嘘の合格にする筋なので、ここで固定します。
+ * ------------------------------------------------------------------ */
+
+test("窓口の答え：届いた＝ある／窓口が無い＝まだ／届かなかった＝測れません", () => {
+  // 返事が来た
+  assert.equal(decideWindowReady(null), true);
+  // その名前の窓口が無い（PostgREST / Postgres のどちらの言い方でも）
+  assert.equal(decideWindowReady({ code: "PGRST202" }), false);
+  assert.equal(decideWindowReady({ code: "42883" }), false);
+  assert.equal(
+    decideWindowReady({ message: "Could not find the function public.keiri_tenant_settings" }),
+    false,
+  );
+  // 倉庫まで届かなかった＝**null**（ここが 2026-11-07 の直し）
+  for (const message of [
+    "TypeError: fetch failed",
+    "fetch failed",
+    "FetchError: request to https://… failed, reason: ECONNREFUSED",
+    "connect ETIMEDOUT",
+    "socket hang up",
+    "502 Bad Gateway",
+    "倉庫につながりません",
+  ]) {
+    assert.equal(decideWindowReady({ message }), null, `「${message}」を「ある」にしています`);
+  }
+  // 本当に断られた（引数ちがい・権限なし）＝窓口そのものはある（今までどおり）
+  assert.equal(
+    decideWindowReady({ code: "PGRST203", message: "Could not choose the best candidate function" }),
+    true,
+  );
+  assert.equal(decideWindowReady({ code: "42501", message: "permission denied for function" }), true);
+});
+
+test("届かなかった窓口は、棚の判定でも「締まっている」にならない", () => {
+  // 倉庫が眠っている日の形：棚も聞けない（exists:null）・窓口も届かない（null）
+  assert.equal(
+    decideShelfScoped({ exists: null, foreignRows: null, windowReady: decideWindowReady({ message: "TypeError: fetch failed" }) }),
+    null,
+    "倉庫が眠っている日に「締まっている」と答えています",
+  );
 });
