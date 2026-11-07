@@ -104,8 +104,14 @@ export type FirstMonthCheck = {
     cashBalance: number;
   };
   checks: {
-    /** まっさらなお店として読むと、よその店の行が1件も出ないか */
-    startsEmpty: boolean;
+    /**
+     * まっさらなお店として読むと、よその店の行が1件も出ないか。
+     *
+     * ★倉庫（データのしまい場所）が読めなかった日は **null（測れません）** です
+     *   （2026-11-07）。前は false を返していたので、読んだ人には
+     *   「よその店の行が出ている＝不合格」と見えていました（確かめていないのに）。
+     */
+    startsEmpty: boolean | null;
     /** 日報1枚でも「今月の利益」が出て、売上−かかったお金と合うか */
     profitShown: boolean;
     /** 日報1枚でも「今の現金」が出て、金庫の起点＋売上−経費と合うか */
@@ -176,7 +182,7 @@ export function buildFirstMonthCheck(params: {
   const expectedCash =
     FIRST_MONTH_OPENING_BALANCE + FIRST_MONTH_REPORT.sales - firstMonthExpenseSum();
 
-  const startsEmpty =
+  const startsEmptyRead =
     emptyShop.readable &&
     emptyShop.reportCount === 0 &&
     emptyShop.cashEventCount === 0 &&
@@ -192,6 +198,9 @@ export function buildFirstMonthCheck(params: {
 
   // 倉庫が読めていないときは、ここから下の「0件」に意味がありません（＝測れない）
   const measurable = warehouse.alive;
+  // ★測れなかった日は null（合格にも不合格にもしない）。
+  //   false を返すと「よその店の行が出ている」と読めてしまう（2026-11-07・f3-3）。
+  const startsEmpty: boolean | null = measurable ? startsEmptyRead : null;
 
   const problems: string[] = [];
   if (!measurable) problems.push(`いまは測れません：${warehouse.reason}`);
