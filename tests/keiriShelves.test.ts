@@ -508,3 +508,19 @@ test("⑨ 払った記録の棚に欄を足すところが貼り紙に入って�
   );
   assert.ok(!/drop\s+policy/i.test(nine), "⑨ は決まりを消しません");
 });
+
+
+test("1本も確かめられなかった日は「0／13 が流れています」と言わない（2026-11-07・f3-4）", () => {
+  const unknownRows = Array.from({ length: 13 }, (_, i) =>
+    describeShelf(
+      { step: String(i + 1), name: "棚", benefit: "", check: "f3-4" },
+      { ok: false, code: null, message: "TypeError: fetch failed" },
+    ),
+  );
+  const s = summarizeShelves(unknownRows);
+  assert.equal(s.done, 0);
+  assert.equal(s.unknown, 13);
+  assert.equal(s.allDone, false);
+  assert.match(s.summary, /1本も確かめられませんでした/);
+  assert.doesNotMatch(s.summary, /流れています/);
+});
