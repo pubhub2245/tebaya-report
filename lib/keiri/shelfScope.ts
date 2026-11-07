@@ -28,6 +28,7 @@
  */
 
 import { anonClient } from "@/lib/supabaseServer";
+import { isUnreachableMessage } from "@/lib/keiri/readFailure";
 import { isMissingFunction } from "@/lib/keiri/tenantAccess";
 
 /** その棚を締めるのに要るもの（窓口の名前は、足すときに貼り紙と字句をそろえる） */
@@ -242,18 +243,52 @@ async function countForeignRows(
   }
 }
 
-/** その棚の「倉庫の窓口」があるかを聞く（呼ぶだけ・書き込みません） */
+/**
+ * その棚の「倉庫の窓口」があるかを聞く（呼ぶだけ・書き込みません）。
+ *
+ * ■ 2026-11-07（B・f3-4）いちばん大事な直し：**届かなかったことを「ある」と答えていました**
+ *   窓口を呼んで返事が返らなかったとき（倉庫が眠っている・通信が落ちた）、
+ *   この関数は「引数ちがいで断られた＝窓口はある」の側に落ちて **true** を返していました。
+ *   その結果、貼り紙の⑩⑪⑫⑬（棚をお店ごとに締めたか）が、倉庫が眠っているあいだ
+ *   **「流れています」**と答えていました（2026-11-07 の本番で実測。倉庫が起きていた
+ *   10-31 の実測は 0／13 なので、この4本は倉庫が止まったせいで出た嘘です）。
+ *   ＝ **止まっているのに合格**。f3-4（よその店のデータが見えないか）を
+ *   嘘の合格にする筋なので、届かなかったときは **null（測れません）** に倒します。
+ *
+ *   見分け方は lib/keiri/readFailure.ts の1か所（isUnreachableMessage）を通します。
+ *   「本当に断られた」（引数ちがい・権限なし）は今までどおり true のままです。
+ */
 async function askWindow(plan: ShelfPlan): Promise<boolean | null> {
   try {
     const db = anonClient({ fresh: true });
     const { error } = await db.rpc(plan.window, {});
-    if (!error) return true;
-    if (isMissingFunction(error)) return false;
-    // 引数ちがい等で断られた＝窓口そのものはある
-    return true;
+    return decideWindowReady(error);
   } catch {
     return null;
   }
+}
+
+/**
+ * 窓口を呼んだ結果から「窓口があるか」を決める（**決まりはここ1か所**）。
+ *
+ *   ・返事が来た（error なし）           … true（ある）
+ *   ・その名前の窓口が無い              … false（まだ無い）
+ *   ・倉庫まで届かなかった              … **null（測れません）**
+ *   ・それ以外の断られ方（引数ちがい等） … true（窓口そのものはある）
+ *
+ * tests/keiriShelfScope.test.ts で固定してあります。
+ */
+export function decideWindowReady(
+  error: { message?: string | null; code?: string | null } | null,
+): boolean | null {
+  if (!error) return true;
+  if (isMissingFunction({ message: error.message ?? undefined, code: error.code ?? undefined })) {
+    return false;
+  }
+  // 倉庫まで届いていない＝**分からない**（「ある」に倒さない）
+  if (isUnreachableMessage(error.message)) return null;
+  // 引数ちがい等で断られた＝窓口そのものはある
+  return true;
 }
 
 /** 答えを出す決まり（**分からないときは null**）。ここだけ見れば判定が分かる */

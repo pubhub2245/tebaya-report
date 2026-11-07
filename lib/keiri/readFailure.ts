@@ -61,6 +61,25 @@ const SHELF_JA =
   /読めませんでした|読み取れませんでした|読めていません/;
 
 /**
+ * 「倉庫まで届いていない（眠っている・通信が落ちた）」ことを、エラーの文から見分ける。
+ *
+ * ■ なぜ外から使えるようにしたのか（2026-11-07・B／f3-4）
+ *   倉庫に届かなかったことを「断られた」と取り違えると、**止まっているのに合格**になります。
+ *   実際に 2026-11-07 の本番で起きていました：貼り紙の⑩⑪⑫⑬（棚をお店ごとに締めたか）が、
+ *   倉庫が眠っているあいだ「流れています」と答えていました
+ *   （窓口を呼んで返ってきた「fetch failed」を、"引数ちがいで断られた＝窓口はある" と
+ *   読んでいたため）。見分け方はこのファイルの1か所だけに置き、
+ *   数える側（lib/keiri/shelfScope.ts）はここを通します（CLAUDE.md 4-1 と同じ考え方）。
+ *
+ * @param message 倉庫が返したエラーの文（null・空なら「分からない」＝false）
+ */
+export function isUnreachableMessage(message: string | null | undefined): boolean {
+  const raw = String(message ?? "").trim();
+  if (raw === "") return false;
+  return UNREACHABLE.test(raw) || UNREACHABLE_JA.test(raw);
+}
+
+/**
  * 読めなかった理由を、画面に出す言葉に直す。
  *
  * @param message load() が受け取ったエラーの文（null なら「分からない」扱い）
