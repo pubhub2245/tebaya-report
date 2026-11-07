@@ -160,7 +160,14 @@ test("受け口は、控えが残らなかったときだけ2通目を送る（�
 test("お申し込みの画面は、住所の中身で欄を埋める（打ち直しをお願いしない）", () => {
   const src = readFileSync("app/keiri/apply/ApplyForm.tsx", "utf8");
   assert.match(src, /decodeApplyRestore/);
-  assert.match(src, /useState<Entered>\(\(\) => readPrefill\(\) \?\? EMPTY\)/);
+  // ★最初の描画では埋めない（サーバーの画面と食い違って、React が描き直しを捨てる・本番で実測）
+  assert.ok(
+    !/useState<Entered>\(\(\) => readPrefill/.test(src),
+    "最初の描画で住所を読むと、欄が空のまま・画面にエラーになる（2026-11-07 実測）",
+  );
+  // 画面が出来上がったあとに、欄へ直接 書き入れる
+  assert.match(src, /useEffect\(\(\) => \{[\s\S]{0,200}readPrefill\(\)/);
+  assert.match(src, /formRef/);
   // 埋めるだけ。開いただけで送らない
   assert.ok(!/readPrefill\(\)[\s\S]{0,200}fetch\(/.test(src));
 });

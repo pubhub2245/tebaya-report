@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { KEIRI_APPLY_LIMITS, keiriApplyMailto } from "@/lib/keiri/apply";
 import {
@@ -117,11 +117,45 @@ export default function ApplyForm({
   //   既定は true（余計なお願いをしないため。古い受け口が何も返さないときも出さない）
   const [reachable, setReachable] = useState(true);
   // ★打ち直しをお願いしないために、入れてもらった中身は必ず手元に残す
-  // ★はじめの1回だけ、住所に入っている「入れ直す中身」で欄を埋める（f2-1）。
-  //   入っていなければ今までどおり空（EMPTY）。
-  const [entered, setEntered] = useState<Entered>(() => readPrefill() ?? EMPTY);
+  const [entered, setEntered] = useState<Entered>(EMPTY);
   /** 入れ直しのリンクから開いたか（画面に1行だけ出す） */
-  const [restored] = useState<boolean>(() => readPrefill() !== null);
+  const [restored, setRestored] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  /**
+   * ★欄を埋めるのは「画面が出来上がったあと」（2026-11-07・f2-1）。
+   *
+   * ■ なぜ effect なのか（本番で1回まちがえて直した）
+   *   はじめは「最初の1回の描画で住所を読んで埋める」形にしましたが、
+   *   サーバーが作る画面（空）と、ブラウザが作る画面（埋まっている）が食い違い、
+   *   React が描き直しを捨てて **欄は空のまま・画面にエラー1件**（#329）になりました。
+   *   本番で実測して分かったので、画面が出来上がったあとに
+   *   **欄へ直接 書き入れる**形に変えています。
+   *   ＝ サーバーの画面とブラウザの画面はいつも同じなので、食い違いが起きません。
+   *
+   * ★ここでは何も送りません。欄を埋めるだけです。
+   */
+  useEffect(() => {
+    const f = readPrefill();
+    if (!f) return;
+    const form = formRef.current;
+    if (!form) return;
+    const put = (name: keyof Entered, value: string) => {
+      if (value === "") return;
+      const el = form.elements.namedItem(name);
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+        el.value = value;
+      }
+    };
+    put("shopName", f.shopName);
+    put("phone", f.phone);
+    put("contactName", f.contactName);
+    put("email", f.email);
+    put("note", f.note);
+    // 届けられなかったときの「そのままメールで送る」にも同じ中身を回す
+    setEntered(f);
+    setRestored(true);
+  }, []);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -316,7 +350,7 @@ export default function ApplyForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-5">
+    <form ref={formRef} onSubmit={onSubmit} className="space-y-5">
       {restored && (
         <p className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-stone-800">
           いただいたお申し込みの中身を、そのまま入れてあります。
