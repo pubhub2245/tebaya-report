@@ -3,6 +3,10 @@
 import { useState } from "react";
 
 import { KEIRI_APPLY_LIMITS, keiriApplyMailto } from "@/lib/keiri/apply";
+import {
+  APPLY_RESTORE_PARAM,
+  decodeApplyRestore,
+} from "@/lib/keiri/applyRestore";
 import { keiriApplyContactLine } from "@/lib/keiri/offer";
 
 /**
@@ -49,6 +53,35 @@ type Entered = {
 
 const EMPTY: Entered = { shopName: "", contactName: "", email: "", phone: "", note: "" };
 
+/**
+ * 住所の ?prefill= から、入れ直す中身を読む（2026-11-07・f2-1）。
+ *
+ * ■ 何のためか
+ *   倉庫（データのしまい場所）が止まっている日にお申し込みが入ると、知らせ（LINE）は
+ *   飛びますが**棚に1行も残りません**。そのときだけ届く2通目の知らせに、
+ *   この住所のリンクが入っています。開くと**同じ中身のまま**この画面が開くので、
+ *   いちばん下の送信を1回 押すだけで、同じ1件が棚に残ります（打ち直し不要）。
+ *
+ * ★読めないときは null（画面は今までどおり空で開く）。
+ * ★ここでは何も送りません。欄を埋めるだけです。
+ */
+function readPrefill(): Entered | null {
+  try {
+    const raw = new URLSearchParams(window.location.search).get(APPLY_RESTORE_PARAM);
+    const f = decodeApplyRestore(raw);
+    if (!f) return null;
+    return {
+      shopName: f.shopName,
+      contactName: f.contactName,
+      email: f.email,
+      phone: f.phone,
+      note: f.note,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function readForm(f: FormData): Entered {
   const s = (k: string) => String(f.get(k) ?? "");
   return {
@@ -84,7 +117,11 @@ export default function ApplyForm({
   //   既定は true（余計なお願いをしないため。古い受け口が何も返さないときも出さない）
   const [reachable, setReachable] = useState(true);
   // ★打ち直しをお願いしないために、入れてもらった中身は必ず手元に残す
-  const [entered, setEntered] = useState<Entered>(EMPTY);
+  // ★はじめの1回だけ、住所に入っている「入れ直す中身」で欄を埋める（f2-1）。
+  //   入っていなければ今までどおり空（EMPTY）。
+  const [entered, setEntered] = useState<Entered>(() => readPrefill() ?? EMPTY);
+  /** 入れ直しのリンクから開いたか（画面に1行だけ出す） */
+  const [restored] = useState<boolean>(() => readPrefill() !== null);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -280,6 +317,13 @@ export default function ApplyForm({
 
   return (
     <form onSubmit={onSubmit} className="space-y-5">
+      {restored && (
+        <p className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-stone-800">
+          いただいたお申し込みの中身を、そのまま入れてあります。
+          <strong>いちばん下の送信を1回 押すだけ</strong>で控えが残ります
+          （打ち直しは要りません）。
+        </p>
+      )}
       {errors.length > 0 && (
         <ul className="rounded-xl border border-red-300 bg-red-50 p-4 space-y-1">
           {errors.map((m) => (
