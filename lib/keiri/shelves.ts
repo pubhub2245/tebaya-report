@@ -240,11 +240,15 @@ export function summarizeShelves(reports: ShelfReport[]): {
   const total = reports.length;
   const unknown = reports.filter((r) => r.state === "分からない").length;
   const allDone = done === total && total > 0;
+  // ★1本も確かめられなかった日に「0／13 が流れています」と言わない（2026-11-07・f3-4）。
+  //   数えていないのに数えた形で出すと、読んだ人が「13本ぜんぶ まだ」と取ります。
   const summary = allDone
     ? `貼り紙は流れています（${done}／${total}）。棚待ちの仕事は先へ進められます`
-    : unknown > 0
-      ? `${done}／${total} が流れています。${unknown} 件は確かめられませんでした`
-      : `${done}／${total} が流れています。残りは /keiri/sql の貼り紙を1回 貼るだけです`;
+    : total > 0 && unknown >= total
+      ? `いま1本も確かめられませんでした（${total} 本ぜんぶ）。流れたかどうかは分かりません`
+      : unknown > 0
+        ? `${done}／${total} が流れています。${unknown} 件は確かめられませんでした`
+        : `${done}／${total} が流れています。残りは /keiri/sql の貼り紙を1回 貼るだけです`;
   return { allDone, done, total, unknown, summary };
 }
 
