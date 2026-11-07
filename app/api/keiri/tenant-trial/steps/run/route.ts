@@ -11,8 +11,11 @@ import {
   buildTestProduct,
   buildTestStaff,
   buildTestReport,
+  decideStepsMeasurable,
   rollbackNeeded,
   stepsSummary,
+  stepsSummaryUnmeasurable,
+  unknownSteps,
   testReportDate,
   type StepsState,
   type TebayaVisible,
@@ -25,6 +28,7 @@ import {
 } from "@/lib/keiri/tenantMasterRead";
 import { testShopNumbersShown } from "@/lib/keiri/tenantTrialNumbers";
 import { serverClient } from "@/lib/supabaseServer";
+import { probeWarehouseAlive } from "@/lib/keiri/warehouseAlive";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -87,7 +91,30 @@ async function countTebayaVisible(): Promise<TebayaVisible> {
 }
 
 export async function POST() {
-  const found = await peekTestShop();
+  // ⓪ 対照：倉庫（データのしまい場所）が、いま本当に読めているか（2026-11-07・f5-4）
+  //    ★読めない日に「テストの店がまだありません」と答えていました（確かめていないのに言い切る形）。
+  //      読めないと分かったら、**1行も書き込まずに**「確かめられませんでした」と答えます。
+  const warehouse = await probeWarehouseAlive(serverClient({ fresh: true }) as any);
+  const found = warehouse.alive ? await peekTestShop() : ({ kind: "error" } as const);
+  const measure = decideStepsMeasurable({ warehouse, shopLookup: found.kind });
+  if (!measure.measurable) {
+    return NextResponse.json(
+      stampCheckWindow({
+        shop: TEST_SHOP.name,
+        isTestShop: true,
+        measurable: false,
+        warehouse: { alive: warehouse.alive, state: warehouse.state, reason: warehouse.reason },
+        ran: "何もしていません（いま倉庫を確かめられませんでした）",
+        wrote: 0,
+        steps: unknownSteps(),
+        summary: stepsSummaryUnmeasurable(measure.why),
+        next: "倉庫が読めるようになってから、もう一度 送ってください",
+        check: "f5-4・f3-4",
+      }),
+      { status: 200, headers: CHECK_WINDOW_HEADERS },
+    );
+  }
+
   const tenantId = found.kind === "row" ? found.row.id : null;
   if (!tenantId) {
     const state: StepsState = {
