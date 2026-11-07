@@ -12,6 +12,10 @@ import { KEIRI_COMPANY } from "@/lib/keiri/legal";
 import { applyRouteLabel, routeFromNote } from "@/lib/keiri/applyRoutes";
 import { applicationIsReachable } from "@/lib/keiri/notifyHealth";
 import {
+  applyRestoreUrl,
+  applySaveFailureNoticeText,
+} from "@/lib/keiri/applyRestore";
+import {
   describeLineFailure,
   sendLineGroupMessageDetailed,
   type LineSendResult,
@@ -50,11 +54,62 @@ function rejectedByPolicy(message: string | null | undefined): boolean {
 }
 
 /**
+ * 控えが残らなかった理由を、そのまま人に見せてよい1行に直す。
+ * ★鍵の値・つなぎ先・合言葉は1文字も載せない（配信中に画面に映ることがあるため）。
+ */
+function saveFailureReason(message: string | null | undefined): string {
+  const m = String(message ?? "");
+  if (/fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|network/i.test(m)) {
+    return "倉庫（データのしまい場所）につながりませんでした";
+  }
+  if (/could not find the table|42P01/i.test(m)) return "棚（表）がまだありません";
+  if (/row-level security/i.test(m)) return "棚の決まりに断られました";
+  if (/permission denied|42501/i.test(m)) return "棚に入れる権利が渡っていません";
+  return "理由は分かりません（サーバーの記録に残しました）";
+}
+
+/**
+ * 控えが残らなかったときだけ送る「2通目」。
+ *
+ * ★1通目（本物の知らせ）は1文字も変えていません。
+ *   控えの結果を待ってから1通目を作ると、倉庫が重い日に知らせそのものが遅れる／
+ *   落ちることがあるためです（同時に走らせているのはそのため）。
+ * ★失敗しても例外を外に出しません（2通目のために本物の返事を壊さない）。
+ */
+async function notifySaveFailure(
+  a: KeiriApplication,
+  origin: string,
+  reason: string | null,
+): Promise<boolean> {
+  try {
+    const text = applySaveFailureNoticeText({
+      application: a,
+      restoreUrl: applyRestoreUrl(origin, a),
+      reason,
+    });
+    const r = await sendLineGroupMessageDetailed(text);
+    if (!r.ok) {
+      console.error(
+        `[経理お申し込み] 「控えが残っていません」の2通目を送れませんでした：${describeLineFailure(r.failure, r.status)}`,
+      );
+    }
+    return r.ok;
+  } catch (e) {
+    console.error("[経理お申し込み] 「控えが残っていません」の2通目を送れませんでした", e);
+    return false;
+  }
+}
+
+/**
  * 倉庫に1行控える。表が無い・鍵が無いなど、どんな理由で失敗しても false を返すだけ。
  *
  * ★test が true のときは控えを残さず null を返す（2026-10-04・kp228）。
  */
+/** 控えが残らなかった理由の1行（人の言葉・鍵や値は入れない）。残ったときは null */
+let lastSaveFailureReason: string | null = null;
+
 async function saveApplication(a: KeiriApplication, test = false): Promise<boolean | null> {
+  lastSaveFailureReason = null;
   // ★試しの1通は控えを残さない（2026-10-04・kp228 を本番で1回通して分かったこと）。
   //   棚の受け入れの決まり（keiri_applications_insert_only.sql）は
   //   **status が 'new' の行しか通しません**。試しの行を残すには決まりを緩める必要があり、
@@ -97,12 +152,15 @@ async function saveApplication(a: KeiriApplication, test = false): Promise<boole
         return true;
       }
       console.error(`[経理お申し込み] 控えを残せませんでした: ${retryError.message}`);
+      lastSaveFailureReason = saveFailureReason(retryError.message);
       return false;
     }
     console.error(`[経理お申し込み] 控えを残せませんでした: ${error.message}`);
+    lastSaveFailureReason = saveFailureReason(error.message);
     return false;
   } catch (e) {
     console.error("[経理お申し込み] 控えを残せませんでした", e);
+    lastSaveFailureReason = saveFailureReason(e instanceof Error ? e.message : null);
     return false;
   }
 }
@@ -253,6 +311,25 @@ export async function POST(req: NextRequest) {
   const recordReadable = serviceClientOrNull() !== null;
   const reachable = applicationIsReachable({ notified, saved, recordReadable });
 
+  /**
+   * ★控えが残らなかったときだけ、2通目を送る（2026-11-07・f2-1）。
+   *   1通目は本物の申し込みとまったく同じ文なので、受け取った人には
+   *   「棚に残ったのか」が1文字も分かりません。倉庫が止まっている日に
+   *   お申し込みが入ると、起きたあと「どれを入れ直すか」が誰にも分からず、
+   *   その1件が静かに消えます。2通目に［入れ直す］のリンクを付けて渡します。
+   *   ・試しの1通（test）では送りません（控えをそもそも残さない形なので）
+   *   ・1通目が届いていないとき（notified=false）は、両方だめなら上の 503 で返しており、
+   *     片方だめ（控えだけ残った）ときは読み返せるので要りません
+   */
+  const savedNoticeSent =
+    !test && notified && savedResult === false
+      ? await notifySaveFailure(
+          parsed.value,
+          new URL(req.url).origin,
+          lastSaveFailureReason,
+        )
+      : false;
+
   // ★notifyNote は「なぜ知らせが届かなかったか」の1行（2026-09-28・kp198）。
   //   届いたときは null。合言葉・送り先のIDは入りません。
   // ★test のときだけ、外から確かめられるように印を返す（本物の返事は1文字も変わらない）
@@ -266,10 +343,13 @@ export async function POST(req: NextRequest) {
           "試しの1通なので、控えは残していません（棚の決まりは本物の申し込みだけを通します）",
         reachable,
         notifyNote,
+        savedNoticeSent,
         // ★どの道から来たかも返す（f2-3・控えに残るのと同じ1行から読み戻している）
         route: routeFromNote(parsed.value.note),
         routeLabel: applyRouteLabel(routeFromNote(parsed.value.note)),
         notice: APPLY_TEST_NOTICE,
       })
+    // ★本物の返事の形は1文字も変えない（画面がこの形を見て動いている・tests/keiriApply.test.ts で縛ってある）。
+    //   2通目を送れたかは test の返事にだけ出す（外から確かめるため）。
     : NextResponse.json({ ok: true, notified, saved, reachable, notifyNote });
 }
