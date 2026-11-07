@@ -150,3 +150,34 @@ test("倉庫が生きているときは、今までどおり合格と答える",
   assert.equal(r.ok, true);
   assert.equal(r.warehouse.state, "alive");
 });
+
+test("倉庫そのものが読めない日は、startsEmpty を false ではなく null にする（2026-11-07）", () => {
+  const r = buildFirstMonthCheck({
+    month: "2026年11月",
+    ym: "2026-11",
+    reportDate: REPORT_DATE,
+    emptyShop: {
+      readable: false,
+      reportCount: 0,
+      cashEventCount: 0,
+      advancesSkipped: false,
+    },
+    ...sheets(),
+    warehouse: {
+      alive: false,
+      state: "unreachable",
+      reason: "倉庫からの返事が時間内に来ませんでした",
+    },
+  });
+  assert.equal(r.measurable, false);
+  // ★false だと「よその店の行が出ている＝不合格」と読めてしまう
+  assert.equal(r.checks.startsEmpty, null);
+  assert.equal(r.ok, null);
+  assert.equal(r.problems.length, 1);
+  assert.match(r.problems[0], /いまは測れません/);
+  // 計算だけで分かる4つは、倉庫と関係なく今までどおり答える
+  assert.equal(r.checks.profitShown, true);
+  assert.equal(r.checks.cashShown, true);
+  assert.equal(r.checks.sheetReady, true);
+  assert.equal(r.checks.noFabricatedCost, true);
+});
