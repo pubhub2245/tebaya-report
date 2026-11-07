@@ -1,0 +1,463 @@
+"use client";
+
+/**
+ * 写真だけの日報（2026-11-07 追加）。
+ *
+ * 現場がやるのは4つだけ：
+ *   ① 出店場所をタップ ② 手書きの売上メモを撮る ③ レシートを撮る ④ OK
+ * 数字は1つも打たない。読み取り・場代・合計・LINE通知はアプリがやる。
+ * 計算の中身は `lib/photoReport.ts`（tests/photoReport.test.ts で固定）。
+ *
+ * ★手羽屋（印が空）専用。加盟店の担当はいまゆうやさんだけなので自動で入る。
+ */
+
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+
+import { supabase } from "@/lib/supabase";
+import { applyTenantScope, TEBAYA_SCOPE } from "@/lib/tenantScope";
+import { fetchBoothFeeRules } from "@/lib/boothFeeMaster";
+import { boothFeeRuleFor } from "@/lib/boothFee";
+import type { BoothFeeRule } from "@/lib/money";
+import type { SaleProduct } from "@/lib/salesBreakdown";
+import { resizeImage } from "@/lib/imageResize";
+import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
+import { recalcRankForLocation } from "@/lib/locationRankUpdate";
+import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
+import { initialCleanupInventory, initialCleanupTasks } from "@/lib/formState";
+import {
+  FRANCHISE_STAFF_NAME,
+  buildDailyReportRow,
+  buildPhotoReportDraft,
+  photoReportLineText,
+  receiptToExpenses,
+  type MemoReadResult,
+  type PhotoExpense,
+} from "@/lib/photoReport";
+
+type Step = "place" | "memo" | "receipts" | "confirm" | "done";
+
+type ReceiptShot = { id: string; photo: string; expenses: PhotoExpense[]; reading: boolean; error?: string };
+
+function todayJst(): string {
+  return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+const yen = (n: number) => `¥${Math.round(n).toLocaleString("ja-JP")}`;
+
+/** 大きな撮影ボタン（スマホならカメラが開く） */
+function ShotButton({
+  label,
+  onFile,
+  disabled,
+}: {
+  label: string;
+  onFile: (f: File) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label
+      className={`flex items-center justify-center gap-3 w-full h-24 rounded-2xl text-white font-bold text-xl shadow-md transition ${
+        disabled ? "bg-stone-300" : "bg-orange-500 active:bg-orange-700 cursor-pointer"
+      }`}
+    >
+      <span className="text-3xl">📷</span>
+      <span>{label}</span>
+      <input
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        disabled={disabled}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) onFile(f);
+        }}
+      />
+    </label>
+  );
+}
+
+export default function PhotoReportGate() {
+  return (
+    <TebayaOnlyGate title="写真で日報">
+      <PhotoReportPage />
+    </TebayaOnlyGate>
+  );
+}
+
+function PhotoReportPage() {
+  const [step, setStep] = useState<Step>("place");
+  const [date] = useState(todayJst());
+  const [locations, setLocations] = useState<string[]>([]);
+  const [locLoading, setLocLoading] = useState(true);
+  const [location, setLocation] = useState("");
+  const [products, setProducts] = useState<SaleProduct[]>([]);
+  const [rules, setRules] = useState<Map<string, BoothFeeRule>>(new Map());
+
+  const [memoPhoto, setMemoPhoto] = useState<string | null>(null);
+  const [memo, setMemo] = useState<MemoReadResult | null>(null);
+  const [memoReading, setMemoReading] = useState(false);
+  const [memoError, setMemoError] = useState<string | null>(null);
+
+  const [receipts, setReceipts] = useState<ReceiptShot[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [lineSent, setLineSent] = useState(false);
+
+  // マスタ（出店場所・商品・場代）を読む。手羽屋のぶんだけ
+  useEffect(() => {
+    (async () => {
+      try {
+        const [locRes, prodRes] = await Promise.all([
+          applyTenantScope<any>(
+            supabase.from("locations").select("name") as any,
+            TEBAYA_SCOPE,
+          )
+            .eq("is_active", true)
+            .order("name"),
+          applyTenantScope<any>(
+            supabase
+              .from("sale_products")
+              .select("id, shop, name, price, kind, is_active, sort_order") as any,
+            TEBAYA_SCOPE,
+          )
+            .eq("shop", "手羽屋")
+            .eq("is_active", true)
+            .order("sort_order")
+            .order("id"),
+        ]);
+        setLocations(((locRes.data as { name: string }[]) || []).map((l) => l.name).filter(Boolean));
+        setProducts((prodRes.data as SaleProduct[]) || []);
+      } finally {
+        setLocLoading(false);
+      }
+    })();
+    fetchBoothFeeRules().then(setRules);
+  }, []);
+
+  const receiptExpenses = useMemo(() => receipts.flatMap((r) => r.expenses), [receipts]);
+  const draft = useMemo(
+    () =>
+      memo
+        ? buildPhotoReportDraft({
+            date,
+            location,
+            products,
+            memo,
+            receiptExpenses,
+            boothFeeRule: boothFeeRuleFor(rules, location),
+            cumulativeBefore: 0,
+          })
+        : null,
+    [memo, date, location, products, receiptExpenses, rules],
+  );
+
+  async function readMemo(file: File) {
+    setMemoError(null);
+    setMemoReading(true);
+    try {
+      const photo = await resizeImage(file);
+      setMemoPhoto(photo);
+      const res = await fetch("/api/ocr/sales-memo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ image: photo, productNames: products.map((p) => p.name) }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "読み取りに失敗しました");
+      const result = json as MemoReadResult;
+      if (result.total <= 0 && result.items.length === 0) {
+        setMemo(null);
+        setMemoError("メモが読めませんでした。明るい所で、メモ全体が入るように撮り直してください。");
+        return;
+      }
+      setMemo(result);
+      setStep("receipts");
+    } catch (e: any) {
+      setMemoError(e?.message || "読み取りに失敗しました。もう一度撮ってください。");
+    } finally {
+      setMemoReading(false);
+    }
+  }
+
+  async function addReceipt(file: File) {
+    const photo = await resizeImage(file);
+    const id = `${Date.now()}-${Math.random()}`;
+    setReceipts((rs) => [...rs, { id, photo, expenses: [], reading: true }]);
+    try {
+      const res = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ image: photo }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "読み取りに失敗しました");
+      const expenses = receiptToExpenses(json, photo);
+      setReceipts((rs) => rs.map((r) => (r.id === id ? { ...r, expenses, reading: false } : r)));
+    } catch (e: any) {
+      setReceipts((rs) =>
+        rs.map((r) =>
+          r.id === id ? { ...r, reading: false, error: "読めませんでした。撮り直してください" } : r,
+        ),
+      );
+    }
+  }
+
+  async function save() {
+    if (!draft || draft.salesMissing) return;
+    setSaving(true);
+    try {
+      // 同じ日・同じ担当の日報がもうあれば確かめる（二重登録の防止）
+      try {
+        const { data: dup } = await applyTenantScope<any>(
+          supabase.from("daily_reports").select("id") as any,
+          TEBAYA_SCOPE,
+        )
+          .eq("date", date)
+          .eq("staff_name", FRANCHISE_STAFF_NAME)
+          .eq("shop", "手羽屋")
+          .limit(1);
+        if ((dup as unknown[] | null)?.length) {
+          if (!window.confirm("今日の日報はもう出ています。もう1枚出しますか？")) {
+            setSaving(false);
+            return;
+          }
+        }
+      } catch {}
+
+      // 累計売上（手羽屋のぶん）
+      let cumulativeBefore = 0;
+      try {
+        const { data } = await applyTenantScope<any>(
+          supabase.from("daily_reports").select("sales_amount") as any,
+          TEBAYA_SCOPE,
+        );
+        cumulativeBefore = ((data as { sales_amount?: number }[]) || []).reduce(
+          (s, r) => s + (r.sales_amount || 0),
+          0,
+        );
+      } catch {}
+
+      // 写真は置き場へ（同じ写真は1回だけ → CLAUDE.md 4-7・4-12）
+      const uploaded = new Map<string, string | null>();
+      for (const e of draft.expenses) {
+        const url = e.receipt_image_url;
+        if (url && !uploaded.has(url)) uploaded.set(url, await uploadReceiptOrKeep(url, "report", TEBAYA_SCOPE));
+      }
+      const expensesForSave = draft.expenses.map((e) => ({
+        ...e,
+        receipt_image_url: e.receipt_image_url ? uploaded.get(e.receipt_image_url) ?? e.receipt_image_url : null,
+      }));
+      const memoUrl = memoPhoto ? await uploadReceiptOrKeep(memoPhoto, "sales-memo", TEBAYA_SCOPE) : null;
+
+      const lineText = photoReportLineText({ date, location, staffName: FRANCHISE_STAFF_NAME, draft });
+      const row = buildDailyReportRow({
+        date,
+        location,
+        staffName: FRANCHISE_STAFF_NAME,
+        draft,
+        products,
+        cumulativeBefore,
+        expensesForSave,
+        lineText,
+        cleanupInventory: initialCleanupInventory(),
+        cleanupTasks: initialCleanupTasks(),
+      });
+      // 売上メモの写真は、いまは引き継ぎ欄に住所を残す（専用の列は倉庫が動いてから足す）
+      if (memoUrl) row.handover = `売上メモの写真：${memoUrl.startsWith("data:") ? "（埋め込み）" : memoUrl}`;
+
+      const { error } = await supabase.from("daily_reports").insert(row);
+      if (error) throw error;
+
+      try {
+        await recalcRankForLocation(location);
+      } catch {}
+      try {
+        const res = await fetch("/api/line/send-report", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text: lineText }),
+        });
+        const json = await res.json();
+        if (json.ok) setLineSent(true);
+      } catch {}
+
+      setStep("done");
+    } catch (e: any) {
+      alert("保存できませんでした。電波の良い所でもう一度OKを押してください。\n" + (e?.message || e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const header = (title: string, n: number) => (
+    <div className="mb-4">
+      <Link href="/" className="text-sm text-stone-500 underline">
+        ← メニューへ
+      </Link>
+      <p className="text-xs text-stone-400 mt-3">{n} / 4</p>
+      <h1 className="text-xl font-bold">{title}</h1>
+      <p className="text-xs text-stone-500">
+        {date.replace(/-/g, "/")}・{FRANCHISE_STAFF_NAME}
+        {location ? `・${location}` : ""}
+      </p>
+    </div>
+  );
+
+  return (
+    <main className="max-w-md mx-auto px-4 py-6 min-h-screen">
+      {step === "place" && (
+        <section>
+          {header("今日の出店場所は？", 1)}
+          {locLoading && <p className="text-sm text-stone-500">読み込み中…</p>}
+          {!locLoading && locations.length === 0 && (
+            <p className="text-sm text-red-600">
+              出店場所の一覧が読めませんでした。電波を確かめて、開き直してください。
+            </p>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            {locations.map((name) => (
+              <button
+                key={name}
+                type="button"
+                onClick={() => {
+                  setLocation(name);
+                  setStep("memo");
+                }}
+                className="h-16 rounded-2xl bg-white border-2 border-stone-200 active:border-orange-500 font-bold text-sm px-2 shadow-sm"
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {step === "memo" && (
+        <section className="space-y-4">
+          {header("売上メモを撮ってください", 2)}
+          <p className="text-sm text-stone-600">
+            手書きの売上メモ（本数と合計）が全部入るように撮ってください。
+          </p>
+          <ShotButton
+            label={memoReading ? "読み取り中…" : "売上メモを撮る"}
+            onFile={readMemo}
+            disabled={memoReading}
+          />
+          {memoError && <p className="text-sm text-red-600">{memoError}</p>}
+          <button type="button" onClick={() => setStep("place")} className="text-sm text-stone-500 underline">
+            場所を選び直す
+          </button>
+        </section>
+      )}
+
+      {step === "receipts" && (
+        <section className="space-y-4">
+          {header("レシートを撮ってください", 3)}
+          <p className="text-sm text-stone-600">今日使ったお金のレシートを1枚ずつ撮ってください（何枚でも）。</p>
+          <ShotButton label="レシートを撮る" onFile={addReceipt} />
+          {receipts.length > 0 && (
+            <ul className="space-y-2">
+              {receipts.map((r) => (
+                <li key={r.id} className="card flex items-center gap-3 py-2">
+                  <img src={r.photo} alt="" className="w-12 h-12 object-cover rounded" />
+                  <span className="text-sm flex-1">
+                    {r.reading
+                      ? "読み取り中…"
+                      : r.error
+                        ? r.error
+                        : yen(r.expenses.reduce((s, e) => s + e.amount, 0))}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-xs text-stone-400 underline"
+                    onClick={() => setReceipts((rs) => rs.filter((x) => x.id !== r.id))}
+                  >
+                    取り消す
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button
+            type="button"
+            disabled={receipts.some((r) => r.reading)}
+            onClick={() => setStep("confirm")}
+            className="w-full h-14 rounded-2xl bg-stone-800 text-white font-bold disabled:bg-stone-300"
+          >
+            {receipts.length === 0 ? "今日はレシートなし → 次へ" : "撮り終わった → 次へ"}
+          </button>
+        </section>
+      )}
+
+      {step === "confirm" && draft && (
+        <section className="space-y-4">
+          {header("これで合っていればOK", 4)}
+          <div className="card space-y-2">
+            <div className="flex justify-between text-lg">
+              <span>売上</span>
+              <span className="font-bold">{yen(draft.sales)}</span>
+            </div>
+            {Object.entries(draft.counts)
+              .filter(([, n]) => n > 0)
+              .map(([name, n]) => (
+                <div key={name} className="flex justify-between text-sm text-stone-600">
+                  <span>{name}</span>
+                  <span>{n}</span>
+                </div>
+              ))}
+          </div>
+          <div className="card space-y-1">
+            <p className="font-bold">経費 {yen(draft.expensesTotal)}</p>
+            {draft.expenses.map((e, i) => (
+              <div key={i} className="flex justify-between text-sm text-stone-600">
+                <span className="truncate pr-2">{e.description}</span>
+                <span>{yen(e.amount)}</span>
+              </div>
+            ))}
+            {draft.expenses.length === 0 && <p className="text-sm text-stone-500">なし</p>}
+          </div>
+          {draft.mismatch && (
+            <p className="text-sm bg-amber-50 border border-amber-300 rounded-xl p-3">
+              ⚠ {draft.mismatch}
+              <br />
+              <span className="text-xs text-stone-500">このままOKで大丈夫です（あとで本部が確かめます）。</span>
+            </p>
+          )}
+          {draft.salesMissing && (
+            <p className="text-sm text-red-600">売上が読めませんでした。売上メモを撮り直してください。</p>
+          )}
+          <button
+            type="button"
+            disabled={saving || draft.salesMissing}
+            onClick={save}
+            className="w-full h-20 rounded-2xl bg-orange-500 active:bg-orange-700 text-white font-bold text-2xl shadow-md disabled:bg-stone-300"
+          >
+            {saving ? "送っています…" : "OK"}
+          </button>
+          <div className="flex justify-between text-sm">
+            <button type="button" className="text-stone-500 underline" onClick={() => setStep("memo")}>
+              売上メモを撮り直す
+            </button>
+            <button type="button" className="text-stone-500 underline" onClick={() => setStep("receipts")}>
+              レシートに戻る
+            </button>
+          </div>
+        </section>
+      )}
+
+      {step === "done" && draft && (
+        <section className="card text-center space-y-3 mt-10">
+          <div className="text-5xl">✨</div>
+          <h2 className="text-xl font-bold">日報を出しました</h2>
+          <p className="text-stone-600">今日の売上 {yen(draft.sales)}</p>
+          <p className="text-sm text-stone-500">お疲れさまでした！{lineSent ? "（本部に知らせました）" : ""}</p>
+          <Link href="/" className="block text-sm text-stone-500 underline pt-2">
+            メニューへ戻る
+          </Link>
+        </section>
+      )}
+    </main>
+  );
+}

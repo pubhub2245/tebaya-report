@@ -84,6 +84,20 @@ export function TebayaOnlyBlock({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * TebayaOnlyBlock の逆：**よそのお店のときだけ**出す入れ物（2026-11-07 追加）。
+ *
+ * 手羽屋の日報は「写真だけの日報」（/report/photo）に変えたが、
+ * 経理パッケージのお店はこれまでどおり手入力の日報（/report）を使う。
+ * そのお店のトップから日報の入り口が消えないように、旧い入り口はこの中に置く。
+ * ★確かめているあいだ（checking）は出さない＝手羽屋の画面に一瞬も出ない。
+ */
+export function NotTebayaBlock({ children }: { children: React.ReactNode }) {
+  const { checking, isTebaya } = useIsTebaya();
+  if (checking || isTebaya) return null;
+  return <>{children}</>;
+}
+
 export default function TebayaOnlyGate({
   /** 画面の名前（「出店予定」「立替経費」など。お知らせの文に出ます） */
   title,
