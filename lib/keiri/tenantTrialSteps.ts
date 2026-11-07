@@ -340,3 +340,83 @@ export function stepsSummary(s: StepsState, rolledBack = false): string {
   if (!s.separated) left.push("手順6（よその数字が混ざらないこと）");
   return `のこり：${left.join("・")}`;
 }
+
+/* ===========================================================================
+ * 「いま測れたのか」を分けて答えるための1か所（2026-11-07・f5-4・f3-4）
+ *
+ * ■ なぜ要るのか（やさしい説明）
+ *   この手順の窓口（/api/keiri/tenant-trial/steps）は、f5-4 の合否を決める所です。
+ *   ところが倉庫（データのしまい場所）が眠っていると、テストの店を聞いても
+ *   答えが返らず、**「テストの店がまだありません」**と言っていました。
+ *   ＝ 確かめていないのに「まだ通っていない」と言い切る形で、
+ *     逆に `separated: false`（＝分かれていません）とも答えていました。
+ *   どちらも**読んで確かめた答えではありません**。
+ *   同じ形の嘘を 11/6・11/7 に 4つの窓口で直したので、ここも同じにそろえます。
+ *
+ * ■ どうするか
+ *   倉庫が読めているかを**先に1回**だけ確かめ（lib/keiri/warehouseAlive.ts）、
+ *   読めていなければ手順の答えを6つとも「いま確かめられませんでした」にし、
+ *   分かれているかは **null（測れません）** に倒します。
+ *   合格にも不合格にもしません。
+ * ========================================================================= */
+
+/** 手順の答えが確かめられなかったときに出す言葉（ここ1か所だけ） */
+export const STEP_UNKNOWN = "いま確かめられませんでした";
+
+/** 窓口が出す手順の名前（順番もここで決める） */
+export const STEP_KEYS = [
+  "4_出店場所",
+  "4_商品と単価",
+  "4_担当者と日当",
+  "5_日報1枚",
+  "5_数字が出るか",
+  "6_混ざらないか",
+] as const;
+
+/** テストの店を倉庫に聞いた結果の種類（lib/keiri/tenantTrialServer.ts の Found と同じ） */
+export type ShopLookupKind = "row" | "none" | "error" | "nokey";
+
+export type StepsMeasure = {
+  /** そのまま合否に使ってよいか。false なら「測れません」と答えること */
+  measurable: boolean;
+  /** 測れなかった理由（人が読む一言。鍵・金額・お店の名前は入れない） */
+  why: string | null;
+};
+
+/**
+ * いま手順4〜6を測ってよいか。**計算だけ**（テストで固定する）。
+ *
+ * ★「テストの店が無い」（none）は測れています（＝まだ通っていないが正しい答え）。
+ *   測れないのは **倉庫が読めない**ときと、**聞いたのに答えが返らなかった**（error）ときだけです。
+ */
+export function decideStepsMeasurable(params: {
+  warehouse: { alive: boolean; reason: string };
+  shopLookup: ShopLookupKind;
+}): StepsMeasure {
+  if (!params.warehouse.alive) {
+    return { measurable: false, why: params.warehouse.reason };
+  }
+  if (params.shopLookup === "error") {
+    return {
+      measurable: false,
+      why: "テストの店があるかを、倉庫に聞けませんでした",
+    };
+  }
+  return { measurable: true, why: null };
+}
+
+/** 測れなかった日の、手順6つぶんの答え（ぜんぶ「確かめられませんでした」） */
+export function unknownSteps(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const key of STEP_KEYS) out[key] = STEP_UNKNOWN;
+  return out;
+}
+
+/** 測れなかった日のまとめ1行 */
+export function stepsSummaryUnmeasurable(why: string | null): string {
+  return (
+    `いまは測れませんでした（${why ?? "理由が分かりません"}）。` +
+    "合格にも不合格にもしていません。手順が通ったかどうかは分かりません。" +
+    "倉庫が読めるようになってから、もう一度 開いてください"
+  );
+}

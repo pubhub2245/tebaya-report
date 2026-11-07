@@ -14,11 +14,15 @@ import {
   TEST_LOCATION,
   TEST_PRODUCT,
   TEST_STAFF,
+  decideStepsMeasurable,
   stepsAllDone,
   stepsSummary,
+  stepsSummaryUnmeasurable,
   testReportDate,
+  unknownSteps,
   type StepsState,
 } from "@/lib/keiri/tenantTrialSteps";
+import { probeWarehouseAlive } from "@/lib/keiri/warehouseAlive";
 import { businessCodeForScope } from "@/lib/tenantScope";
 import { serverClient } from "@/lib/supabaseServer";
 
@@ -40,7 +44,40 @@ export const dynamic = "force-dynamic";
  *   手順6 … そのお店として読むと、手羽屋の数字が1件も混ざらないか
  */
 export async function GET() {
-  const found = await peekTestShop();
+  // ⓪ 対照：倉庫（データのしまい場所）が、いま本当に読めているか（2026-11-07・f5-4）
+  //    ★ここを先に見ないと、倉庫が眠っている日に「テストの店がまだありません」
+  //      「分かれていません」と、**確かめていないことを言い切る**形になります
+  //      （11/6・11/7 に同じ形を4つの窓口で直したのと同じ考え方）。
+  const probeDb = serverClient({ fresh: true });
+  const warehouse = await probeWarehouseAlive(probeDb as any);
+
+  // 倉庫が読めないと分かったら、テストの店を聞きに行きません（白い時間を短くする）
+  const found = warehouse.alive ? await peekTestShop() : ({ kind: "error" } as const);
+  const measure = decideStepsMeasurable({ warehouse, shopLookup: found.kind });
+
+  if (!measure.measurable) {
+    return NextResponse.json(
+      stampCheckWindow({
+        shop: TEST_SHOP.name,
+        isTestShop: true,
+        measurable: false,
+        warehouse: { alive: warehouse.alive, state: warehouse.state, reason: warehouse.reason },
+        steps: unknownSteps(),
+        // ★○×は出しません（出すと「まだです」と読めてしまうため）
+        shopReady: null,
+        separated: null,
+        allDone: false,
+        summary: stepsSummaryUnmeasurable(measure.why),
+        runPath: "/api/keiri/tenant-trial/steps/run",
+        check: "f5-4・f3-4",
+        note:
+          "読むだけの窓口です。合格にも不合格にもしていません。" +
+          "金額・合言葉・鍵の値は1文字も返しません",
+      }),
+      { status: 200, headers: CHECK_WINDOW_HEADERS },
+    );
+  }
+
   const tenantId = found.kind === "row" ? found.row.id : null;
   const shopReady = Boolean(tenantId);
 
@@ -120,6 +157,9 @@ export async function GET() {
     stampCheckWindow({
       shop: TEST_SHOP.name,
       isTestShop: true,
+      /** いま測れたか（2026-11-07）。false のときは○×を出しません */
+      measurable: true,
+      warehouse: { alive: warehouse.alive, state: warehouse.state, reason: warehouse.reason },
       steps: {
         "4_出店場所": locationReady ? "入っています" : "まだです",
         "4_商品と単価": productReady ? "入っています" : "まだです",
