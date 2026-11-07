@@ -164,3 +164,14 @@ test("お申し込みの画面は、住所の中身で欄を埋める（打ち�
   // 埋めるだけ。開いただけで送らない
   assert.ok(!/readPrefill\(\)[\s\S]{0,200}fetch\(/.test(src));
 });
+
+test("下見（dryRun）で、2通目の中身を外から読める（何も送らず・何も書かない）", () => {
+  const src = readFileSync("app/api/keiri/apply/route.ts", "utf8");
+  // 下見の返事に、2通目の文と入れ直しのリンクが入る
+  assert.match(src, /saveFailureNotice:\s*\{/);
+  assert.match(src, /sentNow:\s*false/);
+  // 下見はここで必ず終わる（知らせも控えも出さない）
+  const dry = src.slice(src.indexOf("if (dryRun) {"));
+  const after = dry.slice(0, dry.indexOf("\n  }"));
+  assert.ok(!/sendLineGroupMessageDetailed|notifyApplication|saveApplication/.test(after), after);
+});
