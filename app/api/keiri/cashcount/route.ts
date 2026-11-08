@@ -5,6 +5,7 @@ import { depositsOf, latestCount, reconcileCash } from "@/lib/keiri/cashCheck";
 import {
   buildCashCountReady,
   buildCashCountWindow,
+  cashCountNotMeasurable,
   type CashCountPlace,
 } from "@/lib/keiri/cashCountWindow";
 import {
@@ -50,6 +51,7 @@ import { defaultSettingsFor } from "@/lib/keiri/index";
 import { loadKeiriMonthServer } from "@/lib/keiri/loadMonthServer";
 import { latestRegisterFloat } from "@/lib/keiri/registerFloat";
 import { anonClient, serverClient } from "@/lib/supabaseServer";
+import { probeWarehouseAlive } from "@/lib/keiri/warehouseAlive";
 import { TEBAYA_SCOPE } from "@/lib/tenantScope";
 
 export const runtime = "nodejs";
@@ -81,6 +83,21 @@ export async function GET() {
 
   try {
     const db = serverClient();
+
+    /**
+     * ⓪ 対照：**同じつなぎ方**で手羽屋の行が1件でも見えるか（2026-11-08・f1-4）。
+     *   見えなければ「測れません」で返し、月の数字は読みに行きません。
+     *   ★ここが無いと、倉庫が眠っている日に ok: false ＝
+     *     **金庫と合っていない（不合格）**と読める答えを返します。
+     */
+    const warehouse = await probeWarehouseAlive(db as never);
+    if (!warehouse.alive) {
+      return json({
+        ...cashCountNotMeasurable(warehouse.reason),
+        warehouse: { alive: false, state: warehouse.state, reason: warehouse.reason },
+      });
+    }
+
     // 手羽屋ぶんを、画面と同じ読み方（サーバー側の窓口が使う道）で読む
     const data = await loadKeiriMonthServer({
       ym,
@@ -90,7 +107,11 @@ export async function GET() {
       db,
     });
     if (data.reportsUnreadable) {
-      return json({ ok: false, reason: "日報を読めませんでした（0件と取り違えないこと）" });
+      // ★読めなかっただけ＝「合っていない」ではありません（0件とも取り違えないこと）
+      return json({
+        ...cashCountNotMeasurable("日報の棚を読めませんでした（0件と取り違えないこと）"),
+        warehouse: { alive: warehouse.alive, state: warehouse.state, reason: warehouse.reason },
+      });
     }
 
     const settings = data.settingsMissing
@@ -258,6 +279,8 @@ export async function GET() {
 
     return json({
       ok: true,
+      measurable: true,
+      warehouse: { alive: warehouse.alive, state: warehouse.state, reason: warehouse.reason },
       ...buildCashCountWindow({ reconcile, pick, place }),
       // 差の内わけ（数え始めの日より前に払った経費・金額は出さない）
       openingGap: buildCashOpeningGapWindow({ gap: openingGap, diff: reconcile.diff }),
@@ -293,7 +316,11 @@ export async function GET() {
       openingSource,
     });
   } catch (e: any) {
-    return json({ ok: false, reason: String(e?.message ?? e).slice(0, 120) });
+    // ★通信が失敗した日も「合っていません」とは言いません
+    return json({
+      ...cashCountNotMeasurable("倉庫との通信に失敗しました"),
+      detail: String(e?.message ?? e).slice(0, 120),
+    });
   }
 }
 
