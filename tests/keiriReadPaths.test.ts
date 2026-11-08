@@ -9,7 +9,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { compareReadPaths, type ReadPathNumbers } from "../lib/keiri/readPaths";
+import {
+  compareReadPaths,
+  readPathVerdict,
+  type ReadPathNumbers,
+} from "../lib/keiri/readPaths";
 
 function numbers(over: Partial<ReadPathNumbers> = {}): ReadPathNumbers {
   return {
@@ -72,4 +76,60 @@ test("人の確認待ち（同じ支払いの疑い）の件数がちがえば�
   const r = compareReadPaths(numbers(), numbers({ dupes: 31 }));
   assert.equal(r.same, false);
   assert.deepEqual(r.diffs, [{ what: "同じ支払いが2か所にある疑いの件数", diff: -1 }]);
+});
+
+/* ------------------------------------------------------------------ *
+ *  倉庫が眠っている日に「ちがう」と言わない（2026-11-08・f1-2／f3-4）
+ * ------------------------------------------------------------------ */
+
+test("倉庫に届かない日は、ok も same も null（止まっているだけを不合格にしない）", () => {
+  const v = readPathVerdict({
+    kind: "warehouse",
+    reason: "倉庫からの返事が時間内に来ませんでした",
+  });
+  assert.equal(v.measurable, false);
+  assert.equal(v.ok, null);
+  assert.equal(v.same, null);
+  assert.deepEqual(v.diffs, []);
+  assert.match(v.summary, /いまは測れませんでした/);
+  assert.match(v.summary, /合格にも不合格にもしていません/);
+  // ★「ちがいます」と読める言葉を1つも出さないこと
+  assert.doesNotMatch(v.summary, /ちがいます/);
+});
+
+test("読めなかった棚があるだけの日も、ok は null", () => {
+  const v = readPathVerdict({ kind: "shelf", reason: "倉庫から読めなかった棚があります" });
+  assert.equal(v.measurable, false);
+  assert.equal(v.ok, null);
+  assert.match(v.summary, /読めなかった棚/);
+});
+
+test("通信が失敗した日も、ok は null", () => {
+  const v = readPathVerdict({ kind: "failure", reason: "倉庫との通信に失敗しました" });
+  assert.equal(v.measurable, false);
+  assert.equal(v.ok, null);
+});
+
+test("比べる答えが揃わなければ ok は null（空の比べ結果を合否にしない）", () => {
+  const v = readPathVerdict(null, null);
+  assert.equal(v.measurable, false);
+  assert.equal(v.ok, null);
+});
+
+test("読めた日は、今までどおり『同じ／ちがう』を言う（答えは1文字も変わらない）", () => {
+  const same = readPathVerdict(null, compareReadPaths(numbers(), numbers()));
+  assert.equal(same.measurable, true);
+  assert.equal(same.ok, true);
+  assert.equal(same.same, true);
+  assert.match(same.summary, /1円・1件もちがいません/);
+
+  const diff = readPathVerdict(
+    null,
+    compareReadPaths(numbers(), numbers({ cash: 1004398 })),
+  );
+  assert.equal(diff.measurable, true);
+  assert.equal(diff.ok, false);
+  assert.deepEqual(diff.diffs, [
+    { what: "いまの現金（金庫にあるはずの額）", diff: 1 },
+  ]);
 });

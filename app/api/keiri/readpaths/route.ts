@@ -2,7 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 import { previousMonthRange, CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
-import { compareReadPaths, type ReadPathNumbers } from "@/lib/keiri/readPaths";
+import {
+  compareReadPaths,
+  readPathVerdict,
+  type ReadPathNumbers,
+} from "@/lib/keiri/readPaths";
+import { probeWarehouseAlive } from "@/lib/keiri/warehouseAlive";
 import { describeAdvanceWindow } from "@/lib/keiri/advanceWindow";
 import { advanceReadRange } from "@/lib/keiri/advanceRange";
 import { buildJournalRows } from "@/lib/keiri/journal";
@@ -47,6 +52,24 @@ export async function GET(req: NextRequest) {
 
   try {
     const db = serverClient();
+
+    /**
+     * ⓪ 対照：**同じつなぎ方**で手羽屋の行が1件でも見えるか（2026-11-08・f1-2／f3-4）。
+     *   見えなければ「測れません」で返し、2つの道には読みに行きません。
+     *   ★ここが無いと、倉庫が眠っている日に ok: false ＝ **止まっているだけなのに不合格**
+     *     と読める答えを返します（11/6〜11/8 に6つの窓口で直したのと同じ形）。
+     */
+    const warehouse = await probeWarehouseAlive(db as never);
+    if (!warehouse.alive) {
+      return jsonWindow({
+        ym,
+        warehouse: { alive: false, state: warehouse.state, reason: warehouse.reason },
+        ...readPathVerdict({ kind: "warehouse", reason: warehouse.reason }),
+        what: "2つの道（サーバー側の窓口／ブラウザ直読み）に同じ月を読ませて、差だけを出しています",
+        note: "金額そのものは返していません。1行も書き込みません（読むだけ）",
+      });
+    }
+
     // ① サーバー側の窓口が使う読み方（お店は合言葉から決まる道）
     const viaWindow = await loadKeiriMonthServer({
       ym,
@@ -58,11 +81,16 @@ export async function GET(req: NextRequest) {
       db,
     });
     if (viaWindow.reportsUnreadable || viaWindow.advancesUnreadable) {
+      // ★読めなかった棚があるだけ＝**ちがう**ではありません。ok は null にします
       return jsonWindow({
-        ok: false,
         ym,
-        message:
-          "倉庫から読めなかった棚があるので、2つの道を比べられませんでした（少し待ってから開き直してください）。",
+        warehouse: { alive: warehouse.alive, state: warehouse.state, reason: warehouse.reason },
+        ...readPathVerdict({
+          kind: "shelf",
+          reason: "倉庫から読めなかった棚があります",
+        }),
+        what: "2つの道（サーバー側の窓口／ブラウザ直読み）に同じ月を読ませて、差だけを出しています",
+        note: "金額そのものは返していません。1行も書き込みません（読むだけ）",
       });
     }
 
@@ -84,9 +112,9 @@ export async function GET(req: NextRequest) {
     const advanceWindow = await compareAdvanceWindow({ ym, base: viaWindow, db });
 
     return jsonWindow({
-      ok: result.same,
       ym,
-      ...result,
+      warehouse: { alive: warehouse.alive, state: warehouse.state, reason: warehouse.reason },
+      ...readPathVerdict(null, result),
       advanceWindow,
       what: "2つの道（サーバー側の窓口／ブラウザ直読み）に同じ月を読ませて、差だけを出しています",
       note:
@@ -95,11 +123,13 @@ export async function GET(req: NextRequest) {
       writes: "ありません（読むだけ）",
     });
   } catch (e: any) {
+    // ★通信が失敗したときも「ちがう」とは言いません（合格にも不合格にもしない）
     return jsonWindow({
-      ok: false,
       ym,
-      message: "倉庫との通信に失敗したので、2つの道を比べられませんでした。",
+      warehouse: { alive: false, state: "unreachable", reason: "倉庫との通信に失敗しました" },
+      ...readPathVerdict({ kind: "failure", reason: "倉庫との通信に失敗しました" }),
       reason: String(e?.message ?? e).slice(0, 200),
+      note: "金額そのものは返していません。1行も書き込みません（読むだけ）",
     });
   }
 }
@@ -140,10 +170,14 @@ async function compareAdvanceWindow(params: {
     db,
   });
   if (wide.advancesUnreadable) {
+    // ★読めなかっただけ＝「差がある」ではありません（2026-11-08）
     return {
-      ok: false,
+      ok: null,
+      measurable: false,
       ranges,
-      message: "立替の棚が読めなかったので、2つの期間を比べられませんでした。",
+      message:
+        "立替の棚が読めなかったので、2つの期間を比べられませんでした" +
+        "（合格にも不合格にもしていません）。",
     };
   }
 
@@ -164,6 +198,7 @@ async function compareAdvanceWindow(params: {
 
   return {
     ok: true,
+    measurable: true,
     ranges,
     ...found,
     /** 前後40日の期間にすると、いくら動くか（＝広い側 − いまの画面） */
