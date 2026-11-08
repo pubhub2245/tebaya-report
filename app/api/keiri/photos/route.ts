@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
-import { probePhotoShelf } from "@/lib/keiri/photoProbe";
+import { probePhotoShelfWithinBudget } from "@/lib/keiri/photoProbe";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +28,20 @@ export const maxDuration = 30;
  * ★手羽屋の日報・シフト・レジ・LINE には一切触れていません。
  */
 export async function GET() {
-  const report = await probePhotoShelf();
-  return NextResponse.json(stampCheckWindow(report), { headers: CHECK_WINDOW_HEADERS });
+  /*
+   * ★2026-11-08（B／f3-4）：**必ず答えを返します。**
+   *   それまでは倉庫が止まっている日、答えを返す前に持ち時間（30秒）が切れて
+   *   HTTP 504（FUNCTION_INVOCATION_TIMEOUT）になっていました。
+   *   f3-4 の合否を外から測る窓口なのに、いちばん知りたい日に開けない形でした。
+   *   線に当たった日は ○× をぜんぶ「分かりません」にして、合格にも不合格にもしません。
+   */
+  const { report, timedOut, elapsedMs } = await probePhotoShelfWithinBudget();
+  return NextResponse.json(
+    stampCheckWindow({
+      ...report,
+      measurable: !timedOut,
+      measuredMs: elapsedMs,
+    }),
+    { headers: CHECK_WINDOW_HEADERS },
+  );
 }
