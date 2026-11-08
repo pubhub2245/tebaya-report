@@ -30,6 +30,8 @@ export async function GET() {
 
   return NextResponse.json({
     countable: described.countable,
+    // ★true＝倉庫まで届かなかった（＝測れていないだけ。受け皿が壊れたとは言わない）
+    unreachable: described.unreachable,
     pending: described.pending,
     total: described.total,
     latestAt: described.latestAt,

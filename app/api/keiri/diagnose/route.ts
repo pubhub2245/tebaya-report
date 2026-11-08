@@ -7,6 +7,7 @@ import {
   serviceRoleKeyRepair,
 } from "@/lib/supabaseServer";
 import { describeServerKey } from "@/lib/keiri/serverHealth";
+import { isUnreachableMessage } from "@/lib/keiri/readFailure";
 import {
   describeApplicationStore,
   probeApplicationStore,
@@ -71,9 +72,15 @@ async function checkTable(table: string): Promise<TableCheck> {
     const supabase = serviceClientOrNull({ fresh: true }) ?? serverClient({ fresh: true });
     const { error } = await supabase.from(table).select("*").limit(1);
     if (!error) return { ok: true, reason: null };
-    return { ok: false, reason: describeTableError(error.code, error.message) };
+    return {
+      ok: false,
+      reason: describeTableError(error.code, error.message),
+      // ★倉庫まで届かなかっただけなら「使えない」と数えない（2026-11-08・B／f2-1）
+      unreachable: isUnreachableMessage(error.message),
+    };
   } catch {
-    return { ok: false, reason: "読めませんでした（通信の失敗）" };
+    // 投げられた＝そもそも届いていない。ここも「測れていない」側
+    return { ok: false, reason: "読めませんでした（通信の失敗）", unreachable: true };
   }
 }
 
@@ -229,6 +236,17 @@ async function checkTenantRpc(): Promise<{ usable: boolean; note: string }> {
     // ★「窓口がまだ無い」と「呼んだが失敗した」を言い分ける。
     //   直し方がまったく違うので、ひとまとめにすると判断をまちがえる（kp89 と同じ考え方）。
     const missing = probe.reason === "窓口がまだありません";
+    // ★2026-11-08（B）：倉庫まで届かなかったときに「SQL はもう流してある」と
+    //   言い切らない。1回も届いていないので、窓口がある／ないは分からない。
+    if (!missing && isUnreachableMessage(probe.reason)) {
+      return {
+        usable: false,
+        note:
+          "倉庫（データのしまい場所）に、いまつながりませんでした" +
+          "（眠っているのかもしれません。お金はかかっていません）。" +
+          "窓口があるかどうかは、ここでは分かりません",
+      };
+    }
     return {
       usable: false,
       note: missing
