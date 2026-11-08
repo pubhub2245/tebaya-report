@@ -264,7 +264,14 @@ export function measureCashDiffCoverage(params: {
       `差 ${yen(diff)}（${dirWord(diff)}）は、${namedPart}だけで説明がつく範囲` +
         `（${yen(min)}〜${yen(max)}）に収まっています。`,
     );
-    lines.push("＝ ほかに探し物はありません。金庫の中身は帳簿と合っています。");
+    // ★ここで「金庫と帳簿が合っています」とは言いません（2026-11-08・f1-4）。
+    //   名前が付いた分のうち、レジの過不足いがいは「いくら出たかの記録が無い＝上限だけ」
+    //   なので、金庫と帳簿の金額はいまも**ちがいます**。ちがう理由に名前が付いた、
+    //   というだけです。そこを言い切ると、情報源に無いことを「できた」と書く形になります。
+    lines.push(
+      "＝ 帳簿に書いていない現金の出入りを、ほかに探す必要はありません" +
+        "（金庫と帳簿がちがうのは、名前が付いた分だけです）。",
+    );
     if (unknownLabels.length > 0) {
       lines.push(
         `※ ${unknownLabels.join("／")} は いま読めていませんが、` +
@@ -331,6 +338,11 @@ export type CashDiffCoverageWindow = {
   shown: boolean;
   /** ひとこと（金額は入れない） */
   note: string;
+  /**
+   * **合否の読み方**（2026-11-08・f1-4）。
+   * この窓口だけを見て合否を付け間違えないように、決まりをここに書いておきます。
+   */
+  howto: string;
 };
 
 export function buildCashDiffCoverageWindow(
@@ -346,5 +358,11 @@ export function buildCashDiffCoverageWindow(
     note: c.measurable
       ? c.summary
       : "まだ金庫を数えていないので、差に名前が付いているかは測れません。",
+    howto:
+      "f1-4 の合否は、この covered と、上の matched（ぴったり／ほぼ合っていたか）の" +
+      "どちらかで見てください。matched が true、または covered が true なら" +
+      "『合っている』側です（差があっても、名前が付いた分で説明がつく範囲なので）。" +
+      "covered が false のときだけ『名前の付かない差が残っている』。" +
+      "covered が null のときは、読めていない所があるので**合否を付けないでください**。",
   };
 }
