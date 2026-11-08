@@ -244,3 +244,66 @@ test("届かなかった窓口は、棚の判定でも「締まっている」�
     "倉庫が眠っている日に「締まっている」と答えています",
   );
 });
+
+/* ------------------------------------------------------------------ *
+ *  倉庫が眠っている日に「まだ締めていない棚が N つ」と断定しない
+ *  （2026-11-08・f3-4）
+ * ------------------------------------------------------------------ */
+
+/**
+ * ■ なぜ縛るか（11/8 に本番で実測した形）
+ *   倉庫（データのしまい場所）が眠っていた日、棚ごとの答えは9本とも
+ *   「聞けませんでした。分からないまま合格にしないこと」で正しかったのに、
+ *   **まとめだけ**が `allScoped: false` ＋
+ *   「日報のほかに、**まだ締めていない棚が 9 つあります**」と断定していました。
+ *   1本も聞いていないのに「締めていない」と言う＝嘘になりうる形です。
+ */
+const allUnknown = summarizeShelfScopes(
+  PENDING_SHELVES.map((p) =>
+    shelf({
+      table: p.table,
+      exists: null,
+      hasColumn: null,
+      windowReady: null,
+      foreignRows: null,
+      scoped: null,
+    }),
+  ),
+);
+
+test("1本も聞けなかった日は allScoped が null（締めていないとも言わない）", () => {
+  assert.equal(allUnknown.allScoped, null);
+  assert.deepEqual(allUnknown.pending, []);
+  assert.equal(allUnknown.unknown.length, PENDING_SHELVES.length);
+  assert.match(allUnknown.summary, /聞けませんでした/);
+  // ★「まだ締めていない棚が N つ」とは言わないこと
+  assert.doesNotMatch(allUnknown.summary, /まだ締めていない棚/);
+});
+
+test("聞けた棚と聞けなかった棚が混ざる日は、分けて数える", () => {
+  const sum = summarizeShelfScopes([
+    shelf({ table: "a" }),
+    shelf({ table: "b", windowReady: false, scoped: false }),
+    shelf({ table: "c", exists: null, windowReady: null, foreignRows: null, scoped: null }),
+  ]);
+  assert.deepEqual(sum.pending, ["b"]);
+  assert.deepEqual(sum.unknown, ["c"]);
+  assert.equal(sum.allScoped, false, "聞けた棚に締めていないものがあるなら false");
+  assert.match(sum.summary, /まだ締めていない棚が 1 つ/);
+  assert.match(sum.summary, /ほかに 1 つは聞けませんでした/);
+});
+
+test("棚を1本も聞けなかった日は、f3-4 の合否も付けない（あと N つ と言わない）", () => {
+  const v = f34Verdict(true, readable, guard(true), allUnknown);
+  assert.equal(v.pass, null);
+  assert.equal(v.otherShelvesScoped, null);
+  assert.match(v.line, /まだ分かりません/);
+  assert.doesNotMatch(v.line, /あと/);
+});
+
+test("写しを1つも聞けなかった日も、f3-4 の合否を付けない", () => {
+  const v = f34Verdict(null, readable, guard(true), allScoped);
+  assert.equal(v.pass, null);
+  assert.equal(v.copiesClosed, null);
+  assert.match(v.line, /写しを1つも聞けませんでした/);
+});

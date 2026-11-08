@@ -134,7 +134,12 @@ test("聞けなかったときは『分かりません』にして、閉まっ�
   });
   assert.equal(v.state, COPY_UNKNOWN);
   const sum = summarizeCopyTables([v]);
-  assert.equal(sum.allClosed, false, "分からないものがあるのに『ぜんぶ閉まった』にしてはいけない");
+  // ★2026-11-08：聞けなかったときは **null**（＝分かりません）。
+  //   true にしないのはこれまでどおりで、false（＝開いている）とも言わないようにした
+  //   （1つも読めていないのに「写しがまだ開いています」は聞いてもいない断定になる）
+  assert.notEqual(sum.allClosed, true, "分からないものがあるのに『ぜんぶ閉まった』にしてはいけない");
+  assert.equal(sum.allClosed, null, "聞けなかったものを『開いている』にもしてはいけない");
+  assert.match(sum.summary, /分かりませんでした/);
 });
 
 test("1つでも開いていれば、ぜんぶ閉まったとは言わない", () => {

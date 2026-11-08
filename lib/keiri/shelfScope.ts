@@ -205,10 +205,23 @@ export type ShelvesScopeReport = {
   shelves: ShelfScopeReport[];
   /** いま公開の鍵で、よその店の行が読めてしまっている棚 */
   leaking: string[];
-  /** まだ締める工事が済んでいない棚 */
+  /** **聞けたうえで**まだ締める工事が済んでいない棚 */
   pending: string[];
-  /** 数えた棚がぜんぶ締まっているか（1つでも分からなければ false） */
-  allScoped: boolean;
+  /** 聞けなかった棚（開いているとも閉まっているとも言えない・2026-11-08） */
+  unknown: string[];
+  /**
+   * 数えた棚がぜんぶ締まっているか。
+   *
+   * ★3通りあります（2026-11-08・f3-4）：
+   *   true  … 聞けたうえで、ぜんぶ締まっている
+   *   false … 聞けたうえで、まだ締まっていない棚がある
+   *   null  … **1本も聞けなかった**＝締まっているとも言えない
+   *
+   *   以前は「聞けなかった棚」も『まだ締めていない棚』に数えていたため、
+   *   倉庫が眠っている日に **まだ締めていない棚が 9 つあります** という
+   *   聞いてもいない断定が出ていました（11/8 の実測）。
+   */
+  allScoped: boolean | null;
   /** 「お店ごとに分ける必要が無い」と決めた棚（理由つき・2026-10-17） */
   shared: { table: string; label: string; why: string }[];
   summary: string;
@@ -370,12 +383,18 @@ export async function probeShelfScopes(
 /** 棚ごとの答えを1つにまとめる（計算だけ・倉庫に聞きません） */
 export function summarizeShelfScopes(shelves: ShelfScopeReport[]): ShelvesScopeReport {
   const leaking = shelves.filter((s) => s.scoped === false && (s.foreignRows ?? 0) > 0);
-  const pending = shelves.filter((s) => s.scoped !== true);
+  // ★聞けた（scoped が false）棚だけを「まだ締めていない」に数える
+  const pending = shelves.filter((s) => s.scoped === false);
+  // ★聞けなかった（scoped が null）棚は、別に数える（断定しないため）
+  const unknown = shelves.filter((s) => s.scoped === null);
+  const allScoped: boolean | null =
+    pending.length > 0 ? false : unknown.length > 0 ? null : true;
   return {
     shelves,
     leaking: leaking.map((s) => s.table),
     pending: pending.map((s) => s.table),
-    allScoped: pending.length === 0,
+    unknown: unknown.map((s) => s.table),
+    allScoped,
     shared: SHARED_SHELVES,
     summary:
       leaking.length > 0
@@ -384,8 +403,14 @@ export function summarizeShelfScopes(shelves: ShelfScopeReport[]): ShelvesScopeR
         : pending.length > 0
           ? `日報のほかに、まだ締めていない棚が ${pending.length} つあります：` +
             pending.map((s) => s.label).join("・") +
-            "（いまは どのお店の行も入っていないので漏れていません）"
-          : "日報のほかの棚も、ぜんぶ締まっています",
+            "（いまは どのお店の行も入っていないので漏れていません）" +
+            (unknown.length > 0
+              ? `。ほかに ${unknown.length} つは聞けませんでした`
+              : "")
+          : unknown.length > 0
+            ? `日報のほかの棚は、いま ${unknown.length} 本とも聞けませんでした` +
+              "（締まったかどうかは分かりません。分からないまま合格にしないこと）"
+            : "日報のほかの棚も、ぜんぶ締まっています",
     check: "f3-4",
     how:
       "棚ごとに2つ聞いています：①公開の鍵で『印が付いた行』が読めるか（件数だけ）" +

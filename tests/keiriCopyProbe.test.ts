@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   PROBE_DEADLINE_MS,
   SWEEP_MIN_MS,
+  f34Note,
   f34Verdict,
   sweepCandidates,
   type LiveShelfReport,
@@ -89,4 +90,19 @@ test("持ち時間を使い切っていたら、1本も聞かずに『続きが�
 test("窓口ぜんたいの持ち時間は、写しを聞く最低時間より長い", () => {
   // ここが逆になると、本題を答える前に時間切れになる
   assert.ok(PROBE_DEADLINE_MS > SWEEP_MIN_MS);
+});
+
+/* ------------------------------------------------------------------ *
+ *  写しを1つも聞けなかった日に「まだ開いています」と書かない（2026-11-08・f3-4）
+ * ------------------------------------------------------------------ */
+test("写しを聞けなかった日の一言は、開いているとも閉まっているとも言わない", () => {
+  const note = f34Note(null, readable, guard(true));
+  assert.match(note, /聞けませんでした/);
+  assert.doesNotMatch(note, /写しがまだ開いています/);
+  assert.doesNotMatch(note, /写しは閉まっています/);
+});
+
+test("写しが読めたうえで開いていた日は、今までどおり『まだ開いています』と言う", () => {
+  const note = f34Note(false, readable, guard(true));
+  assert.match(note, /写しがまだ開いています/);
 });

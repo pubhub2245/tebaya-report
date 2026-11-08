@@ -148,7 +148,8 @@ export type CopyProbeReport = {
   listNote: string;
   exposed: number | null;
   tables: CopyTableVerdict[];
-  allClosed: boolean;
+  /** 写しがぜんぶ閉まっているか（**1つも聞けなかった日は null**・2026-11-08） */
+  allClosed: boolean | null;
   open: number;
   closed: number;
   unknown: number;
@@ -195,8 +196,8 @@ export type F34Verdict = {
   foreignHidden: boolean | null;
   /** ②手羽屋の行が今までどおり読めるか */
   tebayaStillReadable: boolean | null;
-  /** ③写し（控え）が閉まっているか */
-  copiesClosed: boolean;
+  /** ③写し（控え）が閉まっているか（聞けなかった日は null・2026-11-08） */
+  copiesClosed: boolean | null;
   /**
    * ④**日報いがいの棚**も締まっているか（2026-10-17・kp253 ③）。
    * 渡されなかったときは null（昔の呼び方をそのまま通すため）
@@ -480,13 +481,21 @@ export async function probeLiveShelf(): Promise<LiveShelfReport> {
  *   **印が付いた行だけ**を見て答えます（lib/keiri/tenantReadGuard.ts）。
  */
 export function f34Note(
-  copiesClosed: boolean,
+  copiesClosed: boolean | null,
   live: LiveShelfReport,
   tenantRows?: TenantReadGuardReport,
 ): string {
-  const copies = copiesClosed
-    ? "写しは閉まっています"
-    : "写しがまだ開いています（貼り紙⑦を1回 流すと閉まります）";
+  /**
+   * ★2026-11-08：ここは3通りです。
+   *   聞けなかった日に「写しがまだ開いています」と書いていたので直しました
+   *   （1つも読めていないのに『開いている』は断定＝嘘になりうる）。
+   */
+  const copies =
+    copiesClosed === true
+      ? "写しは閉まっています"
+      : copiesClosed === false
+        ? "写しがまだ開いています（貼り紙⑦を1回 流すと閉まります）"
+        : "写しは、開いているか閉まっているか**聞けませんでした**（分からないまま合格にしないこと）";
 
   // ① よその店の行が見えてしまう＝ここが本題。まだ閉まっていない
   if (tenantRows?.separated === false) {
@@ -525,7 +534,7 @@ export function f34Note(
  * ★この関数は計算だけです（倉庫に聞きません）。試験で固定してあります。
  */
 export function f34Verdict(
-  copiesClosed: boolean,
+  copiesClosed: boolean | null,
   live: LiveShelfReport,
   tenantRows?: TenantReadGuardReport,
   shelves?: ShelvesScopeReport,
@@ -565,17 +574,31 @@ export function f34Verdict(
     };
   }
   // ③まだ試せていない（よその店の行が1行も無い・聞けなかった）
-  if (foreignHidden === null || tebayaStillReadable === null) {
+  if (
+    foreignHidden === null ||
+    tebayaStillReadable === null ||
+    // ★2026-11-08：写しを1つも聞けなかった日・棚を1本も聞けなかった日も「分かりません」。
+    //   以前はここを通り抜けて「写しがまだ開いています」「あと N つ」と断定していました
+    copiesClosed === null ||
+    // ★棚の話を**渡されたのに**1本も聞けなかったときだけ「分かりません」。
+    //   渡されない昔の呼び方は、今までどおり通す（otherShelvesScoped は null のまま）
+    (shelves !== undefined && shelves.allScoped === null)
+  ) {
     return {
       ...base,
       pass: null,
       line:
-        "**まだ分かりません**（よその店の行で試せていません）。" +
-        "分からないまま合格にしないこと",
+        "**まだ分かりません**（" +
+        (foreignHidden === null || tebayaStillReadable === null
+          ? "よその店の行で試せていません"
+          : copiesClosed === null
+            ? "写しを1つも聞けませんでした"
+            : "日報いがいの棚を1本も聞けませんでした") +
+        "）。分からないまま合格にしないこと",
     };
   }
   // ④よその店の行は隠れている。あとは写しだけ
-  if (!copiesClosed) {
+  if (copiesClosed === false) {
     return {
       ...base,
       pass: false,
@@ -586,7 +609,7 @@ export function f34Verdict(
   }
   // ⑤日報は閉まった。ただし日報いがいの棚がまだ締まっていない
   //   （ここを見ないと、貼り紙を流した日に**嘘の合格**が出ます・2026-10-17）
-  if (shelves && !shelves.allScoped) {
+  if (shelves && shelves.allScoped === false) {
     return {
       ...base,
       pass: false,
