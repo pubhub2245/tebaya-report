@@ -9,6 +9,7 @@
  */
 
 import { anonClient, noStoreFetch } from "@/lib/supabaseServer";
+import { raceWithDeadline } from "@/lib/keiri/readBudget";
 import { RECEIPT_BUCKET } from "@/lib/receiptStorage";
 import { applyTenantScope, TEBAYA_SCOPE } from "@/lib/tenantScope";
 import { RECEIPT_VIEW_PATH } from "@/lib/receiptViewUrl";
@@ -21,32 +22,23 @@ import { checkWithoutWriting } from "@/lib/keiri/photoMarkerProbe";
 import {
   judgePhotoShelf,
   PHOTO_PREFIXES,
+  PHOTO_SHELF_BUDGET_MS,
   PHOTO_SHELF_HOW,
   PHOTO_TENANT_PREFIX,
+  unmeasurablePhotoShelf,
+  type PhotoShelfReport,
   type PhotoShelfVerdict,
+  type PublicReadCheck,
   type ShelfListOutcome,
 } from "@/lib/keiri/photoShelf";
 
-export type PhotoShelfReport = {
-  bucket: string;
-  /** 「公開かどうか」を外から確かめた結果（写真は1枚も読みません） */
-  publicCheck: PublicReadCheck;
-  /** 写真を見せる窓口の住所（画面はここだけを通して見る） */
-  viewWindow: string;
-  /** その窓口について、まだ測れていないことの1行（甘く見せないため） */
-  viewWindowNote: string;
-  /** 聞いた場所ごとの結果 */
-  outcomes: ShelfListOutcome[];
-  /** 置き場に写真が1枚でもあると数えられたか（分からなければ null） */
-  knownPhotos: number | null;
-  knownPhotosNote: string;
-  /** 「一覧は閉まっているか」を鍵なしで確かめる窓口（置き場が非公開になったあとも使えます） */
-  markerWindow: string;
-  /** 目印の画像のこと（1行） */
-  markerNote: string;
-  verdict: PhotoShelfVerdict;
-  how: string;
-};
+export {
+  PHOTO_SHELF_BUDGET_MS,
+  unmeasurablePhotoShelf,
+  type PhotoShelfReport,
+  type PublicReadCheck,
+} from "@/lib/keiri/photoShelf";
+
 
 /** 置き場の1か所を一覧で聞く。中身（名前）は数えるだけで返さない */
 async function listFolder(folder: string): Promise<ShelfListOutcome> {
@@ -165,15 +157,6 @@ async function countPhotosInReports(): Promise<number> {
   return found;
 }
 
-export type PublicReadCheck = {
-  /** 置き場が公開のままか（true ＝ 開いている / false ＝ 非公開 / null ＝ 分かりません） */
-  open: boolean | null;
-  /** 倉庫が返した番号（200・400・404 など。値や住所は入れません） */
-  status: number | null;
-  /** 倉庫が返した短い文（鍵・住所・お店の名前は入りません） */
-  said: string;
-  note: string;
-};
 
 /**
  * 置き場が「公開」のままかを、**合言葉も鍵もまったく付けずに**確かめる。
@@ -310,4 +293,58 @@ export async function probePhotoShelf(): Promise<PhotoShelfReport> {
     }),
     how: PHOTO_SHELF_HOW,
   };
+}
+
+/* ==========================================================================
+ * 「いま確かめられませんでした」の形（2026-11-08・B／f3-4）
+ *
+ * ■ 何が起きていたか（本番で実測して見つけた）
+ *   倉庫（データのしまい場所）が止まっているあいだ、この窓口（/api/keiri/photos）は
+ *   **答えそのものを返しませんでした**（HTTP 504・FUNCTION_INVOCATION_TIMEOUT）。
+ *   f3-4（よその店のデータが見えないか）の合否を外から測る窓口の1本なのに、
+ *   いちばん知りたい日に開けないという形です。
+ *
+ * ■ なぜ時間が足りなくなるのか
+ *   この窓口は 置き場を7か所 一覧で聞き、棚を7回 数え、公開かどうかを1回たたきます。
+ *   倉庫に届かないとき、つなぐ部品は**同じ問い合わせを自分で4回 試す**ので
+ *   1か所あたり約7秒（→ lib/keiri/readBudget.ts）。足すと30秒の持ち時間を超えます。
+ *
+ * ■ どうするか
+ *   読み終わるのを待つのを、**こちらの線でやめます**（既にある raceWithDeadline）。
+ *   線に当たった日は ○× をぜんぶ null（分かりません）にして、
+ *   **合格にも不合格にもしません**。＝ 止まっているだけの日を不合格にしない
+ *   （2026-11-06〜11-07 に ほかの窓口でそろえたのと同じ形）。
+ * ========================================================================== */
+
+
+
+/** この倉庫の置き場についての「分かりません」の形（中身の決まりは photoShelf.ts） */
+function unmeasurableReport(reason: string): PhotoShelfReport {
+  return unmeasurablePhotoShelf({
+    bucket: RECEIPT_BUCKET,
+    viewWindow: RECEIPT_VIEW_PATH,
+    reason,
+  });
+}
+
+/**
+ * 置き場を確かめる。**必ず答えを返します**（線に当たったら「分かりません」の形）。
+ *
+ * ★待っている処理を止めはしません（止められないので）。こちらが待つのをやめるだけです。
+ */
+export async function probePhotoShelfWithinBudget(
+  opts?: { budgetMs?: number },
+): Promise<{ report: PhotoShelfReport; timedOut: boolean; elapsedMs: number }> {
+  const budgetMs = opts?.budgetMs ?? PHOTO_SHELF_BUDGET_MS;
+  const work = (async () => {
+    try {
+      return await probePhotoShelf();
+    } catch {
+      return unmeasurableReport("置き場に聞けませんでした");
+    }
+  })();
+  const got = await raceWithDeadline(work, budgetMs, () =>
+    unmeasurableReport("倉庫からの返事が時間内に来ませんでした"),
+  );
+  return { report: got.value, timedOut: got.timedOut, elapsedMs: got.elapsedMs };
 }

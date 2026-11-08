@@ -160,3 +160,73 @@ export const PHOTO_SHELF_HOW =
   "viewWindow は『画面が置き場の住所を直に使うのをやめ、こちら側の窓口ごしに見る形になったか』で、" +
   "ここが true になってから置き場を非公開に変えます（順番を逆にすると写真が1枚も映りません）。" +
   "★この窓口は1枚も写真を読まず、写真の住所・金額・お店の名前を1文字も返しません";
+
+export type PublicReadCheck = {
+  /** 置き場が公開のままか（true ＝ 開いている / false ＝ 非公開 / null ＝ 分かりません） */
+  open: boolean | null;
+  /** 倉庫が返した番号（200・400・404 など。値や住所は入れません） */
+  status: number | null;
+  /** 倉庫が返した短い文（鍵・住所・お店の名前は入りません） */
+  said: string;
+  note: string;
+};
+
+export type PhotoShelfReport = {
+  bucket: string;
+  /** 「公開かどうか」を外から確かめた結果（写真は1枚も読みません） */
+  publicCheck: PublicReadCheck;
+  /** 写真を見せる窓口の住所（画面はここだけを通して見る） */
+  viewWindow: string;
+  /** その窓口について、まだ測れていないことの1行（甘く見せないため） */
+  viewWindowNote: string;
+  /** 聞いた場所ごとの結果 */
+  outcomes: ShelfListOutcome[];
+  /** 置き場に写真が1枚でもあると数えられたか（分からなければ null） */
+  knownPhotos: number | null;
+  knownPhotosNote: string;
+  /** 「一覧は閉まっているか」を鍵なしで確かめる窓口（置き場が非公開になったあとも使えます） */
+  markerWindow: string;
+  /** 目印の画像のこと（1行） */
+  markerNote: string;
+  verdict: PhotoShelfVerdict;
+  how: string;
+};
+
+/** ここまでで諦める線（ミリ秒）。窓口の持ち時間 30 秒に収まるようにする */
+export const PHOTO_SHELF_BUDGET_MS = 18_000;
+
+/** 線に当たった日の答え（○× はぜんぶ「分かりません」） */
+export function unmeasurablePhotoShelf(input: {
+  bucket: string;
+  viewWindow: string;
+  reason: string;
+}): PhotoShelfReport {
+  const { bucket, viewWindow: viewWindowPath, reason } = input;
+  return {
+    bucket,
+    publicCheck: { open: null, status: null, said: "", note: reason },
+    viewWindow: viewWindowPath,
+    viewWindowNote:
+      "いまは確かめられませんでした（倉庫＝データのしまい場所から返事がありません）。" +
+      "**合格にも不合格にもしていません。**",
+    outcomes: [],
+    knownPhotos: null,
+    knownPhotosNote: "写真の枚数は、いま数えられませんでした",
+    markerWindow: "/api/keiri/photo-mark",
+    markerNote:
+      "目印の画像も、いまは確かめられませんでした" +
+      "（倉庫から返事がありません。置き場が閉まったという意味ではありません）",
+    verdict: {
+      listable: null,
+      publicRead: null,
+      viewWindow: true,
+      separatedByFolder: true,
+      note:
+        "いまは測れませんでした（" +
+        reason +
+        "）。置き場が開いているとも、閉まっているとも言っていません。" +
+        "倉庫が読めるようになってから、もう一度 開いてください",
+    },
+    how: PHOTO_SHELF_HOW,
+  };
+}
