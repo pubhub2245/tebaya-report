@@ -109,3 +109,86 @@ export function compareReadPaths(
         "寄せる前に、ちがいの中身を確かめてください（差だけを出しています）。",
   };
 }
+
+/* ------------------------------------------------------------------ *
+ *  「いま測れたのか」を分けて答える（2026-11-08・f1-2／f3-4）
+ * ------------------------------------------------------------------ */
+
+/**
+ * ■ なぜ足したか（ここを取り違えると嘘の不合格が出ます）
+ *   この窓口（/api/keiri/readpaths）は、倉庫（データのしまい場所）が眠っている日に
+ *   **ok: false** と答えていました。読んだ人には
+ *   「2つの道の答えがちがう＝寄せたせいで数字が変わった」と読めますが、
+ *   **実際には1回も読めていません**（倉庫から返事が来なかっただけ）。
+ *   ＝ **止まっているだけの日を不合格にする**形でした。
+ *   11/6〜11/8 に同じ形を 6つの窓口（scopecheck・readcheck・shelves・firstmonth・
+ *   tenant-trial/steps・photos）で直したのと、まったく同じ直しです。
+ *
+ * ■ これからの答え方
+ *   読めた日 … ok は「2つの道が同じか」そのまま（今までと1文字も変わりません）
+ *   読めない日 … measurable: false・ok: **null**・same: **null**
+ *                「いまは測れませんでした。合格にも不合格にもしていません」
+ *
+ * ★この関数は計算だけです（倉庫に聞きません）。試験で固定してあります。
+ */
+export type ReadPathVerdict = {
+  /** いま測れたか（false なら合否を付けないこと） */
+  measurable: boolean;
+  /** 2つの道の答えが同じか。測れていない日は null */
+  ok: boolean | null;
+  /** ok と同じ意味（読む人のための別名）。測れていない日は null */
+  same: boolean | null;
+  /** ちがった所だけ（測れていない日は空） */
+  diffs: ReadPathDiff[];
+  /** 人が読む1行 */
+  summary: string;
+};
+
+/** 測れなかった理由（倉庫のどこで止まったか） */
+export type ReadPathBlocked =
+  /** 倉庫そのものに届かない・断られた */
+  | { kind: "warehouse"; reason: string }
+  /** 倉庫は生きているが、読めなかった棚がある */
+  | { kind: "shelf"; reason: string }
+  /** 通信そのものが失敗した */
+  | { kind: "failure"; reason: string };
+
+const CANNOT_MEASURE_TAIL =
+  "合格にも不合格にもしていません。倉庫が読めるようになってから、もう一度 開いてください。";
+
+/**
+ * 2つの道の比べた結果に「いま測れたのか」を付けて返す。
+ *
+ * @param blocked 測れなかった理由。null なら測れた
+ * @param comparison 測れたときの比べた結果（測れなかったときは渡さない）
+ */
+export function readPathVerdict(
+  blocked: ReadPathBlocked | null,
+  comparison?: ReadPathComparison | null,
+): ReadPathVerdict {
+  if (blocked) {
+    return {
+      measurable: false,
+      ok: null,
+      same: null,
+      diffs: [],
+      summary: `いまは測れませんでした（${blocked.reason}）。${CANNOT_MEASURE_TAIL}`,
+    };
+  }
+  if (!comparison) {
+    return {
+      measurable: false,
+      ok: null,
+      same: null,
+      diffs: [],
+      summary: `いまは測れませんでした（比べる答えが揃いませんでした）。${CANNOT_MEASURE_TAIL}`,
+    };
+  }
+  return {
+    measurable: true,
+    ok: comparison.same,
+    same: comparison.same,
+    diffs: comparison.diffs,
+    summary: comparison.summary,
+  };
+}
