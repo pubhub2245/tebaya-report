@@ -39,8 +39,14 @@ test("差が名前の付いた分の幅に収まったら、探し物は無い�
   assert.equal(c.covered, true);
   assert.equal(c.rest, 0);
   assert.equal(c.named, 2);
-  assert.match(c.lines.join("\n"), /ほかに探し物はありません/);
+  assert.match(c.lines.join("\n"), /ほかに探す必要はありません/);
   assert.match(c.summary, /収まっています/);
+  // ★「金庫と帳簿が合っています」と言い切らない（上限だけ分かる分が入っているため）
+  assert.equal(
+    /合っています/.test(c.lines.join("\n")),
+    false,
+    "名前が付いただけで『合っている』と言い切らない",
+  );
 });
 
 test("はみ出た分があり、読めていない所が無ければ『ここが探し物』と言い切る", () => {
@@ -149,6 +155,8 @@ test("まだ数えていなければ測らない（行も出ない）", () => {
   const w = buildCashDiffCoverageWindow(c);
   assert.equal(w.shown, false);
   assert.match(w.note, /まだ金庫を数えていない/);
+  // ★合否の読み方を窓口そのものに書いておく（この窓口だけ見て付け間違えないため）
+  assert.match(w.howto, /covered が null のときは/);
 });
 
 test("窓口は金額を1円も返さない", () => {
