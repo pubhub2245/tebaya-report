@@ -141,7 +141,18 @@ export function verdictFromAnonRead(input: {
 
 /** 全体のまとめ。開いている写しが1つでもあれば f3-4 は閉じていない */
 export function summarizeCopyTables(verdicts: readonly CopyTableVerdict[]): {
-  allClosed: boolean;
+  /**
+   * 写し（控え）がぜんぶ閉まっているか。
+   *
+   * ★3通りあります（2026-11-08・f3-4）。ここを2通りにすると嘘が出ます：
+   *   true  … ぜんぶ閉まっている（読めた うえで 1つも開いていない）
+   *   false … **読めたうえで**開いている写しがある
+   *   null  … **1つも聞けなかった**＝開いているとも閉まっているとも言えない
+   *
+   *   倉庫が眠っている日は null です。以前はここが false で、
+   *   「写しがまだ開いています」という**聞いてもいない断定**が出ていました。
+   */
+  allClosed: boolean | null;
   open: number;
   closed: number;
   unknown: number;
@@ -150,8 +161,9 @@ export function summarizeCopyTables(verdicts: readonly CopyTableVerdict[]): {
   const open = verdicts.filter((v) => v.state === COPY_OPEN).length;
   const closed = verdicts.filter((v) => v.state === COPY_CLOSED).length;
   const unknown = verdicts.filter((v) => v.state === COPY_UNKNOWN).length;
-  const allClosed = open === 0 && unknown === 0;
-  const summary = allClosed
+  const allClosed: boolean | null =
+    open > 0 ? false : unknown > 0 ? null : true;
+  const summary = allClosed === true
     ? verdicts.length === 0
       ? "手羽屋のデータの写しは見つかりませんでした"
       : `写し ${verdicts.length} つは、すべて公開の鍵では読めません`
