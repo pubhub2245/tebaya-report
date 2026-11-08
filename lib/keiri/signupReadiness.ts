@@ -30,6 +30,7 @@
  */
 
 import { paymentLinkEnvName, priceLabel } from "./caseNumbers";
+import { isUnreachableMessage } from "./readFailure";
 
 /** Stripe の画面で1回だけ人が設定する値（このアプリからは見えない） */
 export const STRIPE_MANUAL_SETUP = {
@@ -41,7 +42,23 @@ export const STRIPE_MANUAL_SETUP = {
   webhookEvent: "checkout.session.completed",
 } as const;
 
-export type TableCheck = { ok: boolean; reason: string | null };
+export type TableCheck = {
+  ok: boolean;
+  reason: string | null;
+  /**
+   * 倉庫（データのしまい場所）まで**届かなかった**か。
+   *
+   * ★2026-11-08（B／f2-1・f2-2）に足しました。**ここを分けないと嘘の赤が出ます。**
+   *   倉庫が眠っている日、診断は「つながっていません。残り 2 か所」と答え、
+   *   お店の置き場（keiri_tenants）と初回設定の置き場（keiri_settings）を
+   *   **読めなかった＝使えない**として数えていました。倉庫に1回も届いていないので、
+   *   置き場があるのか・読めるのかは分かりません。
+   *   ＝ 実際より悪く出して、要らない手続きに人を向かわせる形
+   *   （このファイルの 2026-09-26 の注意書きと同じまちがい）。
+   *   true のときは ready も checks も **null（測れていない）** にします。
+   */
+  unreachable?: boolean;
+};
 
 export type SignupReadinessInput = {
   /** 申し込みボタンの飛び先。未設定なら null */
@@ -89,13 +106,24 @@ export type SignupReadinessInput = {
 };
 
 export type SignupReadiness = {
-  ready: boolean;
+  /**
+   * つながっているか。**null＝いまは測れませんでした**
+   * （倉庫に届かなかった日。合格にも不合格にもしていません）。
+   */
+  ready: boolean | null;
+  /**
+   * 倉庫に届いて、判定できたか。false のときは ready・shop_table・settings_table が
+   * ぜんぶ null になります（2026-11-08・B）。
+   */
+  measurable: boolean;
   summary: string;
   checks: {
     payment_button: boolean;
     signup_notice: boolean;
-    shop_table: boolean;
-    settings_table: boolean;
+    /** null＝倉庫に届かなかったので確かめられなかった */
+    shop_table: boolean | null;
+    /** null＝倉庫に届かなかったので確かめられなかった */
+    settings_table: boolean | null;
     /**
      * 申し込みが決まったときに「お店1軒ぶんの行」を**作れる**か。
      * ★2026-09-24（kp144）に足しました。**ここが無いと嘘の緑が出ます。**
@@ -254,7 +282,26 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
 
   const activeTodo =
     route === "card" ? [...cardSetupTodo, ...todo, ...shopCreateTodo] : todo;
-  const ready = route === "card" ? cardReady : bankReady;
+
+  /*
+   * ★2026-11-08（B／f2-1・f2-2）：**届かなかったことを「駄目だった」と数えません。**
+   *
+   *   倉庫が眠っている日、置き場を1行 読もうとすると「fetch failed」が返ります。
+   *   それまでは その2つを **読めなかった＝使えない** として数え、
+   *   「つながっていません。残り 2 か所」と答えていました。
+   *   倉庫に1回も届いていないので、置き場があるのか・読めるのかは分かりません。
+   *   ＝ 実際より悪く出して、要らない手続きに人を向かわせる形です
+   *   （このファイルの 2026-09-26 の注意書きとまったく同じまちがい）。
+   *
+   *   倉庫の窓口（tenantRpcUsable）が実際に答えているときは、届いている証拠が
+   *   あるので今までどおり判定します。届いた証拠が無いときだけ「測れません」に倒します。
+   */
+  const unreachable =
+    (input.tenants.unreachable === true || input.settings.unreachable === true) &&
+    input.tenantRpcUsable !== true;
+  const measurable = !unreachable;
+
+  const ready = measurable ? (route === "card" ? cardReady : bankReady) : null;
 
   /*
    * 担当が手で行う手順。**欠けているものではありません。**
@@ -272,25 +319,42 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
         ]
       : [];
 
-  const summary = ready
-    ? route === "card"
-      ? "申し込みから使い始めまで、人の手を借りずにつながっています"
-      : "銀行振込でお申し込みを受け付けられます" +
-        "（お店1軒ぶんの用意とお振込先のご案内は、担当が行います）"
-    : `つながっていません。残り ${activeTodo.length} か所`;
+  const summary = !measurable
+    ? "いまは測れませんでした（倉庫＝データのしまい場所に、いまつながりません）。" +
+      "つながっているとも、つながっていないとも言っていません。" +
+      "倉庫が読めるようになってから、もう一度 開いてください"
+    : ready
+      ? route === "card"
+        ? "申し込みから使い始めまで、人の手を借りずにつながっています"
+        : "銀行振込でお申し込みを受け付けられます" +
+          "（お店1軒ぶんの用意とお振込先のご案内は、担当が行います）"
+      : `つながっていません。残り ${activeTodo.length} か所`;
+
+  /*
+   * 測れなかった日は「残り ◯か所」を出しません（確かめていない数なので）。
+   * 代わりに、何が確かめられなかったかを1行だけ出します。
+   */
+  const shownTodo = measurable
+    ? activeTodo
+    : [
+        "お店の置き場（keiri_tenants）と初回設定の置き場（keiri_settings）は、" +
+          "いま確かめられませんでした（倉庫から返事がありません）。" +
+          "**合格にも不合格にもしていません**",
+      ];
 
   return {
     ready,
+    measurable,
     summary,
     route,
     checks: {
       payment_button: hasButton,
       signup_notice: secret.ok,
-      shop_table: tenants.ok,
-      settings_table: settings.ok,
+      shop_table: measurable ? tenants.ok : null,
+      settings_table: measurable ? settings.ok : null,
       shop_create: canCreateShop,
     },
-    todo: activeTodo,
+    todo: shownTodo,
     manual_steps: manualSteps,
     card: { ready: cardReady, todo: cardTodo },
   };
@@ -298,6 +362,16 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
 
 /** 置き場を読もうとしたときのエラーを、人の言葉に直す */
 export function describeTableError(code: string | null | undefined, message: string): string {
+  // ★ いちばん先に見るのは「倉庫まで届いたか」。届いていないなら、
+  //   置き場がある／ないも、読めるかどうかも分かりません（2026-11-08・B）。
+  //   英語のエラー文はそのまま出しません（読む人がじゅんなので）。
+  if (isUnreachableMessage(message)) {
+    return (
+      "倉庫（データのしまい場所）に、いまつながりませんでした" +
+      "（眠っているのかもしれません。お金はかかっていません）。" +
+      "置き場があるかどうかは、ここでは分かりません"
+    );
+  }
   // ★ 置き場そのものが無いときは、直し方が違う（SQLを1回実行する）ので言い分ける
   if (code === "42P01" || /does not exist|could not find the table/i.test(message)) {
     return "置き場（表）が本番にありません。SQLをまだ実行していない可能性があります";
@@ -307,5 +381,7 @@ export function describeTableError(code: string | null | undefined, message: str
   if (code === "42501" || /permission denied/i.test(message)) {
     return "表はありますが、読む許可がありません。サーバー側の鍵（SUPABASE_SERVICE_ROLE_KEY）が使えていない可能性があります";
   }
-  return `読めませんでした（${code ?? "理由不明"}）`;
+  // ★ code が空文字のときに「読めませんでした（）」と出ていたので直した（2026-11-08・B）
+  const why = String(code ?? "").trim() || "理由不明";
+  return `読めませんでした（${why}）`;
 }

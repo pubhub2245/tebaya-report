@@ -27,6 +27,7 @@
  */
 
 import type { RecordStoreReport } from "./serverHealth";
+import { isUnreachableMessage } from "@/lib/keiri/readFailure";
 
 /** 点検のときに入れてみる中身。**決まりに必ず断られる値**にしてある */
 export const APPLICATION_PROBE_ROW = {
@@ -212,6 +213,17 @@ export type PendingApplications = {
   latestAt: string | null;
   /** 人の言葉での説明 */
   note: string;
+  /**
+   * 倉庫（データのしまい場所）まで**届かなかった**か。
+   *
+   * ★2026-11-08（B／f2-1・f2-2）に足しました。**ここを分けないと嘘の理由が出ます。**
+   *   倉庫が眠っている日、この窓口は「まだ数えられません（TypeError: fetch failed）。
+   *   SQL はもう流してあるので、原因は別にあります」と答えていました。
+   *   ＝ 倉庫に1回も届いていないのに「流してある」「原因は別」と**確かめていないこと**を
+   *   言い切っており、読んだ人を「申し込みの受け皿が壊れている」側へ向かわせます。
+   *   true のときは「いま測れていないだけ」で、合格にも不合格にもしません。
+   */
+  unreachable: boolean;
 };
 
 /** 窓口・棚から返ってきた「数」の素（通信はここに入らない） */
@@ -246,6 +258,7 @@ export function describePendingApplications(result: ApplicationCountResult): Pen
     if (pending > 0) {
       return {
         countable: true,
+        unreachable: false,
         pending,
         total,
         latestAt,
@@ -258,6 +271,7 @@ export function describePendingApplications(result: ApplicationCountResult): Pen
     }
     return {
       countable: true,
+      unreachable: false,
       pending: 0,
       total,
       latestAt,
@@ -271,6 +285,7 @@ export function describePendingApplications(result: ApplicationCountResult): Pen
   if (result.outcome === "no_window") {
     return {
       countable: false,
+      unreachable: false,
       pending: null,
       total: null,
       latestAt: null,
@@ -283,8 +298,33 @@ export function describePendingApplications(result: ApplicationCountResult): Pen
     };
   }
 
+  /*
+   * ★ここを2026-11-08（B）に言い分けました。
+   *   いちばん大事なのは「倉庫まで届かなかった」と「窓口に断られた」を混ぜないこと。
+   *   届いていないのに「SQL はもう流してあるので、原因は別にあります」と書くと、
+   *   **確かめていないことを言い切る**ことになり、読んだ人は
+   *   「受け皿が壊れている」側（直すところが別にある）へ向かいます。
+   *   実際には倉庫が眠っているだけで、起きれば何も直さずに数えられます。
+   */
+  if (isUnreachableMessage(result.detail)) {
+    return {
+      countable: false,
+      unreachable: true,
+      pending: null,
+      total: null,
+      latestAt: null,
+      note:
+        "いまは数えられませんでした（倉庫＝データのしまい場所から返事がありません）。" +
+        "倉庫が眠っているのかもしれません（お金はかかっていません）。" +
+        "**受け皿が壊れているとは言っていません**（倉庫に1回も届いていないので、" +
+        "直すところがあるかどうかは分かりません）。" +
+        "※ 数えられないあいだも、お申し込みは控えとして残り、LINE でも知らせます",
+    };
+  }
+
   return {
     countable: false,
+    unreachable: false,
     pending: null,
     total: null,
     latestAt: null,
