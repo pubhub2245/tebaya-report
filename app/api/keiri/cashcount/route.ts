@@ -24,6 +24,14 @@ import {
   measureUnpaidPayrollGap,
 } from "@/lib/keiri/unpaidPayrollGap";
 import {
+  buildCashDiffCoverageWindow,
+  fieldRepayPiece,
+  measureCashDiffCoverage,
+  openingExpensesPiece,
+  registerDiffPiece,
+  unpaidPayrollPiece,
+} from "@/lib/keiri/cashDiffCoverage";
+import {
   buildCashShopScopeWindow,
   measureCashShopScope,
 } from "@/lib/keiri/cashShopScope";
@@ -230,6 +238,24 @@ export async function GET() {
       db,
     });
 
+    // ★「差は ぜんぶ名前が付いたか」（2026-11-08・f1-4）。
+    //   上の5つの内わけは、**それぞれ自分のことしか言いません**。読んだ人には
+    //   「で、この差は ぜんぶ説明が付いたの？ まだ探すものがあるの？」が分かりません。
+    //   名前が付いた分を「説明できる幅」として足し、差がその幅に収まるかを1つに畳みます。
+    //   読めていない所が1つでもあって、しかも差がはみ出しているときは
+    //   **言い切りません**（covered を null にします）。
+    //   **金額は1円も返しません**（収まっているか・名前の数・読めていない所の名前だけ）。
+    const diffCoverage = measureCashDiffCoverage({
+      diff: reconcile.diff,
+      pieces: [
+        registerDiffPiece(regDiffGap),
+        openingExpensesPiece(openingGap, !data.reportsUnreadable),
+        fieldRepayPiece(fieldRepayGap),
+        unpaidPayrollPiece(unpaidPayrollGap),
+      ],
+      unknown: booksGap.wide ? ["日報がまだ入っていない日"] : [],
+    });
+
     return json({
       ok: true,
       ...buildCashCountWindow({ reconcile, pick, place }),
@@ -252,6 +278,8 @@ export async function GET() {
         gap: unpaidPayrollGap,
         diff: reconcile.diff,
       }),
+      // 差は ぜんぶ名前が付いたか（収まっているか・名前の数だけ・金額は出さない）
+      diffCoverage: buildCashDiffCoverageWindow(diffCoverage),
       // どの屋号の日報から数えているのか（件数だけ・金額も屋号の名前も出さない）
       shopScope: buildCashShopScopeWindow(shopScope),
       shelfMissing: data.cashShelfMissing,

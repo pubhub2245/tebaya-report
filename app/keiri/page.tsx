@@ -191,6 +191,15 @@ import {
   type CashOpeningGap,
 } from "@/lib/keiri/cashOpeningGap";
 import {
+  type CashDiffCoverage,
+  EMPTY_CASH_DIFF_COVERAGE,
+  fieldRepayPiece,
+  measureCashDiffCoverage,
+  openingExpensesPiece,
+  registerDiffPiece,
+  unpaidPayrollPiece,
+} from "@/lib/keiri/cashDiffCoverage";
+import {
   buildCashVariants,
   pickCashVariant,
   type CashVariantPick,
@@ -2860,6 +2869,39 @@ function CashCountCard({
     unpaidPayrollGapAsOf(todayStr()),
   );
   /**
+   * 差の内わけの「しめ」… **差は ぜんぶ名前が付いたか**（2026-11-08・f1-4）。
+   *
+   * ■ なぜ要るのか
+   *   上の内わけ（数え始めより前の経費・日報の空き・レジの過不足・現場の立替・
+   *   払った記録が無い日当）は、**それぞれ自分のことしか言いません**。
+   *   ＝ じゅんが1分 数えても「で、この差は ぜんぶ説明が付いたの？」が分かりません。
+   *   名前が付いた分を「説明できる幅」として足し、差がその幅に収まるかを1行で言います。
+   *
+   * ★金額は1円も直していません（「計算上の現金」はそのままです）。
+   * ★読めていない所が1つでもあって、しかも差がはみ出しているときは**言い切りません**。
+   */
+  const coverageFor = (
+    diff: number | null,
+    countedOn: string | null,
+  ): CashDiffCoverage => {
+    if (!countedOn) return EMPTY_CASH_DIFF_COVERAGE;
+    const books = booksGapAsOf(countedOn);
+    return measureCashDiffCoverage({
+      diff,
+      pieces: [
+        registerDiffPiece(registerDiffGapAsOf(countedOn)),
+        openingExpensesPiece(openingGap),
+        fieldRepayPiece(fieldRepayGapAsOf(countedOn)),
+        unpaidPayrollPiece(unpaidPayrollGapAsOf(countedOn)),
+      ],
+      unknown: books.wide ? ["日報がまだ入っていない日"] : [],
+    });
+  };
+  const coverageSaved = coverageFor(reconcile.diff, reconcile.countedOn);
+  const coveragePreview = preview
+    ? coverageFor(preview.diff, preview.countedOn)
+    : EMPTY_CASH_DIFF_COVERAGE;
+  /**
    * 「よくある原因3つ」を出すか（2026-10-28・kp265・f1-4）。
    * ★決め方は lib/keiri/cashOpeningGap.ts の1か所（画面と、外から確かめる窓口で同じ答え）。
    */
@@ -2922,6 +2964,27 @@ function CashCountCard({
             >
               {reconcile.verdict}
             </p>
+          )}
+          {/* ★差の内わけの「しめ」＝ 差は ぜんぶ名前が付いたか（2026-11-08・f1-4）。
+                 結論を先に出し、内わけ（なぜ）は下に続けます。
+                 ここが無いと、下の段落を自分で足し算して差と見比べることになります。 */}
+          {coverageSaved.lines.length > 0 && (
+            <div
+              className={
+                "mt-2 rounded-lg border px-3 py-2 space-y-1 " +
+                (coverageSaved.covered === true
+                  ? "bg-emerald-50 border-emerald-300"
+                  : coverageSaved.covered === false
+                    ? "bg-amber-50 border-amber-300"
+                    : "bg-stone-50 border-stone-300")
+              }
+            >
+              {coverageSaved.lines.map((l) => (
+                <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
+                  {l}
+                </p>
+              ))}
+            </div>
           )}
           {/* ★差の内わけ「数え始めの日より前に払った経費」（2026-10-28・kp265・f1-4）。
                  月の経費には入っているのに現金からは引いていない分です。
@@ -3149,6 +3212,25 @@ function CashCountCard({
                     : ""}
                   金額はこちらで1円も直していません。
                 </p>
+              </div>
+            )}
+            {/* ★差の内わけの「しめ」＝ 差は ぜんぶ名前が付いたか（2026-11-08・f1-4） */}
+            {coveragePreview.lines.length > 0 && (
+              <div
+                className={
+                  "mt-2 rounded-lg border px-3 py-2 space-y-1 " +
+                  (coveragePreview.covered === true
+                    ? "bg-emerald-50 border-emerald-300"
+                    : coveragePreview.covered === false
+                      ? "bg-amber-50 border-amber-300"
+                      : "bg-stone-50 border-stone-300")
+                }
+              >
+                {coveragePreview.lines.map((l) => (
+                  <p key={l} className="text-sm text-stone-800 tabular-nums leading-relaxed">
+                    {l}
+                  </p>
+                ))}
               </div>
             )}
             {/* ★差の内わけ「数え始めの日より前に払った経費」（2026-10-28・kp265・f1-4） */}
