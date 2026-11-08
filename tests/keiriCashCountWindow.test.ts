@@ -2,7 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { reconcileCash, type CashEvent } from "../lib/keiri/cashCheck";
-import { buildCashCountReady, buildCashCountWindow } from "../lib/keiri/cashCountWindow";
+import {
+  buildCashCountReady,
+  buildCashCountWindow,
+  cashCountNotMeasurable,
+} from "../lib/keiri/cashCountWindow";
 import { measureBooksGap } from "../lib/keiri/cashBooksGap";
 import { buildCashVariants, pickCashVariant } from "../lib/keiri/cashVariant";
 
@@ -208,4 +212,26 @@ test("数える前の用意：日報を渡さなければ、今までとまっ�
   assert.equal(a.booksLastDate, null);
   assert.equal(a.booksGapDays, null);
   assert.ok(!a.line.includes("日報"));
+});
+
+/* ------------------------------------------------------------------ *
+ *  倉庫が眠っている日に「金庫と合っていません」と読める形で返さない
+ *  （2026-11-08・f1-4）
+ * ------------------------------------------------------------------ */
+
+test("測れない日は ok が null（合格にも不合格にもしない）", () => {
+  const r = cashCountNotMeasurable("倉庫からの返事が時間内に来ませんでした");
+  assert.equal(r.ok, null);
+  assert.equal(r.measurable, false);
+  assert.match(r.summary, /いまは測れませんでした/);
+  assert.match(r.summary, /合格にも不合格にもしていません/);
+  // ★「合っていない」と読める言葉を出さないこと
+  assert.match(r.summary, /金庫と合っていないという意味ではありません/);
+});
+
+test("止まった場所は、そのまま一言で返す（鍵も金額も入れない）", () => {
+  const r = cashCountNotMeasurable("日報の棚を読めませんでした（0件と取り違えないこと）");
+  assert.equal(r.ok, null);
+  assert.match(r.reason, /日報の棚を読めませんでした/);
+  assert.match(r.summary, /0件と取り違えないこと/);
 });
