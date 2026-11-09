@@ -211,3 +211,36 @@ test("お申し込みの数の窓口は、件数だけを返す（名前・連�
     assert.ok(!src.includes(bad), `読むだけの窓口に書き込みが入っている：${bad}`);
   }
 });
+
+/**
+ * 窓口の案内所（2026-11-09 18:34 B・共通）。
+ *
+ * 「窓口はあるのに、外から確かめる人がそれを知らない／開けない」が
+ * 10/06・10/10・11/09 の3回 起きた。案内所そのものが一覧から落ちると、
+ * また人づてに聞くしかなくなるので、ここで止める。
+ */
+test("窓口の案内所が、いちばん先頭にあって自分も一覧に入っている（共通）", () => {
+  assert.equal(
+    CHECK_WINDOW_PATHS[0],
+    "/api/keiri/windows",
+    "案内所は一覧のいちばん先頭に置く（検査役が最初に見つけられるように）",
+  );
+  const w = CHECK_WINDOWS.find((x) => x.path === "/api/keiri/windows");
+  assert.ok(w);
+});
+
+test("案内所は、どの項目をどの窓口で測れるかを引けるだけの中身を持っている", () => {
+  // 項目ごとのまとめ（byCheck）は「・」区切りの check から作るので、
+  // どの窓口も「・」で区切った項目名を持っていること
+  for (const w of CHECK_WINDOWS) {
+    const ids = w.check.split("・").map((s) => s.trim()).filter(Boolean);
+    assert.ok(ids.length > 0, `窓口に項目名が無い：${w.path}`);
+  }
+  // 仕上げチェック表の「未・不合格」が付いている項目は、必ず測る窓口がある
+  const all = CHECK_WINDOWS.flatMap((w) =>
+    w.check.split("・").map((s) => s.trim()),
+  );
+  for (const id of ["f1-4", "f3-4", "f5-4", "f2-1"]) {
+    assert.ok(all.includes(id), `${id} を測る窓口が1本も無い`);
+  }
+});
