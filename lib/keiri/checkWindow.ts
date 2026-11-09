@@ -41,6 +41,15 @@ export type CheckWindow = {
 
 export const CHECK_WINDOWS: CheckWindow[] = [
   {
+    path: "/api/keiri/windows",
+    what:
+      "**外から確かめる窓口の案内所**。窓口がぜんぶで何本あって、" +
+      "どれが何を測り、仕上げチェック表のどの項目につながるかを並べます" +
+      "（byCheck で「f1-4 を測るには何を開けばいいか」も分かります）。" +
+      "★まずここを開けば、ほかの窓口を人づてに聞かなくて済みます",
+    check: "共通",
+  },
+  {
     path: "/api/version",
     what: "いま本番に出ている版の合言葉（ページの <meta name=\"x-build\"> と見比べる）",
     check: "共通",
