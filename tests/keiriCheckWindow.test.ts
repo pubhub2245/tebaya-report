@@ -12,6 +12,7 @@ import {
   CHECK_WINDOW_HEADERS,
   CHECK_WINDOW_PATHS,
   stampCheckWindow,
+  VERDICT_VALID_MINUTES,
 } from "../lib/keiri/checkWindow";
 
 test("窓口は読むだけの住所で、重なりが無い", () => {
@@ -150,4 +151,22 @@ test("札を付けて返す窓口は、ぜんぶ一覧に入っている（足�
 
 test("のこりの手続きを数える窓口も、一覧に入っている（kp247）", () => {
   assert.ok(CHECK_WINDOW_PATHS.includes("/api/keiri/setuptodo"));
+});
+
+test("ためこまれた古い答えは、そのまま合否に使えない形になっている（kp246・f1-4）", () => {
+  const at = new Date("2026-11-09T09:00:00.000Z");
+  const body = stampCheckWindow({ ok: true }, at);
+  // 答えそのものに「いつまでなら合否に使ってよいか」が入っている
+  assert.equal(body.verdictValidUntil, "2026-11-09T09:10:00.000Z");
+  assert.match(body.verdictRule, /verdictValidUntil/);
+  assert.match(body.verdictRule, /合否を付けないでください/);
+  // 期限は答えを作った時刻より後
+  assert.ok(new Date(body.verdictValidUntil) > new Date(body.answeredAt));
+  assert.equal(VERDICT_VALID_MINUTES, 10);
+});
+
+test("窓口の札は、途中の配り先にもためさせない言い方になっている（kp246）", () => {
+  assert.match(CHECK_WINDOW_HEADERS["CDN-Cache-Control"], /no-store/);
+  assert.match(CHECK_WINDOW_HEADERS["Vercel-CDN-Cache-Control"], /no-store/);
+  assert.equal(CHECK_WINDOW_HEADERS["Pragma"], "no-cache");
 });

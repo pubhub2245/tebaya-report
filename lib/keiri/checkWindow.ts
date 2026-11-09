@@ -201,8 +201,18 @@ export const CHECK_WINDOW_PATHS: string[] = CHECK_WINDOWS.map((w) => w.path);
  */
 export const CHECK_WINDOW_HEADERS: Record<string, string> = {
   "Cache-Control": "no-store, max-age=0, must-revalidate",
+  // 途中の配り先（Vercel の保管庫）にも、別の言葉でもう一度「ためないで」と言う。
+  // Cache-Control だけだと、配り先の設定によっては手元に残ることがあるため（2026-11-09・kp246）。
+  "CDN-Cache-Control": "no-store, max-age=0, must-revalidate",
+  "Vercel-CDN-Cache-Control": "no-store, max-age=0, must-revalidate",
+  // 古い道具しか no-store を知らない場合の控え。
+  Pragma: "no-cache",
+  Expires: "0",
   "X-Robots-Tag": "noindex, nofollow",
 };
+
+/** 答えを合否に使ってよい長さ（分）。これより古い答えで合否を付けない */
+export const VERDICT_VALID_MINUTES = 10;
 
 /**
  * 窓口の返事に必ず足す「いつ・どの版で答えたか」の2つ（2026-10-09・kp246）。
@@ -225,16 +235,35 @@ export type CheckWindowStamp = {
   build: string;
   /** この答えを作った時刻。今の時刻と大きく違えば、読む道具がためた古い答え */
   answeredAt: string;
+  /** この時刻を過ぎたら、この答えで合否を付けてはいけない（answeredAt＋10分） */
+  verdictValidUntil: string;
+  /** 合否に使ってよいかの決まりを1行で（ためこまれた古い答えでも、そのまま読める言葉） */
+  verdictRule: string;
   /** 見分け方を1行で（検査役がそのまま読める言葉） */
   freshness: string;
 };
 
-/** 窓口の返事に「いつ・どの版で答えたか」を足す。※この関数だけが札の形を決める */
+/**
+ * 窓口の返事に「いつ・どの版で答えたか」を足す。※この関数だけが札の形を決める
+ *
+ * ■ 2026-11-09 に足したこと（kp246・f1-4）
+ *   11/9 13:04 に、住所の後ろに `?v=` を付けずに開くと **10月24日の古い答え**が返り、
+ *   その古い答えでは金庫の窓口が `ok: true`（＝合格と読める）になっていました。
+ *   札（no-store）は前から付けていますが、**外から読む道具が自分の手元にためた分**は
+ *   こちらから消せません。そこで**答えそのものに「いつまで合否に使ってよいか」を書く**ことにしました。
+ *   ＝ ためこまれた古い答えを読んでも、`verdictValidUntil` を過ぎているので
+ *   **そのまま合格にできません**。札に頼らず、答えの中身で守ります。
+ */
 export function stampCheckWindow<T>(body: T, now: Date = new Date()): T & CheckWindowStamp {
+  const until = new Date(now.getTime() + VERDICT_VALID_MINUTES * 60 * 1000);
   return {
     ...(body as object),
     build: BUILD_STAMP,
     answeredAt: now.toISOString(),
+    verdictValidUntil: until.toISOString(),
+    verdictRule:
+      `いまの時刻が verdictValidUntil（${until.toISOString()}）より後なら、この答えは古いので合否を付けないでください。` +
+      "住所の後ろに ?v=いまの時刻 を付けて開き直し、新しい答えで判断してください。",
     freshness:
       "build が /api/version と同じで、answeredAt がいまの時刻なら、この答えは新しい版のものです。answeredAt が古ければ、読む道具が前の答えをためています（住所の後ろに ?v=いまの時刻 を付けて開き直してください）。",
   } as T & CheckWindowStamp;
