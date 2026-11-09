@@ -6,11 +6,11 @@
  *   現場から「日報の入力が大変」という声があり、
  *   **日報に人間が数字を打つことをなくす**ことにした。
  *   現場がやるのは次の4つだけ：
- *     ① 出店場所をタップ ② 手書きの売上メモを撮る ③ レシートを撮る ④ OK
+ *     ① 出店場所をタップ ② その日の伝票（お会計票）を全部撮る ③ レシートを撮る ④ OK
  *   いちばん上の原則：**裏側はいくら複雑でもよい。現場の手数は限りなくゼロにする。**
  *
  * ■ このファイルに置くもの（データベースに触らない純粋な計算だけ）
- *   - 売上メモを読む指示文と、読んだ結果を使える形に直す処理
+ *   - お会計票（伝票）を読む指示文、読んだ結果を使える形に直す処理、累計での答え合わせ
  *   - 読んだ本数を商品マスタの名前にそろえる処理
  *   - 日報1件ぶんの保存内容を組み立てる処理
  *   - LINE に流す短い文
@@ -37,54 +37,67 @@ export const FRANCHISE_STAFF_NAME = "ゆうや";
 export const PHOTO_REPORT_MARK = "【写真日報】";
 
 /* ------------------------------------------------------------------ */
-/* 売上メモの読み取り                                                  */
+/* お会計票（伝票）の読み取り                                          */
 /* ------------------------------------------------------------------ */
 
 /**
- * 手書きの売上メモを読む指示文。★ここ1か所だけ
+ * 手書きのお会計票（伝票）を読む指示文。★ここ1か所だけ（2026-11-09）
  *
- * 商品マスタの名前を渡し、**その名前にそろえて**返させる。
- * 手羽先の味（塩・タレ・のり塩）が分けて書かれていても、
- * マスタに味ごとの商品が無ければ手羽先にまとめて数える。
+ * 現場は1日に何枚も伝票を書き、**伝票の一番下にその日の売上の累計**を書く。
+ * 累計は売上ではないので、合計（total）とは別の欄（cumulative）に分けて返させる。
+ * 累計は「答え合わせ」にだけ使う（→ checkSlips）。
+ *
+ * 手羽先は味（しお・タレ・のり）ごとに書かれるので、名前は商品一覧の手羽先にそろえ、
+ * 味は flavor に入れさせる。オールスターの下の小さいメモ（味のメモ）は品物に数えない。
  */
-export function buildMemoPrompt(productNames: string[]): string {
+export function buildSlipPrompt(productNames: string[]): string {
   const list = productNames.length
     ? productNames.map((n) => `- ${n}`).join("\n")
     : "- （商品一覧なし）";
-  return `この写真は、屋台「手羽屋」の1日の売上を手書きでメモしたものです。
-商品ごとの本数・個数と、売上の合計金額を読み取って、必ず次のJSON形式だけで返してください。説明文は不要です。
+  return `この写真は、屋台「手羽屋」の手書きのお会計票（伝票）です。1枚の写真に伝票が1枚、または数枚写っています。
+伝票ごとに、品物・本数（個数）・金額、その伝票の合計、一番下に書かれた「その日の売上の累計」を読み取り、必ず次のJSON形式だけで返してください。説明文は不要です。
 
 {
-  "items": [
-    {"name": "商品名", "count": 本数}
-  ],
-  "total": 売上の合計金額,
-  "unreadable": "読めなかった所があれば短く書く（なければ空文字）"
+  "slips": [
+    {
+      "items": [
+        {"name": "商品名", "flavor": "味（手羽先のときだけ。なければ空文字）", "count": 本数, "amount": 金額}
+      ],
+      "total": その伝票の合計金額,
+      "cumulative": 一番下に書かれたその日の累計金額,
+      "unreadable": "読めなかった所があれば短く書く（なければ空文字）"
+    }
+  ]
 }
 
-【商品名のそろえ方 — 最重要】
+【いちばん大事なこと】
+- 伝票の一番下の数字は「その日の売上の累計」です。**売上ではありません。** 必ず cumulative に入れ、items や total に入れないでください。
+- 累計が書かれていなければ cumulative は 0 にしてください。
+
+【商品名のそろえ方】
 - name は必ず次の一覧の中の名前をそのまま使ってください：
 ${list}
-- 手羽先の味（塩・タレ・のり塩など）が分けて書かれていて、一覧に味ごとの商品が無い場合は、
-  味をまとめて一覧の手羽先の名前で合計の本数を返してください。
+- 手羽先は「しお」「タレ」「のり」など味ごとに書かれています。name は一覧の手羽先の名前にして、味を flavor に入れてください（味ごとに1行）。
+- オールスターの下などに小さく書かれた味のメモ（「しお・バター」など）は、品物として数えないでください。
 - 一覧に無い商品が書かれていたら、書いてあるとおりの名前で返してください。
 
 【数字のルール】
-- count と total は数値だけ（¥・円・カンマ・「本」「個」は付けない）
-- 正の字（正・一・丁など）で数えてあれば、数に直してください（正＝5）
-- 合計金額が書かれていなければ total は 0 にしてください。
+- count・amount・total・cumulative は数値だけ（¥・円・カンマ・「本」「個」は付けない）
+- 正の字（正・一・丁など）で数えてあれば数に直してください（正＝5）
+- 金額が書かれていない行は amount を 0 にしてください。
 - 読めない数字を推測で埋めないでください。読めなかったら unreadable に書いてください。`;
 }
 
-export type MemoItem = { name: string; count: number };
+export type SlipItem = { name: string; flavor: string; count: number; amount: number };
 
-export type MemoReadResult = {
-  items: MemoItem[];
-  /** メモに書かれていた売上の合計。読めなければ 0 */
+/** お会計票1枚ぶん */
+export type Slip = {
+  items: SlipItem[];
+  /** その伝票の合計。読めなければ 0 */
   total: number;
-  /** 読めなかった所のメモ（AIが返した言葉） */
+  /** 一番下に書かれたその日の累計。**売上ではない**。書かれていなければ 0 */
+  cumulative: number;
   unreadable: string;
-  raw: string;
 };
 
 function toCount(v: unknown): number {
@@ -93,30 +106,135 @@ function toCount(v: unknown): number {
   return Number.isFinite(n) ? Math.max(0, n) : 0;
 }
 
-/** AIが返した文字を使える形にする。読めなければ items が空 */
-export function parseMemoText(raw: string): MemoReadResult {
-  const empty: MemoReadResult = { items: [], total: 0, unreadable: "", raw };
+/** AIが返した文字を伝票の一覧にする。読めなければ空の配列（数字を作らない） */
+export function parseSlipText(raw: string): Slip[] {
   try {
     const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) return empty;
+    if (!m) return [];
     const parsed = JSON.parse(m[0]);
-    const items: MemoItem[] = Array.isArray(parsed.items)
-      ? parsed.items
-          .map((it: any) => ({
-            name: String(it?.name ?? "").trim(),
-            count: toCount(it?.count),
-          }))
-          .filter((it: MemoItem) => it.name !== "")
-      : [];
-    return {
-      items,
-      total: toCount(parsed.total),
-      unreadable: String(parsed.unreadable ?? "").trim(),
-      raw,
-    };
+    const list: any[] = Array.isArray(parsed.slips) ? parsed.slips : [parsed];
+    return list
+      .map((sl) => ({
+        items: Array.isArray(sl?.items)
+          ? sl.items
+              .map((it: any) => ({
+                name: String(it?.name ?? "").trim(),
+                flavor: String(it?.flavor ?? "").trim(),
+                count: toCount(it?.count),
+                amount: toCount(it?.amount),
+              }))
+              .filter((it: SlipItem) => it.name !== "")
+          : [],
+        total: toCount(sl?.total),
+        cumulative: toCount(sl?.cumulative),
+        unreadable: String(sl?.unreadable ?? "").trim(),
+      }))
+      .filter((sl) => sl.items.length > 0 || sl.total > 0 || sl.cumulative > 0);
   } catch {
-    return empty;
+    return [];
   }
+}
+
+export type MemoItem = { name: string; count: number };
+
+/** 1日ぶんの伝票をまとめた結果（日報の下書きの材料） */
+export type MemoReadResult = {
+  items: MemoItem[];
+  /** 1日の売上＝伝票の合計の足し算（累計は足さない） */
+  total: number;
+  /** 手羽先の味ごとの本数（例：{ しお: 30, タレ: 43, のり: 11 }）。表示用 */
+  flavors: Record<string, number>;
+  /** 答え合わせで合わなかった所（空なら全部合っている） */
+  warnings: string[];
+  /** 一番大きい累計（＝その日の最後の累計）。無ければ 0 */
+  lastCumulative: number;
+  unreadable: string;
+  raw: string;
+};
+
+const yenOf = (n: number) => `¥${Math.round(n).toLocaleString("ja-JP")}`;
+
+/** 伝票1枚の合計。合計欄が読めなければ行の金額の足し算 */
+export function slipTotal(sl: Slip, priceOf: (name: string) => number): number {
+  if (sl.total > 0) return sl.total;
+  return sl.items.reduce((s, it) => s + (it.amount || it.count * priceOf(it.name)), 0);
+}
+
+/**
+ * 伝票の答え合わせ（2026-11-09 じゅんさんと決めた3つ）。
+ *   ① 伝票ごとに、行の合計 ＝ その伝票の「合計」
+ *   ② 前の伝票の累計 ＋ 今回の合計 ＝ 今回の累計（撮った順はばらばらでよい。累計の小さい順に並べる）
+ *   ③ 最後の累計 ＝ 伝票の合計の足し算（＝その日の売上）
+ * 合わない所は言葉で返す。**金額は直さない**（どれが正しいかは人が決める）。
+ */
+export function checkSlips(slips: Slip[], priceOf: (name: string) => number): string[] {
+  const warnings: string[] = [];
+  slips.forEach((sl, i) => {
+    if (sl.total <= 0) return;
+    const rows = sl.items.reduce((s, it) => s + (it.amount || it.count * priceOf(it.name)), 0);
+    if (rows > 0 && rows !== sl.total) {
+      warnings.push(`${i + 1}枚目の伝票：行の合計 ${yenOf(rows)} と合計欄 ${yenOf(sl.total)} が合いません`);
+    }
+  });
+
+  const chain = slips
+    .map((sl) => ({ total: slipTotal(sl, priceOf), cum: sl.cumulative }))
+    .filter((x) => x.cum > 0)
+    .sort((a, b) => a.cum - b.cum);
+  if (chain.length > 0) {
+    if (chain[0].cum !== chain[0].total) {
+      warnings.push(
+        `最初の伝票の累計 ${yenOf(chain[0].cum)} が合計 ${yenOf(chain[0].total)} と違います（前の伝票を撮り忘れていませんか）`,
+      );
+    }
+    for (let k = 1; k < chain.length; k++) {
+      if (chain[k - 1].cum + chain[k].total !== chain[k].cum) {
+        warnings.push(
+          `累計がつながりません：${yenOf(chain[k - 1].cum)} ＋ ${yenOf(chain[k].total)} ≠ ${yenOf(chain[k].cum)}（伝票が抜けているか、読み違いです）`,
+        );
+      }
+    }
+    const sum = slips.reduce((s, sl) => s + slipTotal(sl, priceOf), 0);
+    const last = chain[chain.length - 1].cum;
+    if (last !== sum) {
+      warnings.push(`最後の累計 ${yenOf(last)} と、伝票の合計の足し算 ${yenOf(sum)} が合いません`);
+    }
+  }
+  return warnings;
+}
+
+/** 伝票を何枚か読んだものを、1日ぶんにまとめる */
+export function combineSlips(
+  slips: Slip[],
+  products: Pick<SaleProduct, "name" | "price" | "kind">[],
+): MemoReadResult {
+  const price = new Map(products.map((p) => [p.name, p.price]));
+  const primary = products.find((p) => p.kind === "primary")?.name ?? null;
+  const priceOf = (name: string) =>
+    price.get(name) ?? (primary && isTebasakiName(name) ? price.get(primary) ?? 0 : 0);
+
+  const items: MemoItem[] = [];
+  const flavors: Record<string, number> = {};
+  for (const sl of slips) {
+    for (const it of sl.items) {
+      items.push({ name: it.name, count: it.count });
+      const isTeba = (primary && it.name === primary) || isTebasakiName(it.name);
+      if (isTeba && it.flavor) flavors[it.flavor] = (flavors[it.flavor] ?? 0) + it.count;
+    }
+  }
+  return {
+    items,
+    total: slips.reduce((s, sl) => s + slipTotal(sl, priceOf), 0),
+    flavors,
+    warnings: checkSlips(slips, priceOf),
+    lastCumulative: slips.reduce((m, sl) => Math.max(m, sl.cumulative), 0),
+    unreadable: slips.map((sl) => sl.unreadable).filter(Boolean).join("／"),
+    raw: "",
+  };
+}
+
+function isTebasakiName(name: string): boolean {
+  return /手羽先|^しお$|^塩$|^たれ$|^タレ$|^のり$|のり塩/.test(name.normalize("NFKC"));
 }
 
 /* ------------------------------------------------------------------ */
@@ -152,7 +270,7 @@ export function matchMemoToProducts(
     const key = norm(it.name);
     let name = byNorm.get(key) ?? null;
     // 「手羽先(塩)」「塩」などはマスタに味ごとの商品が無ければ主力商品へ
-    if (!name && primary && /手羽先|^塩$|^たれ$|^タレ$|のり塩/.test(it.name.normalize("NFKC"))) {
+    if (!name && primary && isTebasakiName(it.name)) {
       name = primary;
     }
     if (name) counts[name] = (counts[name] ?? 0) + it.count;
@@ -272,6 +390,9 @@ export function buildPhotoReportDraft(input: PhotoReportInput): PhotoReportDraft
         ? `メモの合計が、本数から計算した金額より ${yen(breakdown.diff)} 多いです`
         : `本数から計算した金額が、メモの合計より ${yen(-breakdown.diff)} 多いです`;
   }
+  if (input.memo.warnings?.length) {
+    mismatch = [mismatch, ...input.memo.warnings].filter(Boolean).join("／");
+  }
   if (unmatched.length > 0) {
     const names = unmatched.map((u) => `${u.name}×${u.count}`).join("、");
     mismatch = [mismatch, `商品一覧に無い名前があります：${names}`].filter(Boolean).join("／");
@@ -298,6 +419,7 @@ export function photoReportLineText(p: {
   location: string;
   staffName: string;
   draft: PhotoReportDraft;
+  flavors?: Record<string, number>;
 }): string {
   const d = p.draft;
   const lines = [
@@ -309,6 +431,11 @@ export function photoReportLineText(p: {
     .map(([name, n]) => `${name} ${n}`)
     .join("／");
   if (sold) lines.push(`内訳：${sold}`);
+  const fl = Object.entries(p.flavors ?? {})
+    .filter(([, n]) => n > 0)
+    .map(([f, n]) => `${f}${n}`)
+    .join("・");
+  if (fl) lines.push(`手羽先の味：${fl}`);
   lines.push(`経費：${yen(d.expensesTotal)}`);
   lines.push(`差引：${yen(d.sales - d.expensesTotal)}`);
   if (d.mismatch) lines.push(`⚠ ${d.mismatch}`);
@@ -333,6 +460,11 @@ export function buildDailyReportRow(p: {
   lineText: string;
   cleanupInventory: unknown;
   cleanupTasks: unknown;
+  /**
+   * 撮った伝票の写真の住所（置き場のURL）。
+   * 専用の列は作らず、既存の引き継ぎ欄（handover）に1行ずつ残す（倉庫の形を変えないため）。
+   */
+  slipImages?: string[];
 }) {
   const d = p.draft;
   const primary = p.products.find((x) => x.kind === "primary")?.name;
@@ -368,7 +500,11 @@ export function buildDailyReportRow(p: {
       ? null
       : `写真日報（AI読み取り）${d.mismatch ? "：" + d.mismatch : ""}`,
     expenses: p.expensesForSave,
-    handover: "",
+    handover: (p.slipImages ?? []).length
+      ? `伝票の写真（${(p.slipImages ?? []).length}枚）：\n${(p.slipImages ?? [])
+          .map((u) => (u.startsWith("data:") ? "（置き場に入れられず埋め込み）" : u))
+          .join("\n")}`
+      : "",
     line_text: p.lineText,
     unit_number: null,
     cleanup_inventory: p.cleanupInventory,

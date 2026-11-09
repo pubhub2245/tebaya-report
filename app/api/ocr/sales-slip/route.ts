@@ -1,6 +1,7 @@
 /**
- * 手書きの売上メモの写真から、商品ごとの本数と売上の合計を読み取る窓口。
- * 写真だけの日報（/report/photo）から呼ばれる。2026-11-07 追加。
+ * 手書きのお会計票（伝票）の写真から、品物・本数・合計・その日の累計を読み取る窓口。
+ * 写真だけの日報（/report/photo）から、伝票の写真1枚ごとに呼ばれる。2026-11-07 追加・11-09 伝票式に変更。
+ * 伝票の一番下の「累計」は売上ではない。答え合わせにだけ使う（→ lib/photoReport.ts の checkSlips）。
  *
  * 指示文と読み取り結果の直し方は `lib/photoReport.ts` の1か所だけ。
  * 使うAIの鍵はレシート読み取りと同じ ANTHROPIC_API_KEY（新しい契約は無し）。
@@ -10,7 +11,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 
 import { OCR_MODEL, stripDataUrl, type ReceiptMedia } from "@/lib/receiptOcr";
-import { buildMemoPrompt, parseMemoText } from "@/lib/photoReport";
+import { buildSlipPrompt, parseSlipText } from "@/lib/photoReport";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const res = await anthropic.messages.create({
       model: OCR_MODEL,
-      max_tokens: 600,
+      max_tokens: 1500,
       messages: [
         {
           role: "user",
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
                 data: stripDataUrl(image),
               },
             },
-            { type: "text", text: buildMemoPrompt(names) },
+            { type: "text", text: buildSlipPrompt(names) },
           ],
         },
       ],
@@ -50,9 +51,9 @@ export async function POST(req: NextRequest) {
       .filter((c: any) => c.type === "text")
       .map((c: any) => c.text)
       .join("");
-    return NextResponse.json(parseMemoText(raw));
+    return NextResponse.json({ slips: parseSlipText(raw) });
   } catch (err: any) {
-    console.error("sales memo OCR error", err);
+    console.error("sales slip OCR error", err);
     return NextResponse.json({ error: err?.message || "ocr failed" }, { status: 500 });
   }
 }

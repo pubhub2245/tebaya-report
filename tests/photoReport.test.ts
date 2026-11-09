@@ -9,12 +9,14 @@ import assert from "node:assert/strict";
 
 import {
   buildDailyReportRow,
-  buildMemoPrompt,
   buildPhotoReportDraft,
+  buildSlipPrompt,
+  combineSlips,
   matchMemoToProducts,
-  parseMemoText,
+  parseSlipText,
   photoReportLineText,
   receiptToExpenses,
+  type Slip,
 } from "../lib/photoReport";
 import type { SaleProduct } from "../lib/salesBreakdown";
 
@@ -22,30 +24,114 @@ const PRODUCTS: SaleProduct[] = [
   { id: 1, shop: "手羽屋", name: "手羽先", price: 200, kind: "primary", is_active: true, sort_order: 0 },
   { id: 2, shop: "手羽屋", name: "手羽餃子", price: 300, kind: "normal", is_active: true, sort_order: 10 },
   { id: 3, shop: "手羽屋", name: "ポテト", price: 350, kind: "normal", is_active: true, sort_order: 20 },
+  { id: 5, shop: "手羽屋", name: "オールスター", price: 1300, kind: "normal", is_active: true, sort_order: 40 },
 ];
 
 const memo = (items: { name: string; count: number }[], total: number) => ({
   items,
   total,
+  flavors: {},
+  warnings: [],
+  lastCumulative: 0,
   unreadable: "",
   raw: "",
 });
 
-test("指示文に商品マスタの名前がそのまま入る", () => {
-  const p = buildMemoPrompt(["手羽先", "手羽餃子"]);
+test("指示文：商品マスタの名前が入り、累計は売上ではないと念押ししている", () => {
+  const p = buildSlipPrompt(["手羽先", "手羽餃子"]);
   assert.match(p, /- 手羽先\n- 手羽餃子/);
+  assert.match(p, /売上ではありません/);
+  assert.match(p, /cumulative/);
 });
 
-test("AIの返事を読む：数字に余計な文字が付いていても数にする", () => {
-  const r = parseMemoText('はい\n{"items":[{"name":"手羽先","count":"120本"}],"total":"¥24,000","unreadable":""}');
-  assert.deepEqual(r.items, [{ name: "手羽先", count: 120 }]);
-  assert.equal(r.total, 24000);
+test("AIの返事を読む：累計は合計と別の欄に入る。数字の余計な文字は外す", () => {
+  const r = parseSlipText(
+    'はい\n{"slips":[{"items":[{"name":"手羽先","flavor":"しお","count":"6本","amount":"1,200"}],"total":"¥1,200","cumulative":"¥15,550","unreadable":""}]}',
+  );
+  assert.equal(r.length, 1);
+  assert.deepEqual(r[0].items, [{ name: "手羽先", flavor: "しお", count: 6, amount: 1200 }]);
+  assert.equal(r[0].total, 1200);
+  assert.equal(r[0].cumulative, 15550);
 });
 
 test("AIの返事が壊れていたら空（数字を作らない）", () => {
-  const r = parseMemoText("読めませんでした");
-  assert.deepEqual(r.items, []);
-  assert.equal(r.total, 0);
+  assert.deepEqual(parseSlipText("読めませんでした"), []);
+});
+
+/* 2026-11-09 に別チャットで実際に読んだ1日ぶん（5枚・売上27,700円）と同じ合計になる伝票 */
+const T = (flavor: string, count: number) => ({ name: "手羽先", flavor, count, amount: count * 200 });
+const I = (name: string, count: number, price: number) => ({ name, flavor: "", count, amount: count * price });
+const DAY: Slip[] = [
+  { items: [T("しお", 6), T("タレ", 8), T("のり", 2), I("手羽餃子", 4, 300)], total: 4400, cumulative: 4400, unreadable: "" },
+  { items: [T("しお", 6), T("タレ", 9), T("のり", 2), I("手羽餃子", 5, 300), I("オールスター", 1, 1300)], total: 6200, cumulative: 10600, unreadable: "" },
+  { items: [T("しお", 6), T("タレ", 9), T("のり", 2), I("手羽餃子", 4, 300), I("ポテト", 1, 350)], total: 4950, cumulative: 15550, unreadable: "" },
+  { items: [T("しお", 6), T("タレ", 9), T("のり", 3), I("手羽餃子", 4, 300), I("オールスター", 1, 1300)], total: 6100, cumulative: 21650, unreadable: "" },
+  { items: [T("しお", 6), T("タレ", 8), T("のり", 2), I("手羽餃子", 4, 300), I("ポテト", 1, 350), I("オールスター", 1, 1300)], total: 6050, cumulative: 27700, unreadable: "" },
+];
+
+test("伝票5枚：売上は合計の足し算（累計は足さない）で、答え合わせが全部合う", () => {
+  const m = combineSlips(DAY, PRODUCTS);
+  assert.equal(m.total, 27700); // 累計を足していたら 79,900 になる
+  assert.deepEqual(m.warnings, []);
+  assert.equal(m.lastCumulative, 27700);
+  assert.deepEqual(m.flavors, { しお: 30, タレ: 43, のり: 11 });
+  const d = buildPhotoReportDraft({
+    date: "2026-11-08",
+    location: "まるまる朝市",
+    products: PRODUCTS,
+    memo: m,
+    receiptExpenses: [],
+    boothFeeRule: { type: "none" },
+    cumulativeBefore: 0,
+  });
+  assert.deepEqual(d.counts, { 手羽先: 84, 手羽餃子: 21, オールスター: 3, ポテト: 2 });
+  assert.equal(d.breakdown.matched, true); // 16,800＋6,300＋700＋3,900＝27,700
+  assert.equal(d.mismatch, null);
+});
+
+test("撮った順がばらばらでも、累計の小さい順に並べて答え合わせする", () => {
+  const m = combineSlips([DAY[3], DAY[0], DAY[4], DAY[2], DAY[1]], PRODUCTS);
+  assert.equal(m.total, 27700);
+  assert.deepEqual(m.warnings, []);
+});
+
+test("伝票を1枚撮り忘れたら知らせる。売上は撮った分のまま（作らない）", () => {
+  const m = combineSlips([DAY[0], DAY[1], DAY[3], DAY[4]], PRODUCTS);
+  assert.equal(m.total, 22750);
+  assert.ok(m.warnings.some((w) => /累計がつながりません/.test(w)));
+  assert.ok(m.warnings.some((w) => /最後の累計 ¥27,700/.test(w)));
+});
+
+test("最初の伝票を撮り忘れたら知らせる", () => {
+  const m = combineSlips(DAY.slice(1), PRODUCTS);
+  assert.ok(m.warnings.some((w) => /前の伝票を撮り忘れていませんか/.test(w)));
+});
+
+test("1枚の中で行の合計と合計欄が違えば知らせる（読み違いの発見）", () => {
+  const bad: Slip = { ...DAY[0], total: 4500, cumulative: 4500 };
+  const m = combineSlips([bad], PRODUCTS);
+  assert.ok(m.warnings.some((w) => /1枚目の伝票：行の合計 ¥4,400 と合計欄 ¥4,500/.test(w)));
+  assert.equal(m.total, 4500); // 合計欄のまま
+});
+
+test("累計が書かれていない伝票だけなら、つながりの確認はしない", () => {
+  const m = combineSlips(DAY.map((sl) => ({ ...sl, cumulative: 0 })), PRODUCTS);
+  assert.equal(m.total, 27700);
+  assert.deepEqual(m.warnings, []);
+});
+
+test("答え合わせが合わないときは、日報の下書きにも知らせが出る", () => {
+  const m = combineSlips([DAY[0], DAY[1], DAY[3], DAY[4]], PRODUCTS);
+  const d = buildPhotoReportDraft({
+    date: "2026-11-08",
+    location: "まるまる朝市",
+    products: PRODUCTS,
+    memo: m,
+    receiptExpenses: [],
+    boothFeeRule: { type: "none" },
+    cumulativeBefore: 0,
+  });
+  assert.match(d.mismatch ?? "", /累計がつながりません/);
 });
 
 test("味ごとに書かれた手羽先は主力商品にまとめる。知らない名前は残す", () => {
@@ -147,7 +233,13 @@ test("保存する行：日当0円・本数は互換カラムにも入る・累�
     boothFeeRule: { type: "fixed", amount: 5000 },
     cumulativeBefore: 500000,
   });
-  const text = photoReportLineText({ date: "2026-11-08", location: "ニシムタ", staffName: "ゆうや", draft: d });
+  const text = photoReportLineText({
+    date: "2026-11-08",
+    location: "ニシムタ",
+    staffName: "ゆうや",
+    draft: d,
+    flavors: { しお: 40, タレ: 60 },
+  });
   const row = buildDailyReportRow({
     date: "2026-11-08",
     location: "ニシムタ",
@@ -159,6 +251,7 @@ test("保存する行：日当0円・本数は互換カラムにも入る・累�
     lineText: text,
     cleanupInventory: {},
     cleanupTasks: {},
+    slipImages: ["https://example/slip1.jpg"],
   });
   assert.equal(row.labor, 0);
   assert.equal(row.remaining_tebasaki, 100);
@@ -169,4 +262,6 @@ test("保存する行：日当0円・本数は互換カラムにも入る・累�
   assert.match(text, /売上：¥23,000/);
   assert.match(text, /経費：¥6,000/);
   assert.match(text, /差引：¥17,000/);
+  assert.match(text, /手羽先の味：しお40・タレ60/);
+  assert.equal(row.handover, "伝票の写真（1枚）：\nhttps://example/slip1.jpg");
 });

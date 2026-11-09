@@ -4,7 +4,8 @@
  * 写真だけの日報（2026-11-07 追加）。
  *
  * 現場がやるのは4つだけ：
- *   ① 出店場所をタップ ② 手書きの売上メモを撮る ③ レシートを撮る ④ OK
+ *   ① 出店場所をタップ ② その日の伝票（お会計票）を全部撮る ③ レシートを撮る ④ OK
+ * 伝票の一番下の「累計」は売上に足さない。答え合わせにだけ使う（2026-11-09）。
  * 数字は1つも打たない。読み取り・場代・合計・LINE通知はアプリがやる。
  * 計算の中身は `lib/photoReport.ts`（tests/photoReport.test.ts で固定）。
  *
@@ -29,13 +30,16 @@ import {
   FRANCHISE_STAFF_NAME,
   buildDailyReportRow,
   buildPhotoReportDraft,
+  combineSlips,
   photoReportLineText,
   receiptToExpenses,
-  type MemoReadResult,
   type PhotoExpense,
+  type Slip,
 } from "@/lib/photoReport";
 
-type Step = "place" | "memo" | "receipts" | "confirm" | "done";
+type Step = "place" | "slips" | "receipts" | "confirm" | "done";
+
+type SlipShot = { id: string; photo: string; slips: Slip[]; reading: boolean; error?: string };
 
 type ReceiptShot = { id: string; photo: string; expenses: PhotoExpense[]; reading: boolean; error?: string };
 
@@ -55,6 +59,40 @@ function ShotButton({
   onFile: (f: File) => void;
   disabled?: boolean;
 }) {
+  return <ShotButtonInner label={label} onFiles={(fs) => fs.forEach(onFile)} disabled={disabled} camera />;
+}
+
+/** アルバムから何枚もまとめて選ぶ小さいボタン */
+function PickButton({ label, onFiles }: { label: string; onFiles: (fs: File[]) => void }) {
+  return (
+    <label className="block text-center text-sm text-stone-600 underline cursor-pointer py-2">
+      🖼 {label}
+      <input
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          const fs = Array.from(e.target.files ?? []);
+          e.target.value = "";
+          if (fs.length) onFiles(fs);
+        }}
+      />
+    </label>
+  );
+}
+
+function ShotButtonInner({
+  label,
+  onFiles,
+  disabled,
+  camera,
+}: {
+  label: string;
+  onFiles: (fs: File[]) => void;
+  disabled?: boolean;
+  camera?: boolean;
+}) {
   return (
     <label
       className={`flex items-center justify-center gap-3 w-full h-24 rounded-2xl text-white font-bold text-xl shadow-md transition ${
@@ -66,13 +104,13 @@ function ShotButton({
       <input
         type="file"
         accept="image/*"
-        capture="environment"
+        capture={camera ? "environment" : undefined}
         className="hidden"
         disabled={disabled}
         onChange={(e) => {
-          const f = e.target.files?.[0];
+          const fs = Array.from(e.target.files ?? []);
           e.target.value = "";
-          if (f) onFile(f);
+          if (fs.length) onFiles(fs);
         }}
       />
     </label>
@@ -96,10 +134,7 @@ function PhotoReportPage() {
   const [products, setProducts] = useState<SaleProduct[]>([]);
   const [rules, setRules] = useState<Map<string, BoothFeeRule>>(new Map());
 
-  const [memoPhoto, setMemoPhoto] = useState<string | null>(null);
-  const [memo, setMemo] = useState<MemoReadResult | null>(null);
-  const [memoReading, setMemoReading] = useState(false);
-  const [memoError, setMemoError] = useState<string | null>(null);
+  const [slipShots, setSlipShots] = useState<SlipShot[]>([]);
 
   const [receipts, setReceipts] = useState<ReceiptShot[]>([]);
   const [saving, setSaving] = useState(false);
@@ -137,6 +172,13 @@ function PhotoReportPage() {
   }, []);
 
   const receiptExpenses = useMemo(() => receipts.flatMap((r) => r.expenses), [receipts]);
+  const slipsReading = slipShots.some((s) => s.reading);
+  const allSlips = useMemo(() => slipShots.flatMap((s) => s.slips), [slipShots]);
+  // 伝票を全部まとめて1日ぶんにする（累計は足さない・答え合わせだけ）
+  const memo = useMemo(
+    () => (allSlips.length > 0 && !slipsReading ? combineSlips(allSlips, products) : null),
+    [allSlips, slipsReading, products],
+  );
   const draft = useMemo(
     () =>
       memo
@@ -153,31 +195,32 @@ function PhotoReportPage() {
     [memo, date, location, products, receiptExpenses, rules],
   );
 
-  async function readMemo(file: File) {
-    setMemoError(null);
-    setMemoReading(true);
+  async function addSlip(file: File) {
+    const id = `${Date.now()}-${Math.random()}`;
+    const photo = await resizeImage(file);
+    setSlipShots((xs) => [...xs, { id, photo, slips: [], reading: true }]);
     try {
-      const photo = await resizeImage(file);
-      setMemoPhoto(photo);
-      const res = await fetch("/api/ocr/sales-memo", {
+      const res = await fetch("/api/ocr/sales-slip", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ image: photo, productNames: products.map((p) => p.name) }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "読み取りに失敗しました");
-      const result = json as MemoReadResult;
-      if (result.total <= 0 && result.items.length === 0) {
-        setMemo(null);
-        setMemoError("メモが読めませんでした。明るい所で、メモ全体が入るように撮り直してください。");
-        return;
-      }
-      setMemo(result);
-      setStep("receipts");
-    } catch (e: any) {
-      setMemoError(e?.message || "読み取りに失敗しました。もう一度撮ってください。");
-    } finally {
-      setMemoReading(false);
+      const slips = (json.slips as Slip[]) || [];
+      setSlipShots((xs) =>
+        xs.map((x) =>
+          x.id === id
+            ? slips.length
+              ? { ...x, slips, reading: false }
+              : { ...x, reading: false, error: "伝票が読めませんでした。撮り直してください" }
+            : x,
+        ),
+      );
+    } catch {
+      setSlipShots((xs) =>
+        xs.map((x) => (x.id === id ? { ...x, reading: false, error: "読めませんでした。撮り直してください" } : x)),
+      );
     }
   }
 
@@ -249,9 +292,20 @@ function PhotoReportPage() {
         ...e,
         receipt_image_url: e.receipt_image_url ? uploaded.get(e.receipt_image_url) ?? e.receipt_image_url : null,
       }));
-      const memoUrl = memoPhoto ? await uploadReceiptOrKeep(memoPhoto, "sales-memo", TEBAYA_SCOPE) : null;
+      const slipImages: string[] = [];
+      for (const shot of slipShots) {
+        if (shot.slips.length === 0) continue;
+        const url = await uploadReceiptOrKeep(shot.photo, "sales-slip", TEBAYA_SCOPE);
+        if (url) slipImages.push(url);
+      }
 
-      const lineText = photoReportLineText({ date, location, staffName: FRANCHISE_STAFF_NAME, draft });
+      const lineText = photoReportLineText({
+        date,
+        location,
+        staffName: FRANCHISE_STAFF_NAME,
+        draft,
+        flavors: memo?.flavors,
+      });
       const row = buildDailyReportRow({
         date,
         location,
@@ -263,9 +317,8 @@ function PhotoReportPage() {
         lineText,
         cleanupInventory: initialCleanupInventory(),
         cleanupTasks: initialCleanupTasks(),
+        slipImages,
       });
-      // 売上メモの写真は、いまは引き継ぎ欄に住所を残す（専用の列は倉庫が動いてから足す）
-      if (memoUrl) row.handover = `売上メモの写真：${memoUrl.startsWith("data:") ? "（埋め込み）" : memoUrl}`;
 
       const { error } = await supabase.from("daily_reports").insert(row);
       if (error) throw error;
@@ -323,7 +376,7 @@ function PhotoReportPage() {
                 type="button"
                 onClick={() => {
                   setLocation(name);
-                  setStep("memo");
+                  setStep("slips");
                 }}
                 className="h-16 rounded-2xl bg-white border-2 border-stone-200 active:border-orange-500 font-bold text-sm px-2 shadow-sm"
               >
@@ -334,18 +387,48 @@ function PhotoReportPage() {
         </section>
       )}
 
-      {step === "memo" && (
+      {step === "slips" && (
         <section className="space-y-4">
-          {header("売上メモを撮ってください", 2)}
+          {header("今日の伝票を全部撮ってください", 2)}
           <p className="text-sm text-stone-600">
-            手書きの売上メモ（本数と合計）が全部入るように撮ってください。
+            お会計票を1枚ずつ撮ってください（何枚でも）。一番下の累計まで入るように撮ってください。
           </p>
-          <ShotButton
-            label={memoReading ? "読み取り中…" : "売上メモを撮る"}
-            onFile={readMemo}
-            disabled={memoReading}
-          />
-          {memoError && <p className="text-sm text-red-600">{memoError}</p>}
+          <ShotButton label="伝票を撮る" onFile={addSlip} />
+          <PickButton label="アルバムからまとめて選ぶ" onFiles={(fs) => fs.forEach(addSlip)} />
+          {slipShots.length > 0 && (
+            <ul className="space-y-2">
+              {slipShots.map((x, i) => (
+                <li key={x.id} className="card flex items-center gap-3 py-2">
+                  <img src={x.photo} alt="" className="w-12 h-12 object-cover rounded" />
+                  <span className="text-sm flex-1">
+                    {i + 1}枚目：
+                    {x.reading
+                      ? "読み取り中…"
+                      : x.error
+                        ? x.error
+                        : x.slips
+                            .map((sl) => `合計${yen(sl.total)}${sl.cumulative ? `（累計${yen(sl.cumulative)}）` : ""}`)
+                            .join("、")}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-xs text-stone-400 underline"
+                    onClick={() => setSlipShots((xs) => xs.filter((y) => y.id !== x.id))}
+                  >
+                    取り消す
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button
+            type="button"
+            disabled={slipsReading || allSlips.length === 0}
+            onClick={() => setStep("receipts")}
+            className="w-full h-14 rounded-2xl bg-stone-800 text-white font-bold disabled:bg-stone-300"
+          >
+            {slipsReading ? "読み取り中…" : "伝票は全部撮った → 次へ"}
+          </button>
           <button type="button" onClick={() => setStep("place")} className="text-sm text-stone-500 underline">
             場所を選び直す
           </button>
@@ -403,10 +486,18 @@ function PhotoReportPage() {
               .filter(([, n]) => n > 0)
               .map(([name, n]) => (
                 <div key={name} className="flex justify-between text-sm text-stone-600">
-                  <span>{name}</span>
+                  <span>
+                    {name}
+                    {name === products.find((p) => p.kind === "primary")?.name && memo && Object.keys(memo.flavors).length > 0
+                      ? `（${Object.entries(memo.flavors).map(([f, c]) => `${f}${c}`).join("・")}）`
+                      : ""}
+                  </span>
                   <span>{n}</span>
                 </div>
               ))}
+            {memo && memo.lastCumulative > 0 && !draft.mismatch && (
+              <p className="text-xs text-emerald-700 pt-1">✅ 伝票{allSlips.length}枚・最後の累計と合っています</p>
+            )}
           </div>
           <div className="card space-y-1">
             <p className="font-bold">経費 {yen(draft.expensesTotal)}</p>
@@ -426,7 +517,7 @@ function PhotoReportPage() {
             </p>
           )}
           {draft.salesMissing && (
-            <p className="text-sm text-red-600">売上が読めませんでした。売上メモを撮り直してください。</p>
+            <p className="text-sm text-red-600">売上が読めませんでした。伝票を撮り直してください。</p>
           )}
           <button
             type="button"
@@ -437,8 +528,8 @@ function PhotoReportPage() {
             {saving ? "送っています…" : "OK"}
           </button>
           <div className="flex justify-between text-sm">
-            <button type="button" className="text-stone-500 underline" onClick={() => setStep("memo")}>
-              売上メモを撮り直す
+            <button type="button" className="text-stone-500 underline" onClick={() => setStep("slips")}>
+              伝票に戻る
             </button>
             <button type="button" className="text-stone-500 underline" onClick={() => setStep("receipts")}>
               レシートに戻る
