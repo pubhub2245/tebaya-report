@@ -17,6 +17,8 @@ import {
   photoReportLineText,
   receiptToExpenses,
   resolveNewPlace,
+  applyAdjustments,
+  NO_ADJUSTMENTS,
   type Slip,
 } from "../lib/photoReport";
 import type { SaleProduct } from "../lib/salesBreakdown";
@@ -317,4 +319,62 @@ test("新しい出店先の日はLINEに場代未登録の知らせが出る", (
   const t = photoReportLineText({ date: "2026-11-10", location: "高鍋祭り", staffName: "ゆうや", draft: d, newPlace: true });
   assert.match(t, /🆕 新しい出店先/);
   assert.equal(d.expenses.length, 0); // 場代の行は作らない（嘘の0円を残さない）
+});
+
+const baseDay = () =>
+  buildPhotoReportDraft({
+    date: "2026-11-10",
+    location: "ニシムタ",
+    products: PRODUCTS,
+    memo: memo([{ name: "手羽先", count: 100 }], 20000),
+    receiptExpenses: receiptToExpenses({ items: [{ name: "油", amount: 1000 }] }, "p"),
+    boothFeeRule: { type: "fixed", amount: 5000 },
+    cumulativeBefore: 0,
+  });
+
+test("最後の手直し：何も触らなければ読み取りどおり（手直しの印も付かない）", () => {
+  const d = applyAdjustments(baseDay(), NO_ADJUSTMENTS);
+  assert.equal(d.expensesTotal, 6000);
+  assert.equal(d.labor, 0);
+  assert.equal(d.adjusted, false);
+});
+
+test("最後の手直し：その日だけ場代が違う → 場代を直すと『人が直した』印が付く", () => {
+  const d = applyAdjustments(baseDay(), { ...NO_ADJUSTMENTS, amounts: { 0: 3000 } });
+  assert.equal(d.expenses[0].amount, 3000);
+  assert.equal(d.expenses[0].booth_fee_edited, true);
+  assert.equal(d.expensesTotal, 4000);
+  assert.equal(d.adjusted, true);
+});
+
+test("最後の手直し：研修の人の人件費・手入力の経費・行の削除", () => {
+  const d = applyAdjustments(baseDay(), {
+    amounts: {},
+    removed: [1],
+    extras: [{ description: "氷", amount: 300 }, { description: "", amount: 100 }],
+    labor: 3000,
+    note: " 研修の山田さんが入った ",
+  });
+  assert.deepEqual(d.expenses.map((e) => [e.description, e.amount]), [["場代", 5000], ["氷", 300]]);
+  assert.equal(d.expenses[1].no_receipt_reason, "最後の確認で手入力");
+  assert.equal(d.labor, 3000);
+  const text = photoReportLineText({ date: "2026-11-10", location: "ニシムタ", staffName: "ゆうや", draft: d });
+  assert.match(text, /人件費：¥3,000/);
+  assert.match(text, /差引：¥11,700/); // 20,000 − 5,300 − 3,000
+  assert.match(text, /手直しあり/);
+  assert.match(text, /📝 メモ：研修の山田さんが入った/);
+  const row = buildDailyReportRow({
+    date: "2026-11-10",
+    location: "ニシムタ",
+    staffName: "ゆうや",
+    draft: d,
+    products: PRODUCTS,
+    cumulativeBefore: 0,
+    expensesForSave: d.expenses,
+    lineText: text,
+    cleanupInventory: {},
+    cleanupTasks: {},
+  });
+  assert.equal(row.labor, 3000);
+  assert.equal(row.handover, "メモ：研修の山田さんが入った");
 });

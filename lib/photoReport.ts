@@ -454,6 +454,67 @@ export function buildPhotoReportDraft(input: PhotoReportInput): PhotoReportDraft
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* 最後の確認での手直し（2026-11-09）                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 最後の確認画面で、その日だけの事情を現場が直すための中身。
+ * 例：場代がその日だけいつもと違った／研修の人が入って人件費が少し出た／読み違えた金額。
+ * **何も触らなければ、AIの読み取りどおり**（手数ゼロが原則）。
+ */
+export type Adjustments = {
+  /** 経費の行（draft.expenses の何番目か）→ 直した金額 */
+  amounts: Record<number, number>;
+  /** 消した行（draft.expenses の何番目か） */
+  removed: number[];
+  /** 手で足した経費 */
+  extras: { description: string; amount: number }[];
+  /** その日の人件費（研修の人など）。加盟店は通常0 */
+  labor: number;
+  /** ひとことメモ（任意）。日報の引き継ぎ欄とLINEに出る */
+  note?: string;
+};
+
+export const NO_ADJUSTMENTS: Adjustments = { amounts: {}, removed: [], extras: [], labor: 0, note: "" };
+
+/** 手直しを当てた日報の下書きを返す（元の下書きは変えない） */
+export function applyAdjustments(
+  draft: PhotoReportDraft,
+  adj: Adjustments,
+  paidBy: string = FRANCHISE_STAFF_NAME,
+): PhotoReportDraft & { labor: number; adjusted: boolean; note: string } {
+  const expenses: PhotoExpense[] = [];
+  draft.expenses.forEach((e, i) => {
+    if (adj.removed.includes(i)) return;
+    const v = adj.amounts[i];
+    if (v === undefined || v === e.amount) {
+      expenses.push(e);
+      return;
+    }
+    // 場代を人が直したら、あとで売上が変わっても上書きしない印（→ CLAUDE.md 4-15）
+    expenses.push({ ...e, amount: Math.max(0, Math.round(v)), ...(e.booth_fee ? { booth_fee_edited: true } : {}) });
+  });
+  for (const x of adj.extras) {
+    const amount = Math.max(0, Math.round(x.amount || 0));
+    if (!x.description.trim() || amount <= 0) continue;
+    expenses.push({
+      description: x.description.trim(),
+      amount,
+      receipt_image_url: null,
+      no_receipt_reason: "最後の確認で手入力",
+      paid_by: paidBy,
+    });
+  }
+  const labor = Math.max(0, Math.round(adj.labor || 0));
+  const adjusted =
+    Object.keys(adj.amounts).some((k) => adj.amounts[Number(k)] !== draft.expenses[Number(k)]?.amount) ||
+    adj.removed.length > 0 ||
+    expenses.length !== draft.expenses.length ||
+    labor > 0;
+  return { ...draft, expenses, expensesTotal: sumExpenses(expenses), labor, adjusted, note: (adj.note ?? "").trim() };
+}
+
 /** LINE に流す短い文（日報完成のお知らせ） */
 export function photoReportLineText(p: {
   date: string;
@@ -480,7 +541,12 @@ export function photoReportLineText(p: {
     .join("・");
   if (fl) lines.push(`手羽先の味：${fl}`);
   lines.push(`経費：${yen(d.expensesTotal)}`);
-  lines.push(`差引：${yen(d.sales - d.expensesTotal)}`);
+  const labor = (d as { labor?: number }).labor ?? 0;
+  if (labor > 0) lines.push(`人件費：${yen(labor)}`);
+  lines.push(`差引：${yen(d.sales - d.expensesTotal - labor)}`);
+  if ((d as { adjusted?: boolean }).adjusted) lines.push("✏️ 最後の確認で手直しあり");
+  const note = (d as { note?: string }).note;
+  if (note) lines.push(`📝 メモ：${note}`);
   if (p.newPlace) lines.push("🆕 新しい出店先です（場代は未登録。管理者ページの出店場所で決めてください）");
   if (d.mismatch) lines.push(`⚠ ${d.mismatch}`);
   return lines.join("\n");
@@ -524,7 +590,8 @@ export function buildDailyReportRow(p: {
     register_total: 0,
     register_ok: true,
     register_diff: 0,
-    labor: 0,
+    // 加盟店なので通常0。最後の確認で人件費を入れた日だけ入る
+    labor: (d as { labor?: number }).labor ?? 0,
     remaining_tebasaki: primary ? c[primary] || 0 : 0,
     remaining_gyoza: c["手羽餃子"] || 0,
     remaining_potato: c["ポテト"] || 0,
@@ -544,11 +611,17 @@ export function buildDailyReportRow(p: {
       ? null
       : `写真日報（AI読み取り）${d.mismatch ? "：" + d.mismatch : ""}`,
     expenses: p.expensesForSave,
-    handover: (p.slipImages ?? []).length
-      ? `伝票の写真（${(p.slipImages ?? []).length}枚）：\n${(p.slipImages ?? [])
-          .map((u) => (u.startsWith("data:") ? "（置き場に入れられず埋め込み）" : u))
-          .join("\n")}`
-      : "",
+    // 引き継ぎ欄：メモ（あれば）＋ 伝票の写真の住所
+    handover: [
+      (d as { note?: string }).note ? `メモ：${(d as { note?: string }).note}` : "",
+      (p.slipImages ?? []).length
+        ? `伝票の写真（${(p.slipImages ?? []).length}枚）：\n${(p.slipImages ?? [])
+            .map((u) => (u.startsWith("data:") ? "（置き場に入れられず埋め込み）" : u))
+            .join("\n")}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
     line_text: p.lineText,
     unit_number: null,
     cleanup_inventory: p.cleanupInventory,
