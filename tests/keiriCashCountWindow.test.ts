@@ -6,6 +6,7 @@ import {
   buildCashCountReady,
   buildCashCountWindow,
   cashCountNotMeasurable,
+  cashCountOk,
 } from "../lib/keiri/cashCountWindow";
 import { measureBooksGap } from "../lib/keiri/cashBooksGap";
 import { buildCashVariants, pickCashVariant } from "../lib/keiri/cashVariant";
@@ -234,4 +235,61 @@ test("止まった場所は、そのまま一言で返す（鍵も金額も入�
   assert.equal(r.ok, null);
   assert.match(r.reason, /日報の棚を読めませんでした/);
   assert.match(r.summary, /0件と取り違えないこと/);
+});
+
+/* ------------------------------------------------------------------ *
+ *  まだ数えていない日に「合っています」と読める形で返さない
+ *  （2026-11-09・f1-4）
+ * ------------------------------------------------------------------ */
+
+test("まだ数えていない日は ok が null（合格にも不合格にもしない）", () => {
+  const r = cashCountOk({ verdict: "まだ数えていません", covered: null });
+  assert.equal(r.ok, null);
+  assert.match(r.okMeans, /まだ金庫を1回も数えていない/);
+  // ★「合っている」と読める言葉を出さないこと
+  assert.match(r.okMeans, /合っているという意味でも、合っていないという意味でもありません/);
+});
+
+test("ぴったり・ほぼ・数え方のちがいは ok が true", () => {
+  for (const v of ["ぴったり合っている", "ほぼ合っている", "数え方のちがいで説明がつく"] as const) {
+    const r = cashCountOk({ verdict: v, covered: null });
+    assert.equal(r.ok, true, v);
+    assert.ok(r.okMeans.includes(v));
+  }
+});
+
+test("合っていない日は、差に名前が付いたか（covered）で決める", () => {
+  assert.equal(cashCountOk({ verdict: "合っていない", covered: true }).ok, true);
+  assert.equal(cashCountOk({ verdict: "合っていない", covered: false }).ok, false);
+  // ★読めていない所があるときは、どちらとも言わない
+  const unknown = cashCountOk({ verdict: "合っていない", covered: null });
+  assert.equal(unknown.ok, null);
+  assert.match(unknown.okMeans, /合っていないという意味ではありません/);
+});
+
+test("covered を渡さなければ、合っていない日は合否を付けない", () => {
+  assert.equal(cashCountOk({ verdict: "合っていない" }).ok, null);
+});
+
+test("窓口そのものに matched（合っていたか）の欄がある", () => {
+  // ★差の内わけの案内（diffCoverage.howto）が「上の matched で見て」と言うのに、
+  //   その欄を返していなかったので足した。数え方が1通りの月でも true になること
+  const never = windowOf({ counted: null, computed: null });
+  assert.equal(never.counted, false);
+  assert.equal(never.matched, null);
+
+  const exact = windowOf({ counted: 145_000, computed: 145_000 });
+  assert.equal(exact.verdict, "ぴったり合っている");
+  assert.equal(exact.matched, true);
+  // 合否は ok と同じ向きになること
+  assert.equal(cashCountOk({ verdict: exact.verdict, covered: null }).ok, true);
+
+  const off = windowOf({ counted: 20_000, computed: 145_000 });
+  assert.equal(off.verdict, "合っていない");
+  assert.equal(off.matched, false);
+});
+
+test("まだ数えていない窓口を ok に通すと null になる（決め打ちの true に戻らないこと）", () => {
+  const w = windowOf({ counted: null, computed: null });
+  assert.equal(cashCountOk({ verdict: w.verdict, covered: null }).ok, null);
 });
