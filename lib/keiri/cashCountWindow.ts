@@ -207,6 +207,14 @@ export type CashCountReady = {
   safeOnlyIncluded: boolean;
   /** つり銭に使った日報の日付（金額ではない）。1件も無ければ null */
   registerFloatOn: string | null;
+  /**
+   * 空いている日が「お休みだけ」と読めたか（2026-11-09・f1-4）。
+   *
+   * ★これが true なら、空きがあっても食い違いの元になりません
+   *   ＝ いま数えてもらって大丈夫です。読めなかった日は false のままにします
+   *   （「お休みでした」と言い切らない）。
+   */
+  gapIsHolidaysOnly: boolean;
   /** 人が読む1行 */
   line: string;
 };
@@ -222,9 +230,12 @@ export function buildCashCountReady(params: {
   registerFloatOn: string | null;
   /** 日報がどこまで入っているか（渡さなければ、判断しない＝今までどおり） */
   booksGap?: CashBooksGap | null;
+  /** 空いている日の正体（渡さなければ、今までどおり「営業した日があれば」と言う） */
+  gapOpen?: { readable: boolean; openDays: number; holidaysOnly: boolean } | null;
 }): CashCountReady {
   const { variants, registerFloatOn } = params;
   const booksGap = params.booksGap ?? null;
+  const gapOpen = params.gapOpen ?? null;
   const wayLabels = variants.map((v) => v.label);
   const safeOnlyIncluded = variants.some(
     (v) => v.key === "nowScreenSafeOnly" || v.key === "withEarlierRepaidSafeOnly",
@@ -234,13 +245,23 @@ export function buildCashCountReady(params: {
   // ★日報が空いているかは、相手がそろっているかとは別の話（2026-11-01・f1-4）。
   //   相手は4通り そろっていても、日報が2週間 入っていなければ必ず食い違います。
   const booksUpToDate = !(booksGap?.wide ?? false);
-  const booksLine =
-    !booksUpToDate && booksGap?.lastDate
-      ? `ただし**日報が ${monthDay(booksGap.lastDate)} までしか入っていません**` +
-        `（そこから ${booksGap.days}日）。それ以降に営業した日があると、` +
-        "そのぶんだけ必ず食い違います。先に日報を入れてから数えると、差の意味がはっきりします" +
-        "（いま数えても、差の理由は画面に名指しで出ます）"
-      : "";
+  const holidaysOnly = gapOpen?.holidaysOnly ?? false;
+  const booksLine = !booksUpToDate && booksGap?.lastDate
+    ? // ★空きの正体が「お休みだけ」と読めた日は、無い探し物をさせない（2026-11-09）
+      holidaysOnly
+      ? `日報は ${monthDay(booksGap.lastDate)} までですが、` +
+        `そこからの ${booksGap.days}日は**ぜんぶ出店の予定が無い日（お休み）**でした` +
+        "＝この空きで食い違うことはありません。いま数えていただいて大丈夫です"
+      : gapOpen?.readable
+        ? `ただし**出店の予定があったのに日報が入っていない日が ${gapOpen.openDays}日 あります**` +
+          `（日報は ${monthDay(booksGap.lastDate)} まで）。` +
+          "そのぶんは必ず食い違います。**先にその日報を入れてから数えてください**" +
+          "（いま数えても、差の理由は画面に名指しで出ます）"
+        : `ただし**日報が ${monthDay(booksGap.lastDate)} までしか入っていません**` +
+          `（そこから ${booksGap.days}日）。それ以降に営業した日があると、` +
+          "そのぶんだけ必ず食い違います。先に日報を入れてから数えると、差の意味がはっきりします" +
+          "（いま数えても、差の理由は画面に名指しで出ます）"
+    : "";
 
   const base = !canCompare
     ? "いま数えてもらっても、計算上の現金が出せないので合否が出ません（お店の設定が読めていません）"
@@ -264,6 +285,7 @@ export function buildCashCountReady(params: {
     wayLabels,
     safeOnlyIncluded,
     registerFloatOn,
+    gapIsHolidaysOnly: holidaysOnly,
     line,
   };
 }
