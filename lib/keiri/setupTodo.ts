@@ -95,6 +95,18 @@ export type SetupTodo = {
    * 2分の手続きを待つことになる（実際に 2026-10-15 にそう読まれた）。
    */
   independentNote: string | null;
+  /**
+   * 『よその店のデータが見えないか』（f3-4）は、1つ押しただけでは閉まらない（2026-11-09・f3-4）。
+   *
+   * ■ なぜ要るのか
+   *   この一覧の［サーバー側の鍵を貼り直す］と［レシート写真の置き場を閉める］は、
+   *   どちらも「**仕上げの不合格はこれで閉まります**」と書いていました。
+   *   ところが f3-4 を閉めるには、**倉庫の貼り紙（棚の鍵）・サーバー側の鍵・
+   *   写真の置き場**の3つがそろう必要があります（貼り紙を流すまで、ブラウザから
+   *   倉庫を直に読む道は開いたままです／窓口も remaining でそう答えています）。
+   *   ＝ じゅんが1つ押して「閉まった」と受け取る形でした。**何がのこっているかを数えて言います。**
+   */
+  f34Note: string | null;
 };
 
 /** 窓口が倉庫を読んで分かったこと。読めなければ null（＝分からない） */
@@ -259,7 +271,7 @@ function keyItem(input: SetupTodoInput["key"]): SetupTodoItem {
     benefit:
       "レシート写真の置き場を閉められるようになります" +
       "（住所を知っていても、合言葉なしでは開けない形）。" +
-      "仕上げでいま唯一の不合格『よその店のデータが見えないか』は、これで閉まります。" +
+      "『よその店のデータが見えないか』を閉める3つ（倉庫の貼り紙・この鍵・写真の置き場）のうちの1つです。" +
       "あわせて毎日の自動の控え（バックアップ）も戻ります",
     href: KEY_SHEET,
     checks: ["f3-4"],
@@ -297,7 +309,7 @@ function photoItem(
     minutes: "10秒",
     benefit:
       "住所を知っていても、合言葉なしではレシート写真が開けなくなります。" +
-      "仕上げの『よその店のデータが見えないか』（③）はこれで閉まります",
+      "『よその店のデータが見えないか』を閉める3つ（倉庫の貼り紙・サーバー側の鍵・この置き場）のうちの1つです",
     href: KEY_SHEET,
     checks: ["f3-4"],
   };
@@ -366,7 +378,34 @@ export function buildSetupTodo(input: SetupTodoInput): SetupTodo {
     summary,
     warehouseNote: warehouseAnswering(input) === false ? WAREHOUSE_ASLEEP_NOTE : null,
     independentNote: remaining >= 2 ? INDEPENDENT_NOTE : null,
+    f34Note: f34Note(items),
   };
+}
+
+/** f3-4 を閉めるのに要る手続きの id（この3つがそろって初めて閉まる） */
+export const F34_ITEM_IDS: SetupTodoId[] = ["shelves", "key", "photo"];
+
+/**
+ * 『よその店のデータが見えないか』（f3-4）が、いま何つ待ちかを1行で言う。
+ *
+ * ★「済み」以外（のこり・分からない）は、**閉まっていない側**に数えます
+ *   （分からないものを閉まった扱いにすると、嘘の合格を作ります）。
+ * ★3つのうち1つも一覧に出ていない呼び出し（古い試験など）では null を返します。
+ */
+export function f34Note(items: SetupTodoItem[]): string | null {
+  const own = items.filter((i) => F34_ITEM_IDS.includes(i.id));
+  if (own.length === 0) return null;
+  const left = own.filter((i) => i.state !== "済み");
+  const head =
+    "『よその店のデータが見えないか』は、倉庫の貼り紙・サーバー側の鍵・レシート写真の置き場の" +
+    "3つがそろって初めて閉まります（1つ押しただけでは まだ閉まりません）。";
+  if (left.length === 0) {
+    return (
+      head +
+      "この3つはぜんぶ済んでいます。閉まったかどうかは、外から測り直してから付けます。"
+    );
+  }
+  return head + `いまのこっているのは ${left.length} つです：${left.map((i) => i.title).join("／")}。`;
 }
 
 /**

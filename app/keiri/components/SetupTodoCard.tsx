@@ -77,6 +77,12 @@ export default function SetupTodoCard({ here }: { here?: string } = {}) {
           {todo.independentNote}
         </p>
       )}
+      {/* ★「1つ押せば よその店のデータは見えなくなる」と読まれないように出す
+             （2026-11-09・f3-4）。鍵と写真の置き場は、どちらも
+             「これで閉まります」と書いていました。実際は3つそろって初めて閉まります。 */}
+      {todo.f34Note && (
+        <p className="mt-1 text-sm leading-relaxed text-amber-900">{todo.f34Note}</p>
+      )}
       <ol className="mt-3 space-y-3">
         {left.map((item, i) => (
           <li key={item.id}>
