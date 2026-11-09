@@ -34,6 +34,9 @@ import {
   photoReportLineText,
   receiptToExpenses,
   resolveNewPlace,
+  applyAdjustments,
+  NO_ADJUSTMENTS,
+  type Adjustments,
   type PhotoExpense,
   type Slip,
 } from "@/lib/photoReport";
@@ -164,7 +167,7 @@ function PhotoReportPage() {
     () => (allSlips.length > 0 && !slipsReading ? combineSlips(allSlips, products) : null),
     [allSlips, slipsReading, products],
   );
-  const draft = useMemo(
+  const baseDraft = useMemo(
     () =>
       memo
         ? buildPhotoReportDraft({
@@ -179,6 +182,21 @@ function PhotoReportPage() {
         : null,
     [memo, date, location, products, receiptExpenses, rules],
   );
+
+  // 最後の確認での手直し（場代がその日だけ違う・研修の人の人件費など）。触らなければ読み取りどおり
+  const [adj, setAdj] = useState<Adjustments>(NO_ADJUSTMENTS);
+  const [editing, setEditing] = useState<number | null>(null);
+  const [showLabor, setShowLabor] = useState(false);
+  const [showExtra, setShowExtra] = useState(false);
+  const [extraName, setExtraName] = useState("");
+  const [extraAmount, setExtraAmount] = useState("");
+  // 場所やレシートが変わったら、行の並びが変わるので手直しは最初から
+  useEffect(() => {
+    setAdj((a) => ({ ...NO_ADJUSTMENTS, labor: a.labor, note: a.note }));
+    setEditing(null);
+  }, [location, receiptExpenses]);
+  const draft = useMemo(() => (baseDraft ? applyAdjustments(baseDraft, adj) : null), [baseDraft, adj]);
+  const toNum = (v: string) => Number(v.replace(/[^0-9]/g, "")) || 0;
 
   /** 打った場所で進む。マスタに無ければ足す（足せなくても日報は止めない） */
   async function chooseTyped() {
@@ -561,15 +579,131 @@ function PhotoReportPage() {
               <p className="text-xs text-emerald-700 pt-1">✅ 伝票{allSlips.length}枚・最後の累計と合っています</p>
             )}
           </div>
-          <div className="card space-y-1">
+          {/* 経費（最後の確認で直せる。2026-11-09 じゅん） */}
+          <div className="card space-y-2">
             <p className="font-bold">経費 {yen(draft.expensesTotal)}</p>
-            {draft.expenses.map((e, i) => (
-              <div key={i} className="flex justify-between text-sm text-stone-600">
-                <span className="truncate pr-2">{e.description}</span>
-                <span>{yen(e.amount)}</span>
+            {baseDraft &&
+              baseDraft.expenses.map((e, i) => {
+                if (adj.removed.includes(i)) return null;
+                const amount = adj.amounts[i] ?? e.amount;
+                return (
+                  <div key={i} className="flex items-center justify-between gap-2 text-sm text-stone-600">
+                    <span className="truncate flex-1">{e.description}</span>
+                    {editing === i ? (
+                      <input
+                        autoFocus
+                        inputMode="numeric"
+                        defaultValue={String(amount)}
+                        onBlur={(ev) => {
+                          const v = toNum(ev.target.value);
+                          setAdj((a) => ({ ...a, amounts: { ...a.amounts, [i]: v } }));
+                          setEditing(null);
+                        }}
+                        className="w-28 h-11 px-2 rounded-lg border-2 border-orange-400 text-right text-base"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setEditing(i)}
+                        className="h-11 px-3 rounded-lg bg-stone-100 active:bg-stone-200 font-bold"
+                      >
+                        {yen(amount)} ✏️
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      aria-label="この行を消す"
+                      onClick={() => setAdj((a) => ({ ...a, removed: [...a.removed, i] }))}
+                      className="h-11 w-11 rounded-lg text-stone-400 active:bg-stone-100"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
+            {adj.extras.map((x, k) => (
+              <div key={`x${k}`} className="flex items-center justify-between gap-2 text-sm text-stone-600">
+                <span className="truncate flex-1">{x.description}（手入力）</span>
+                <span className="font-bold">{yen(x.amount)}</span>
+                <button
+                  type="button"
+                  aria-label="この行を消す"
+                  onClick={() => setAdj((a) => ({ ...a, extras: a.extras.filter((_, j) => j !== k) }))}
+                  className="h-11 w-11 rounded-lg text-stone-400 active:bg-stone-100"
+                >
+                  ✕
+                </button>
               </div>
             ))}
             {draft.expenses.length === 0 && <p className="text-sm text-stone-500">なし</p>}
+            {showExtra ? (
+              <div className="flex gap-2 pt-1">
+                <input
+                  value={extraName}
+                  onChange={(e) => setExtraName(e.target.value)}
+                  placeholder="何に払った？"
+                  className="flex-1 h-12 px-3 rounded-lg border-2 border-stone-200"
+                />
+                <input
+                  value={extraAmount}
+                  onChange={(e) => setExtraAmount(e.target.value)}
+                  inputMode="numeric"
+                  placeholder="金額"
+                  className="w-24 h-12 px-2 rounded-lg border-2 border-stone-200 text-right"
+                />
+                <button
+                  type="button"
+                  disabled={!extraName.trim() || toNum(extraAmount) <= 0}
+                  onClick={() => {
+                    setAdj((a) => ({ ...a, extras: [...a.extras, { description: extraName.trim(), amount: toNum(extraAmount) }] }));
+                    setExtraName("");
+                    setExtraAmount("");
+                    setShowExtra(false);
+                  }}
+                  className="h-12 px-3 rounded-lg bg-orange-500 text-white font-bold disabled:bg-stone-300"
+                >
+                  足す
+                </button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setShowExtra(true)} className="w-full h-12 rounded-xl border-2 border-dashed border-stone-300 text-stone-600 font-bold">
+                ＋ 経費を足す
+              </button>
+            )}
+          </div>
+
+          {/* 人件費（研修の人が入った日など）。ふだんは0なので隠しておく */}
+          <div className="card space-y-2">
+            {showLabor || adj.labor > 0 ? (
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold">人件費</span>
+                <input
+                  inputMode="numeric"
+                  value={adj.labor ? String(adj.labor) : ""}
+                  onChange={(e) => setAdj((a) => ({ ...a, labor: toNum(e.target.value) }))}
+                  placeholder="0"
+                  className="w-32 h-12 px-2 rounded-lg border-2 border-stone-200 text-right text-lg"
+                />
+              </div>
+            ) : (
+              <button type="button" onClick={() => setShowLabor(true)} className="w-full h-12 rounded-xl border-2 border-dashed border-stone-300 text-stone-600 font-bold">
+                ＋ 人件費を入れる（研修の人など）
+              </button>
+            )}
+          </div>
+
+          {/* ひとことメモ（任意・2026-11-09） */}
+          <textarea
+            value={adj.note ?? ""}
+            onChange={(e) => setAdj((a) => ({ ...a, note: e.target.value }))}
+            rows={2}
+            placeholder="メモ（あれば）：例）雨で早じまい、研修の〇〇さんが入った"
+            className="w-full px-3 py-2 rounded-xl border-2 border-stone-200 text-base focus:border-orange-500 outline-none"
+          />
+
+          <div className="flex justify-between items-baseline px-1">
+            <span className="text-stone-600">差引（売上 − 経費{draft.labor > 0 ? " − 人件費" : ""}）</span>
+            <span className="text-xl font-bold">{yen(draft.sales - draft.expensesTotal - draft.labor)}</span>
           </div>
           {draft.mismatch && (
             <p className="text-sm bg-amber-50 border border-amber-300 rounded-xl p-3">
