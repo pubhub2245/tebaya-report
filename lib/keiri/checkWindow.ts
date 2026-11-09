@@ -178,6 +178,14 @@ export const CHECK_WINDOWS: CheckWindow[] = [
     check: "f3-4",
   },
   {
+    path: "/api/keiri/applications/count",
+    what:
+      "お申し込みが何件 入っていて、まだ手当てしていないのが何件 のこっているか" +
+      "（② の合否を外から確かめる1本。**お店の名前・お名前・メール・電話は1文字も返しません**。" +
+      "返すのは件数と、いちばん新しい申し込みの時刻だけです）",
+    check: "f2-1・f2-3",
+  },
+  {
     path: "/api/keiri/setuptodo",
     what:
       "じゅんにしかできない一度きりの手続きが、いま何件のこっているか" +

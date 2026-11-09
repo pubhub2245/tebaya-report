@@ -170,3 +170,44 @@ test("窓口の札は、途中の配り先にもためさせない言い方に�
   assert.match(CHECK_WINDOW_HEADERS["Vercel-CDN-Cache-Control"], /no-store/);
   assert.equal(CHECK_WINDOW_HEADERS["Pragma"], "no-cache");
 });
+
+/**
+ * お申し込みの数を答える窓口も、一覧に入っている（2026-11-09 18:34 B・f2-1・f2-3）。
+ *
+ * ■ なぜ要るか
+ *   11/9 18:0x に A が実測して、お申し込みの数の窓口（applications/count）だけ
+ *   **外から1文字も読めない**ことが分かりました
+ *   （robots.txt で「読まないでください」の側だったため）。
+ *   ＝ ②（申し込みが確実に残る）の合否を外から確かめる道が、1本だけ閉じていました。
+ *   ここが落ちるようにしておけば、同じ取りこぼしが戻ってきません。
+ */
+test("お申し込みの数の窓口も、外から読んでよい一覧に入っている（f2-1・f2-3）", () => {
+  assert.ok(
+    CHECK_WINDOW_PATHS.includes("/api/keiri/applications/count"),
+    "お申し込みの数の窓口が一覧に無いので、外から読めません",
+  );
+  const w = CHECK_WINDOWS.find((x) => x.path === "/api/keiri/applications/count");
+  assert.ok(w);
+  assert.ok(w!.check.includes("f2-1"));
+});
+
+/**
+ * 窓口の決まり②（お店の名前・連絡先・鍵の値を1文字も返さない）を、コードで見張る。
+ * 件数を答える窓口に、うっかり名前や連絡先を足すと、ここで落ちる。
+ */
+test("お申し込みの数の窓口は、件数だけを返す（名前・連絡先・金額を返さない）", () => {
+  const { readFileSync } = require("node:fs") as typeof import("node:fs");
+  const { join } = require("node:path") as typeof import("node:path");
+  const src = readFileSync(
+    join(__dirname, "..", "app", "api", "keiri", "applications", "count", "route.ts"),
+    "utf8",
+  );
+  // 返している中身は件数と時刻だけ（返事を組み立てている所に名前・連絡先の欄が無い）
+  for (const bad of ["shopName", "shop_name", "email", "phone", "contact", "amount", "sales"]) {
+    assert.ok(!src.includes(bad), `件数だけの窓口に ${bad} が入っている`);
+  }
+  // 書き込みの道を持たない
+  for (const bad of [".insert(", ".upsert(", ".delete("]) {
+    assert.ok(!src.includes(bad), `読むだけの窓口に書き込みが入っている：${bad}`);
+  }
+});
