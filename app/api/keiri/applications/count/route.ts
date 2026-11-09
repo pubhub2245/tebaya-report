@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { countApplicationsViaWindow, describePendingApplications } from "@/lib/keiri/applicationStore";
+import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 import { isMissingFunction } from "@/lib/keiri/tenantAccess";
 import { serverClient, serviceClientOrNull } from "@/lib/supabaseServer";
 
@@ -21,6 +22,16 @@ export const dynamic = "force-dynamic";
  * ■ 読むだけです
  *   1行も書き込まず、誰にも知らせません。
  *   手羽屋の日報・シフト・レジ・LINE・お金の計算には一切さわっていません。
+ *
+ * ■ 2026-11-09 18:34 B：**外から確かめる窓口の一覧に入れました**（f2-1・f2-3）
+ *   それまでこの住所は robots.txt で「読まないでください」の側に入っていたため、
+ *   **外から読む道具が1文字も読めませんでした**（11/9 18:0x に A が実測）。
+ *   ＝ ②（申し込みが確実に残る）の合否を外から確かめる道が、1本だけ閉じていました。
+ *   返すのは**件数と、いちばん新しい申し込みの時刻だけ**で、
+ *   お店の名前・お名前・メール・電話・金額・鍵は1文字も返しません
+ *   （checkWindow.ts の「ここに載せてよい窓口の決まり」①②③をすべて満たします）。
+ *   あわせて、ほかの窓口と同じ札（ためさせない・検索結果に載せない）と
+ *   「いつ・どの版で答えたか／この答えで合否を付けてよい期限」を足します。
  */
 export async function GET() {
   // 数を見せる所は答えを覚えさせない（kp99 と同じ理由）
@@ -28,13 +39,24 @@ export async function GET() {
   const result = await countApplicationsViaWindow(db, isMissingFunction);
   const described = describePendingApplications(result);
 
-  return NextResponse.json({
-    countable: described.countable,
-    // ★true＝倉庫まで届かなかった（＝測れていないだけ。受け皿が壊れたとは言わない）
-    unreachable: described.unreachable,
-    pending: described.pending,
-    total: described.total,
-    latestAt: described.latestAt,
-    note: described.note,
-  });
+  return NextResponse.json(
+    stampCheckWindow({
+      countable: described.countable,
+      // ★true＝倉庫まで届かなかった（＝測れていないだけ。受け皿が壊れたとは言わない）
+      unreachable: described.unreachable,
+      pending: described.pending,
+      total: described.total,
+      latestAt: described.latestAt,
+      note: described.note,
+      how:
+        "棚を「何件あるか」だけ聞いています。行の中身（お店の名前・お名前・メール・電話）は" +
+        "1文字も読みません。1行も書き込みません",
+      verdictHow:
+        "**countable が false のときは、合否を付けないでください**" +
+        "（倉庫まで届かなかった＝測れていないだけで、受け皿が壊れたとは言えません）。" +
+        "countable が true なら、total が「これまでに入った数」、pending が「まだ手当てしていない数」です",
+      check: "f2-1・f2-3",
+    }),
+    { status: 200, headers: CHECK_WINDOW_HEADERS },
+  );
 }

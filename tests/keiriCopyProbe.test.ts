@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
@@ -105,4 +107,21 @@ test("写しを聞けなかった日の一言は、開いているとも閉ま�
 test("写しが読めたうえで開いていた日は、今までどおり『まだ開いています』と言う", () => {
   const note = f34Note(false, readable, guard(true));
   assert.match(note, /写しがまだ開いています/);
+});
+
+/**
+ * 写しを聞く本数（2026-11-09 18:34 B・f3-4）。
+ *
+ * 903 本を 64 本ずつ聞くと 11〜13 秒かかり、**外から読む道具の待ち時間（たいてい10秒）**を
+ * 超えて「サーバー側の誤り」に見えます（11/9 13:0x に A が2回 続けて当たりました）。
+ * 本数を下げ戻すとまた測れなくなるので、ここで止めます。
+ */
+test("写しを聞く本数は、外から1回で開けるだけ多い（128本以上）", () => {
+  const src = readFileSync(join(__dirname, "..", "lib", "keiri", "copyProbe.ts"), "utf8");
+  const m = src.match(/const SWEEP_PARALLEL = (\d+);/);
+  assert.ok(m, "同時に聞く本数が見つからない");
+  assert.ok(
+    Number(m![1]) >= 128,
+    `同時に聞く本数が少なすぎます（${m![1]}本）。外から1回で開けなくなります`,
+  );
 });
