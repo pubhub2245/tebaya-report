@@ -6,7 +6,7 @@ import AppTitle from "./components/AppTitle";
 import OwnerOutreachNudge from "./components/OwnerOutreachNudge";
 import OwnerApplicationAlert from "./components/OwnerApplicationAlert";
 import OwnerSetupTodoNotice from "./components/OwnerSetupTodoNotice";
-import KeiriCaseLink from "./components/KeiriCaseLink";
+import OwnerAdminLink from "./components/OwnerAdminLink";
 
 /** グループ見出し */
 function GroupLabel({ children }: { children: React.ReactNode }) {
@@ -41,28 +41,38 @@ export default function MenuPage() {
           日報のデータは1行も読み書きしない。 */}
       <OwnerOutreachNudge />
 
-      <section className="mb-5">
-        <MonthlySummary />
-      </section>
-
-      {/* 日報（2026-11-07 作り変え）。
-          現場の入力が大変という声を受け、日報は「写真を撮ってOK」だけにした
-          （→ app/report/photo・lib/photoReport.ts）。
-          手入力の営業後日報・設営後チェック・中間報告・シフト・意見箱・議題の入り口は外した。
-          画面ファイルとデータは残してあるので、戻したいときはここにリンクを足すだけでよい。 */}
-      <section className="mb-5">
-        <GroupLabel>📝 日報</GroupLabel>
-        <TebayaOnlyBlock>
+      {/* ─── 手羽屋（2026-11-09 じゅん決定）───
+          「ページはできるだけシンプルに・ボタンは大きく・機能は減らすほどいい」。
+          現場が押すのは「写真で日報を出す」だけ。あとは過去の日報を見る1つ。
+          月の進捗・ランキング・イベント段取り・設定はじゅんの道具なので管理者ページ（/admin）にまとめた。
+          中間報告・設営後チェック・シフト・出店先の問い合わせ・意見箱・議題・現金残高・売上報告・
+          レジ突き合わせ・経理パッケージのご案内の入り口は置かない（画面とデータは残してある）。 */}
+      <TebayaOnlyBlock>
+        <section className="flex-1 flex flex-col justify-center gap-5 py-6">
           <Link
             href="/report/photo"
-            className="flex items-center justify-center gap-3 w-full h-24 rounded-2xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-2xl shadow-md transition"
+            className="flex flex-col items-center justify-center gap-2 w-full h-48 rounded-3xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold shadow-lg transition"
           >
-            <span className="text-3xl">📷</span>
-            <span>写真で日報を出す</span>
+            <span className="text-6xl">📷</span>
+            <span className="text-3xl">写真で日報を出す</span>
           </Link>
-        </TebayaOnlyBlock>
-        {/* 経理パッケージのお店は、これまでどおり手入力の日報 */}
-        <NotTebayaBlock>
+          <Link
+            href="/report/edit"
+            className="flex items-center justify-center gap-3 w-full h-20 rounded-3xl bg-white border-2 border-stone-200 active:border-orange-500 text-stone-700 font-bold text-xl shadow-sm transition"
+          >
+            <span className="text-2xl">📖</span>
+            <span>過去の日報を見る</span>
+          </Link>
+        </section>
+      </TebayaOnlyBlock>
+
+      {/* ─── 経理パッケージのお店：これまでどおり ─── */}
+      <NotTebayaBlock>
+        <section className="mb-5">
+          <MonthlySummary />
+        </section>
+        <section className="mb-5">
+          <GroupLabel>📝 日報</GroupLabel>
           <Link
             href="/report"
             className="flex items-center justify-center gap-3 w-full h-20 rounded-2xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-xl shadow-md transition"
@@ -70,69 +80,38 @@ export default function MenuPage() {
             <span className="text-2xl">📋</span>
             <span>営業後日報</span>
           </Link>
-        </NotTebayaBlock>
-        <Link
-          href="/report/edit"
-          className="block text-center text-sm text-stone-500 underline hover:text-stone-700 mt-3"
-        >
-          ✏️ 過去の日報を見る・直す →
-        </Link>
-        <Link
-          href="/settings"
-          className="block text-center text-sm text-stone-500 underline hover:text-stone-700 mt-2"
-        >
-          ⚙️ 商品・担当・場所を登録する →
-        </Link>
-      </section>
-
-      {/* イベント・お祭りの段取り（2026-10-18）。第3段階でイベント情報ページと一つにする。 */}
-      <TebayaOnlyBlock>
-        <section className="mb-5">
-          <GroupLabel>🎪 イベント</GroupLabel>
           <Link
-            href="/events"
-            className="flex items-center justify-center gap-3 w-full h-14 rounded-2xl bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-white font-bold shadow-md transition"
+            href="/report/edit"
+            className="block text-center text-sm text-stone-500 underline hover:text-stone-700 mt-3"
           >
-            <span className="text-xl">🎪</span>
-            <span>イベント段取り</span>
+            ✏️ 過去の日報を見る・直す →
+          </Link>
+          <Link
+            href="/settings"
+            className="block text-center text-sm text-stone-500 underline hover:text-stone-700 mt-2"
+          >
+            ⚙️ 商品・担当・場所を登録する →
           </Link>
         </section>
-      </TebayaOnlyBlock>
+        <section className="mb-4">
+          <LocationRankingSummary />
+        </section>
+      </NotTebayaBlock>
 
-      <section className="mb-4">
-        <LocationRankingSummary />
-      </section>
-
+      {/* 下の小さいリンクは管理者ページだけ。手羽屋ではじゅんの端末にしか出ない（2026-11-09）。
+          経理パッケージのご案内・現金残高・売上報告・レジ突き合わせは「ごちゃつく原因」なので置かない。 */}
       <footer className="mt-auto pt-4 text-center space-y-2">
-        <Link
-          href="/cash"
-          className="block text-sm text-stone-500 underline hover:text-stone-700"
-        >
-          💰 現金残高（管理者） →
-        </Link>
-        {/* 経理パッケージのご案内へ行く道（kp200）。外向け・誰でも見られる。
-            これまではただの「紹介ページ →」で、①合言葉が付かず②読むところに着くだけ
-            でした。合言葉 app 付きで入力欄まで行く形にそろえ、出店先で見せる1枚への
-            道も隣に置く。店の中のデータは読まない。 */}
-        <KeiriCaseLink />
-        <Link
-          href="/sales-report"
-          className="block text-sm text-stone-500 underline hover:text-stone-700"
-        >
-          💹 売上報告（管理者） →
-        </Link>
-        <Link
-          href="/cash/register"
-          className="block text-sm text-stone-500 underline hover:text-stone-700"
-        >
-          🔍 レジ突き合わせ（管理者） →
-        </Link>
-        <Link
-          href="/admin"
-          className="block text-sm text-stone-500 underline hover:text-stone-700"
-        >
-          管理者ページ →
-        </Link>
+        <TebayaOnlyBlock>
+          <OwnerAdminLink />
+        </TebayaOnlyBlock>
+        <NotTebayaBlock>
+          <Link
+            href="/admin"
+            className="block text-sm text-stone-400 underline hover:text-stone-700"
+          >
+            管理者ページ →
+          </Link>
+        </NotTebayaBlock>
       </footer>
     </main>
   );

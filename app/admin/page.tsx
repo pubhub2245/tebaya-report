@@ -14,7 +14,6 @@ import {
 import MonthlyDashboard from "@/app/components/MonthlyDashboard";
 import AchievementRateDashboard from "@/app/components/AchievementRateDashboard";
 import MonthlyLimitedProductManager from "@/app/components/MonthlyLimitedProductManager";
-import FeedbackBoxAdmin from "@/app/components/FeedbackBoxAdmin";
 import PrepProductManager from "@/app/components/PrepProductManager";
 import PrepReportDashboard from "@/app/components/PrepReportDashboard";
 import PrepSettingsManager from "@/app/components/PrepSettingsManager";
@@ -342,11 +341,8 @@ export default function AdminPage() {
           <Link href="/" className="btn-secondary text-sm">
             🏠 トップ
           </Link>
-          <Link href="/report" className="btn-secondary text-sm">
+          <Link href="/report/photo" className="btn-secondary text-sm">
             日報へ
-          </Link>
-          <Link href="/interim" className="btn-secondary text-sm">
-            中間報告へ
           </Link>
         </div>
       </header>
@@ -370,6 +366,24 @@ export default function AdminPage() {
           出るまで日をまたいでいた。管理者パスワードを入れた端末にだけ出る＝スタッフには出ない。
           日報のデータは1行も読み書きしない。 */}
       <OwnerOutreachNudge />
+
+      {/* 2026-11-09：トップを「写真で日報」だけにしたので、じゅんの道具はここにまとめる。
+          現金残高・売上報告・レジ突き合わせは「もういらない」（じゅん）ので置かない（画面は残してある）。 */}
+      <div className="grid grid-cols-2 gap-3">
+        {[
+          { href: "/events", label: "🎪 イベント段取り" },
+          { href: "/analytics", label: "📍 出店先ランキング" },
+          { href: "/report/edit", label: "📖 過去の日報" },
+        ].map((l) => (
+          <Link
+            key={l.href}
+            href={l.href}
+            className="flex items-center justify-center h-16 rounded-xl bg-white border-2 border-stone-200 hover:border-brand font-bold text-sm shadow-sm text-center px-2"
+          >
+            {l.label}
+          </Link>
+        ))}
+      </div>
 
       <Link
         href="/admin/shifts"
@@ -512,7 +526,7 @@ export default function AdminPage() {
 
       <PrepReportDashboard />
 
-      <FeedbackBoxAdmin />
+      {/* 意見箱は 2026-11-09 に使わないことにした（じゅん）。画面とデータは残してある */}
 
       {alerts.length > 0 && (
         <section className="space-y-3">
