@@ -16,7 +16,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { supabase } from "@/lib/supabase";
-import { applyTenantScope, TEBAYA_SCOPE } from "@/lib/tenantScope";
+import { applyTenantScope, TEBAYA_SCOPE, tenantStamp } from "@/lib/tenantScope";
 import { fetchBoothFeeRules } from "@/lib/boothFeeMaster";
 import { boothFeeRuleFor } from "@/lib/boothFee";
 import type { BoothFeeRule } from "@/lib/money";
@@ -33,6 +33,7 @@ import {
   combineSlips,
   photoReportLineText,
   receiptToExpenses,
+  resolveNewPlace,
   type PhotoExpense,
   type Slip,
 } from "@/lib/photoReport";
@@ -60,26 +61,6 @@ function ShotButton({
   disabled?: boolean;
 }) {
   return <ShotButtonInner label={label} onFiles={(fs) => fs.forEach(onFile)} disabled={disabled} camera />;
-}
-
-/** アルバムから何枚もまとめて選ぶ小さいボタン */
-function PickButton({ label, onFiles }: { label: string; onFiles: (fs: File[]) => void }) {
-  return (
-    <label className="block text-center text-sm text-stone-600 underline cursor-pointer py-2">
-      🖼 {label}
-      <input
-        type="file"
-        accept="image/*"
-        multiple
-        className="hidden"
-        onChange={(e) => {
-          const fs = Array.from(e.target.files ?? []);
-          e.target.value = "";
-          if (fs.length) onFiles(fs);
-        }}
-      />
-    </label>
-  );
 }
 
 function ShotButtonInner({
@@ -131,6 +112,10 @@ function PhotoReportPage() {
   const [locations, setLocations] = useState<string[]>([]);
   const [locLoading, setLocLoading] = useState(true);
   const [location, setLocation] = useState("");
+  // 選択肢に無い場所を打つ欄（2026-11-09）
+  const [typing, setTyping] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [isNewPlace, setIsNewPlace] = useState(false);
   const [products, setProducts] = useState<SaleProduct[]>([]);
   const [rules, setRules] = useState<Map<string, BoothFeeRule>>(new Map());
 
@@ -194,6 +179,23 @@ function PhotoReportPage() {
         : null,
     [memo, date, location, products, receiptExpenses, rules],
   );
+
+  /** 打った場所で進む。マスタに無ければ足す（足せなくても日報は止めない） */
+  async function chooseTyped() {
+    const place = resolveNewPlace(typed, locations);
+    if (!place) return;
+    setLocation(place.name);
+    setIsNewPlace(place.isNew);
+    setStep("slips");
+    if (place.isNew && place.masterRow) {
+      try {
+        const { error } = await supabase
+          .from("locations")
+          .insert({ ...tenantStamp(TEBAYA_SCOPE), ...place.masterRow });
+        if (!error) setLocations((ls) => [...ls, place.name].sort());
+      } catch {}
+    }
+  }
 
   async function addSlip(file: File) {
     const id = `${Date.now()}-${Math.random()}`;
@@ -305,6 +307,7 @@ function PhotoReportPage() {
         staffName: FRANCHISE_STAFF_NAME,
         draft,
         flavors: memo?.flavors,
+        newPlace: isNewPlace,
       });
       const row = buildDailyReportRow({
         date,
@@ -376,6 +379,7 @@ function PhotoReportPage() {
                 type="button"
                 onClick={() => {
                   setLocation(name);
+                  setIsNewPlace(false);
                   setStep("slips");
                 }}
                 className="h-16 rounded-2xl bg-white border-2 border-stone-200 active:border-orange-500 font-bold text-sm px-2 shadow-sm"
@@ -384,6 +388,35 @@ function PhotoReportPage() {
               </button>
             ))}
           </div>
+          {!typing ? (
+            <button
+              type="button"
+              onClick={() => setTyping(true)}
+              className="w-full h-16 mt-3 rounded-2xl border-2 border-dashed border-stone-300 text-stone-600 font-bold active:border-orange-500"
+            >
+              ＋ ここに無い場所（新しい出店先）
+            </button>
+          ) : (
+            <div className="card mt-3 space-y-3">
+              <p className="text-sm font-bold">出店先の名前を入れてください</p>
+              <input
+                autoFocus
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                placeholder="例：〇〇まつり、〇〇スーパー〇〇店"
+                className="w-full h-14 px-4 rounded-xl border-2 border-stone-200 text-lg focus:border-orange-500 outline-none"
+              />
+              <button
+                type="button"
+                disabled={!typed.trim()}
+                onClick={chooseTyped}
+                className="w-full h-14 rounded-2xl bg-orange-500 active:bg-orange-700 text-white font-bold text-lg disabled:bg-stone-300"
+              >
+                この場所で進む
+              </button>
+              <p className="text-xs text-stone-500">次からは選択肢に出ます。</p>
+            </div>
+          )}
         </section>
       )}
 
@@ -391,10 +424,39 @@ function PhotoReportPage() {
         <section className="space-y-4">
           {header("今日の伝票を全部撮ってください", 2)}
           <p className="text-sm text-stone-600">
-            お会計票を1枚ずつ撮ってください（何枚でも）。一番下の累計まで入るように撮ってください。
+            その日のお会計票を全部選んでください（順番はばらばらで大丈夫です）。
           </p>
-          <ShotButton label="伝票を撮る" onFile={addSlip} />
-          <PickButton label="アルバムからまとめて選ぶ" onFiles={(fs) => fs.forEach(addSlip)} />
+          {/* 2026-11-09：アルバムから選ぶ人のほうが多い（じゅん）ので、こちらを大きく上に */}
+          <label className="flex items-center justify-center gap-3 w-full h-24 rounded-2xl bg-orange-500 active:bg-orange-700 text-white font-bold text-xl shadow-md cursor-pointer">
+            <span className="text-3xl">🖼</span>
+            <span>アルバムからまとめて選ぶ</span>
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const fs = Array.from(e.target.files ?? []);
+                e.target.value = "";
+                fs.forEach(addSlip);
+              }}
+            />
+          </label>
+          <label className="flex items-center justify-center gap-3 w-full h-16 rounded-2xl bg-white border-2 border-stone-200 active:border-orange-500 text-stone-700 font-bold text-lg shadow-sm cursor-pointer">
+            <span className="text-2xl">📷</span>
+            <span>カメラで撮る</span>
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) addSlip(f);
+              }}
+            />
+          </label>
           {slipShots.length > 0 && (
             <ul className="space-y-2">
               {slipShots.map((x, i) => (
