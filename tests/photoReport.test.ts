@@ -16,6 +16,7 @@ import {
   parseSlipText,
   photoReportLineText,
   receiptToExpenses,
+  resolveNewPlace,
   type Slip,
 } from "../lib/photoReport";
 import type { SaleProduct } from "../lib/salesBreakdown";
@@ -98,20 +99,42 @@ test("撮った順がばらばらでも、累計の小さい順に並べて答�
 test("伝票を1枚撮り忘れたら知らせる。売上は撮った分のまま（作らない）", () => {
   const m = combineSlips([DAY[0], DAY[1], DAY[3], DAY[4]], PRODUCTS);
   assert.equal(m.total, 22750);
-  assert.ok(m.warnings.some((w) => /累計がつながりません/.test(w)));
-  assert.ok(m.warnings.some((w) => /最後の累計 ¥27,700/.test(w)));
+  assert.ok(m.warnings.some((w) => /¥4,950 少ないです（撮り忘れ/.test(w)));
+  assert.ok(m.warnings.some((w) => /累計 ¥10,600 と ¥21,650 のあいだ/.test(w)));
 });
 
 test("最初の伝票を撮り忘れたら知らせる", () => {
   const m = combineSlips(DAY.slice(1), PRODUCTS);
-  assert.ok(m.warnings.some((w) => /前の伝票を撮り忘れていませんか/.test(w)));
+  assert.ok(m.warnings.some((w) => /撮り忘れの伝票はありませんか/.test(w)));
 });
 
 test("1枚の中で行の合計と合計欄が違えば知らせる（読み違いの発見）", () => {
-  const bad: Slip = { ...DAY[0], total: 4500, cumulative: 4500 };
+  // 合計欄を 4,500 と読んだが累計は 4,400 → 最後の累計と合わないので、あやしい1枚を伝える
+  const bad: Slip = { ...DAY[0], total: 4500, cumulative: 4400 };
   const m = combineSlips([bad], PRODUCTS);
   assert.ok(m.warnings.some((w) => /1枚目の伝票：行の合計 ¥4,400 と合計欄 ¥4,500/.test(w)));
   assert.equal(m.total, 4500); // 合計欄のまま
+});
+
+test("本番の1件目（11/9）：1枚目に累計なし＋途中の累計を読み違えても、最後が合えば知らせない", () => {
+  const slips: Slip[] = [
+    { ...DAY[0], cumulative: 0 }, // 1枚目は累計を書いていない
+    DAY[1],
+    { ...DAY[2], cumulative: 15950 }, // 15,550 を 15,950 と読み違えた
+    DAY[3],
+    DAY[4],
+  ];
+  const m = combineSlips(slips, PRODUCTS);
+  assert.equal(m.total, 27700);
+  assert.deepEqual(m.warnings, []);
+});
+
+test("味の書かれていない手羽先は『味不明』として数える（本数の合計と味の合計をそろえる）", () => {
+  const m = combineSlips(
+    [{ items: [T("しお", 3), { name: "手羽先", flavor: "", count: 2, amount: 400 }], total: 1000, cumulative: 0, unreadable: "" }],
+    PRODUCTS,
+  );
+  assert.deepEqual(m.flavors, { しお: 3, 味不明: 2 });
 });
 
 test("累計が書かれていない伝票だけなら、つながりの確認はしない", () => {
@@ -131,7 +154,7 @@ test("答え合わせが合わないときは、日報の下書きにも知ら�
     boothFeeRule: { type: "none" },
     cumulativeBefore: 0,
   });
-  assert.match(d.mismatch ?? "", /累計がつながりません/);
+  assert.match(d.mismatch ?? "", /撮り忘れ/);
 });
 
 test("味ごとに書かれた手羽先は主力商品にまとめる。知らない名前は残す", () => {
@@ -264,4 +287,34 @@ test("保存する行：日当0円・本数は互換カラムにも入る・累�
   assert.match(text, /差引：¥17,000/);
   assert.match(text, /手羽先の味：しお40・タレ60/);
   assert.equal(row.handover, "伝票の写真（1枚）：\nhttps://example/slip1.jpg");
+});
+
+test("新しい出店先：マスタにある場所は名寄せして既存を使う（2つ作らない）", () => {
+  const p = resolveNewPlace("ながやま 鷹尾店", ["ながやま鷹尾", "ニシムタ"]);
+  assert.deepEqual(p, { name: "ながやま鷹尾", isNew: false, masterRow: null });
+});
+
+test("新しい出店先：無ければマスタに足す。お祭りはランク判定から外す", () => {
+  const a = resolveNewPlace("  高鍋祭り ", ["ニシムタ"]);
+  assert.equal(a?.name, "高鍋祭り");
+  assert.equal(a?.isNew, true);
+  assert.deepEqual(a?.masterRow, { name: "高鍋祭り", is_active: true, rank_locked: true });
+  const b = resolveNewPlace("ハッピー都城店", ["ニシムタ"]);
+  assert.equal(b?.masterRow?.rank_locked, false);
+  assert.equal(resolveNewPlace("   ", []), null);
+});
+
+test("新しい出店先の日はLINEに場代未登録の知らせが出る", () => {
+  const d = buildPhotoReportDraft({
+    date: "2026-11-10",
+    location: "高鍋祭り",
+    products: PRODUCTS,
+    memo: memo([{ name: "手羽先", count: 10 }], 2000),
+    receiptExpenses: [],
+    boothFeeRule: { type: "none" },
+    cumulativeBefore: 0,
+  });
+  const t = photoReportLineText({ date: "2026-11-10", location: "高鍋祭り", staffName: "ゆうや", draft: d, newPlace: true });
+  assert.match(t, /🆕 新しい出店先/);
+  assert.equal(d.expenses.length, 0); // 場代の行は作らない（嘘の0円を残さない）
 });

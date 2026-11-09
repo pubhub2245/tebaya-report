@@ -22,6 +22,7 @@
  *   - レシートは税込（→ CLAUDE.md 4-12）。読み取りは `/api/ocr` をそのまま使う
  */
 
+import { canonicalLocationName, isEventLocation } from "./locationName";
 import { BOOTH_FEE_LABEL, calcBoothFee, sumExpenses, type BoothFeeRule } from "./money";
 import {
   computeSalesBreakdown,
@@ -161,14 +162,32 @@ export function slipTotal(sl: Slip, priceOf: (name: string) => number): number {
 }
 
 /**
- * 伝票の答え合わせ（2026-11-09 じゅんさんと決めた3つ）。
- *   ① 伝票ごとに、行の合計 ＝ その伝票の「合計」
- *   ② 前の伝票の累計 ＋ 今回の合計 ＝ 今回の累計（撮った順はばらばらでよい。累計の小さい順に並べる）
- *   ③ 最後の累計 ＝ 伝票の合計の足し算（＝その日の売上）
- * 合わない所は言葉で返す。**金額は直さない**（どれが正しいかは人が決める）。
+ * 伝票の答え合わせ（2026-11-09 じゅんさんと決めた3つ → 同日、本番で試して直した）。
+ *
+ * ■ いちばん大事なのは「最後の累計 ＝ 伝票の合計の足し算」の1つだけ
+ *   これが合えば、その日の売上は確定。途中の累計の読み違い（23,400 を 23,800 と読む等）や、
+ *   1枚目に累計が書かれていないことは売上に関係ないので、**知らせを出さない**。
+ *   （最初の版はここで知らせを出してしまい、本番の1件目で3つも黄色が出た）
+ *
+ * ■ 合わないときだけ、どこがあやしいかを探して言葉で返す
+ *   - 累計の小さい順に並べ、「前の累計＋合計＝今回の累計」が崩れる所を伝える（撮った順はばらばらでよい）
+ *   - 累計が書かれていない伝票は、並びに入れない（1枚目に多い）
+ *   - 1枚の中で 行の合計≠合計欄 の伝票も伝える
+ * **金額は直さない**（どれが正しいかは人が決める）。累計が1つも無ければ確かめない。
  */
 export function checkSlips(slips: Slip[], priceOf: (name: string) => number): string[] {
-  const warnings: string[] = [];
+  const sum = slips.reduce((s, sl) => s + slipTotal(sl, priceOf), 0);
+  const last = slips.reduce((m, sl) => Math.max(m, sl.cumulative), 0);
+  if (last <= 0) return [];
+  if (last === sum) return [];
+
+  const diff = last - sum;
+  const warnings: string[] = [
+    diff > 0
+      ? `最後の累計 ${yenOf(last)} より、伝票の合計の足し算 ${yenOf(sum)} が ${yenOf(diff)} 少ないです（撮り忘れの伝票はありませんか）`
+      : `伝票の合計の足し算 ${yenOf(sum)} が、最後の累計 ${yenOf(last)} より ${yenOf(-diff)} 多いです（同じ伝票を2回撮っていませんか）`,
+  ];
+
   slips.forEach((sl, i) => {
     if (sl.total <= 0) return;
     const rows = sl.items.reduce((s, it) => s + (it.amount || it.count * priceOf(it.name)), 0);
@@ -181,23 +200,9 @@ export function checkSlips(slips: Slip[], priceOf: (name: string) => number): st
     .map((sl) => ({ total: slipTotal(sl, priceOf), cum: sl.cumulative }))
     .filter((x) => x.cum > 0)
     .sort((a, b) => a.cum - b.cum);
-  if (chain.length > 0) {
-    if (chain[0].cum !== chain[0].total) {
-      warnings.push(
-        `最初の伝票の累計 ${yenOf(chain[0].cum)} が合計 ${yenOf(chain[0].total)} と違います（前の伝票を撮り忘れていませんか）`,
-      );
-    }
-    for (let k = 1; k < chain.length; k++) {
-      if (chain[k - 1].cum + chain[k].total !== chain[k].cum) {
-        warnings.push(
-          `累計がつながりません：${yenOf(chain[k - 1].cum)} ＋ ${yenOf(chain[k].total)} ≠ ${yenOf(chain[k].cum)}（伝票が抜けているか、読み違いです）`,
-        );
-      }
-    }
-    const sum = slips.reduce((s, sl) => s + slipTotal(sl, priceOf), 0);
-    const last = chain[chain.length - 1].cum;
-    if (last !== sum) {
-      warnings.push(`最後の累計 ${yenOf(last)} と、伝票の合計の足し算 ${yenOf(sum)} が合いません`);
+  for (let k = 1; k < chain.length; k++) {
+    if (chain[k - 1].cum + chain[k].total !== chain[k].cum) {
+      warnings.push(`累計 ${yenOf(chain[k - 1].cum)} と ${yenOf(chain[k].cum)} のあいだの伝票があやしいです`);
     }
   }
   return warnings;
@@ -219,7 +224,10 @@ export function combineSlips(
     for (const it of sl.items) {
       items.push({ name: it.name, count: it.count });
       const isTeba = (primary && it.name === primary) || isTebasakiName(it.name);
-      if (isTeba && it.flavor) flavors[it.flavor] = (flavors[it.flavor] ?? 0) + it.count;
+      if (isTeba) {
+        const f = it.flavor || "味不明";
+        flavors[f] = (flavors[f] ?? 0) + it.count;
+      }
     }
   }
   return {
@@ -277,6 +285,39 @@ export function matchMemoToProducts(
     else unmatched.push(it);
   }
   return { counts, unmatched };
+}
+
+/* ------------------------------------------------------------------ */
+/* 新しい出店先（選択肢に無い場所を現場が打つ）2026-11-09                */
+/* ------------------------------------------------------------------ */
+
+export type NewPlace = {
+  /** 日報に入れる名前（正式名にそろえたもの） */
+  name: string;
+  /** 出店場所マスタにまだ無い＝新しく登録する */
+  isNew: boolean;
+  /** マスタに足すときの中身（isNew のときだけ使う） */
+  masterRow: { name: string; is_active: boolean; rank_locked: boolean } | null;
+};
+
+/**
+ * 現場が打った場所の名前を決める。
+ * - 名寄せのルール（lib/locationName.ts）で正式名にそろえる。「ながやま 鷹尾店」→「ながやま鷹尾」
+ * - すでにマスタにある場所なら、それを使う（同じ場所を2つ作らない → CLAUDE.md 4-4）
+ * - 無ければ新しくマスタに足す。場代の決まりは「未登録（none）」＝場代の行は作らない（→ 4-15）。
+ *   お祭り・朝市などはランクの自動判定から外す（→ 4-13）
+ * 空なら null（先へ進ませない）。
+ */
+export function resolveNewPlace(input: string, existing: string[]): NewPlace | null {
+  const name = canonicalLocationName(input);
+  if (!name) return null;
+  const hit = existing.find((e) => canonicalLocationName(e) === name);
+  if (hit) return { name: hit, isNew: false, masterRow: null };
+  return {
+    name,
+    isNew: true,
+    masterRow: { name, is_active: true, rank_locked: isEventLocation(name) },
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -420,6 +461,8 @@ export function photoReportLineText(p: {
   staffName: string;
   draft: PhotoReportDraft;
   flavors?: Record<string, number>;
+  /** 今日はじめて登録した出店先（場代はまだ決まっていない） */
+  newPlace?: boolean;
 }): string {
   const d = p.draft;
   const lines = [
@@ -438,6 +481,7 @@ export function photoReportLineText(p: {
   if (fl) lines.push(`手羽先の味：${fl}`);
   lines.push(`経費：${yen(d.expensesTotal)}`);
   lines.push(`差引：${yen(d.sales - d.expensesTotal)}`);
+  if (p.newPlace) lines.push("🆕 新しい出店先です（場代は未登録。管理者ページの出店場所で決めてください）");
   if (d.mismatch) lines.push(`⚠ ${d.mismatch}`);
   return lines.join("\n");
 }
