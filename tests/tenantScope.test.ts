@@ -938,6 +938,8 @@ test("サーバー側の窓口から手羽屋の中身を受け取る画面に�
     "app/setup-check/page.tsx",
     // 仕込み日報。入り口は外してあるが URL を直接開けば動く
     "app/prep/page.tsx",
+    // 写真だけの日報（2026-11-07）。手羽屋の印（空）で保存し、手羽屋のLINEへ流す
+    "app/report/photo/page.tsx",
   ]) {
     const src = readFileSync(file, "utf8");
     assert.ok(
@@ -961,9 +963,13 @@ test("サーバー側の窓口から手羽屋の中身を受け取る画面に�
  */
 test("トップは、手羽屋だけの画面へのリンクを、よそのお店に見せない", () => {
   const src = readFileSync("app/page.tsx", "utf8");
-  for (const href of ["/setup-check", "/interim", "/keiri/advances", "/shifts"]) {
+  // 2026-11-07：手羽屋の日報を写真だけにし、設営後チェック・中間報告・立替・シフトの
+  // 入り口はトップから外した。外したものは無くてよいが、**置くなら必ず門の中**。
+  // 写真の日報（/report/photo）は手羽屋専用なので、必ず門の中にあること。
+  assert.ok(src.includes('href="/report/photo"'), "トップに写真の日報の入り口がありません");
+  for (const href of ["/report/photo", "/setup-check", "/interim", "/keiri/advances", "/shifts"]) {
     const at = src.indexOf(`href="${href}"`);
-    assert.ok(at > 0, `トップに ${href} のリンクがありません`);
+    if (at < 0) continue;
     const before = src.slice(0, at);
     const opened = before.split("<TebayaOnlyBlock>").length - 1;
     const closed = before.split("</TebayaOnlyBlock>").length - 1;

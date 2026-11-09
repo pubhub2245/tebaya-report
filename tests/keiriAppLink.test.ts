@@ -53,8 +53,9 @@ test("②日報アプリから来た人を数え分けられる合言葉が付�
   assert.equal(keiriApplyCampaign("app`"), APP_FROM_KEY);
 });
 
-test("③毎日ひらかれている2画面（ホーム・管理者ページ）の両方に道がある", () => {
-  assert.ok(home.includes("<KeiriCaseLink />"), "ホームに道がありません");
+// 2026-11-09 じゅん決定：ホームは「写真で日報」だけにし、ご案内は「ごちゃつく原因」なので出さない。
+// 道は管理者ページにだけ残す（ホームに戻すことがあっても、いちばん下の footer の中に置く）。
+test("③管理者ページに道がある（ホームには出さない）", () => {
   assert.ok(admin.includes("<KeiriCaseLink />"), "管理者ページに道がありません");
   // 古い「読むところに着くだけ」のリンクは残っていない
   assert.equal(visible(home).includes('href="/keiri/case"'), false);
@@ -82,10 +83,12 @@ test("⑦日報の入力を邪魔しない（画面に貼り付く帯にしな�
   // 貼り付く帯（fixed）にしていないこと。ここが本文や入力欄をふさぐと現場が止まる
   assert.equal(/fixed/.test(link), false);
   // 置くのはいちばん下だけ。ホームでは footer の中、管理者ページでは最後の section
-  assert.ok(
-    home.indexOf("<KeiriCaseLink />") > home.indexOf("<footer"),
-    "ホームでは画面のいちばん下（footer）に置く",
-  );
+  if (home.includes("<KeiriCaseLink />")) {
+    assert.ok(
+      home.indexOf("<KeiriCaseLink />") > home.indexOf("<footer"),
+      "ホームでは画面のいちばん下（footer）に置く",
+    );
+  }
   assert.ok(
     admin.indexOf("<KeiriCaseLink />") > admin.indexOf("EditReportModal"),
     "管理者ページでは日報の一覧より後ろに置く",

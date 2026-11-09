@@ -1,40 +1,17 @@
 import Link from "next/link";
 import MonthlySummary from "./components/MonthlySummary";
 import LocationRankingSummary from "./components/LocationRankingSummary";
-import { TebayaOnlyBlock } from "./components/TebayaOnlyGate";
+import { NotTebayaBlock, TebayaOnlyBlock } from "./components/TebayaOnlyGate";
 import AppTitle from "./components/AppTitle";
 import OwnerOutreachNudge from "./components/OwnerOutreachNudge";
 import OwnerApplicationAlert from "./components/OwnerApplicationAlert";
 import OwnerSetupTodoNotice from "./components/OwnerSetupTodoNotice";
-import KeiriCaseLink from "./components/KeiriCaseLink";
+import OwnerAdminLink from "./components/OwnerAdminLink";
 
 /** グループ見出し */
 function GroupLabel({ children }: { children: React.ReactNode }) {
   return (
     <p className="text-xs font-bold text-stone-400 px-1 mb-2">{children}</p>
-  );
-}
-
-/** 2列グリッド用の中サイズボタン（アイコン上・ラベル下） */
-function TileLink({
-  href,
-  emoji,
-  label,
-  color,
-}: {
-  href: string;
-  emoji: string;
-  label: string;
-  color: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className={`flex flex-col items-center justify-center gap-1 h-24 rounded-2xl text-white font-bold shadow-md transition ${color}`}
-    >
-      <span className="text-2xl">{emoji}</span>
-      <span className="text-sm text-center leading-tight px-1">{label}</span>
-    </Link>
   );
 }
 
@@ -64,148 +41,77 @@ export default function MenuPage() {
           日報のデータは1行も読み書きしない。 */}
       <OwnerOutreachNudge />
 
-      <section className="mb-5">
-        <MonthlySummary />
-      </section>
-
-      {/* よく使う報告 */}
-      <section className="mb-5">
-        <GroupLabel>📝 日々の報告</GroupLabel>
-        <Link
-          href="/report"
-          className="flex items-center justify-center gap-3 w-full h-20 rounded-2xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-xl shadow-md transition mb-3"
-        >
-          <span className="text-2xl">📋</span>
-          <span>営業後日報</span>
-        </Link>
-        {/* 仕込み日報（/prep）は 2026-06-09 で運用停止したため入り口を外した。
-            画面とデータは残してあるので、再開したいときはここに戻すだけでよい。 */}
-        {/* 設営後チェックと中間報告は、まだ お店ごとに分かれていない棚を読むので
-            手羽屋にだけ出す。押しても開けないボタンを見せないため（→ TebayaOnlyGate）。 */}
-        <TebayaOnlyBlock>
-          <div className="grid grid-cols-2 gap-3">
-            <TileLink
-              href="/setup-check"
-              emoji="🪙"
-              label="設営後チェック"
-              color="bg-amber-500 hover:bg-amber-600 active:bg-amber-700"
-            />
-            <TileLink
-              href="/interim"
-              emoji="📊"
-              label="中間報告"
-              color="bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
-            />
-          </div>
-        </TebayaOnlyBlock>
-        {/* 自分のお金で立て替えたときだけ使う入り口。
-            レジのお金から払った経費は日報のSTEP5に入れる。 */}
-        <TebayaOnlyBlock>
-          <Link
-            href="/keiri/advances"
-            className="flex items-center justify-center gap-2 w-full h-14 mt-3 rounded-2xl bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white font-bold shadow-md transition"
-          >
-            <span className="text-xl">🧾</span>
-            <span className="text-sm leading-tight text-center">
-              立替経費（自分のお金で払ったとき）
-            </span>
-          </Link>
-        </TebayaOnlyBlock>
-        <Link
-          href="/report/edit"
-          className="block text-center text-sm text-stone-500 underline hover:text-stone-700 mt-3"
-        >
-          ✏️ 過去の日報を修正する →
-        </Link>
-        <Link
-          href="/settings"
-          className="block text-center text-sm text-stone-500 underline hover:text-stone-700 mt-2"
-        >
-          ⚙️ 商品・担当・場所を登録する →
-        </Link>
-      </section>
-
-      {/* シフト・出店。出店予定（shifts）にはまだ「どの店か」の印の欄が無いので、
-          手羽屋にだけ出す（→ lib/tenantScope.ts）。 */}
+      {/* ─── 手羽屋（2026-11-09 じゅん決定）───
+          「ページはできるだけシンプルに・ボタンは大きく・機能は減らすほどいい」。
+          現場が押すのは「写真で日報を出す」だけ。あとは過去の日報を見る1つ。
+          月の進捗・ランキング・イベント段取り・設定はじゅんの道具なので管理者ページ（/admin）にまとめた。
+          中間報告・設営後チェック・シフト・出店先の問い合わせ・意見箱・議題・現金残高・売上報告・
+          レジ突き合わせ・経理パッケージのご案内の入り口は置かない（画面とデータは残してある）。 */}
       <TebayaOnlyBlock>
-        <section className="mb-5">
-          <GroupLabel>📅 シフト・出店</GroupLabel>
+        <section className="flex-1 flex flex-col justify-center gap-5 py-6">
           <Link
-            href="/shifts"
-            className="flex items-center justify-center gap-3 w-full h-16 rounded-2xl bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-bold text-lg shadow-md transition"
+            href="/report/photo"
+            className="flex flex-col items-center justify-center gap-2 w-full h-48 rounded-3xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold shadow-lg transition"
           >
-            <span className="text-2xl">📅</span>
-            <span>シフト・出店先問い合わせ</span>
+            <span className="text-6xl">📷</span>
+            <span className="text-3xl">写真で日報を出す</span>
           </Link>
-          {/* イベント・お祭りの段取り（2026-10-18）。発注本数・骨抜き担当・フライヤー・電源を
-              1枚にまとめ、LINEに貼る文をコピーできる（→ lib/eventPlan.ts）。 */}
           <Link
-            href="/events"
-            className="flex items-center justify-center gap-3 w-full h-14 mt-3 rounded-2xl bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-white font-bold shadow-md transition"
+            href="/report/edit"
+            className="flex items-center justify-center gap-3 w-full h-20 rounded-3xl bg-white border-2 border-stone-200 active:border-orange-500 text-stone-700 font-bold text-xl shadow-sm transition"
           >
-            <span className="text-xl">🎪</span>
-            <span>イベント段取り</span>
+            <span className="text-2xl">📖</span>
+            <span>過去の日報を見る</span>
           </Link>
         </section>
       </TebayaOnlyBlock>
 
-      {/* みんなの声 …… 意見箱とミーティング議題は、まだ お店ごとに分かれていない棚を
-          読むので、経理パッケージを申し込んだお店には出しません（→ lib/tenantScope.ts）。
-          手羽屋は印が空なので、これまでどおり出ます。 */}
-      <TebayaOnlyBlock>
-      <section className="mb-5">
-        <GroupLabel>🗣️ みんなの声</GroupLabel>
-        <div className="grid grid-cols-2 gap-3">
-          <TileLink
-            href="/feedback"
-            emoji="💡"
-            label="意見箱"
-            color="bg-pink-500 hover:bg-pink-600 active:bg-pink-700"
-          />
-          <TileLink
-            href="/agenda"
-            emoji="🗣️"
-            label="ミーティング議題"
-            color="bg-cyan-600 hover:bg-cyan-700 active:bg-cyan-800"
-          />
-        </div>
-      </section>
-      </TebayaOnlyBlock>
+      {/* ─── 経理パッケージのお店：これまでどおり ─── */}
+      <NotTebayaBlock>
+        <section className="mb-5">
+          <MonthlySummary />
+        </section>
+        <section className="mb-5">
+          <GroupLabel>📝 日報</GroupLabel>
+          <Link
+            href="/report"
+            className="flex items-center justify-center gap-3 w-full h-20 rounded-2xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-xl shadow-md transition"
+          >
+            <span className="text-2xl">📋</span>
+            <span>営業後日報</span>
+          </Link>
+          <Link
+            href="/report/edit"
+            className="block text-center text-sm text-stone-500 underline hover:text-stone-700 mt-3"
+          >
+            ✏️ 過去の日報を見る・直す →
+          </Link>
+          <Link
+            href="/settings"
+            className="block text-center text-sm text-stone-500 underline hover:text-stone-700 mt-2"
+          >
+            ⚙️ 商品・担当・場所を登録する →
+          </Link>
+        </section>
+        <section className="mb-4">
+          <LocationRankingSummary />
+        </section>
+      </NotTebayaBlock>
 
-      <section className="mb-4">
-        <LocationRankingSummary />
-      </section>
-
+      {/* 下の小さいリンクは管理者ページだけ。手羽屋ではじゅんの端末にしか出ない（2026-11-09）。
+          経理パッケージのご案内・現金残高・売上報告・レジ突き合わせは「ごちゃつく原因」なので置かない。 */}
       <footer className="mt-auto pt-4 text-center space-y-2">
-        <Link
-          href="/cash"
-          className="block text-sm text-stone-500 underline hover:text-stone-700"
-        >
-          💰 現金残高（管理者） →
-        </Link>
-        {/* 経理パッケージのご案内へ行く道（kp200）。外向け・誰でも見られる。
-            これまではただの「紹介ページ →」で、①合言葉が付かず②読むところに着くだけ
-            でした。合言葉 app 付きで入力欄まで行く形にそろえ、出店先で見せる1枚への
-            道も隣に置く。店の中のデータは読まない。 */}
-        <KeiriCaseLink />
-        <Link
-          href="/sales-report"
-          className="block text-sm text-stone-500 underline hover:text-stone-700"
-        >
-          💹 売上報告（管理者） →
-        </Link>
-        <Link
-          href="/cash/register"
-          className="block text-sm text-stone-500 underline hover:text-stone-700"
-        >
-          🔍 レジ突き合わせ（管理者） →
-        </Link>
-        <Link
-          href="/admin"
-          className="block text-sm text-stone-500 underline hover:text-stone-700"
-        >
-          管理者ページ →
-        </Link>
+        <TebayaOnlyBlock>
+          <OwnerAdminLink />
+        </TebayaOnlyBlock>
+        <NotTebayaBlock>
+          <Link
+            href="/admin"
+            className="block text-sm text-stone-400 underline hover:text-stone-700"
+          >
+            管理者ページ →
+          </Link>
+        </NotTebayaBlock>
       </footer>
     </main>
   );
