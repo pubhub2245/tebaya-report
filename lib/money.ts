@@ -227,3 +227,37 @@ export function boothFeeRuleText(rule: BoothFeeRule | null | undefined): string 
   if (rule.type === "percent") return `売上の${Number(rule.rate) || 0}％`;
   return `定額 ${(Number(rule.amount) || 0).toLocaleString("ja-JP")}円`;
 }
+
+/* ------------------------------------------------------------------ */
+/* 加盟店（ゆうやさん）の今月の数字（2026-11-09）                        */
+/* ------------------------------------------------------------------ */
+
+/** 加盟店契約のロイヤリティ率（第9条：税込売上の10%） */
+export const FRANCHISE_ROYALTY_RATE = 0.1;
+
+export type FranchiseMonth = {
+  /** 今月の売上（日報の売上の合計） */
+  sales: number;
+  /** 今月の経費（日報の経費の合計＋最後の確認で入れた人件費） */
+  expenses: number;
+  /** 本部へ払う売上の10%（1円未満切り捨て） */
+  royalty: number;
+  /** 手元に残る見込み＝売上 − 経費 − 10%。手羽先の差額は月末の精算で引く */
+  remaining: number;
+  /** 日報の枚数 */
+  days: number;
+};
+
+/**
+ * 加盟店の今月の数字。トップの小さいカードに出す（じゅん：日報を出すメリットにもなる）。
+ * 売上の10%は加盟店契約 第9条。2026年10月分の精算（254,500円 → 25,450円）と同じ計算。
+ * 手羽先の差額（160円/kg）は重さの記録がまだ無いので入れない（第2段階で足す）。
+ */
+export function calcFranchiseMonth(
+  rows: { sales_amount?: number | null; expenses_total?: number | null; expenses?: unknown; labor?: number | null }[],
+): FranchiseMonth {
+  const sales = rows.reduce((s, r) => s + (r.sales_amount || 0), 0);
+  const expenses = rows.reduce((s, r) => s + expensesTotalOf(r) + (r.labor || 0), 0);
+  const royalty = Math.floor(sales * FRANCHISE_ROYALTY_RATE);
+  return { sales, expenses, royalty, remaining: sales - expenses - royalty, days: rows.length };
+}
