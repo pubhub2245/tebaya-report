@@ -51,6 +51,19 @@ export type CashCountWindow = {
   band: CashCountBand | null;
   /** 2通りの数え方のうち、合ったほうの名前（分かれていない月は null） */
   matchedVariant: string | null;
+  /**
+   * 合っていたか（2026-11-09・f1-4）。
+   *
+   * ★差の内わけの窓口（diffCoverage.howto）は「上の matched で見てください」と
+   *   案内していますが、**その名前の欄をこの窓口は返していませんでした**。
+   *   読む人は matchedVariant（合った数え方の**名前**）と取り違えるか、
+   *   何も無いので「分かりません」側に落ちます。
+   *   ＝ 案内どおりに読むと、**ぴったり合っている月でも合格にできません**
+   *   （数え方が1通りの月は matchedVariant が null のままのため）。
+   *   そこで案内と同じ名前で、合っていたかを true／false／null で返します。
+   *   まだ数えていない日は null（合格にも不合格にもしない）。
+   */
+  matched: boolean | null;
   /** 仕上げチェック表のどの項目か */
   check: "f1-4";
   /** いま何をすれば前に進むか（1行） */
@@ -92,6 +105,7 @@ export function buildCashCountWindow(params: {
       verdict: "まだ数えていません",
       band: null,
       matchedVariant: null,
+      matched: null,
       check: "f1-4",
       next:
         "/keiri の「🔐 金庫を数えて、合っているか見る」に、いま金庫にある現金を" +
@@ -110,6 +124,7 @@ export function buildCashCountWindow(params: {
       verdict: "合っていない",
       band: null,
       matchedVariant: null,
+      matched: false,
       check: "f1-4",
       next: "計算上の現金が出せませんでした（お店の設定が読めていません）。設定の行を確かめます",
       note: NOTE,
@@ -144,6 +159,7 @@ export function buildCashCountWindow(params: {
     verdict,
     band,
     matchedVariant: matched ? CASH_VARIANT_LABEL[matched.key] : null,
+    matched: verdict !== "合っていない",
     check: "f1-4",
     next,
     note: NOTE,
@@ -291,5 +307,86 @@ export function cashCountNotMeasurable(reason: string): CashCountNotMeasurable {
       `いまは測れませんでした（${reason}）。` +
       "合格にも不合格にもしていません（金庫と合っていないという意味ではありません）。" +
       "倉庫が読めるようになってから、もう一度 開いてください。",
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ *  まだ数えていない日に「合っています」と読める形で返さない
+ *  （2026-11-09・f1-4）
+ * ------------------------------------------------------------------ */
+
+/**
+ * ■ なぜ要るか（2026-11-09 に本番で実測した形）
+ *   この窓口（/api/keiri/cashcount）の `ok` は、**合否**の欄です
+ *   （11/8 に「測れない日は ok: null＝合格にも不合格にもしない」と決めたとおり）。
+ *   ところが読めた日は **`ok: true` が決め打ち**になっていました。
+ *   ＝ **まだ一度も金庫を数えていない日でも ok: true** を返し
+ *   （実測：counted false・verdict「まだ数えていません」なのに ok true）、
+ *   読んだ人には f1-4「いまの現金残高が、実際の金庫の残高と合うか」が
+ *   **合格**と読めます。数えていないので、合っているかは分かりません。
+ *   ＝ 11/8 に直した「止まっている日を不合格にする」の、**裏返しの嘘**でした。
+ *
+ * ■ これからの答え方（合否は1か所だけで決める）
+ *   まだ数えていない        … ok: **null**（合格にも不合格にもしない）
+ *   ぴったり／ほぼ／数え方のちがいで説明がつく … ok: true
+ *   合っていない            … 差に名前が付いたか（covered）で決める
+ *                             covered true  → ok: true（説明のつく差）
+ *                             covered null  → ok: **null**（読めていない所がある）
+ *                             covered false → ok: false
+ *
+ * ★この関数は計算だけです（倉庫に聞きません）。試験で固定してあります。
+ */
+export type CashCountOk = {
+  /** 合否。まだ数えていない日・読めていない所がある日は null */
+  ok: boolean | null;
+  /** 合否の読み方（人が読む1行） */
+  okMeans: string;
+};
+
+export function cashCountOk(params: {
+  verdict: CashCountVerdict;
+  /** 差に名前が付いたか（diffCoverage.covered）。渡さなければ null と同じ */
+  covered?: boolean | null;
+}): CashCountOk {
+  const covered = params.covered ?? null;
+
+  if (params.verdict === "まだ数えていません") {
+    return {
+      ok: null,
+      okMeans:
+        "まだ金庫を1回も数えていないので、合否は付けていません" +
+        "（合っているという意味でも、合っていないという意味でもありません）。" +
+        "金庫を1回 数えると、ここに合否が出ます。",
+    };
+  }
+
+  if (params.verdict !== "合っていない") {
+    return {
+      ok: true,
+      okMeans: `数えた結果は「${params.verdict}」です＝合っている側です。`,
+    };
+  }
+
+  if (covered === true) {
+    return {
+      ok: true,
+      okMeans:
+        "金額はちがいますが、その差には**ぜんぶ名前が付いています**" +
+        "（説明のつく範囲に収まっています）＝合っている側です。",
+    };
+  }
+
+  if (covered === null) {
+    return {
+      ok: null,
+      okMeans:
+        "金額がちがい、しかも**読めていない所があります**ので、合否は付けていません" +
+        "（合っていないという意味ではありません）。",
+    };
+  }
+
+  return {
+    ok: false,
+    okMeans: "金額がちがい、その差に**名前の付かない分が残っています**＝合っていません。",
   };
 }

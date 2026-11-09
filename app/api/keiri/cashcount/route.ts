@@ -6,6 +6,7 @@ import {
   buildCashCountReady,
   buildCashCountWindow,
   cashCountNotMeasurable,
+  cashCountOk,
   type CashCountPlace,
 } from "@/lib/keiri/cashCountWindow";
 import {
@@ -277,11 +278,23 @@ export async function GET() {
       unknown: booksGap.wide ? ["日報がまだ入っていない日"] : [],
     });
 
+    // ★合否は1か所で決める（2026-11-09・f1-4）。
+    //   ここは以前 `ok: true` の決め打ちで、**まだ一度も金庫を数えていない日でも
+    //   「合格」と読める答え**を返していました（11/8 に直した「止まっている日を
+    //   不合格にする」の裏返しです）。数えた結果と、差に名前が付いたか（covered）
+    //   だけから決め、分からない日は null にします。**計算だけ**です。
+    const countWindow = buildCashCountWindow({ reconcile, pick, place });
+    const verdictOk = cashCountOk({
+      verdict: countWindow.verdict,
+      covered: diffCoverage.covered,
+    });
+
     return json({
-      ok: true,
+      ok: verdictOk.ok,
+      okMeans: verdictOk.okMeans,
       measurable: true,
       warehouse: { alive: warehouse.alive, state: warehouse.state, reason: warehouse.reason },
-      ...buildCashCountWindow({ reconcile, pick, place }),
+      ...countWindow,
       // 差の内わけ（数え始めの日より前に払った経費・金額は出さない）
       openingGap: buildCashOpeningGapWindow({ gap: openingGap, diff: reconcile.diff }),
       // 差の内わけ（日報がどこまで入っているか・金額は出さない）
