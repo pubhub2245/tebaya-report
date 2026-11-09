@@ -15,6 +15,8 @@ import assert from "node:assert/strict";
 
 import {
   buildSetupTodo,
+  f34Note,
+  F34_ITEM_IDS,
   minutesOf,
   totalMinutes,
   warehouseAnswering,
@@ -249,7 +251,11 @@ test("鍵の行は、仕上げの f3-4 を閉めることを名指しする", ()
   const key = buildSetupTodo(ALL_UNDONE).items.find((i) => i.id === "key")!;
   assert.deepEqual(key.checks, ["f3-4"]);
   assert.match(key.benefit, /レシート写真の置き場/);
-  assert.match(key.benefit, /不合格/);
+  // ★2026-11-09：ここは /不合格/ を見ていましたが、「この1分で不合格が閉まります」は
+  //   言い過ぎでした（f3-4 は貼り紙・鍵・写真の置き場の3つがそろって初めて閉まる）。
+  //   f3-4 を名指しすることは残し、言い切りだけをやめます。
+  assert.match(key.benefit, /よその店のデータが見えないか/);
+  assert.ok(!key.benefit.includes("これで閉まります"));
 });
 
 test("「10秒」は分に足さない（合計を大げさに言わない）", () => {
@@ -327,4 +333,63 @@ test("倉庫が答えているときは、その1行を出さない", () => {
   assert.equal(warehouseAnswering(answering), true);
   assert.equal(buildSetupTodo(answering).warehouseNote, null);
   assert.equal(buildSetupTodo(ALL_UNDONE).warehouseNote, null);
+});
+
+
+test("f3-4 は『3つそろって初めて閉まる』と言う／1つ押しただけでは閉まったと言わない（2026-11-09）", () => {
+  const t = buildSetupTodo({
+    shelves: { done: 0, total: 13 },
+    key: { configured: true, usable: false },
+    cash: { shelfMissing: true, counted: false },
+    photo: { bucketPublic: true, keyUsable: false },
+  });
+  assert.ok(t.f34Note);
+  assert.match(t.f34Note!, /3つがそろって初めて閉まります/);
+  assert.match(t.f34Note!, /いまのこっているのは 3 つ/);
+  // 鍵だけ済んでも「閉まりました」と言わない
+  const keyDone = buildSetupTodo({
+    shelves: { done: 0, total: 13 },
+    key: { configured: true, usable: true },
+    cash: { shelfMissing: true, counted: false },
+    photo: { bucketPublic: true, keyUsable: true },
+  });
+  assert.match(keyDone.f34Note!, /いまのこっているのは 2 つ/);
+});
+
+test("f3-4 の3つが済んでも、合格とは言わない（外から測り直してから付ける）", () => {
+  const t = buildSetupTodo({
+    shelves: { done: 13, total: 13 },
+    key: { configured: true, usable: true },
+    cash: { shelfMissing: false, counted: true },
+    photo: { bucketPublic: false, keyUsable: true },
+  });
+  assert.match(t.f34Note!, /ぜんぶ済んでいます/);
+  assert.ok(!/合格です/.test(t.f34Note!));
+});
+
+test("『分からない』は閉まった側に数えない（嘘の合格を作らない）", () => {
+  const t = buildSetupTodo({
+    shelves: { done: 13, total: 13 },
+    key: null,
+    cash: null,
+    photo: null,
+  });
+  assert.match(t.f34Note!, /いまのこっているのは 2 つ/);
+});
+
+test("鍵と写真の置き場は『これで閉まります』と言わない（言い過ぎを戻さない）", () => {
+  const t = buildSetupTodo({
+    shelves: { done: 0, total: 13 },
+    key: { configured: true, usable: false },
+    cash: { shelfMissing: true, counted: false },
+    photo: { bucketPublic: true, keyUsable: false },
+  });
+  for (const id of ["key", "photo"]) {
+    const item = t.items.find((i) => i.id === id)!;
+    assert.ok(!item.benefit.includes("これで閉まります"), `${id} の説明が言い過ぎています`);
+    assert.match(item.benefit, /のうちの1つ/);
+    assert.match(item.benefit, /よその店のデータが見えないか/);
+  }
+  assert.deepEqual(F34_ITEM_IDS, ["shelves", "key", "photo"]);
+  assert.equal(f34Note([]), null);
 });
