@@ -47,6 +47,13 @@ type SlipShot = { id: string; photo: string; slips: Slip[]; reading: boolean; er
 
 type ReceiptShot = { id: string; photo: string; expenses: PhotoExpense[]; reading: boolean; error?: string };
 
+/** 日付を1日ずらす（"2026-11-09" → "2026-11-08"） */
+function shiftDate(d: string, days: number): string {
+  const t = new Date(`${d}T00:00:00Z`);
+  t.setUTCDate(t.getUTCDate() + days);
+  return t.toISOString().slice(0, 10);
+}
+
 function todayJst(): string {
   return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 }
@@ -111,7 +118,9 @@ export default function PhotoReportGate() {
 
 function PhotoReportPage() {
   const [step, setStep] = useState<Step>("place");
-  const [date] = useState(todayJst());
+  // 日付は今日が初め。出し忘れた日の分も出せるように選べる（2026-11-09 現場の声）
+  const today = todayJst();
+  const [date, setDate] = useState(today);
   const [locations, setLocations] = useState<string[]>([]);
   const [locLoading, setLocLoading] = useState(true);
   const [location, setLocation] = useState("");
@@ -282,7 +291,7 @@ function PhotoReportPage() {
           .eq("shop", "手羽屋")
           .limit(1);
         if ((dup as unknown[] | null)?.length) {
-          if (!window.confirm("今日の日報はもう出ています。もう1枚出しますか？")) {
+          if (!window.confirm(`${date.slice(5).replace("-", "/")} の日報はもう出ています。もう1枚出しますか？`)) {
             setSaving(false);
             return;
           }
@@ -383,7 +392,44 @@ function PhotoReportPage() {
     <main className="max-w-md mx-auto px-4 py-6 min-h-screen">
       {step === "place" && (
         <section>
-          {header("今日の出店場所は？", 1)}
+          {header(date === today ? "今日の出店場所は？" : "この日の出店場所は？", 1)}
+          {/* 日付（出し忘れた日の分も出せる）。未来の日は選べない */}
+          <div className="flex gap-2 mb-4">
+            {[
+              { label: "今日", value: today },
+              { label: "昨日", value: shiftDate(today, -1) },
+            ].map((b) => (
+              <button
+                key={b.label}
+                type="button"
+                onClick={() => setDate(b.value)}
+                className={`flex-1 h-14 rounded-2xl font-bold border-2 ${
+                  date === b.value ? "bg-orange-500 border-orange-500 text-white" : "bg-white border-stone-200 text-stone-700"
+                }`}
+              >
+                {b.label}
+              </button>
+            ))}
+            <label
+              className={`flex-1 h-14 rounded-2xl font-bold border-2 flex items-center justify-center relative ${
+                date !== today && date !== shiftDate(today, -1)
+                  ? "bg-orange-500 border-orange-500 text-white"
+                  : "bg-white border-stone-200 text-stone-700"
+              }`}
+            >
+              {date !== today && date !== shiftDate(today, -1)
+                ? `${parseInt(date.slice(5, 7), 10)}/${parseInt(date.slice(8, 10), 10)}`
+                : "ほかの日"}
+              <input
+                type="date"
+                max={today}
+                value={date}
+                onChange={(e) => e.target.value && e.target.value <= today && setDate(e.target.value)}
+                className="absolute inset-0 opacity-0"
+                aria-label="日付を選ぶ"
+              />
+            </label>
+          </div>
           {locLoading && <p className="text-sm text-stone-500">読み込み中…</p>}
           {!locLoading && locations.length === 0 && (
             <p className="text-sm text-red-600">
