@@ -14,6 +14,12 @@ import {
   measureBooksGap,
 } from "@/lib/keiri/cashBooksGap";
 import {
+  booksGapDates,
+  EMPTY_CASH_BOOKS_GAP_OPEN,
+  measureBooksGapOpen,
+  type CashBooksGapOpen,
+} from "@/lib/keiri/cashBooksGapOpen";
+import {
   buildRegisterDiffGapWindow,
   measureRegisterDiffGap,
 } from "@/lib/keiri/registerDiffGap";
@@ -53,6 +59,7 @@ import { loadKeiriMonthServer } from "@/lib/keiri/loadMonthServer";
 import { latestRegisterFloat } from "@/lib/keiri/registerFloat";
 import { anonClient, serverClient } from "@/lib/supabaseServer";
 import { probeWarehouseAlive } from "@/lib/keiri/warehouseAlive";
+import { probeShiftsTenantState, scopeShiftsQuery } from "@/lib/shiftScope";
 import { TEBAYA_SCOPE } from "@/lib/tenantScope";
 
 export const runtime = "nodejs";
@@ -216,9 +223,22 @@ export async function GET() {
       asOf: last ? last.happened_on : todayJst,
     });
 
+    // ★「日報が空いている日は、営業した日なのか お休みなのか」（2026-11-09・f1-4）。
+    //   空きがあるだけで、差の内わけは「分からない所がある」として合否を付けません
+    //   （covered を null）。＝ **空きの正体が お休みだけでも、じゅんが金庫を数えても
+    //   f1-4 の合否が出ません。** 出店の予定（shifts）を読んで、空きの正体を名指しします。
+    //   **読むだけ**です（1行も書き込みません・金額も店名も担当者の名前も返しません）。
+    const booksGapOpen = await readBooksGapOpen({
+      lastDate: booksGapToday.lastDate,
+      asOf: todayJst,
+      wide: booksGapToday.wide,
+      db,
+    });
+
     const floatToday = latestRegisterFloat(data.registerCloses ?? [], todayJst);
     const ready = buildCashCountReady({
       booksGap: booksGapToday,
+      gapOpen: booksGapOpen,
       variants: buildCashVariants({
         screenBalance: data.settingsMissing ? null : balanceAt(todayJst, false),
         withRepaidBalance:
@@ -275,7 +295,11 @@ export async function GET() {
         fieldRepayPiece(fieldRepayGap),
         unpaidPayrollPiece(unpaidPayrollGap),
       ],
-      unknown: booksGap.wide ? ["日報がまだ入っていない日"] : [],
+      // ★空きが「お休みだけ」と読めた日は、分からない所として数えません
+      //   （数えると、お休みがあるだけで永遠に合否が出ません）。
+      //   読めなかった日・足りない日があった日は、今までどおり「分からない所」です。
+      unknown:
+        booksGap.wide && !booksGapOpen.holidaysOnly ? ["日報がまだ入っていない日"] : [],
     });
 
     // ★合否は1か所で決める（2026-11-09・f1-4）。
@@ -299,6 +323,8 @@ export async function GET() {
       openingGap: buildCashOpeningGapWindow({ gap: openingGap, diff: reconcile.diff }),
       // 差の内わけ（日報がどこまで入っているか・金額は出さない）
       booksGap: buildCashBooksGapWindow({ gap: booksGap, diff: reconcile.diff }),
+      // 空いている日の正体（営業した日か お休みか・件数と日付だけ）
+      booksGapOpen,
       // 差の内わけ（日報に入っているレジの過不足・金額は出さない）
       registerDiffGap: buildRegisterDiffGapWindow({
         gap: regDiffGap,
@@ -334,6 +360,50 @@ export async function GET() {
       ...cashCountNotMeasurable("倉庫との通信に失敗しました"),
       detail: String(e?.message ?? e).slice(0, 120),
     });
+  }
+}
+
+/**
+ * 日報が空いている日に、**出店の予定があったか**を読む（2026-11-09・f1-4）。
+ * **読むだけ**です（1行も書き込みません）。
+ *
+ * ★返すのは件数と日付だけです。お店の名前・担当者の名前・金額は1文字も返しません。
+ * ★手羽屋のぶんだけを読みます（lib/shiftScope.ts の既にある決まりをそのまま使う。
+ *   棚に「どの店か」の欄がまだ無い倉庫では、今までどおり絞りません）。
+ * ★読めなかったときは「お休みでした」と言いません（0件を「無い」と取り違えないため）。
+ */
+async function readBooksGapOpen(params: {
+  lastDate: string | null;
+  asOf: string;
+  wide: boolean;
+  db: ReturnType<typeof serverClient>;
+}): Promise<CashBooksGapOpen> {
+  const { lastDate, asOf, wide, db } = params;
+  // 空きが短い日は、今までどおり何も言いません（よけいな問い合わせもしません）
+  if (!wide || !lastDate) return EMPTY_CASH_BOOKS_GAP_OPEN;
+
+  const gapDates = booksGapDates({ lastDate, asOf });
+  if (gapDates.length === 0) return EMPTY_CASH_BOOKS_GAP_OPEN;
+
+  try {
+    const { data, error } = await scopeShiftsQuery<any>(
+      db
+        .from("shifts")
+        .select("date")
+        .gte("date", gapDates[0])
+        .lte("date", gapDates[gapDates.length - 1])
+        .eq("status", "published")
+        .limit(500) as any,
+      TEBAYA_SCOPE,
+      await probeShiftsTenantState(db as never),
+    );
+    if (error || !data) return measureBooksGapOpen({ gapDates, shiftDates: null });
+    const dates = (data as { date?: string | null }[])
+      .map((r) => String(r.date ?? ""))
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+    return measureBooksGapOpen({ gapDates, shiftDates: dates });
+  } catch {
+    return measureBooksGapOpen({ gapDates, shiftDates: null });
   }
 }
 

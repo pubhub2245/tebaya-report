@@ -97,9 +97,14 @@ export const NOT_A_LIVE_TABLE: Record<string, string> = {
  *     お店によって変わる画面は、必ず絞る側に直すこと）
  */
 export const UNSCOPED_READS_WITH_REASON: Record<string, string> = {
-  "app/api/keiri/cashcount/route.ts":
-    "金庫を数えた結果が合っていたかだけを答える読むだけの窓口（f1-4）。" +
-    "読む相手は手羽屋に固定（TEBAYA_SCOPE）で、金額は1円も返さない。1行も書かない",
+  // ★2026-11-09：app/api/keiri/cashcount/route.ts はこの一覧から外れました。
+  //   「日報が空いている日は営業した日か お休みか」を見るために出店の予定を
+  //   手羽屋のぶんだけ読むようになり（scopeShiftsQuery）、見張りの印が
+  //   ファイルの中に入ったためです。見張りは**ファイル単位**なので、
+  //   同じファイルの中に印が1つでもあると、そのファイル全体が
+  //   「絞っている」側に数えられます。
+  //   この窓口の読む相手は いまも手羽屋に固定（TEBAYA_SCOPE）で、
+  //   金額は1円も返さず、1行も書き込みません。
   "app/api/keiri/diagnose/route.ts":
     "外から1回で状態を見る読むだけの窓口。お申し込みは『何件あるか』だけを数えており、" +
     "どのお店の行かは1行も読まない（中身を返さない）",
