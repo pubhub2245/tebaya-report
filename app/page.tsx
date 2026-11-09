@@ -7,6 +7,7 @@ import OwnerOutreachNudge from "./components/OwnerOutreachNudge";
 import OwnerApplicationAlert from "./components/OwnerApplicationAlert";
 import OwnerSetupTodoNotice from "./components/OwnerSetupTodoNotice";
 import OwnerAdminLink from "./components/OwnerAdminLink";
+import FranchiseMonthCard from "./components/FranchiseMonthCard";
 
 /** グループ見出し */
 function GroupLabel({ children }: { children: React.ReactNode }) {
@@ -63,6 +64,8 @@ export default function MenuPage() {
             <span className="text-2xl">📖</span>
             <span>過去の日報を見る</span>
           </Link>
+          {/* 今月の数字（売上・経費・残り）の小さいカード（2026-11-09）。手羽屋のときだけ */}
+          <FranchiseMonthCard />
         </section>
       </TebayaOnlyBlock>
 

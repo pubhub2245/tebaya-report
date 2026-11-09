@@ -226,3 +226,20 @@ test("boothFeeRuleText: 人に見せる言葉にする", () => {
   assert.equal(boothFeeRuleText({ type: "fixed", amount: 8250 }), "定額 8,250円");
   assert.equal(boothFeeRuleText({ type: "none" }), "なし（0円）");
 });
+
+test("加盟店の今月の数字：売上の10%を引いた残り（2026年10月分の精算と同じ計算）", async () => {
+  const { calcFranchiseMonth } = await import("../lib/money");
+  const m = calcFranchiseMonth([
+    { sales_amount: 254500, expenses_total: 80000, labor: 0 },
+  ]);
+  assert.equal(m.royalty, 25450);
+  assert.equal(m.remaining, 254500 - 80000 - 25450);
+  const n = calcFranchiseMonth([
+    { sales_amount: 27705, expenses_total: 5000, labor: 3000 },
+    { sales_amount: 0, expenses: [{ amount: 500 }], labor: null },
+  ]);
+  assert.equal(n.sales, 27705);
+  assert.equal(n.expenses, 8500); // 経費5,000＋人件費3,000＋明細から500
+  assert.equal(n.royalty, 2770); // 1円未満切り捨て
+  assert.equal(n.days, 2);
+});
