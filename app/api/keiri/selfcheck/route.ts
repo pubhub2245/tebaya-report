@@ -15,6 +15,7 @@ import { buildSelfCheck, unreadableSelfCheck } from "@/lib/keiri/selfCheck";
 import { previousMonthRange, CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import { templateFor } from "@/lib/keiri/index";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
+import { monthParamWindow, readMonthParam, type MonthParam } from "@/lib/keiri/monthParam";
 import {
   CASH_COUNT_KIND_LABEL,
   cashCountKind,
@@ -55,9 +56,12 @@ export const dynamic = "force-dynamic";
  *   外からは「今月ぶんや、もっと前の月が正しく締まるか」を確かめられませんでした。
  */
 export async function GET(req: NextRequest) {
-  const asked = (req.nextUrl.searchParams.get("ym") ?? "").trim();
+  // ★月の指定は1か所で受け取る（2026-11-10・f1-5／f1-2）。
+  //   鍵の名前を間違えて ?month=2026-09 と書かれても、**黙って前の月で答えない**
+  //   （答える月は今までどおりでも、「ちがう月の答えです」と必ず知らせる）。
   const { start } = previousMonthRange(new Date());
-  const ym = /^\d{4}-(0[1-9]|1[0-2])$/.test(asked) ? asked : start.slice(0, 7);
+  const monthParam = readMonthParam(req.nextUrl.searchParams, start.slice(0, 7));
+  const ym = monthParam.ym;
   const label = monthLabelOf(ym);
   try {
     // fresh ＝ 前の答えをためずに毎回 取りに行く（2026-11-06・f1-5）。
@@ -70,6 +74,7 @@ export async function GET(req: NextRequest) {
     if (data.reportsUnreadable) {
       return jsonWindow(
         unreadableSelfCheck({ month: label, ym, reason: "日報の棚が読めませんでした" }),
+        monthParam,
       );
     }
     if (data.advancesUnreadable) {
@@ -79,11 +84,13 @@ export async function GET(req: NextRequest) {
           ym,
           reason: "立て替えて払った経費の棚が読めませんでした（経費がまるごと落ちるので数えません）",
         }),
+        monthParam,
       );
     }
     if (data.reports.length === 0) {
       return jsonWindow(
         unreadableSelfCheck({ month: label, ym, reason: "その月の日報が1件もありません" }),
+        monthParam,
       );
     }
 
@@ -199,10 +206,11 @@ export async function GET(req: NextRequest) {
                 ? "決めた内容を残す置き場がまだありません（/keiri/sql の貼り紙②を1回 流すと使えます）。いまは疑いを出すだけです"
                 : "置き場があるか確かめられませんでした（今までどおり、疑いを出すだけにしています）",
       },
-    });
+    }, monthParam);
   } catch {
     return jsonWindow(
       unreadableSelfCheck({ month: label, ym, reason: "倉庫との通信に失敗しました" }),
+      monthParam,
     );
   }
 }
@@ -357,6 +365,13 @@ function monthLabelOf(ym: string): string {
 }
 
 /** 窓口の返事（保存させない・検索結果には載せない。lib/keiri/checkWindow.ts） */
-function jsonWindow(body: unknown): NextResponse {
-  return NextResponse.json(stampCheckWindow(body), { status: 200, headers: CHECK_WINDOW_HEADERS });
+function jsonWindow(body: unknown, monthParam?: MonthParam): NextResponse {
+  const withMonth =
+    monthParam && typeof body === "object" && body !== null
+      ? { ...(body as object), monthParam: monthParamWindow(monthParam) }
+      : body;
+  return NextResponse.json(stampCheckWindow(withMonth), {
+    status: 200,
+    headers: CHECK_WINDOW_HEADERS,
+  });
 }

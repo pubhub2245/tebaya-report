@@ -234,12 +234,40 @@ export async function GET() {
     //   （covered を null）。＝ **空きの正体が お休みだけでも、じゅんが金庫を数えても
     //   f1-4 の合否が出ません。** 出店の予定（shifts）を読んで、空きの正体を名指しします。
     //   **読むだけ**です（1行も書き込みません・金額も店名も担当者の名前も返しません）。
-    const booksGapOpen = await readBooksGapOpen({
-      lastDate: booksGapToday.lastDate,
-      asOf: todayJst,
-      wide: booksGapToday.wide,
-      db,
-    });
+    /**
+     * ここから下の4つの読みを**同時に**走らせる（2026-11-10・f1-4）。
+     *
+     * ■ なぜ直したか（やさしい説明）
+     *   この窓口は倉庫に **5回** 聞きます（月の数字／空いている日の出店予定／
+     *   毎日の現金画面の数え始め／控えを置く行／数え始めの月の経費）。
+     *   その後ろの4回を**1つずつ順番に**待っていたので、ぜんぶ終わるまで
+     *   **10〜15秒** かかっていました。外から読む道具の待ち時間はたいてい10秒なので、
+     *   **答えが出ているのに「サーバー側の誤り」に見えます**
+     *   （2026-11-10 13:0x に A が2回つづけてそれに当たり、f1-4 を測る道が閉じました）。
+     *   4つは**おたがいの答えを必要としない**ので、同時に頼めば待ち時間は1回ぶんです。
+     *
+     * ■ 答えは1つも変えていません。読む関数・引数は1文字も変えず、順番だけを変えました。
+     */
+    const [booksGapOpen, openingSourceRead, memoProbe, openingGap] = await Promise.all([
+      // 空いている日は、営業した日か お休みか（件数と日付だけ）
+      readBooksGapOpen({
+        lastDate: booksGapToday.lastDate,
+        asOf: todayJst,
+        wide: booksGapToday.wide,
+        db,
+      }),
+      // 手羽屋が毎日使う現金の画面が読む棚の「数え始めの日」だけ
+      readDailyScreenOpening(db),
+      // いま押したら、ちゃんと記録に残るか（控えを置く行が公開の鍵で読めるか）
+      probeMemoRow(data.cashShelfMissing),
+      // 数え始めの日より前に払った経費（件数と日付だけ）
+      readOpeningGap({
+        openingDate: data.settingsMissing ? null : (settings.opening_date ?? null),
+        ym,
+        reports: data.reports,
+        db,
+      }),
+    ]);
 
     const floatToday = latestRegisterFloat(data.registerCloses ?? [], todayJst);
     const ready = buildCashCountReady({
@@ -263,7 +291,7 @@ export async function GET() {
     //   という事実を、外から1回で読める形にしておきます。**金額は1円も出しません**（日付と棚の名前だけ）。
     const openingSource = buildCashOpeningSource({
       openingDate: data.settingsMissing ? null : (settings.opening_date ?? null),
-      ...(await readDailyScreenOpening(db)),
+      ...openingSourceRead,
     });
 
     // ★「いま じゅんが押したら、ちゃんと記録に残るか」を 頼む前に答える（2026-10-20・kp245）。
@@ -271,7 +299,7 @@ export async function GET() {
     //   **その行が公開の鍵（画面と同じ鍵）で読めるか**が、1分が実るかどうかそのものです。
     const press = buildCashCountPress({
       shelfMissing: data.cashShelfMissing,
-      ...(await probeMemoRow(data.cashShelfMissing)),
+      ...memoProbe,
     });
 
     // ★「数え始めの日より前に払った経費」（2026-10-28・kp265・f1-4）。
@@ -279,13 +307,6 @@ export async function GET() {
     //   **金額は1円も返しません**（件数と日付、説明がつくかどうかだけ）。
     //   この分が居られるのは**数え始めの月だけ**なので、その月を数えます
     //   （今月ぶんの読み込みは数え始めの日から始まるため、前の行がそもそも入っていません）。
-    const openingGap = await readOpeningGap({
-      openingDate: data.settingsMissing ? null : (settings.opening_date ?? null),
-      ym,
-      reports: data.reports,
-      db,
-    });
-
     // ★「差は ぜんぶ名前が付いたか」（2026-11-08・f1-4）。
     //   上の5つの内わけは、**それぞれ自分のことしか言いません**。読んだ人には
     //   「で、この差は ぜんぶ説明が付いたの？ まだ探すものがあるの？」が分かりません。

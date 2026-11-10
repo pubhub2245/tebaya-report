@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
+import { monthParamWindow, readMonthParam, type MonthParam } from "@/lib/keiri/monthParam";
 import { previousMonthRange, CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import {
   compareReadPaths,
@@ -46,9 +47,12 @@ export const dynamic = "force-dynamic";
  * ■ 月を指定できます：`?ym=2026-09`（付けなければ前の月）
  */
 export async function GET(req: NextRequest) {
-  const asked = (req.nextUrl.searchParams.get("ym") ?? "").trim();
+  // ★月の指定は1か所で受け取る（2026-11-10・f1-2／f3-4）。
+  //   鍵の名前を間違えて ?month=2026-09 と書かれても、**黙って前の月で答えない**
+  //   （答える月は今までどおりでも、「ちがう月の答えです」と必ず知らせる）。
   const { start } = previousMonthRange(new Date());
-  const ym = /^\d{4}-(0[1-9]|1[0-2])$/.test(asked) ? asked : start.slice(0, 7);
+  const monthParam = readMonthParam(req.nextUrl.searchParams, start.slice(0, 7));
+  const ym = monthParam.ym;
 
   try {
     // ★fresh ＝ ためた答えを使わない（2026-11-10・f1-2／f3-4）。
@@ -72,19 +76,57 @@ export async function GET(req: NextRequest) {
         ...readPathVerdict({ kind: "warehouse", reason: warehouse.reason }),
         what: "2つの道（サーバー側の窓口／ブラウザ直読み）に同じ月を読ませて、差だけを出しています",
         note: "金額そのものは返していません。1行も書き込みません（読むだけ）",
-      });
+      }, monthParam);
     }
 
-    // ① サーバー側の窓口が使う読み方（お店は合言葉から決まる道）
-    const viaWindow = await loadKeiriMonthServer({
-      ym,
-      businessCode: CASE_BUSINESS_CODE,
-      scope: TEBAYA_SCOPE,
-      // fresh ＝ ためた答えを使わない（2026-11-06）
-      fresh: true,
-      monthOnly: false,
-      db,
-    });
+    /**
+     * ①②③ の3つの読みを**同時に**走らせる（2026-11-10・f1-2／f3-4）。
+     *
+     * ■ なぜ直したか（やさしい説明）
+     *   ここは月の数字を**3回**読みます（サーバー側の道／これまでのブラウザ直読み／
+     *   立替を広い期間で読んだ分）。それを**1つずつ順番に**待っていたので、
+     *   ぜんぶ終わるまで **11〜14秒** かかっていました。外から読む道具の待ち時間は
+     *   たいてい10秒なので、**答えが出ているのに「サーバー側の誤り」に見えます**
+     *   （2026-11-10 13:0x に A が実際にそれに当たり、f1-2 を確かめ直す道が閉じました）。
+     *   3つは**おたがいの答えを必要としない**ので、同時に頼めば待ち時間は1回ぶんです。
+     *
+     * ■ 答えは1つも変えていません
+     *   読む関数・引数・比べ方は1文字も変えていません。順番だけを変えました。
+     *   （読めなかったときの返し方も下でこれまでどおり判定します。読む順番が答えに
+     *   影響しないことは、3つが別々の読み取りであることで保たれます。）
+     */
+    const [viaWindow, viaDirect, wide] = await Promise.all([
+      // ① サーバー側の窓口が使う読み方（お店は合言葉から決まる道）
+      loadKeiriMonthServer({
+        ym,
+        businessCode: CASE_BUSINESS_CODE,
+        scope: TEBAYA_SCOPE,
+        // fresh ＝ ためた答えを使わない（2026-11-06）
+        fresh: true,
+        monthOnly: false,
+        db,
+      }),
+      // ② 今までの読み方（ブラウザから倉庫を直接のぞく道）。
+      //    同じ鍵でつないで、**画面が使うのと同じ関数**に読ませる
+      loadKeiriMonthDirect({
+        ym,
+        scope: TEBAYA_SCOPE,
+        businessCode: CASE_BUSINESS_CODE,
+        fallbackSettings: defaultSettingsFor(CASE_BUSINESS_CODE),
+        db: db as never,
+      }),
+      // ③ 立替を「前後40日」の期間で読み直した分（下の compareAdvanceWindow が使う）
+      loadKeiriMonthServer({
+        ym,
+        businessCode: CASE_BUSINESS_CODE,
+        scope: TEBAYA_SCOPE,
+        // fresh ＝ ためた答えを使わない（2026-11-06）
+        fresh: true,
+        monthOnly: true,
+        db,
+      }),
+    ]);
+
     if (viaWindow.reportsUnreadable || viaWindow.advancesUnreadable) {
       // ★読めなかった棚があるだけ＝**ちがう**ではありません。ok は null にします
       return jsonWindow({
@@ -96,25 +138,15 @@ export async function GET(req: NextRequest) {
         }),
         what: "2つの道（サーバー側の窓口／ブラウザ直読み）に同じ月を読ませて、差だけを出しています",
         note: "金額そのものは返していません。1行も書き込みません（読むだけ）",
-      });
+      }, monthParam);
     }
-
-    // ② 今までの読み方（ブラウザから倉庫を直接のぞく道）。
-    //    同じ鍵でつないで、**画面が使うのと同じ関数**に読ませる
-    const viaDirect = await loadKeiriMonthDirect({
-      ym,
-      scope: TEBAYA_SCOPE,
-      businessCode: CASE_BUSINESS_CODE,
-      fallbackSettings: defaultSettingsFor(CASE_BUSINESS_CODE),
-      db: db as never,
-    });
 
     const result = compareReadPaths(numbersOf(ym, viaWindow), numbersOf(ym, viaDirect));
 
     // ③ 立替を「前後40日」の期間で読むと何行ふえて、何が動くか（kp250・f1-2／f1-4）。
     //    読み方を寄せたときに会計ソフト向けの表が 133→124 行に減ったので、
     //    その9行が何者なのかを外から読むだけで確かめられるようにする。
-    const advanceWindow = await compareAdvanceWindow({ ym, base: viaWindow, db });
+    const advanceWindow = compareAdvanceWindow({ ym, base: viaWindow, wide });
 
     return jsonWindow({
       ym,
@@ -126,7 +158,7 @@ export async function GET(req: NextRequest) {
         "金額そのものは返していません。差が 0 ＝ 2つの道の答えが同じ、という読み方です。",
       reads: { window: "/api/keiri/month と同じ読み方", direct: "これまでの画面と同じ読み方" },
       writes: "ありません（読むだけ）",
-    });
+    }, monthParam);
   } catch (e: any) {
     // ★通信が失敗したときも「ちがう」とは言いません（合格にも不合格にもしない）
     return jsonWindow({
@@ -135,7 +167,7 @@ export async function GET(req: NextRequest) {
       ...readPathVerdict({ kind: "failure", reason: "倉庫との通信に失敗しました" }),
       reason: String(e?.message ?? e).slice(0, 200),
       note: "金額そのものは返していません。1行も書き込みません（読むだけ）",
-    });
+    }, monthParam);
   }
 }
 
@@ -152,28 +184,20 @@ export async function GET(req: NextRequest) {
  * ■ 返すのは件数と「差」だけ。立替の金額そのもの・払った人の名前は返しません。
  * ■ 1行も書き込みません（読むだけ）。
  */
-async function compareAdvanceWindow(params: {
+function compareAdvanceWindow(params: {
   ym: string;
   base: Awaited<ReturnType<typeof loadKeiriMonthServer>>;
-  db: ReturnType<typeof serverClient>;
+  /** 「前後40日」の期間で読み直した分（上で①②と同時に読んである） */
+  wide: Awaited<ReturnType<typeof loadKeiriMonthServer>>;
 }) {
-  const { ym, base, db } = params;
+  const { ym, base, wide } = params;
   const opening = base.settings.opening_date || `${ym}-01`;
   const ranges = {
     screen: advanceReadRange({ ym, openingDate: opening }),
     wide: advanceReadRange({ ym, openingDate: opening, monthOnly: true }),
   };
 
-  // 前後40日の期間で、立替だけを読み直す（ほかの棚は base の答えをそのまま使う）
-  const wide = await loadKeiriMonthServer({
-    ym,
-    businessCode: CASE_BUSINESS_CODE,
-    scope: TEBAYA_SCOPE,
-    // fresh ＝ ためた答えを使わない（2026-11-06）
-    fresh: true,
-    monthOnly: true,
-    db,
-  });
+  // 前後40日の期間の答え（ほかの棚は base の答えをそのまま使う）
   if (wide.advancesUnreadable) {
     // ★読めなかっただけ＝「差がある」ではありません（2026-11-08）
     return {
@@ -270,6 +294,13 @@ function numbersOf(
 }
 
 /** 窓口の返事（保存させない・検索結果には載せない。lib/keiri/checkWindow.ts） */
-function jsonWindow(body: unknown): NextResponse {
-  return NextResponse.json(stampCheckWindow(body), { status: 200, headers: CHECK_WINDOW_HEADERS });
+function jsonWindow(body: unknown, monthParam?: MonthParam): NextResponse {
+  const withMonth =
+    monthParam && typeof body === "object" && body !== null
+      ? { ...(body as object), monthParam: monthParamWindow(monthParam) }
+      : body;
+  return NextResponse.json(stampCheckWindow(withMonth), {
+    status: 200,
+    headers: CHECK_WINDOW_HEADERS,
+  });
 }
