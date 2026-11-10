@@ -116,6 +116,48 @@ test("道が無い・知らない合言葉のときは、決めつけない", ()
   assert.equal(applyRouteLabel("card"), "紙の札（QR）");
 });
 
+test("どの道も、本当にいま画面に出ている（外したら落ちる）", () => {
+  // ★2026-11-09 の作り変えで、ホームに出していた「アプリ」の入口が外れたのに、
+  //   一覧の『どこに置いてあるか』だけが古いまま残りました。
+  //   道が消えた・置き場所が変わったことに**その場で気づける**ようにするための守りです。
+  for (const r of APPLY_ROUTES) {
+    assert.ok(r.renderedIn.length > 0, `${r.key} の置き場所が書かれていません`);
+    for (const src of r.renderedIn) {
+      let text = "";
+      try {
+        text = readFileSync(src.file, "utf-8");
+      } catch {
+        assert.fail(`${r.key} の入口のファイルがありません：${src.file}`);
+      }
+      for (const must of src.must) {
+        assert.ok(
+          text.includes(must),
+          `${r.key}（${r.label}）の入口が ${src.file} から消えています（${must} が見つかりません）。` +
+            "入口を外したなら lib/keiri/applyRoutes.ts の where と renderedIn も直してください。",
+        );
+      }
+    }
+  }
+});
+
+test("置き場所の説明（where）と、名指ししたファイルが食い違っていない", () => {
+  const app = APPLY_ROUTES.find((r) => r.key === APP_FROM_KEY);
+  assert.ok(app);
+  if (!app) return;
+  // ホームからは外した（じゅん 2026-11-09）。「ホーム」と書き戻したら落とす
+  assert.ok(
+    !app.where.includes("ホーム"),
+    "アプリの入口はホームには出していません（管理者ページだけ）",
+  );
+  assert.ok(app.renderedIn.some((s) => s.file === "app/admin/page.tsx"));
+  // ホームの画面には、ご案内の1枚を置かない（現場の画面はボタン2つだけ）
+  const home = readFileSync("app/page.tsx", "utf-8");
+  assert.ok(
+    !home.includes("KeiriCaseLink"),
+    "ホームにご案内の1枚が戻っています（2026-11-09 じゅん決定に反します）",
+  );
+});
+
 test("「下見だけ」は、知らせも控えも出す前に引き返している", () => {
   // ★受け口（app/api/keiri/apply/route.ts）の中身をそのまま読んで確かめます。
   //   下見のつもりで叩いたのにスタッフのLINEへ飛んだ、を起こさないための守りです。
