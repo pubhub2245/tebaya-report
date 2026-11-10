@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import {
   CHECK_WINDOWS,
   CHECK_WINDOW_HEADERS,
+  CLOSED_ON_PURPOSE,
   VERDICT_VALID_MINUTES,
   stampCheckWindow,
 } from "@/lib/keiri/checkWindow";
@@ -71,6 +72,22 @@ export async function GET() {
         "（robots.txt はこの一覧から作られます）。" +
         "同じ取りこぼしが 10/06・10/10・11/09 の3回 起きたので、" +
         "tests/keiriCheckWindow.test.ts が「札を付けて返す窓口は、ぜんぶ一覧に入っている」を見張っています",
+      /**
+       * ★**わざと外から読めないままにしている住所**（2026-11-10・B）。
+       *   ここに出ている住所は「開かないのが正しい状態」です。読めないことを
+       *   行き止まりとして報告しなくてよいように、代わりに開く窓口まで書いてあります。
+       *   （11/10 18:0x に A が /api/keiri/month で1回 立てています）
+       */
+      closedOnPurpose: CLOSED_ON_PURPOSE.map((c) => ({
+        path: c.path,
+        url: `${base}${c.path}`,
+        why: c.why,
+        insteadOpen: c.insteadOpen.map((p) => `${base}${p}`),
+      })),
+      closedOnPurposeNote:
+        "**closedOnPurpose に出ている住所が外から読めないのは、直すべき不具合ではありません。**" +
+        "合言葉が要る／本物の金額を返すので、外から読んでよい窓口の決まりに当たります。" +
+        "同じことを測りたいときは insteadOpen の窓口を開いてください",
       note:
         "合否は、この案内所では付けません（住所を並べるだけです）。" +
         "それぞれの窓口を開いて、その答えで付けてください",

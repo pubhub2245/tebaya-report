@@ -11,6 +11,8 @@ import {
   CHECK_WINDOWS,
   CHECK_WINDOW_HEADERS,
   CHECK_WINDOW_PATHS,
+  CLOSED_ON_PURPOSE,
+  CLOSED_ON_PURPOSE_PATHS,
   stampCheckWindow,
   VERDICT_VALID_MINUTES,
 } from "../lib/keiri/checkWindow";
@@ -243,4 +245,103 @@ test("案内所は、どの項目をどの窓口で測れるかを引けるだ�
   for (const id of ["f1-4", "f3-4", "f5-4", "f2-1"]) {
     assert.ok(all.includes(id), `${id} を測る窓口が1本も無い`);
   }
+});
+
+/**
+ * 受け皿ぜんぶの点検（/api/keiri/diagnose）も、外から読んでよい一覧に入っている
+ * （2026-11-10 B・f2-1・f2-2・f2-3）。
+ *
+ * ■ なぜ要るか
+ *   11/10 18:0x に A が実測して、この住所が **外から1文字も読めない**ことが分かりました
+ *   （robots.txt で「読まないでください」の側だったため）。
+ *   ＝ ②（申し込みが確実に残る）の合否を外から1回で確かめる道が閉じていました。
+ *   11/9 の applications/count とまったく同じ取りこぼしなので、ここで止めます。
+ */
+test("受け皿ぜんぶの点検も、外から読んでよい一覧に入っている（f2-1・f2-2・f2-3）", () => {
+  assert.ok(
+    CHECK_WINDOW_PATHS.includes("/api/keiri/diagnose"),
+    "受け皿の点検が一覧に無いので、外から読めません",
+  );
+  const w = CHECK_WINDOWS.find((x) => x.path === "/api/keiri/diagnose");
+  assert.ok(w);
+  for (const id of ["f2-1", "f2-2", "f2-3"]) {
+    assert.ok(w!.check.includes(id), `受け皿の点検に ${id} が結び付いていない`);
+  }
+});
+
+test("受け皿ぜんぶの点検は、鍵の値も本物の金額も返さない（決まり②③）", () => {
+  const { readFileSync } = require("node:fs") as typeof import("node:fs");
+  const { join } = require("node:path") as typeof import("node:path");
+  const src = readFileSync(
+    join(__dirname, "..", "app", "api", "keiri", "diagnose", "route.ts"),
+    "utf8",
+  );
+  // 鍵・合言葉の値をそのまま返す道を持たない（設定済み／未設定だけを返す）
+  for (const bad of [
+    "process.env.SUPABASE_SERVICE_ROLE_KEY,",
+    "process.env.NEXT_PUBLIC_ADMIN_PASSWORD,",
+  ]) {
+    assert.ok(!src.includes(bad), `点検の窓口に鍵の値が入っている：${bad}`);
+  }
+  // 札を付けて返している（いつ・どの版で答えたか）
+  assert.ok(src.includes("stampCheckWindow("));
+  assert.ok(src.includes("CHECK_WINDOW_HEADERS"));
+});
+
+/**
+ * 受け皿の点検は倉庫に12回 聞く。順番に待つと、外から読む道具の待ち時間（10秒）を
+ * 超えて切れる（同じことが 11/10 お昼に 金庫・読み方くらべの2本で起きた）。
+ * おたがいの答えを必要としないものは、同時に頼んでいること。
+ */
+test("受け皿の点検は、順番待ちをせず同時に頼んでいる（待ち時間で切れない）", () => {
+  const { readFileSync } = require("node:fs") as typeof import("node:fs");
+  const { join } = require("node:path") as typeof import("node:path");
+  const src = readFileSync(
+    join(__dirname, "..", "app", "api", "keiri", "diagnose", "route.ts"),
+    "utf8",
+  );
+  assert.ok(
+    src.includes("await Promise.all([\n    checkApplications(applications),"),
+    "控え・件数・訪問の3つを同時に頼んでいない（順番待ちに戻っている）",
+  );
+});
+
+/**
+ * 「わざと外から読めないままにしている住所」の一覧（2026-11-10・B）。
+ *
+ * ■ なぜ要るか
+ *   11/10 18:0x に A が「/api/keiri/month が外から1文字も読めない」を
+ *   行き止まりとして残しました。あの住所は合言葉が要り、**本物の金額をそのまま返す**ので、
+ *   外から読んでよい窓口の決まり③に当たり、一覧に入れてはいけません。
+ *   「入れてはいけない」と書いた場所がどこにも無かったため、同じ行き止まりが何度でも立ちます。
+ */
+test("わざと閉じている住所は、窓口の一覧とぶつからない", () => {
+  assert.ok(CLOSED_ON_PURPOSE.length > 0);
+  for (const c of CLOSED_ON_PURPOSE) {
+    assert.ok(
+      !CHECK_WINDOW_PATHS.includes(c.path),
+      `閉じている住所が窓口の一覧にも入っている：${c.path}`,
+    );
+    assert.ok(c.why.length > 0, `なぜ閉じているかが書かれていない：${c.path}`);
+    assert.ok(c.insteadOpen.length > 0, `代わりに開く窓口が無い：${c.path}`);
+    // 代わりに開く先は、必ず本物の窓口であること（存在しない住所を案内しない）
+    for (const alt of c.insteadOpen) {
+      assert.ok(
+        CHECK_WINDOW_PATHS.includes(alt),
+        `代わりに案内している住所が窓口の一覧に無い：${alt}`,
+      );
+    }
+  }
+  assert.ok(CLOSED_ON_PURPOSE_PATHS.includes("/api/keiri/month"));
+});
+
+test("案内所は、わざと閉じている住所も外に出す（同じ行き止まりが立たない）", () => {
+  const { readFileSync } = require("node:fs") as typeof import("node:fs");
+  const { join } = require("node:path") as typeof import("node:path");
+  const src = readFileSync(
+    join(__dirname, "..", "app", "api", "keiri", "windows", "route.ts"),
+    "utf8",
+  );
+  assert.ok(src.includes("closedOnPurpose"));
+  assert.ok(src.includes("insteadOpen"));
 });
