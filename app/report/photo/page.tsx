@@ -24,6 +24,7 @@ import type { SaleProduct } from "@/lib/salesBreakdown";
 import { resizeImage } from "@/lib/imageResize";
 import { uploadReceiptOrKeep } from "@/lib/receiptStorage";
 import { recalcRankForLocation } from "@/lib/locationRankUpdate";
+import { watchCostsFromReport } from "@/lib/costWatchStore";
 import TebayaOnlyGate from "@/app/components/TebayaOnlyGate";
 import { initialCleanupInventory, initialCleanupTasks } from "@/lib/formState";
 import {
@@ -350,17 +351,30 @@ function PhotoReportPage() {
         slipImages,
       });
 
-      const { error } = await supabase.from("daily_reports").insert(row);
+      const { data: saved, error } = await supabase.from("daily_reports").insert(row).select("id");
       if (error) throw error;
 
       try {
         await recalcRankForLocation(location);
       } catch {}
+      // 原価率の見張り（現場の手数はゼロ。レシートの品物から材料の単価を拾い、
+      // 目安を超えた商品があれば LINE に1行添える。失敗しても日報はもう保存済み）
+      let costText = "";
+      try {
+        costText = await Promise.race([
+          watchCostsFromReport({
+            reportId: (saved as any)?.[0]?.id ?? null,
+            date,
+            expenses: expensesForSave,
+          }),
+          new Promise<string>((r) => setTimeout(() => r(""), 5000)),
+        ]);
+      } catch {}
       try {
         const res = await fetch("/api/line/send-report", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ text: lineText }),
+          body: JSON.stringify({ text: lineText + costText }),
         });
         const json = await res.json();
         if (json.ok) setLineSent(true);

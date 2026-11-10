@@ -155,6 +155,37 @@ export const ALLOWED_UNSCOPED: readonly AllowEntry[] = [
     why: "管理だけ（写真を置き場へ移す前の控え）",
   },
 
+  {
+    path: "app/admin/cost/page.tsx",
+    table: "cost_targets",
+    why: "手羽屋だけ（原価率の見張り・2026-11-10。管理者ページの中で、画面に手羽屋だけの門あり）",
+  },
+  {
+    path: "app/admin/cost/page.tsx",
+    table: "cost_materials",
+    why: "手羽屋だけ（原価率の見張り・2026-11-10。管理者ページの中で、画面に手羽屋だけの門あり）",
+  },
+  {
+    path: "app/admin/cost/page.tsx",
+    table: "cost_price_log",
+    why: "手羽屋だけ（原価率の見張り・2026-11-10。管理者ページの中で、画面に手羽屋だけの門あり）",
+  },
+  {
+    path: "app/admin/cost/page.tsx",
+    table: "cost_recipes",
+    why: "手羽屋だけ（原価率の見張り・2026-11-10。管理者ページの中で、画面に手羽屋だけの門あり）",
+  },
+  {
+    path: "lib/costWatchStore.ts",
+    table: "cost_price_log",
+    why: "手羽屋だけ（原価率の見張り。呼ぶのは手羽屋の写真日報だけで、その画面に手羽屋だけの門あり）",
+  },
+  {
+    path: "lib/costWatchStore.ts",
+    table: "cost_materials",
+    why: "手羽屋だけ（原価率の見張り。呼ぶのは手羽屋の写真日報だけで、その画面に手羽屋だけの門あり）",
+  },
+
   // ── 画面に手羽屋だけの門あり（app/components/TebayaOnlyGate.tsx） ───
   {
     path: "app/agenda/page.tsx",

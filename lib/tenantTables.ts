@@ -74,6 +74,12 @@ export const TABLES_NOT_IN_SHOP_SCREENS: Record<string, string> = {
   table_snapshots:
     "毎日の控え（バックアップ・→ CLAUDE.md 4-6）。サーバー側の鍵でしか触れない",
   weather_alerts: "天気の知らせの記録。毎日の自動処理（cron）だけが触る",
+  cost_materials:
+    "原価率の見張りの材料（2026-11-10）。手羽屋だけ。画面は管理者ページ（/admin/cost・合言葉の内側＋手羽屋だけの門）、書くのは手羽屋の写真日報（門あり）のあとの見張りだけ",
+  cost_recipes: "原価率の見張りの商品ごとの材料。触るのは /admin/cost だけ（同上）",
+  cost_targets: "原価率の見張りの目安。触るのは /admin/cost だけ（同上）",
+  cost_price_log:
+    "原価率の見張りの単価の記録。書くのは手羽屋の写真日報（門あり）のあとの見張りと /admin/cost だけ",
   keiri_tenants:
     "お店そのものの棚。鍵かけが有効で決まりが0本＝公開の鍵では1行も読めない（→ /api 経由だけ）",
 };
