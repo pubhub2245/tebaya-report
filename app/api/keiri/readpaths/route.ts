@@ -51,7 +51,12 @@ export async function GET(req: NextRequest) {
   const ym = /^\d{4}-(0[1-9]|1[0-2])$/.test(asked) ? asked : start.slice(0, 7);
 
   try {
-    const db = serverClient();
+    // ★fresh ＝ ためた答えを使わない（2026-11-10・f1-2／f3-4）。
+    //   下の loadKeiriMonthServer には fresh: true を渡していますが、
+    //   **つなぐもの（db）を一緒に渡すと、そちらが使われて fresh は効きません**。
+    //   ＝ 「ためていない」と書いてあるのに ためた答えで答えていました。
+    //   つなぐものの側に付けるのが正しい場所です。
+    const db = serverClient({ fresh: true });
 
     /**
      * ⓪ 対照：**同じつなぎ方**で手羽屋の行が1件でも見えるか（2026-11-08・f1-2／f3-4）。

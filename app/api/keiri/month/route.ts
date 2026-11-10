@@ -75,7 +75,10 @@ export async function POST(req: NextRequest) {
     ? createHash("sha256").update(tebayaPassword, "utf8").digest("hex")
     : "";
 
-  const db = serverClient();
+  // ★fresh ＝ ためた答えを使わず、毎回 倉庫へ取りに行く（2026-11-10・f3-3）。
+  //   この窓口は、申し込んだお店の経理画面が数字を読む所です。
+  //   ためた答えを返すと「日報を出したのに今月の数字が増えない」ことになります。
+  const db = serverClient({ fresh: true });
   const resolved = await resolveReadScope({
     passwordHash: body.passwordHash,
     tebayaHash,

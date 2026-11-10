@@ -319,6 +319,12 @@ async function loadKeiriMonthServerInner(params: {
    *   0件は「よその店の行が1件も無い＝合格」と読めてしまうので、測る窓口では
    *   ためた答えを使ってはいけません。
    * ★手羽屋が毎日使う画面の読み方は変えません（渡さなければ今までどおり）。
+   * ★**この印は `db` を渡したときは、そちらが使われます**（2026-11-10）。
+   *   つまり `fresh: true` と書いても、印の無い `serverClient()` を一緒に渡すと
+   *   **ためた答えのまま**です。実際に /api/keiri/cashcount と /api/keiri/readpaths が
+   *   そうなっていて、11月の日報4枚が入ったあとも「10月31日まで」と答えていました。
+   *   つなぐものの側（`serverClient({ fresh: true })`）に付けるのが正しい場所で、
+   *   tests/keiriFreshWindows.test.ts が窓口ぜんぶを見張っています。
    */
   fresh?: boolean;
   /**
