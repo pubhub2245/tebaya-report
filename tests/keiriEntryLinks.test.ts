@@ -36,7 +36,7 @@ const ENTRIES: Entry[] = [
   { name: "紙の札（/keiri/card のQR）", href: CARD_TAKEAWAY_URL, key: CARD_FROM_KEY },
   { name: "見せる1枚（/keiri/show のQR）", href: SHOW_TAKEAWAY_URL, key: SHOW_FROM_KEY },
   { name: "お試し（/keiri/demo の押し所）", href: TRIAL_APPLY_HREF, key: TRIAL_FROM_KEY },
-  { name: "日報アプリ（ホーム・管理者ページ）", href: APP_CASE_HREF, key: APP_FROM_KEY },
+  { name: "日報アプリ（管理者ページ）", href: APP_CASE_HREF, key: APP_FROM_KEY },
   { name: "倉庫の表紙（README.md）", href: README_CASE_URL, key: README_FROM_KEY },
 ];
 
