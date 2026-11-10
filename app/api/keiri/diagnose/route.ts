@@ -23,6 +23,7 @@ import {
 } from "@/lib/keiri/notifyHealth";
 import { probeNotify } from "@/lib/keiri/notifyProbe";
 import { paymentLinkUrl } from "@/lib/keiri/caseNumbers";
+import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 import { KEIRI_APPLY_COPY_TO, keiriApplyRecipients } from "@/lib/keiri/apply";
 import { KEIRI_COMPANY } from "@/lib/keiri/legal";
 import {
@@ -62,6 +63,21 @@ export const dynamic = "force-dynamic";
  * ★ 記録は1行も増やしません。1か所だけ「**わざと断られる行**」を入れてみますが、
  *   決まりに必ず断られるので残りません（申し込みの控えが本当に残るかの確かめ・kp103）。
  * ★ 手羽屋の日報・シフト・LINE には一切触れていません。
+ *
+ * ■ 2026-11-10 B：**外から確かめる窓口の一覧に入れました**（f2-1・f2-2・f2-3）
+ *   11/10 18:0x に A が実測して、この住所が **外から1文字も読めない**ことが分かりました
+ *   （robots.txt で「読まないでください」の側だったため）。
+ *   ＝ ②（申し込みが確実に残る）の合否を、外から1回で確かめる道が閉じていました。
+ *   11/9 に『お申し込みの数の窓口』で直したのと同じ形です。
+ *   あわせて、ほかの窓口と同じ札（ためさせない・検索結果に載せない）と
+ *   「いつ・どの版で答えたか／この答えで合否を付けてよい期限」を足しました。
+ *
+ * ■ 同じ日に直した「待ち時間で切れる」（f2-1）
+ *   ここは倉庫に12回 聞きます。そのうち4回を**順番に待っていた**ので、
+ *   外から読む道具の待ち時間（10秒）を超える恐れがありました
+ *   （11/10 お昼に 金庫・読み方くらべの2本で実際に起きています）。
+ *   おたがいの答えを必要としないものは**同時に頼みます**。
+ *   聞く相手・聞く中身・返す答えは1つも変えていません。
  */
 
 /** その置き場（表）が本番にあって読めるかを、1行だけ読んで確かめる */
@@ -323,9 +339,14 @@ export async function GET() {
     broken: repair.broken,
   });
 
-  const applicationsStore = await checkApplications(applications);
-  const applicationsPending = await checkPendingApplications(applications);
-  const visitsStore = await checkVisits(visits);
+  // ★2026-11-10（B・f2-1）：この4つは**おたがいの答えを必要としない**ので、同時に頼む。
+  //   順番に待つと、倉庫が重い日に外から読む道具の10秒を超えて切れる
+  //   （同じことが 11/10 お昼に 金庫・読み方くらべの2本で起きた）。
+  const [applicationsStore, applicationsPending, visitsStore] = await Promise.all([
+    checkApplications(applications),
+    checkPendingApplications(applications),
+    checkVisits(visits),
+  ]);
   const notify = describeNotify(notifyFacts);
   const delivery = describeApplicationDelivery({
     notifyOk: notify.ok,
@@ -349,7 +370,8 @@ export async function GET() {
     applicationDeliveryOk: delivery.ok,
   });
 
-  return NextResponse.json({
+  return NextResponse.json(
+    stampCheckWindow({
     ...readiness,
     // ★ Stripe 側の「支払いのあとの戻り先」はここからは見えません。
     //    人が Stripe の画面で1回だけ設定します（下の値のとおりに）。
@@ -395,5 +417,16 @@ export async function GET() {
     //     null＝確かめていない・確かめられない宛先）。この確かめでは1通も送らない。
     notify: { ...notify, groupReachable: notifyFacts.groupReachable ?? null },
     application_delivery: delivery,
-  });
+    // ★外から合否を付ける人への但し書き（2026-11-10・B）
+    verdictHow:
+      "②（申し込みが1件も取りこぼされずに残り、知らせが届くか）は、" +
+      "records.applications（控えが残るか）・records.applications_pending（まだ手当てしていない件数）・" +
+      "notify（知らせが届く状態か）の3つで見てください。" +
+      "**unreachable や『倉庫につながりませんでした』が出ているときは、合否を付けないでください**" +
+      "（倉庫まで届かなかった＝測れていないだけで、受け皿が壊れたとは言えません）。" +
+      "件数には確かめのために入れたテストの行も入ります（/api/keiri/applications/count の realTotalWhy を読んでください）",
+    check: "f2-1・f2-2・f2-3・共通・f5-4",
+    }),
+    { status: 200, headers: CHECK_WINDOW_HEADERS },
+  );
 }
