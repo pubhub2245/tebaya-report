@@ -148,6 +148,15 @@ export type KeiriMonthServerData = {
   readTimedOut?: boolean;
 };
 
+/**
+ * 先に頼んだ問い合わせが**失敗したとき**の形（2026-11-10）。
+ * ★「読めなかった」として返すだけで、**0件とは言いません**
+ *   （呼んだ側は今までどおり reportsUnreadable などを立てて、合否を付けません）。
+ */
+function readAllFailed(): { rows: any[]; error: unknown; total: null; pages: number; incomplete: boolean } {
+  return { rows: [], error: "倉庫に聞けませんでした", total: null, pages: 0, incomplete: true };
+}
+
 /** YYYY-MM-DD を日数ぶんずらす */
 export function shiftDate(ymd: string, days: number): string {
   const d = new Date(`${ymd}T00:00:00Z`);
@@ -399,6 +408,134 @@ async function loadKeiriMonthServerInner(params: {
   const opening = settings.opening_date || monthStart;
   const from = params.monthOnly ? monthStart : monthStart < opening ? monthStart : opening;
 
+  // ★立替を読む期間（純粋な計算。下でも使うので先に出しておく）
+  const advRange = advanceReadRange({
+    ym,
+    openingDate: settings.opening_date || monthStart,
+    monthOnly: params.monthOnly,
+  });
+
+  /**
+   * ★手羽屋ぶんを読むときは、倉庫への問い合わせを**同時に**始める（2026-11-10・f1-4／f1-2）。
+   *
+   * ■ なぜ直したか（やさしい説明）
+   *   ここは棚を **9回** 読みます（日報・払った記録・立替2つ・前の月に立て替えて返した分・
+   *   金庫の記録・閉店後のレジ金・日報が入った時刻・数えない印）。
+   *   それを**1つずつ順番に**待っていたので、ぜんぶ終わるまで 5〜6秒かかっていました。
+   *   この読み方は外から確かめる窓口も使うので、2つ重なると **10秒を超えて**
+   *   「サーバー側の誤り」に見えます（2026-11-10 13:0x に A が2本とも それに当たりました）。
+   *   9回は**おたがいの答えを必要としない**ので、先に全部 頼んで、順番に受け取ります。
+   *
+   * ■ 答えは1つも変えていません
+   *   問い合わせの中身・並び・読めなかったときの扱いは1文字も変えていません。
+   *   下の受け取り方も元の順番のままです（**頼む時刻だけ**が前に出ます）。
+   *
+   * ■ 手羽屋ぶん（直に読む道）だけです
+   *   よその店を倉庫の窓口ごしに読む道は1行も変えていません（今までどおり順番に読みます）。
+   */
+  const prefetch =
+    tebaya && !viaWindow
+      ? {
+          reports: readAllRows<KeiriReport>(() => {
+            let q = applyTenantScope<any>(
+              db
+                .from("keiri_reports")
+                .select("id, date, location, staff_name, shop, sales_amount, labor, expenses", {
+                  count: "exact",
+                }) as any,
+              scope,
+            ).gte("date", from);
+            if (params.monthOnly) q = q.lte("date", monthEndDate);
+            return q.order("date").order("id");
+          }).catch(readAllFailed),
+          payments: readAllRows<KeiriPayment>(() =>
+            db
+              .from("keiri_payments")
+              .select("id, paid_on, amount, kind, memo", { count: "exact" })
+              .eq("business_type_code", businessCode)
+              .order("paid_on", { ascending: false })
+              .order("id") as any,
+          ).catch(readAllFailed),
+          advField: readAllRows<any>(() => {
+            const fieldQuery = db
+              .from("keiri_advance_expenses")
+              .select("id, expense_date, amount, payer, source_type, memo", { count: "exact" })
+              .eq("business_type_code", businessCode)
+              .gte("expense_date", advRange.from)
+              .order("expense_date")
+              .order("id");
+            return (advRange.to ? fieldQuery.lte("expense_date", advRange.to) : fieldQuery) as any;
+          }).catch(readAllFailed),
+          advOwner: readAllRows<any>(() => {
+            const ownerQuery = db
+              .from("advance_expenses")
+              .select("id, date, amount, payer, description, settled, settled_date", {
+                count: "exact",
+              })
+              .gte("date", advRange.from)
+              .order("date")
+              .order("id");
+            return (advRange.to ? ownerQuery.lte("date", advRange.to) : ownerQuery) as any;
+          }).catch(readAllFailed),
+          // ★読めなかったときは、元の try/catch と同じ扱い（足さないだけ）にする
+          advRepaid: readAllRows<any>(() => {
+            const repaid = advanceRepaidEarlierRange(advRange);
+            const q = db
+              .from("advance_expenses")
+              .select("id, date, amount, payer, description, settled, settled_date", {
+                count: "exact",
+              })
+              .lt("date", repaid.advancedBefore)
+              .eq("settled", true)
+              .gte("settled_date", repaid.repaidFrom)
+              .order("settled_date")
+              .order("id");
+            return (repaid.repaidTo ? q.lte("settled_date", repaid.repaidTo) : q) as any;
+          }).catch(readAllFailed),
+          cash: readAllRows<unknown>(() =>
+            applyTenantScope<any>(
+              db
+                .from("keiri_cash_events")
+                .select("kind, happened_on, amount, actor, note", { count: "exact" }) as any,
+              scope,
+            )
+              .gte("happened_on", from)
+              .order("happened_on", { ascending: false })
+              .order("id"),
+          ).catch(readAllFailed),
+          register: readAllRows<any>(() =>
+            applyTenantScope<any>(
+              db
+                .from("daily_reports")
+                .select("id, date, unit_number, register_total, register_diff", {
+                  count: "exact",
+                }) as any,
+              scope,
+            )
+              .gte("date", from)
+              .order("date")
+              .order("id"),
+          ).catch(readAllFailed),
+          entered: readAllRows<any>(() => {
+            let q = applyTenantScope<any>(
+              db.from("daily_reports").select("id, created_at", { count: "exact" }) as any,
+              scope,
+            ).gte("date", from);
+            if (params.monthOnly) q = q.lte("date", monthEndDate);
+            return q.order("date").order("id");
+          }).catch(readAllFailed),
+          ignores: applyTenantScope<any>(
+            db
+              .from("keiri_expense_ignores")
+              .select("id, source, ref_id, line_index, amount, paid_on, reason, undone_at") as any,
+            scope,
+          ).then(
+            (r: any) => r,
+            (e: any) => ({ data: null, error: e ?? "読めませんでした" }),
+          ),
+        }
+      : null;
+
   // よその店の行は、貼り紙⑧のあと**公開の鍵では読めません**（f3-4・kp251）。
   // そのときは倉庫の窓口ごしに1回 読んで、日報とレジ金の両方をここから作ります。
   // ★窓口がまだ無い倉庫・合言葉を渡されなかったときは null のままで、
@@ -437,7 +574,8 @@ async function loadKeiriMonthServerInner(params: {
       })) as KeiriReport[];
   } else {
     // ★行が多い月でも切り落とされないように、足りなければ続きを読み足す（2026-11-03・lib/keiri/readAll.ts）
-    const got = await readAllRows<KeiriReport>(() => {
+    const got = await (prefetch?.reports ??
+      readAllRows<KeiriReport>(() => {
       let q = applyTenantScope<any>(
         db
           .from("keiri_reports")
@@ -450,7 +588,7 @@ async function loadKeiriMonthServerInner(params: {
       if (params.monthOnly) q = q.lte("date", monthEndDate);
       // ★続きから読むので、並びは1通りに決まっていないといけない（日付が同じ行があるため）
       return q.order("date").order("id");
-    });
+    }));
     if (got.error) reportsUnreadable = true;
     else reports = got.rows;
   }
@@ -478,7 +616,8 @@ async function loadKeiriMonthServerInner(params: {
   if (!paymentsViaWindow && !tebaya && !tenantFallbackAllowed(paymentsOutcome)) {
     paymentsUnreadable = true;
   } else if (!paymentsViaWindow) {
-    const got = await readAllRows<KeiriPayment>(() =>
+    const got = await (prefetch?.payments ??
+      readAllRows<KeiriPayment>(() =>
       db
         .from("keiri_payments")
         // ★id も取る。経理画面（サーバー側の窓口ごしに読むとき）が、
@@ -487,18 +626,13 @@ async function loadKeiriMonthServerInner(params: {
         .eq("business_type_code", businessCode)
         .order("paid_on", { ascending: false })
         .order("id") as any,
-    );
+    ));
     payments = got.rows;
   }
 
   // 立替。棚が2つあり列の名前も違うので形をそろえる。
   // ★読む期間は lib/keiri/advanceRange.ts の1か所で決める（2026-10-11・kp249）。
-  //   ここに期間を書いていたため、画面側（loadMonth.ts）と17件ずれていた。
-  const advRange = advanceReadRange({
-    ym,
-    openingDate: settings.opening_date || monthStart,
-    monthOnly: params.monthOnly,
-  });
+  //   ここに期間を書いていたため、画面側（loadMonth.ts）と17件ずれていた（advRange は上で出した）。
   const advances: KeiriAdvance[] = [];
   const advancesRepaidEarlier: KeiriAdvance[] = [];
   let advancesUnreadable = false;
@@ -508,7 +642,8 @@ async function loadKeiriMonthServerInner(params: {
   const advancesSkipped = !tebaya;
   if (tebaya) {
     {
-      const got = await readAllRows<any>(() => {
+      const got = await (prefetch?.advField ??
+        readAllRows<any>(() => {
         const fieldQuery = db
           .from("keiri_advance_expenses")
           .select("id, expense_date, amount, payer, source_type, memo", { count: "exact" })
@@ -517,12 +652,13 @@ async function loadKeiriMonthServerInner(params: {
           .order("expense_date")
           .order("id");
         return (advRange.to ? fieldQuery.lte("expense_date", advRange.to) : fieldQuery) as any;
-      });
+      }));
       if (got.error) advancesUnreadable = true;
       for (const row of got.rows) advances.push(normalizeFieldAdvance(row));
     }
     {
-      const got = await readAllRows<any>(() => {
+      const got = await (prefetch?.advOwner ??
+        readAllRows<any>(() => {
         const ownerQuery = db
           .from("advance_expenses")
           .select("id, date, amount, payer, description, settled, settled_date", {
@@ -532,7 +668,7 @@ async function loadKeiriMonthServerInner(params: {
           .order("date")
           .order("id");
         return (advRange.to ? ownerQuery.lte("date", advRange.to) : ownerQuery) as any;
-      });
+      }));
       if (got.error) advancesUnreadable = true;
       for (const row of got.rows) advances.push(normalizeOwnerAdvance(row));
     }
@@ -541,7 +677,8 @@ async function loadKeiriMonthServerInner(params: {
     //   （混ぜると月の経費と会計ソフト向けCSVが黙って動きます）。
     try {
       const repaid = advanceRepaidEarlierRange(advRange);
-      const got = await readAllRows<any>(() => {
+      const got = await (prefetch?.advRepaid ??
+        readAllRows<any>(() => {
         const q = db
           .from("advance_expenses")
           .select("id, date, amount, payer, description, settled, settled_date", {
@@ -553,7 +690,7 @@ async function loadKeiriMonthServerInner(params: {
           .order("settled_date")
           .order("id");
         return (repaid.repaidTo ? q.lte("settled_date", repaid.repaidTo) : q) as any;
-      });
+      }));
       if (!got.error) {
         for (const row of got.rows) {
           advancesRepaidEarlier.push(normalizeOwnerAdvance(row));
@@ -588,7 +725,8 @@ async function loadKeiriMonthServerInner(params: {
     if (!cashViaWindow && !tebaya && !tenantFallbackAllowed(cashOutcome)) {
       cashUnreadable = true;
     } else if (!cashViaWindow) {
-      const got = await readAllRows<unknown>(() =>
+      const got = await (prefetch?.cash ??
+        readAllRows<unknown>(() =>
         applyTenantScope<any>(
           db
             .from("keiri_cash_events")
@@ -598,7 +736,7 @@ async function loadKeiriMonthServerInner(params: {
           .gte("happened_on", from)
           .order("happened_on", { ascending: false })
           .order("id"),
-      );
+      ));
       if (got.error) cashShelfMissing = true;
       else cashEvents = normalizeCashEvents(got.rows);
     }
@@ -619,7 +757,8 @@ async function loadKeiriMonthServerInner(params: {
     registerCloses = normalizeRegisterCloses(windowRows as unknown[]);
     // ★窓口は「レジの過不足」の欄を返しません。0件と言わずに null のままにします
   } else {
-    const got = await readAllRows<any>(() =>
+    const got = await (prefetch?.register ??
+      readAllRows<any>(() =>
       applyTenantScope<any>(
         db
           .from("daily_reports")
@@ -631,7 +770,7 @@ async function loadKeiriMonthServerInner(params: {
         .gte("date", from)
         .order("date")
         .order("id"),
-    );
+    ));
     if (got.error) registerUnreadable = true;
     else {
       registerCloses = normalizeRegisterCloses(got.rows);
@@ -660,14 +799,15 @@ async function loadKeiriMonthServerInner(params: {
   // ★よその店として読んでいるときは、棚に直に聞かない（窓口ごしの決まり・kp253 ③）。
   //   入った時刻は「同じ日報が2枚」の見分けだけなので、読めなければ今までどおり疑いとして出る。
   if (!viaWindow && !windowRows) try {
-    const entGot = await readAllRows<any>(() => {
+    const entGot = await (prefetch?.entered ??
+      readAllRows<any>(() => {
       let q = applyTenantScope<any>(
         db.from("daily_reports").select("id, created_at", { count: "exact" }) as any,
         scope,
       ).gte("date", from);
       if (params.monthOnly) q = q.lte("date", monthEndDate);
       return q.order("date").order("id");
-    });
+    }));
     if (!entGot.error) {
       const enteredById = new Map<string, unknown>();
       for (const row of entGot.rows) {
@@ -712,12 +852,13 @@ async function loadKeiriMonthServerInner(params: {
       ignoresUnreadable = true;
       ignoreShelf = "unknown";
     } else if (!ignoresViaWindow) {
-      const { data, error } = await applyTenantScope<any>(
+      const { data, error } = await (prefetch?.ignores ??
+        applyTenantScope<any>(
         db
           .from("keiri_expense_ignores")
           .select("id, source, ref_id, line_index, amount, paid_on, reason, undone_at") as any,
         scope,
-      );
+      ));
       ignoreShelf = ignoreShelfStateOf({ error });
       if (!error) ignores = (data as ExpenseIgnoreRow[]) ?? [];
     }
