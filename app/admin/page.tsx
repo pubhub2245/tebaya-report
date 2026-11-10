@@ -406,6 +406,14 @@ export default function AdminPage() {
         📊 番隊別ダッシュボード
       </Link>
 
+      {/* 原価率の見張り（レシートから材料の単価を拾い、商品ごとの原価率を出す） */}
+      <Link
+        href="/admin/cost"
+        className="block w-full bg-rose-700 hover:bg-rose-800 text-white font-bold text-base px-6 py-4 rounded-xl shadow-md text-center transition-colors"
+      >
+        📉 原価率の見張り（商品ごとの原価率）
+      </Link>
+
       <Link
         href="/admin/settings"
         className="block w-full bg-stone-700 hover:bg-stone-800 text-white font-bold text-base px-6 py-4 rounded-xl shadow-md text-center transition-colors"
