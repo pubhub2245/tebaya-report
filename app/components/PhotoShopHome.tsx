@@ -132,6 +132,14 @@ export function PhotoShopHome() {
         <span className="text-xl">📖</span>
         <span>過去の日報を見る</span>
       </Link>
+
+      <Link
+        href="/supplies"
+        className="flex items-center justify-center gap-3 w-full h-16 rounded-3xl bg-white border-2 border-stone-200 active:border-orange-500 text-stone-700 font-bold text-lg shadow-sm transition"
+      >
+        <span className="text-xl">🛒</span>
+        <span>使う備品・材料を見る</span>
+      </Link>
     </section>
   );
 }
