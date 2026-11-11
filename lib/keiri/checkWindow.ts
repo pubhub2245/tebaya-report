@@ -297,6 +297,24 @@ export const CHECK_WINDOW_HEADERS: Record<string, string> = {
   "X-Robots-Tag": "noindex, nofollow",
 };
 
+/**
+ * 窓口の住所に「いまの時刻」の札を付ける（2026-11-11・B）。**計算だけ**。
+ *
+ * ■ なぜ要るか
+ *   窓口の答えには「ためないで」の札を5通りで付けてありますが、
+ *   **外から読む道具が自分の手元にためた分**は、こちらからは消せません。
+ *   同じ住所を2回 開くと、2回目に古い答えが返ることがあります
+ *   （11/9・11/10・11/11 に実際に起き、そのたびに「本番が古い」という誤報になりました）。
+ *   住所が1文字でも違えば別のものとして取りに行くので、**住所の側に札を入れます。**
+ *
+ * ★ `?` がすでに付いている住所には `&` でつなぎます。
+ */
+export function freshWindowUrl(base: string, path: string, v: string | number): string {
+  const b = String(base).replace(/\/$/, "");
+  const sep = path.includes("?") ? "&" : "?";
+  return `${b}${path}${sep}v=${v}`;
+}
+
 /** 答えを合否に使ってよい長さ（分）。これより古い答えで合否を付けない */
 export const VERDICT_VALID_MINUTES = 10;
 
