@@ -8,6 +8,7 @@ import OwnerApplicationAlert from "./components/OwnerApplicationAlert";
 import OwnerSetupTodoNotice from "./components/OwnerSetupTodoNotice";
 import OwnerAdminLink from "./components/OwnerAdminLink";
 import FranchiseMonthCard from "./components/FranchiseMonthCard";
+import { NotPhotoShopBlock, PhotoShopHome } from "./components/PhotoShopHome";
 
 /** グループ見出し */
 function GroupLabel({ children }: { children: React.ReactNode }) {
@@ -69,8 +70,14 @@ export default function MenuPage() {
         </section>
       </TebayaOnlyBlock>
 
+      {/* ─── 「写真だけの日報」のお店（牟田町店など・2026-11-11）───
+          押すのは「写真で日報を出す」だけ。その下に今月いくら残っているかを出す。
+          手羽屋と経理パッケージのお店には出ない（lib/photoShop.ts に載っているお店だけ）。 */}
+      <PhotoShopHome />
+
       {/* ─── 経理パッケージのお店：これまでどおり ─── */}
       <NotTebayaBlock>
+        <NotPhotoShopBlock>
         <section className="mb-5">
           <MonthlySummary />
         </section>
@@ -99,6 +106,7 @@ export default function MenuPage() {
         <section className="mb-4">
           <LocationRankingSummary />
         </section>
+        </NotPhotoShopBlock>
       </NotTebayaBlock>
 
       {/* 下の小さいリンクは管理者ページだけ。手羽屋ではじゅんの端末にしか出ない（2026-11-09）。
@@ -108,12 +116,14 @@ export default function MenuPage() {
           <OwnerAdminLink />
         </TebayaOnlyBlock>
         <NotTebayaBlock>
+          <NotPhotoShopBlock>
           <Link
             href="/admin"
             className="block text-sm text-stone-400 underline hover:text-stone-700"
           >
             管理者ページ →
           </Link>
+          </NotPhotoShopBlock>
         </NotTebayaBlock>
       </footer>
     </main>
