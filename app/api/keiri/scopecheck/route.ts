@@ -108,6 +108,19 @@ export async function GET() {
         advancesRead: !mine.advancesSkipped,
         advanceCount: mine.advances.length,
         readable: !mine.reportsUnreadable,
+        /**
+         * ★reportCount は**棚にある行をそのまま数えた数**です（2026-11-11・f1-4）。
+         *   月の締めが数える枚数とは**わざと違います**。締めは「同じ日の入れ直し」と
+         *   見た組を1枚だけ数えるので、こちらより少なくなることがあります
+         *   （2026年10月は 棚に15件・締めは13件。差の2件は同じ日の入れ直し）。
+         *   ＝ 2つの窓口で数が違っても、食い違いではありません。
+         *   締めの枚数は /api/keiri/selfcheck の reportCount（と sameReportMarks）を見てください。
+         */
+        countMeans:
+          "棚にある行をそのまま数えた数です。月の締めが数える枚数（/api/keiri/selfcheck の " +
+          "reportCount）は、「同じ日の入れ直し」と見た組を1枚だけ数えるので、これより少なくなる" +
+          "ことがあります。数が違っても食い違いではありません（その内訳は selfcheck の " +
+          "sameReportMarks に出ます）",
       },
       otherShop: {
         reportCount: other.reports.length,
