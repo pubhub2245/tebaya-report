@@ -2,7 +2,14 @@ import { NextResponse } from "next/server";
 
 import { loadKeiriMonthServer } from "@/lib/keiri/loadMonthServer";
 import { previousMonthRange, CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
-import { businessCodeForScope } from "@/lib/tenantScope";
+import { applyTenantScope, businessCodeForScope, TEBAYA_SCOPE } from "@/lib/tenantScope";
+import { PHOTO_SHOPS } from "@/lib/photoShop";
+import {
+  calcRealSeparation,
+  monthRangeJst,
+  type RealSeparation,
+  type StampedRow,
+} from "@/lib/keiri/realTenantSeparation";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 import { serverClient } from "@/lib/supabaseServer";
 import { probeWarehouseAlive } from "@/lib/keiri/warehouseAlive";
@@ -16,9 +23,13 @@ export const dynamic = "force-dynamic";
  * 「お店ごとに分かれているか（よその店のものが混ざらないか）」を
  * 外から確かめる窓口（f3-4・kp239）。
  *
- * ★同じ月を**2通り**で読んで、件数だけを見比べます。
+ * ★同じ月を**3通り**で読んで、件数だけを見比べます。
  *   ① 手羽屋として（印が空）… いまの画面と同じ読み方
  *   ② 居ないお店として（作り話の番号）… 1件も出ないのが正しい
+ *   ③ **本物の2軒目として**（lib/photoShop.ts の一覧にあるお店）…
+ *      2026-11-11 追加（realShop）。②は分けるしくみが1つも動いていなくても必ず0件なので、
+ *      あれだけでは「分かれている証拠」になりません。本物の行で混ざりを数えます。
+ *      その店の番号はコードの中にあるので、倉庫の鍵が壊れていても確かめられます。
  * ★**1行も書き込みません。金額・お店の名前・連絡先・鍵の値は1文字も返しません。**
  * ★手羽屋が毎日使う画面（日報・シフト・レジ・LINE）には触れていません。
  *
@@ -86,6 +97,9 @@ export async function GET() {
         other.advances.length === 0 &&
         other.advancesSkipped === true;
 
+    // ③ 本物の2軒目で、行が混ざっていないかを数える（2026-11-11・f3-4）
+    const realShop = await readRealShopSeparation(db, measurable);
+
     return jsonWindow({
       month: label,
       ym,
@@ -117,17 +131,27 @@ export async function GET() {
       measurable,
       warehouse: { alive: warehouse.alive, state: warehouse.state, reason: warehouse.reason },
       separated,
+      realShop,
       summary: !measurable
         ? `いまは測れませんでした（${warehouse.reason}）。` +
           "合格にも不合格にもしていません。倉庫が読めるようになってから、もう一度 開いてください"
         : separated
         ? `${label}：手羽屋として読むと日報 ${mine.reports.length}件、居ないお店として読むと 0件。` +
-          "立替の棚は手羽屋のときだけ読み、よそのお店には読みません（混ざりません）"
+          "立替の棚は手羽屋のときだけ読み、よそのお店には読みません（混ざりません）。" +
+          `【本物の2軒目でも数えました】${realShop.summary}`
         : "分かれていません。よそのお店として読んだのに行が出ています",
       shelves:
         "日報いがいの4つの棚（経理の設定・払った記録・金庫の記録・「数えない」の印）は、" +
         "よその店として読んで答えが返らなかったとき、棚から読み直さずに「読めません」と返します" +
         "（0件を「0円・無し」と取り違えないため）。otherShop.shelvesNotReread がその印です",
+      realShopNote:
+        "realShop は、**本物の2軒目のお店**（lib/photoShop.ts の一覧）として今月を読み直し、" +
+        "行が混ざっていないかを数えた結果です。separated が true でも、" +
+        "realShop.measuredAgainstRealRows が false のときは『その店の行がこの月にまだ無い』という" +
+        "意味で、答えの強さは「居ないお店の番号で読んだ0件」と同じです（分かれている証拠にはなりません）。" +
+        "0 が正しい数は4つ：手羽屋の読みに混ざった印つきの行／よその店の読みに混ざった印が空の行／" +
+        "よその店の読みに混ざった別の店の行／両方に出てきた同じ行。" +
+        "お店の名前・番号・金額は1文字も返しません",
       remaining:
         "ブラウザから倉庫を直に読む道（いまの経理画面）は、まだ棚の鍵で守られていません。" +
         "そこは棚の決まりを変える必要があり、ここでは見ていません",
@@ -142,6 +166,67 @@ export async function GET() {
       summary: "倉庫との通信に失敗したので、確かめられませんでした（合格にも不合格にもしていません）",
       note: "読むだけの窓口です。金額・お店の名前・連絡先・鍵の値は1文字も返しません",
     });
+  }
+}
+
+/**
+ * 本物の2軒目として今月を読み直し、行が混ざっていないかを数える。
+ *
+ * ★読むのは日報の「行の番号」と「どの店の印か」の2つだけ（金額は1円も読みません）。
+ * ★お店が1軒も登録されていない・読めなかったときは「数えられません」で返します
+ *   （0件を「分かれている」と取り違えないため）。
+ */
+async function readRealShopSeparation(db: any, measurable: boolean): Promise<RealSeparation & { ym: string }> {
+  const { start, end, ym } = monthRangeJst(new Date());
+  const shop = PHOTO_SHOPS[0];
+
+  const empty = (summary: string): RealSeparation & { ym: string } => ({
+    ym,
+    measuredAgainstRealRows: false,
+    tebayaRows: 0,
+    otherShopRows: 0,
+    strayStampedInTebaya: 0,
+    strayTebayaInOtherShop: 0,
+    strayWrongShopInOtherShop: 0,
+    overlap: 0,
+    separated: null,
+    summary,
+  });
+
+  if (!measurable) return empty("いまは数えられませんでした（倉庫が読めていません）");
+  if (!shop) {
+    return empty(
+      "本物の2軒目のお店がまだ1軒も登録されていないので、数えられませんでした" +
+        "（lib/photoShop.ts の一覧が空です）",
+    );
+  }
+
+  const read = (scope: string | null) =>
+    applyTenantScope<any>(
+      db
+        .from("daily_reports")
+        .select("id, tenant_id")
+        .gte("date", start)
+        .lte("date", end) as any,
+      scope,
+    );
+
+  try {
+    const [mine, theirs] = await Promise.all([read(TEBAYA_SCOPE), read(shop.tenantId)]);
+    if (mine?.error || theirs?.error) {
+      return empty("日報を読めなかったので、数えられませんでした（合格にも不合格にもしていません）");
+    }
+    return {
+      ym,
+      ...calcRealSeparation({
+        measurable: true,
+        tebaya: (mine?.data ?? []) as StampedRow[],
+        otherShop: (theirs?.data ?? []) as StampedRow[],
+        otherShopId: shop.tenantId,
+      }),
+    };
+  } catch {
+    return empty("日報を読むときに通信が途切れたので、数えられませんでした");
   }
 }
 
