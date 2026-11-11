@@ -9,14 +9,19 @@
  * 数字は1つも打たない。読み取り・場代・合計・LINE通知はアプリがやる。
  * 計算の中身は `lib/photoReport.ts`（tests/photoReport.test.ts で固定）。
  *
- * ★手羽屋（印が空）専用。加盟店の担当はいまゆうやさんだけなので自動で入る。
+ * ★手羽屋（印が空）は、加盟店の担当がいまゆうやさんだけなので自動で入る。
+ * ★「写真だけの日報」のお店（lib/photoShop.ts・2026-11-11 牟田町店）もここを使う。
+ *   場所は1つで固定・場代なし・LINE は送らない・ランクと原価率の見張りは動かさない。
+ *   手羽屋のときの動きは1つも変えていない（shop が null のときは今までと同じ道を通る）。
  */
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { supabase } from "@/lib/supabase";
-import { applyTenantScope, TEBAYA_SCOPE, tenantStamp } from "@/lib/tenantScope";
+import { applyTenantScope, TEBAYA_SCOPE, tenantStamp, type TenantScope } from "@/lib/tenantScope";
+import { photoShopFor, type PhotoShop } from "@/lib/photoShop";
+import { currentShopScope } from "@/lib/keiri/readSource";
 import { fetchBoothFeeRules } from "@/lib/boothFeeMaster";
 import { boothFeeRuleFor } from "@/lib/boothFee";
 import type { BoothFeeRule } from "@/lib/money";
@@ -110,21 +115,40 @@ function ShotButtonInner({
 }
 
 export default function PhotoReportGate() {
+  // 「写真だけの日報」のお店（牟田町店など）なら、そのお店として開く。
+  // それ以外は今までどおり：手羽屋は通し、ほかのお店には門を掛ける。
+  const [checked, setChecked] = useState(false);
+  const [shop, setShop] = useState<PhotoShop | null>(null);
+  useEffect(() => {
+    setShop(photoShopFor(currentShopScope()));
+    setChecked(true);
+  }, []);
+  if (!checked) {
+    return (
+      <main className="max-w-md mx-auto px-4 py-5">
+        <p className="text-sm text-stone-500">読み込み中…</p>
+      </main>
+    );
+  }
+  if (shop) return <PhotoReportPage shop={shop} />;
   return (
     <TebayaOnlyGate title="写真で日報">
-      <PhotoReportPage />
+      <PhotoReportPage shop={null} />
     </TebayaOnlyGate>
   );
 }
 
-function PhotoReportPage() {
+function PhotoReportPage({ shop }: { shop: PhotoShop | null }) {
+  // どのお店の棚を読み書きするか。手羽屋は今までどおり「印が空」
+  const scope: TenantScope = shop ? shop.tenantId : TEBAYA_SCOPE;
+  const staffName = shop ? shop.staffName : FRANCHISE_STAFF_NAME;
   const [step, setStep] = useState<Step>("place");
   // 日付は今日が初め。出し忘れた日の分も出せるように選べる（2026-11-09 現場の声）
   const today = todayJst();
   const [date, setDate] = useState(today);
   const [locations, setLocations] = useState<string[]>([]);
   const [locLoading, setLocLoading] = useState(true);
-  const [location, setLocation] = useState("");
+  const [location, setLocation] = useState(shop ? shop.location : "");
   // 選択肢に無い場所を打つ欄（2026-11-09）
   const [typing, setTyping] = useState(false);
   const [typed, setTyped] = useState("");
@@ -145,7 +169,7 @@ function PhotoReportPage() {
         const [locRes, prodRes] = await Promise.all([
           applyTenantScope<any>(
             supabase.from("locations").select("name") as any,
-            TEBAYA_SCOPE,
+            scope,
           )
             .eq("is_active", true)
             .order("name"),
@@ -153,7 +177,7 @@ function PhotoReportPage() {
             supabase
               .from("sale_products")
               .select("id, shop, name, price, kind, is_active, sort_order") as any,
-            TEBAYA_SCOPE,
+            scope,
           )
             .eq("shop", "手羽屋")
             .eq("is_active", true)
@@ -166,8 +190,9 @@ function PhotoReportPage() {
         setLocLoading(false);
       }
     })();
-    fetchBoothFeeRules().then(setRules);
-  }, []);
+    // 場代の決まりは手羽屋の出店場所マスタのもの。固定のお店には場代が無いので読まない
+    if (!shop) fetchBoothFeeRules().then(setRules);
+  }, [scope, shop]);
 
   const receiptExpenses = useMemo(() => receipts.flatMap((r) => r.expenses), [receipts]);
   const slipsReading = slipShots.some((s) => s.reading);
@@ -194,7 +219,10 @@ function PhotoReportPage() {
   );
 
   // 最後の確認での手直し（場代がその日だけ違う・研修の人の人件費など）。触らなければ読み取りどおり
-  const [adj, setAdj] = useState<Adjustments>(NO_ADJUSTMENTS);
+  // 固定のお店は、1日の人件費の決まった額を初めから入れておく（最後の確認で直せる）
+  const [adj, setAdj] = useState<Adjustments>(
+    shop ? { ...NO_ADJUSTMENTS, labor: shop.defaultLaborPerDay } : NO_ADJUSTMENTS,
+  );
   const [editing, setEditing] = useState<number | null>(null);
   const [showLabor, setShowLabor] = useState(false);
   const [showExtra, setShowExtra] = useState(false);
@@ -219,7 +247,7 @@ function PhotoReportPage() {
       try {
         const { error } = await supabase
           .from("locations")
-          .insert({ ...tenantStamp(TEBAYA_SCOPE), ...place.masterRow });
+          .insert({ ...tenantStamp(scope), ...place.masterRow });
         if (!error) setLocations((ls) => [...ls, place.name].sort());
       } catch {}
     }
@@ -285,10 +313,10 @@ function PhotoReportPage() {
       try {
         const { data: dup } = await applyTenantScope<any>(
           supabase.from("daily_reports").select("id") as any,
-          TEBAYA_SCOPE,
+          scope,
         )
           .eq("date", date)
-          .eq("staff_name", FRANCHISE_STAFF_NAME)
+          .eq("staff_name", staffName)
           .eq("shop", "手羽屋")
           .limit(1);
         if ((dup as unknown[] | null)?.length) {
@@ -304,7 +332,7 @@ function PhotoReportPage() {
       try {
         const { data } = await applyTenantScope<any>(
           supabase.from("daily_reports").select("sales_amount") as any,
-          TEBAYA_SCOPE,
+          scope,
         );
         cumulativeBefore = ((data as { sales_amount?: number }[]) || []).reduce(
           (s, r) => s + (r.sales_amount || 0),
@@ -316,7 +344,7 @@ function PhotoReportPage() {
       const uploaded = new Map<string, string | null>();
       for (const e of draft.expenses) {
         const url = e.receipt_image_url;
-        if (url && !uploaded.has(url)) uploaded.set(url, await uploadReceiptOrKeep(url, "report", TEBAYA_SCOPE));
+        if (url && !uploaded.has(url)) uploaded.set(url, await uploadReceiptOrKeep(url, "report", scope));
       }
       const expensesForSave = draft.expenses.map((e) => ({
         ...e,
@@ -325,14 +353,14 @@ function PhotoReportPage() {
       const slipImages: string[] = [];
       for (const shot of slipShots) {
         if (shot.slips.length === 0) continue;
-        const url = await uploadReceiptOrKeep(shot.photo, "sales-slip", TEBAYA_SCOPE);
+        const url = await uploadReceiptOrKeep(shot.photo, "sales-slip", scope);
         if (url) slipImages.push(url);
       }
 
       const lineText = photoReportLineText({
         date,
         location,
-        staffName: FRANCHISE_STAFF_NAME,
+        staffName,
         draft,
         flavors: memo?.flavors,
         newPlace: isNewPlace,
@@ -340,7 +368,7 @@ function PhotoReportPage() {
       const row = buildDailyReportRow({
         date,
         location,
-        staffName: FRANCHISE_STAFF_NAME,
+        staffName,
         draft,
         products,
         cumulativeBefore,
@@ -351,8 +379,19 @@ function PhotoReportPage() {
         slipImages,
       });
 
-      const { data: saved, error } = await supabase.from("daily_reports").insert(row).select("id");
+      // 固定のお店の日報には、そのお店の印を付ける（手羽屋は今までどおり印が空）
+      const { data: saved, error } = await supabase
+        .from("daily_reports")
+        .insert(shop ? { ...row, ...tenantStamp(scope) } : row)
+        .select("id");
       if (error) throw error;
+
+      // 固定のお店はここまで。ランク・原価率の見張り・LINE は手羽屋のものなので動かさない
+      // （手羽屋のスタッフのLINEグループに、よその店の数字を流さない）
+      if (shop) {
+        setStep("done");
+        return;
+      }
 
       try {
         await recalcRankForLocation(location);
@@ -396,7 +435,7 @@ function PhotoReportPage() {
       <p className="text-xs text-stone-400 mt-3">{n} / 4</p>
       <h1 className="text-xl font-bold">{title}</h1>
       <p className="text-xs text-stone-500">
-        {date.replace(/-/g, "/")}・{FRANCHISE_STAFF_NAME}
+        {date.replace(/-/g, "/")}・{staffName}
         {location ? `・${location}` : ""}
       </p>
     </div>
@@ -406,7 +445,7 @@ function PhotoReportPage() {
     <main className="max-w-md mx-auto px-4 py-6 min-h-screen">
       {step === "place" && (
         <section>
-          {header(date === today ? "今日の出店場所は？" : "この日の出店場所は？", 1)}
+          {header(shop ? "いつの日報ですか？" : date === today ? "今日の出店場所は？" : "この日の出店場所は？", 1)}
           {/* 日付（出し忘れた日の分も出せる）。未来の日は選べない */}
           <div className="flex gap-2 mb-4">
             {[
@@ -444,6 +483,16 @@ function PhotoReportPage() {
               />
             </label>
           </div>
+          {shop && (
+            <button
+              type="button"
+              onClick={() => setStep("slips")}
+              className="w-full h-20 rounded-2xl bg-orange-500 active:bg-orange-700 text-white font-bold text-xl shadow-md"
+            >
+              この日で進む
+            </button>
+          )}
+          {!shop && (<>
           {locLoading && <p className="text-sm text-stone-500">読み込み中…</p>}
           {!locLoading && locations.length === 0 && (
             <p className="text-sm text-red-600">
@@ -495,6 +544,7 @@ function PhotoReportPage() {
               <p className="text-xs text-stone-500">次からは選択肢に出ます。</p>
             </div>
           )}
+          </>)}
         </section>
       )}
 
@@ -570,7 +620,7 @@ function PhotoReportPage() {
             {slipsReading ? "読み取り中…" : "伝票は全部撮った → 次へ"}
           </button>
           <button type="button" onClick={() => setStep("place")} className="text-sm text-stone-500 underline">
-            場所を選び直す
+            {shop ? "日付を選び直す" : "場所を選び直す"}
           </button>
         </section>
       )}
@@ -800,6 +850,14 @@ function PhotoReportPage() {
           <h2 className="text-xl font-bold">日報を出しました</h2>
           <p className="text-stone-600">今日の売上 {yen(draft.sales)}</p>
           <p className="text-sm text-stone-500">お疲れさまでした！{lineSent ? "（本部に知らせました）" : ""}</p>
+          {shop && (
+            <Link
+              href="/month"
+              className="flex items-center justify-center w-full h-14 rounded-2xl bg-orange-500 active:bg-orange-700 text-white font-bold"
+            >
+              今月いくら残っているか見る
+            </Link>
+          )}
           <Link href="/" className="block text-sm text-stone-500 underline pt-2">
             メニューへ戻る
           </Link>
