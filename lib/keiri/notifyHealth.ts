@@ -90,6 +90,31 @@ export const NOTIFY_QUOTA_WINDOW =
   "quotaLimit − quotaUsed ＝ remaining です。2つの窓口で数がちがったときは、" +
   "remaining ではなく quotaLimit と quotaUsed のどちらがちがうかを見てください）";
 
+/**
+ * 数がちがったときの読み方（2026-11-11 に本番で測った事実つき・f2-2）。
+ *
+ * ■ 測った事実
+ *   2026-11-11 04:5x に、同じ版（b22841e）で2つの窓口を同じ時刻に読みました。
+ *     /api/keiri/notifycheck … 上限 200・使った数 132 → あと68通
+ *     /api/keiri/diagnose    … 上限 200・使った数 198 → あと2通
+ *   **上限は同じで、「使った数」だけが分かれました。** どちらの窓口も
+ *   同じ関数（probeNotify）で LINE に聞いているので、ちがっているのは
+ *   **LINE が返してくる「今月すでに使った数」そのもの**です
+ *   （こちらで作っている数字ではありません）。
+ *
+ * ■ だから、どう読むか
+ *   **少ないほうの残り（きつい側）で判断してください。**
+ *   多いほうを信じて「まだ余裕がある」と読むと、使い切っている月に
+ *   「知らせは届きます」と言ってしまいます（kp57 で直した「読めた＝大丈夫」と同じ失敗）。
+ *   残りが少ないときの受け皿は、知らせが飛ばなくても申し込みが消えない形
+ *   （倉庫の控え＋メールの下書き）で用意してあります。
+ */
+export const NOTIFY_QUOTA_SPLIT_NOTE =
+  "2つの窓口で数がちがうことがあります（2026-11-11 実測：上限はどちらも同じで、" +
+  "LINE が返す『今月すでに使った数』だけが 132 と 198 に分かれました）。" +
+  "**少ないほうの残り（きつい側）で判断してください。** " +
+  "多いほうを信じると、使い切っている月に『届きます』と言ってしまいます。";
+
 /** 引き算の前の2つの数（通数だけ。分からなければ null） */
 export type NotifyQuotaParts = {
   /** 今月の上限（通）。上限が無い契約・分からないときは null */
@@ -98,6 +123,8 @@ export type NotifyQuotaParts = {
   quotaUsed: number | null;
   /** どの窓口の数を f2-2 に使うか */
   quotaWindow: string;
+  /** 2つの窓口で数がちがったときの読み方 */
+  quotaSplitNote: string;
 };
 
 /** 引き算の前の2つの数を取り出す（計算だけ） */
@@ -106,6 +133,7 @@ export function notifyQuotaParts(quota: NotifyFacts["quota"]): NotifyQuotaParts 
     quotaLimit: quota && quota.limited ? (quota.limit ?? null) : null,
     quotaUsed: quota ? (quota.used ?? null) : null,
     quotaWindow: NOTIFY_QUOTA_WINDOW,
+    quotaSplitNote: NOTIFY_QUOTA_SPLIT_NOTE,
   };
 }
 

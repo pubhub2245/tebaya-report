@@ -124,6 +124,8 @@ test("引き算の前の2つの数を、そのまま出す（f2-2）", async () 
   assert.equal((parts.quotaLimit ?? 0) - (parts.quotaUsed ?? 0), remainingMessages(quota));
   // どの窓口の数を f2-2 に使うかが、必ず書いてあること
   assert.match(parts.quotaWindow, /notifycheck/);
+  // ★数が分かれたときは「きつい側（少ない残り）」で判断する、と必ず書いてあること
+  assert.match(parts.quotaSplitNote, /少ないほうの残り/);
 });
 
 test("上限が無い契約・分からないときは、数を作らない（f2-2）", async () => {
