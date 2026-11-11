@@ -5,6 +5,7 @@ import {
   CHECK_WINDOW_HEADERS,
   CLOSED_ON_PURPOSE,
   VERDICT_VALID_MINUTES,
+  freshWindowUrl,
   stampCheckWindow,
 } from "@/lib/keiri/checkWindow";
 import { PUBLIC_SITE_URL } from "@/lib/keiri/siteUrl";
@@ -40,6 +41,20 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const base = PUBLIC_SITE_URL.replace(/\/$/, "");
 
+  /**
+   * ★住所そのものに「いまの時刻」を付けて渡す（2026-11-11・B）。
+   *
+   *   これまで `how` に「?v=いまの時刻 を付けて開いてください」と**書いて**いましたが、
+   *   並んでいる `url` は素の住所でした。読む人（検査役・同期役）は当然 `url` を
+   *   そのまま開くので、**読む道具が手元にためた古い答え**が返ります。
+   *   11/9・11/10・11/11 と3日つづけて「本番は正しいのに古い答えに見える」が起き、
+   *   そのたびに最優先の仕事が1つ立ちました（＝仕上げの合否が付けられない）。
+   *   書いて頼むのをやめ、**渡す住所の側に札を入れます。**
+   *   この案内所は毎回その場で作る（force-dynamic）ので、開くたびに札が変わります。
+   */
+  const v = Date.now().toString();
+  const fresh = (path: string): string => freshWindowUrl(base, path, v);
+
   // 仕上げチェック表の項目ごとに、どの窓口で測れるかをまとめる（「・」区切りで書いてある）
   const byCheck: Record<string, string[]> = {};
   for (const w of CHECK_WINDOWS) {
@@ -54,14 +69,22 @@ export async function GET() {
       count: CHECK_WINDOWS.length,
       windows: CHECK_WINDOWS.map((w) => ({
         path: w.path,
-        url: `${base}${w.path}`,
+        // ★そのまま開いてよい住所（古い答えが返らないよう、いまの時刻が入っています）
+        url: fresh(w.path),
+        // 札の無い素の住所（控え。ふだんは url を開いてください）
+        plainUrl: `${base}${w.path}`,
         what: w.what,
         check: w.check,
       })),
       byCheck,
+      // ★仕上げチェック表の項目ごとに「そのまま開ける住所」（札つき）
+      byCheckUrls: Object.fromEntries(
+        Object.entries(byCheck).map(([id, paths]) => [id, paths.map((p) => fresh(p))]),
+      ),
       how:
-        "住所の後ろに ?v=いまの時刻 を付けて開いてください" +
-        "（付けないと、読む道具がためた古い答えが返ることがあります。実際に11/9 に起きました）。" +
+        "**並んでいる url をそのまま開いてください。もう ?v=（いまの時刻）が入っています**" +
+        "（素の住所＝plainUrl を開くと、読む道具がためた古い答えが返ることがあります。" +
+        "11/9・11/10・11/11 に実際に起き、そのたびに『本番が古い』という誤報になりました）。" +
         `どの窓口の答えにも verdictValidUntil（答えを作った時刻＋${VERDICT_VALID_MINUTES}分）が入っていて、` +
         "それを過ぎた答えで合否を付けてはいけません",
       rule:
@@ -82,7 +105,7 @@ export async function GET() {
         path: c.path,
         url: `${base}${c.path}`,
         why: c.why,
-        insteadOpen: c.insteadOpen.map((p) => `${base}${p}`),
+        insteadOpen: c.insteadOpen.map((p) => fresh(p)),
       })),
       closedOnPurposeNote:
         "**closedOnPurpose に出ている住所が外から読めないのは、直すべき不具合ではありません。**" +

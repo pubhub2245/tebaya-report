@@ -345,3 +345,34 @@ test("案内所は、わざと閉じている住所も外に出す（同じ行�
   assert.ok(src.includes("closedOnPurpose"));
   assert.ok(src.includes("insteadOpen"));
 });
+
+test("窓口の住所には「いまの時刻」の札が入る（読む道具がためた古い答えを返さない）", () => {
+  const { freshWindowUrl } = require("../lib/keiri/checkWindow") as typeof import("../lib/keiri/checkWindow");
+  assert.equal(
+    freshWindowUrl("https://example.com", "/api/keiri/cashcount", 123),
+    "https://example.com/api/keiri/cashcount?v=123",
+  );
+  // 住所の終わりの「/」は重ねない
+  assert.equal(
+    freshWindowUrl("https://example.com/", "/api/version", 7),
+    "https://example.com/api/version?v=7",
+  );
+  // すでに「?」が付いている住所は「&」でつなぐ
+  assert.equal(
+    freshWindowUrl("https://example.com", "/api/keiri/month?ym=2026-10", 9),
+    "https://example.com/api/keiri/month?ym=2026-10&v=9",
+  );
+});
+
+test("案内所が並べる住所は、そのまま開ける（札つき）形で返る", () => {
+  const { readFileSync } = require("node:fs") as typeof import("node:fs");
+  const { join } = require("node:path") as typeof import("node:path");
+  const src = readFileSync(
+    join(__dirname, "..", "app", "api", "keiri", "windows", "route.ts"),
+    "utf8",
+  );
+  // url は札つき、素の住所は plainUrl に分けて出す
+  assert.ok(src.includes("url: fresh(w.path)"), "窓口の url に札が付いていません");
+  assert.ok(src.includes("plainUrl"), "素の住所の控え（plainUrl）がありません");
+  assert.ok(src.includes("byCheckUrls"), "項目ごとの開ける住所（byCheckUrls）がありません");
+});
