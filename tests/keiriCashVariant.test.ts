@@ -279,5 +279,8 @@ test("⑦ 数え方のちがいで説明がついたときも「合った」と�
   assert.equal(cashCountMatched("over", true), true);
   // 名指しできなければ、正直に「合っていない」
   assert.equal(cashCountMatched("short", false), false);
-  assert.equal(cashCountMatched("none", false), false);
+  // ★まだ1回も数えていない日は null（2026-11-11・f1-4）。
+  //   false だと「合っていない＝不合格」と読まれる（数えていないので分からない）。
+  assert.equal(cashCountMatched("none", false), null);
+  assert.equal(cashCountMatched("none", true), null);
 });

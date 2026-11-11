@@ -210,7 +210,13 @@ function compareAdvanceWindow(params: {
     };
   }
 
-  const found = describeAdvanceWindow({ ym, screen: base.advances ?? [], wide: wide.advances ?? [] });
+  const found = describeAdvanceWindow({
+    ym,
+    screen: base.advances ?? [],
+    wide: wide.advances ?? [],
+    // ★数え始めの日を渡す（2026-11-11・f1-4）。足してよい行かどうかを言えるようにする
+    openingDate: base.settings.opening_date ?? null,
+  });
   // 入れたら何がいくら動くか（差だけ）。日報・設定・払った記録・金庫の記録は base のまま
   const withScreen = numbersOf(ym, base);
   const withWide = numbersOf(ym, { ...base, advances: wide.advances ?? [] });
@@ -241,7 +247,9 @@ function compareAdvanceWindow(params: {
     },
     note:
       "立替の金額そのもの・払った人の名前は返していません。件数と、入れたら動く差だけです。" +
-      "いまの画面と会計ソフト向けの表は『ふだんの画面の期間』で動いています（kp250 で入れるか入れないかを決めます）。",
+      "いまの画面と会計ソフト向けの表は『ふだんの画面の期間』で動いています（kp250 で入れるか入れないかを決めます）。" +
+      "**diffIfIncluded は『もし足したら いくら動くか』の仮の計算で、足していません。" +
+      "その数字を金庫の食い違いとして読まないでください（読み方は wideOnlyMeans にあります）。**",
   };
 }
 

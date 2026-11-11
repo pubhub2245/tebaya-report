@@ -62,12 +62,24 @@ export type KeiriSelfCheck = {
    * 現金の数え方（kp233・f1-4）。**件数と○×だけ**。金額は返さない。
    * ・reconciles … 「現金の数え方」の最後の行が、画面の現金とぴったり同じか
    * ・advanceCount / noncashCount … 金庫から出ていないと見分けた行の数
+   *
+   * ★**reconciles は「実際の金庫と合ったか」ではありません**（2026-11-11・f1-4）。
+   *   紙の上の足し算（数え始め＋売上−経費−…）が、画面に出している現金と
+   *   同じ数字になるか、だけです。**金庫を1回も数えていない月でも true になります。**
+   *   2026-11-11 に、この true を f1-4（実際の金庫と合うか）の「合う」と読んだ報告が
+   *   出ました（同じ窓口の cashCount は countRecords 0・latestCountOn null）。
+   *   取り違えないように、意味を言葉にした means と、
+   *   本当の合否がどこにあるかを指す safeMatchWindow を同じ所に置きます。
    */
   cash: {
     /** null ＝ 測れていない */
     reconciles: boolean | null;
     advanceCount: number;
     noncashCount: number;
+    /** reconciles が何を見ているか（人が読む1行） */
+    means?: string;
+    /** 実際の金庫と合ったかを答える窓口（f1-4 の合否はこちら） */
+    safeMatchWindow?: string;
   };
   /** 人に確かめてもらう必要があるもの（件数だけ） */
   needsHuman: {
@@ -84,6 +96,21 @@ export type KeiriSelfCheck = {
   summary: string;
   note: string;
 };
+
+/**
+ * `cash.reconciles` が何を見ているか（2026-11-11・f1-4）。
+ * **「実際の金庫と合ったか」ではありません。**
+ */
+export const CASH_RECONCILES_MEANS =
+  "reconciles は**紙の上の足し算**です（『現金の数え方』の最後の行が、" +
+  "画面に出している現金と同じ数字か）。**実際の金庫と合ったかではありません。** " +
+  "金庫を1回も数えていない月でも true になります（同じ窓口の cashCount を見てください。" +
+  "countRecords が 0 なら、まだ1回も数えていません）。";
+
+/** 実際の金庫と合ったかを答える窓口（f1-4 の合否はここ1か所） */
+export const SAFE_MATCH_WINDOW =
+  "/api/keiri/cashcount（f1-4 の合否は、この窓口の ok 1か所だけで決めています。" +
+  "ok が null のときは合否を付けないでください）";
 
 export const SELF_CHECK_NOTE =
   "読むだけの窓口です。金額・お店の名前・連絡先・鍵の値は1文字も返しません。";
@@ -113,7 +140,13 @@ export function unreadableSelfCheck(params: { month: string; ym: string; reason:
     profitOk: null,
     unpaidOk: null,
     trial: { ready: null, balanced: null, accountCount: 0, matchesScreen: null },
-    cash: { reconciles: null, advanceCount: 0, noncashCount: 0 },
+    cash: {
+      reconciles: null,
+      advanceCount: 0,
+      noncashCount: 0,
+      means: CASH_RECONCILES_MEANS,
+      safeMatchWindow: SAFE_MATCH_WINDOW,
+    },
     sheetReady: null,
     problems: [maskYen(params.reason)],
     needsHuman: { unmatched: 0, duplicate: 0, duplicateReports: 0, noReceipt: null },
@@ -179,6 +212,8 @@ export function buildSelfCheck(params: {
       reconciles: cashRuleReconciles(sheet),
       advanceCount: sheet.cash?.advanceCount ?? 0,
       noncashCount: sheet.cash?.noncashCount ?? 0,
+      means: CASH_RECONCILES_MEANS,
+      safeMatchWindow: SAFE_MATCH_WINDOW,
     },
     sheetReady: v.ok,
     // ★「問題0件」と「同じ日報を二重に数えている」が同時に出ないようにする

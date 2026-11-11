@@ -66,6 +66,49 @@ export type NotifyReport = {
 /** 残りが少ないと見なす数（これ以下になったら、届かなくなる前に知らせる） */
 export const NOTIFY_LOW_REMAINING = 10;
 
+/**
+ * 「今月あと何通」を外の窓口が2つで別々に答えないようにする（2026-11-11・f2-2）。
+ *
+ * ■ なぜ要るのか（やさしい説明）
+ *   残りの通数を答える窓口が2つあります（/api/keiri/notifycheck と /api/keiri/diagnose）。
+ *   どちらも**この同じ関数**で数えているのに、2026-11-11 に外から同時に読んだら
+ *   **「あと68通」と「あと2通」**に分かれました（同じ版・同じ時刻・どちらも ためていない）。
+ *   どちらが本当かが分からないと、**最初のお申し込みが来た日に知らせが飛ぶかを
+ *   判断できません**（f2-2 の裏付けが取れない）。
+ *
+ * ■ どうしたか
+ *   残りの通数だけを見ても、どちらが狂っているのか分かりません（引き算の答えだからです）。
+ *   そこで**引き算の前の2つの数**（今月の上限と、使った数）を、どちらの窓口にも出します。
+ *   ＝ 次に分かれたとき、**上限がちがうのか、使った数がちがうのか**がすぐ分かります。
+ *   あわせて「f2-2 の通数はこの窓口を見てください」と、**読む窓口を1つに決めます**。
+ *
+ * ★上限と使った数は、どちらも**通数**です（金額でも、お店の名前でも、鍵でもありません）。
+ *   外に出してよい決まり（lib/keiri/checkWindow.ts の③）に当たりません。
+ */
+export const NOTIFY_QUOTA_WINDOW =
+  "/api/keiri/notifycheck（f2-2 の『今月あと何通』は、この窓口の remaining を見てください。" +
+  "quotaLimit − quotaUsed ＝ remaining です。2つの窓口で数がちがったときは、" +
+  "remaining ではなく quotaLimit と quotaUsed のどちらがちがうかを見てください）";
+
+/** 引き算の前の2つの数（通数だけ。分からなければ null） */
+export type NotifyQuotaParts = {
+  /** 今月の上限（通）。上限が無い契約・分からないときは null */
+  quotaLimit: number | null;
+  /** 今月すでに使った数（通）。分からないときは null */
+  quotaUsed: number | null;
+  /** どの窓口の数を f2-2 に使うか */
+  quotaWindow: string;
+};
+
+/** 引き算の前の2つの数を取り出す（計算だけ） */
+export function notifyQuotaParts(quota: NotifyFacts["quota"]): NotifyQuotaParts {
+  return {
+    quotaLimit: quota && quota.limited ? (quota.limit ?? null) : null,
+    quotaUsed: quota ? (quota.used ?? null) : null,
+    quotaWindow: NOTIFY_QUOTA_WINDOW,
+  };
+}
+
 /** 今月あと何通送れるか。分からなければ null */
 export function remainingMessages(quota: NotifyFacts["quota"]): number | null {
   if (!quota || !quota.limited) return null;

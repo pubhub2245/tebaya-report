@@ -19,6 +19,7 @@ import {
 import {
   describeApplicationDelivery,
   describeNotify,
+  notifyQuotaParts,
   type NotifyFacts,
 } from "@/lib/keiri/notifyHealth";
 import { probeNotify } from "@/lib/keiri/notifyProbe";
@@ -415,7 +416,15 @@ export async function GET() {
     //   2026-09-28（kp198）から、送り先のグループに **本当に届くか** も見ている
     //   （true＝ボットはまだそのグループにいる／false＝外れている見込み／
     //     null＝確かめていない・確かめられない宛先）。この確かめでは1通も送らない。
-    notify: { ...notify, groupReachable: notifyFacts.groupReachable ?? null },
+    notify: {
+      ...notify,
+      groupReachable: notifyFacts.groupReachable ?? null,
+      // ★引き算の前の2つの数（2026-11-11・f2-2）。11/11 にこの窓口と
+      //   /api/keiri/notifycheck が「あと2通」「あと68通」に分かれたため、
+      //   上限と使った数のどちらがちがうのかを読むだけで見分けられるようにする。
+      //   どちらも通数です（金額・鍵・お店の名前ではありません）。
+      ...notifyQuotaParts(notifyFacts.quota),
+    },
     application_delivery: delivery,
     // ★外から合否を付ける人への但し書き（2026-11-10・B）
     verdictHow:

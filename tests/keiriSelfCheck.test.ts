@@ -247,3 +247,32 @@ test("二重が無い月は、今までどおり問題0件（増やしていな�
   assert.deepEqual(r.problems, []);
   assert.equal(r.needsHuman.duplicateReports, 0);
 });
+
+/* ------------------------------------------------------------------ *
+ *  reconciles を「実際の金庫と合った」と読ませない（2026-11-11・f1-4）
+ * ------------------------------------------------------------------ */
+
+/**
+ * ■ なぜ要るか（11/11 に本番で起きた形）
+ *   この窓口は同じ答えの中に2つのことを並べています。
+ *     cash.reconciles … 紙の上の足し算が、画面の現金と同じ数字か
+ *     cashCount       … 実際に金庫を数えた結果（countRecords 0 ＝ まだ数えていない）
+ *   11/11 に外から読んだ側は、**countRecords 0・latestCountOn null なのに
+ *   reconciles true** を見て「金庫の窓口が『合う』と答える」と報告しました。
+ *   reconciles は金庫を1回も数えていない月でも true になるので、
+ *   f1-4（実際の金庫と合うか）の合否には使えません。
+ *   取り違えが起きないように、意味と「本当の合否はどこか」を同じ所に置きます。
+ */
+test("reconciles の意味と、f1-4 の合否がどこにあるかを必ず書く（f1-4）", () => {
+  const r = buildSelfCheck({ month: "2026年9月", ym: "2026-09", sheet: sheet() });
+  assert.match(r.cash.means ?? "", /実際の金庫と合ったかではありません/);
+  assert.match(r.cash.means ?? "", /1回も数えていない月でも true/);
+  assert.match(r.cash.safeMatchWindow ?? "", /cashcount/);
+});
+
+test("読めなかった月も、意味の説明は消えない（f1-4）", () => {
+  const r = unreadableSelfCheck({ month: "2026年9月", ym: "2026-09", reason: "読めません" });
+  assert.equal(r.cash.reconciles, null);
+  assert.match(r.cash.means ?? "", /実際の金庫と合ったかではありません/);
+  assert.match(r.cash.safeMatchWindow ?? "", /cashcount/);
+});
