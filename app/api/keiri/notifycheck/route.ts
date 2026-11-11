@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
-import { describeNotify, remainingMessages } from "@/lib/keiri/notifyHealth";
+import { describeNotify, notifyQuotaParts, remainingMessages } from "@/lib/keiri/notifyHealth";
 import { probeNotify } from "@/lib/keiri/notifyProbe";
 
 export const runtime = "nodejs";
@@ -40,10 +40,15 @@ export async function GET() {
       groupReachable: facts.groupReachable ?? null,
       remaining: remainingMessages(facts.quota),
       quotaLimited: facts.quota ? facts.quota.limited : null,
+      // ★引き算の前の2つの数（2026-11-11・f2-2）。
+      //   2つの窓口で「あと何通」が分かれたときに、上限と使った数のどちらが
+      //   ちがうのかを、読むだけで見分けられるようにする（通数だけ・金額ではない）
+      ...notifyQuotaParts(facts.quota),
       summary: report.note,
       note:
         "読むだけの窓口です。合言葉・送り先のID・お店の名前・金額は1文字も返しません。" +
-        "LINE には様子を聞くだけで、メッセージは1通も送っていません",
+        "LINE には様子を聞くだけで、メッセージは1通も送っていません。" +
+        "remaining ＝ quotaLimit − quotaUsed（どれも通数で、金額ではありません）",
     });
   } catch (e: any) {
     // 調べられなかったことを「届きます」に倒さない（分からないは分からないと出す）
@@ -55,6 +60,7 @@ export async function GET() {
       groupReachable: null,
       remaining: null,
       quotaLimited: null,
+      ...notifyQuotaParts(null),
       summary: `知らせの調子を確かめられませんでした：${String(e?.message ?? e).slice(0, 120)}`,
       note: "読むだけの窓口です。分からないときは「届く」とは言いません",
     });

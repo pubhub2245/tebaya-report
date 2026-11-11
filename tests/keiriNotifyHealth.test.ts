@@ -98,3 +98,41 @@ test("届くかの見立てに、下書きの宛先の数がいつでも付い�
   assert.equal(r.ok, false);
   assert.equal(r.mail_fallback.count, 2);
 });
+
+/* ------------------------------------------------------------------ *
+ *  「今月あと何通」が2つの窓口で分かれたとき、どちらがちがうか分かる形
+ *  （2026-11-11・f2-2）
+ * ------------------------------------------------------------------ */
+
+/**
+ * ■ なぜ要るか（11/11 に本番で起きた形）
+ *   残りの通数を答える窓口は2つ（/api/keiri/notifycheck と /api/keiri/diagnose）あり、
+ *   どちらも同じ関数で数えているのに、同じ版・同じ時刻で
+ *   **「あと68通」と「あと2通」**に分かれました。
+ *   remaining は引き算の答えなので、それだけを見ても原因が分かりません。
+ *   引き算の前の2つの数（上限・使った数）を、どちらの窓口にも出します。
+ *   ★どれも通数です（金額・鍵・お店の名前ではありません）。
+ */
+test("引き算の前の2つの数を、そのまま出す（f2-2）", async () => {
+  const { notifyQuotaParts, remainingMessages } = await import("../lib/keiri/notifyHealth");
+  const quota = { limited: true, limit: 200, used: 132 };
+  const parts = notifyQuotaParts(quota);
+  assert.equal(parts.quotaLimit, 200);
+  assert.equal(parts.quotaUsed, 132);
+  // remaining ＝ 上限 − 使った数（読む人が自分で検算できること）
+  assert.equal(remainingMessages(quota), 68);
+  assert.equal((parts.quotaLimit ?? 0) - (parts.quotaUsed ?? 0), remainingMessages(quota));
+  // どの窓口の数を f2-2 に使うかが、必ず書いてあること
+  assert.match(parts.quotaWindow, /notifycheck/);
+});
+
+test("上限が無い契約・分からないときは、数を作らない（f2-2）", async () => {
+  const { notifyQuotaParts } = await import("../lib/keiri/notifyHealth");
+  assert.deepEqual(
+    { l: notifyQuotaParts(null).quotaLimit, u: notifyQuotaParts(null).quotaUsed },
+    { l: null, u: null },
+  );
+  const unlimited = notifyQuotaParts({ limited: false, limit: null, used: 10 });
+  assert.equal(unlimited.quotaLimit, null);
+  assert.equal(unlimited.quotaUsed, 10);
+});

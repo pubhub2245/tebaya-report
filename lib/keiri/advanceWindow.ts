@@ -47,6 +47,26 @@ export type AdvanceOnlySide = {
   settled: number;
   /** そのうち「まだ返していない」行の件数 */
   unsettled: number;
+  /**
+   * そのうち「**経理の数え始めの日より前**に立て替えた」行の件数
+   * （2026-11-11・f1-4。数え始めの日が分からないときは null）。
+   *
+   * ★ここが大事です。数え始めの日より前に立て替えた分は、
+   *   **いまの画面に足してはいけません**。数え始めの残高は「その日に金庫にあった実際のお金」
+   *   なので、その日までに出入りしたお金はもう中に入っています
+   *   （lib/keiri/cashOpeningGap.ts と同じ考え方）。
+   */
+  beforeOpening: number | null;
+  /**
+   * そのうち「数え始めの日より前に立て替えて、数え始めの日以後に返した」行の件数
+   * （2026-11-11・f1-4）。
+   *
+   * ★この行は**金庫の窓口がもう受け持っています**
+   *   （lib/keiri/advanceRange.ts の advanceRepaidEarlierRange が別の入れ物で読み、
+   *   「前の月に立て替えて今月 返した分も引く数え方」として比べる相手に並べます）。
+   *   ＝ **ここの件数は、金庫を数える日の食い違いの元になりません。**
+   */
+  repaidAfterOpening: number | null;
 };
 
 export type AdvanceWindowReport = {
@@ -60,20 +80,50 @@ export type AdvanceWindowReport = {
   same: boolean;
   /** 人が読む1行 */
   summary: string;
+  /**
+   * 「広い期間だけにある行を足したら、現金が◯円 ずれる」をどう読むか（2026-11-11・f1-4）。
+   *
+   * ★なぜ要るか：2026-11-11 に「8行を入れると現金が 449,350円 ずれる」という読みから
+   *   『金庫を数える日の食い違いの元になりえる』という報告が立ちました。
+   *   実際には その8行は**ぜんぶ数え始めの日より前**に立て替えた行で、
+   *   足してはいけない行です（足したら二重に引きます）。返した日が数え始めの日より
+   *   後にある行は、金庫の窓口が別の数え方としてもう並べています。
+   *   窓口が差の数字だけを出して、その読み方を書いていなかったので、
+   *   同じ報告が何度でも立ちます。ここに1行で書いておきます。
+   */
+  wideOnlyMeans: string;
 };
 
+/** その文字列が YYYY-MM-DD の形をしているか */
+function isYmd(v: unknown): v is string {
+  return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+}
+
 /** 片方にしか無い行を数える */
-function sideOf(ym: string, rows: KeiriAdvance[]): AdvanceOnlySide {
+function sideOf(ym: string, rows: KeiriAdvance[], openingDate?: string | null): AdvanceOnlySide {
   const byMonth = new Map<string, number>();
   let repaidInMonth = 0;
   let settled = 0;
+  const opening = isYmd(String(openingDate ?? "").slice(0, 10))
+    ? String(openingDate).slice(0, 10)
+    : null;
+  let beforeOpening = 0;
+  let repaidAfterOpening = 0;
   for (const a of rows) {
-    const m = String(a.date ?? "").slice(0, 7);
+    const d = String(a.date ?? "").slice(0, 10);
+    const m = d.slice(0, 7);
     byMonth.set(m, (byMonth.get(m) ?? 0) + 1);
     const back = String(a.settledDate ?? "").slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(back)) {
+    const hasBack = isYmd(back);
+    if (hasBack) {
       settled += 1;
       if (back.startsWith(ym)) repaidInMonth += 1;
+    }
+    // 数え始めの日より前に立て替えた行か（足してはいけない行）
+    if (opening && isYmd(d) && d < opening) {
+      beforeOpening += 1;
+      // そのうち、返したのが数え始めの日以後＝金庫の窓口がもう受け持っている行
+      if (hasBack && back >= opening) repaidAfterOpening += 1;
     }
   }
   return {
@@ -84,7 +134,46 @@ function sideOf(ym: string, rows: KeiriAdvance[]): AdvanceOnlySide {
     repaidInMonth,
     settled,
     unsettled: rows.length - settled,
+    beforeOpening: opening ? beforeOpening : null,
+    repaidAfterOpening: opening ? repaidAfterOpening : null,
   };
+}
+
+/** 「広い期間だけにある行」の読み方を1行にする（金額は入れない） */
+function wideOnlyMeansOf(side: AdvanceOnlySide, opening: string | null): string {
+  if (side.count === 0) {
+    return "広い期間だけにある立替はありません（足す／足さないを決める行がありません）。";
+  }
+  if (!opening) {
+    return (
+      `広い期間だけにある立替が ${side.count} 行ありますが、` +
+      "経理の数え始めの日が読めていないので、足してよい行かどうかを言えません" +
+      "（いまの画面の金額は動かしていません）。"
+    );
+  }
+  const head =
+    `下の diffIfIncluded は「もし足したら いくら動くか」という**仮の計算**です。` +
+    `**足していません。足してもいけません。**`;
+  if (side.beforeOpening === side.count) {
+    return (
+      `${head} 広い期間だけにある ${side.count} 行は**ぜんぶ 数え始めの日（${opening}）より前**に` +
+      "立て替えた行です。数え始めの残高は「その日に金庫にあった実際のお金」なので、" +
+      "その日より前のお金はもう中に入っています＝足すと二重に引きます。" +
+      (side.repaidAfterOpening && side.repaidAfterOpening > 0
+        ? `そのうち ${side.repaidAfterOpening} 行は 返したのが数え始めの日以後なので、` +
+          "**金庫の窓口（/api/keiri/cashcount）が「前の月に立て替えて今月 返した分も引く数え方」" +
+          "として もう比べる相手に並べています**＝金庫を数える日の食い違いの元になりません。"
+        : "返した日が数え始めの日以後の行は1行もないので、金庫からお金は出ていません" +
+          "＝金庫を数える日の食い違いの元になりません。")
+    );
+  }
+  return (
+    `${head} 広い期間だけにある ${side.count} 行のうち ${side.beforeOpening ?? 0} 行は` +
+    `数え始めの日（${opening}）より前に立て替えた行で、足すと二重に引きます` +
+    `（うち ${side.repaidAfterOpening ?? 0} 行は 金庫の窓口が別の数え方としてもう並べています）。` +
+    `のこり ${side.count - (side.beforeOpening ?? 0)} 行は数え始めの日以後の行なので、` +
+    "足すかどうかは kp250 で決めます。"
+  );
 }
 
 /**
@@ -98,15 +187,20 @@ export function describeAdvanceWindow(params: {
   ym: string;
   screen: KeiriAdvance[];
   wide: KeiriAdvance[];
+  /** 経理の数え始めの日（YYYY-MM-DD）。渡さなければ「足してよいか」は言わない */
+  openingDate?: string | null;
 }): AdvanceWindowReport {
   const { ym } = params;
+  const opening = /^\d{4}-\d{2}-\d{2}$/.test(String(params.openingDate ?? "").slice(0, 10))
+    ? String(params.openingDate).slice(0, 10)
+    : null;
   const screenKeys = new Set(params.screen.map(advanceKey));
   const wideKeys = new Set(params.wide.map(advanceKey));
   const onlyScreenRows = params.screen.filter((a) => !wideKeys.has(advanceKey(a)));
   const onlyWideRows = params.wide.filter((a) => !screenKeys.has(advanceKey(a)));
 
-  const onlyInScreen = sideOf(ym, onlyScreenRows);
-  const onlyInWide = sideOf(ym, onlyWideRows);
+  const onlyInScreen = sideOf(ym, onlyScreenRows, opening);
+  const onlyInWide = sideOf(ym, onlyWideRows, opening);
   const same = onlyInScreen.count === 0 && onlyInWide.count === 0;
 
   return {
@@ -114,6 +208,7 @@ export function describeAdvanceWindow(params: {
     onlyInScreen,
     onlyInWide,
     same,
+    wideOnlyMeans: wideOnlyMeansOf(onlyInWide, opening),
     summary: same
       ? "2つの期間は、まったく同じ立替の行を読んでいます（ふえる行・へる行はありません）。"
       : `前後40日の期間だけにある立替が ${onlyInWide.count} 行` +

@@ -326,10 +326,26 @@ export function cashCountKind(r: CashReconcile): CashCountKind {
  *   ところが5通りの言い方（kind）だけを見ると「金庫のほうが少ない」に見えるため、
  *   外から見ると不合格に見えてしまいます。そこで判断を1か所にまとめました。
  *
+ * ■ まだ1回も数えていない日は null（2026-11-11・f1-4）
+ *   ここは長いあいだ、**まだ1回も数えていない日にも false** を返していました。
+ *   false は「合っていない」と読めるので、読んだ人には f1-4
+ *   「いまの現金残高が、実際の金庫の残高と合うか」が**不合格**に見えます。
+ *   数えていないのですから、合っているかどうかは**分かりません**。
+ *   ＝ 11/8 に金庫の窓口でふさいだ「止まっているだけの日を不合格にする」と
+ *   まったく同じ形が、まとめの窓口（/api/keiri/selfcheck）に残っていました。
+ *   いまは `null`（合格にも不合格にもしない）で返します。
+ *   数えたあとの答えは1文字も変わりません。
+ *
  * @param kind            5通りの言い方
  * @param variantMatched  どれかの数え方に合ったか（合っていなければ false）
+ * @returns true＝合っている／false＝合っていない／null＝まだ数えていないので分からない
  */
-export function cashCountMatched(kind: CashCountKind, variantMatched: boolean): boolean {
+export function cashCountMatched(
+  kind: CashCountKind,
+  variantMatched: boolean,
+): boolean | null {
+  // まだ1回も数えていない＝合否を付けない（false は「合っていない」と読まれる）
+  if (kind === "none") return null;
   return kind === "exact" || kind === "near" || variantMatched;
 }
 

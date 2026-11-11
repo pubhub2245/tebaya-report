@@ -83,3 +83,65 @@ test("入り口がちがえば同じ番号でも別の行", () => {
   const field = adv({ id: 5, source: "field" });
   assert.notEqual(advanceKey(owner), advanceKey(field));
 });
+
+/* ------------------------------------------------------------------ *
+ *  「足したら現金が◯円 ずれる」を、金庫の食い違いと読ませない
+ *  （2026-11-11・f1-4）
+ * ------------------------------------------------------------------ */
+
+/**
+ * ■ なぜ要るか（11/11 に本番で起きた形）
+ *   窓口は「広い期間だけにある立替 8行」と「足したら現金が 449,350円 動く」を
+ *   出していましたが、**その8行を足してよいのか**をどこにも書いていませんでした。
+ *   読んだ側は差の金額だけを見て「金庫を数える日の食い違いの元になりえる」と
+ *   報告し、最優先の仕事が1つ立ちました。
+ *   実際には8行ぜんぶが**数え始めの日より前**に立て替えた行で、足すと二重に引きます。
+ *   返した日が数え始めの日以後の行は、金庫の窓口が別の数え方としてもう並べています。
+ */
+test("数え始めの日より前の行を数え、足してはいけないと言う（f1-4）", () => {
+  const screen = [adv({ id: 1, date: "2026-09-20" })];
+  const wide = [
+    adv({ id: 1, date: "2026-09-20" }),
+    // 数え始め（9/10）より前に立て替えて、そのあと返した＝金庫の窓口が受け持つ行
+    adv({ id: 7, date: "2026-08-20", settledDate: "2026-09-25" }),
+    adv({ id: 8, date: "2026-08-22", settledDate: "2026-10-02" }),
+    // 数え始めより前に立て替えて、まだ返していない＝金庫からお金は出ていない
+    adv({ id: 9, date: "2026-08-25", settledDate: null }),
+  ];
+  const r = describeAdvanceWindow({
+    ym: "2026-10",
+    screen,
+    wide,
+    openingDate: "2026-09-10",
+  });
+  assert.equal(r.onlyInWide.count, 3);
+  assert.equal(r.onlyInWide.beforeOpening, 3);
+  assert.equal(r.onlyInWide.repaidAfterOpening, 2);
+  // 「足してもいけない」と「金庫の食い違いの元にならない」が、必ず文に出ること
+  assert.match(r.wideOnlyMeans, /足してもいけません/);
+  assert.match(r.wideOnlyMeans, /食い違いの元になりません/);
+});
+
+test("数え始めの日が分からなければ、足してよいかを言わない（f1-4）", () => {
+  const wide = [adv({ id: 7, date: "2026-08-20" })];
+  const r = describeAdvanceWindow({ ym: "2026-10", screen: [], wide });
+  assert.equal(r.onlyInWide.beforeOpening, null);
+  assert.equal(r.onlyInWide.repaidAfterOpening, null);
+  assert.match(r.wideOnlyMeans, /言えません/);
+});
+
+test("数え始めの日より後の行は、足すかどうかを kp250 で決めると言う（f1-4）", () => {
+  const wide = [
+    adv({ id: 7, date: "2026-08-20", settledDate: null }),
+    adv({ id: 8, date: "2026-10-05", settledDate: null }),
+  ];
+  const r = describeAdvanceWindow({
+    ym: "2026-10",
+    screen: [],
+    wide,
+    openingDate: "2026-09-10",
+  });
+  assert.equal(r.onlyInWide.count, 2);
+  assert.equal(r.onlyInWide.beforeOpening, 1);
+  assert.match(r.wideOnlyMeans, /kp250/);
+});
