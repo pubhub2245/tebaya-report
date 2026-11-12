@@ -25,6 +25,11 @@ import {
 } from "@/lib/keiri/cashCheck";
 import { calcCashPosition } from "@/lib/keiri/aggregate";
 import {
+  cashCountNeedsSheetFirst,
+  cashShelfNote,
+  cashShelfState,
+} from "@/lib/keiri/cashShelfNote";
+import {
   buildCashVariants,
   cashVariantWindow,
   pickCashVariant,
@@ -269,10 +274,18 @@ function cashCountOf(data: Awaited<ReturnType<typeof loadKeiriMonthServer>>) {
       : null;
   const variantMatched = pick?.matched ?? null;
   return {
-    shelf: data.cashShelfMissing ? "missing" : "ready",
-    shelfNote: data.cashShelfMissing
-      ? "数えた記録を残す置き場がまだありません（/keiri/sql の貼り紙①を1回 流すと使えます）。いまは画面で比べるところまでしかできません"
-      : "数えた記録を残す置き場があります",
+    shelf: cashShelfState(data.cashShelfMissing),
+    /**
+     * ★2026-11-12（B・f1-4）：この1行は **じゅんの順番を1つ逆にしていました。**
+     *   「いまは画面で比べるところまでしかできません」と書いてあったので、
+     *   読んだ側が「貼り紙（2分）を先に貼らないと金庫を数えても残らない」と受け取り、
+     *   金庫（1分）が後ろに並べられていました。実際は控えの道が動いていて、
+     *   **貼り紙を1枚も貼っていなくても、数えればその場で合否が出ます。**
+     *   言い方は lib/keiri/cashShelfNote.ts の1か所だけ（試験で固定）。
+     */
+    shelfNote: cashShelfNote(data.cashShelfMissing),
+    /** 金庫を数える前に貼り紙を流す必要があるか（＝どちらの道でも false） */
+    needsSheetFirst: cashCountNeedsSheetFirst(data.cashShelfMissing),
     countRecords: counts,
     depositRecords: deposits,
     latestCountOn: last?.happened_on ?? null,
