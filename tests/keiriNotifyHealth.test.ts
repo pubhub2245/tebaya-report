@@ -5,6 +5,7 @@ import {
   describeApplicationDelivery,
   describeMailFallback,
   describeNotify,
+  notifyQuotaParts,
   remainingMessages,
   type NotifyFacts,
 } from "../lib/keiri/notifyHealth";
@@ -137,4 +138,62 @@ test("上限が無い契約・分からないときは、数を作らない（f2
   const unlimited = notifyQuotaParts({ limited: false, limit: null, used: 10 });
   assert.equal(unlimited.quotaLimit, null);
   assert.equal(unlimited.quotaUsed, 10);
+});
+
+// ── 「きつい側で読む」を、言葉ではなく窓口の数そのものでやる（2026-11-12・f2-2）──
+// 2026-11-11 に「少ないほうの残り（きつい側）で判断する」と決めたのに、窓口は
+// その時 LINE が返した1つの数をそのまま出していた（＝きつい側を採ったか外から分からない）。
+
+test("使った数が2回で分かれたら、多いほう（きつい側）で残りを出す", () => {
+  const remaining = remainingMessages({
+    limited: true,
+    limit: 200,
+    used: 198,
+    usedReadings: [132, 198],
+  });
+  // 68通（甘い側）ではなく 2通（きつい側）
+  assert.equal(remaining, 2);
+});
+
+test("usedReadings があれば、used の値よりそちらのきつい側を優先する", () => {
+  const remaining = remainingMessages({
+    limited: true,
+    limit: 200,
+    used: 132,
+    usedReadings: [132, 198],
+  });
+  assert.equal(remaining, 2);
+});
+
+test("聞いた数は窓口にそのまま並べ、分かれたかどうかも出す", () => {
+  const parts = notifyQuotaParts({
+    limited: true,
+    limit: 200,
+    used: 198,
+    usedReadings: [132, 198],
+  });
+  assert.deepEqual(parts.quotaUsedReadings, [132, 198]);
+  assert.equal(parts.quotaUsed, 198);
+  assert.equal(parts.quotaUsedSplit, true);
+  assert.match(parts.quotaStrictRule, /多いほう/);
+});
+
+test("1回しか聞けなかった月は「分かれた」と言わない（null）", () => {
+  const parts = notifyQuotaParts({ limited: true, limit: 200, used: 132, usedReadings: [132] });
+  assert.equal(parts.quotaUsedSplit, null);
+  assert.equal(parts.quotaUsed, 132);
+  assert.equal(remainingMessages({ limited: true, limit: 200, used: 132, usedReadings: [132] }), 68);
+});
+
+test("2回とも同じ数なら、分かれていないと言う", () => {
+  const parts = notifyQuotaParts({ limited: true, limit: 200, used: 150, usedReadings: [150, 150] });
+  assert.equal(parts.quotaUsedSplit, false);
+  assert.equal(parts.quotaUsed, 150);
+});
+
+test("一度も聞けなかった月は、残りを作らない（null のまま）", () => {
+  assert.equal(remainingMessages({ limited: true, limit: 200, used: null, usedReadings: [] }), null);
+  const parts = notifyQuotaParts({ limited: true, limit: 200, used: null, usedReadings: [] });
+  assert.equal(parts.quotaUsed, null);
+  assert.deepEqual(parts.quotaUsedReadings, []);
 });

@@ -161,7 +161,12 @@ export async function GET() {
         "realShop は、**本物の2軒目のお店**（lib/photoShop.ts の一覧）として今月を読み直し、" +
         "行が混ざっていないかを数えた結果です。separated が true でも、" +
         "realShop.measuredAgainstRealRows が false のときは『その店の行がこの月にまだ無い』という" +
-        "意味で、答えの強さは「居ないお店の番号で読んだ0件」と同じです（分かれている証拠にはなりません）。" +
+        "意味で、**2つの向きの両方を確かめたわけではありません**（分かれている証拠としては半分です）。" +
+        "向きごとの強さは provenDirections（0〜2）と strengthNote を見てください：" +
+        "provenOtherShopHidesTebaya が true なら『よその店として読むと、この月に本当に有る手羽屋の行が" +
+        "1件も出てこない』ところまでは**本物の行で確かめた**という意味です" +
+        "（絞っていなければ そのまま出てくる行なので、居ないお店の番号で読んだ0件より強い証拠です）。" +
+        "provenTebayaHidesOtherShop は逆向きで、その店が日報を1枚でも出すまで true になりません。" +
         "0 が正しい数は4つ：手羽屋の読みに混ざった印つきの行／よその店の読みに混ざった印が空の行／" +
         "よその店の読みに混ざった別の店の行／両方に出てきた同じ行。" +
         "お店の名前・番号・金額は1文字も返しません",
@@ -196,6 +201,10 @@ async function readRealShopSeparation(db: any, measurable: boolean): Promise<Rea
   const empty = (summary: string): RealSeparation & { ym: string } => ({
     ym,
     measuredAgainstRealRows: false,
+    provenOtherShopHidesTebaya: false,
+    provenTebayaHidesOtherShop: false,
+    provenDirections: 0,
+    strengthNote: "いまは数えられませんでした（どちらの向きも確かめていません）",
     tebayaRows: 0,
     otherShopRows: 0,
     strayStampedInTebaya: 0,

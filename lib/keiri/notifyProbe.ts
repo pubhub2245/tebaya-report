@@ -76,15 +76,27 @@ export async function probeNotify(): Promise<NotifyFacts> {
       }
     }
     try {
-      const [quota, used] = await Promise.all([
-        client.getMessageQuota(),
-        client.getMessageQuotaConsumption(),
-      ]);
+      // ★「今月すでに使った数」は **2回 聞いて、多いほう（＝きつい側）** を採る
+      //   （2026-11-12・f2-2）。2026-11-11 に、同じ版・同じ時刻の2つの窓口で
+      //   LINE が 132 と 198 を返して分かれました。どちらが本当かはこちらでは
+      //   決められないので、**残りがいちばん少なくなる側**で読みます。
+      //   聞くだけなので、メッセージは1通も送りません（残りは減りません）。
+      const quota = await client.getMessageQuota();
+      const usedReadings: number[] = [];
+      for (let i = 0; i < 2; i += 1) {
+        try {
+          const r = await client.getMessageQuotaConsumption();
+          if (typeof r.totalUsage === "number") usedReadings.push(r.totalUsage);
+        } catch {
+          // 1回 聞けなくても、もう1回ぶんで読む（両方だめなら「分かりません」）
+        }
+      }
       const limited = quota.type === "limited";
       facts.quota = {
         limited,
         limit: limited ? (quota.value ?? null) : null,
-        used: typeof used.totalUsage === "number" ? used.totalUsage : null,
+        used: usedReadings.length > 0 ? Math.max(...usedReadings) : null,
+        usedReadings,
       };
     } catch {
       // 残りの数が分からないだけ。届くかどうかの判定は続けられる
