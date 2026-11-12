@@ -11,7 +11,7 @@ test("倉庫が読めていないときは、合格にも不合格にもしな�
   assert.match(r.summary, /数えられませんでした/);
 });
 
-test("本物の行が1件も無い月は、0件を『分かれている証拠』として出さない", () => {
+test("本物の行が1件も無い月は、0件を『両方の向きの証拠』として出さない", () => {
   const r = calcRealSeparation({
     measurable: true,
     tebaya: [{ id: "a", tenant_id: null }],
@@ -20,7 +20,10 @@ test("本物の行が1件も無い月は、0件を『分かれている証拠』
   });
   assert.equal(r.separated, true);
   assert.equal(r.measuredAgainstRealRows, false);
-  assert.match(r.summary, /同じ強さしかありません/);
+  // 2026-11-12：片方の向き（よその店として読むと手羽屋の行が出ない）は本物で確かめたが、
+  // 逆向きはまだ確かめていない、と分けて言う
+  assert.equal(r.provenDirections, 1);
+  assert.match(r.summary, /まだ確かめられていないのは逆向き/);
 });
 
 test("本物の行で混ざりが無ければ、そう言う（本物で数えた印が付く）", () => {
@@ -107,4 +110,67 @@ test("月の範囲は日本時間で数える（月初の朝に前の月へず�
   // うるう年でない2月の月末
   const feb = monthRangeJst(new Date("2027-02-10T00:00:00Z"));
   assert.equal(feb.end, "2027-02-28");
+});
+
+// ── 向きごとに「本物の行で確かめたか」を分ける（2026-11-12・f3-4）──
+// 11/11 は「その店の行がまだ無い＝作り話と同じ強さ」と1つにまとめていたが、
+// よその店として読んだときに出てこなかった相手は「本物の手羽屋の行」なので、
+// その向きだけは本物の行で確かめられている。
+
+test("よその店の行が0件でも、手羽屋の行が有れば『片方の向きは本物で確かめた』と言う", () => {
+  const r = calcRealSeparation({
+    measurable: true,
+    tebaya: [
+      { id: "a", tenant_id: null },
+      { id: "b", tenant_id: null },
+    ],
+    otherShop: [],
+    otherShopId: SHOP,
+  });
+  assert.equal(r.provenOtherShopHidesTebaya, true);
+  assert.equal(r.provenTebayaHidesOtherShop, false);
+  assert.equal(r.provenDirections, 1);
+  // 「作り話と同じ強さ」とは言わない
+  assert.match(r.strengthNote, /1つを、本物の行で確かめました/);
+  assert.match(r.summary, /片方の向きは本物の行で確かめられました/);
+});
+
+test("両方の読みが0件なら、どちらの向きも確かめていないと言う", () => {
+  const r = calcRealSeparation({ measurable: true, tebaya: [], otherShop: [], otherShopId: SHOP });
+  assert.equal(r.provenDirections, 0);
+  assert.match(r.strengthNote, /どちらの向きも確かめられていません/);
+});
+
+test("両方に本物の行があれば、2つの向きとも確かめたと言う", () => {
+  const r = calcRealSeparation({
+    measurable: true,
+    tebaya: [{ id: "a", tenant_id: null }],
+    otherShop: [{ id: "c", tenant_id: SHOP }],
+    otherShopId: SHOP,
+  });
+  assert.equal(r.provenDirections, 2);
+  assert.match(r.strengthNote, /2つの向きとも/);
+});
+
+test("混ざっている月は、向きの数を立てない（合格に見せない）", () => {
+  const r = calcRealSeparation({
+    measurable: true,
+    tebaya: [{ id: "a", tenant_id: null }],
+    otherShop: [{ id: "b", tenant_id: null }],
+    otherShopId: SHOP,
+  });
+  assert.equal(r.separated, false);
+  assert.equal(r.provenDirections, 0);
+  assert.match(r.strengthNote, /混ざっていました/);
+});
+
+test("倉庫が読めない日は、向きの数を立てない", () => {
+  const r = calcRealSeparation({
+    measurable: false,
+    tebaya: [{ id: "a", tenant_id: null }],
+    otherShop: [],
+    otherShopId: SHOP,
+  });
+  assert.equal(r.provenDirections, 0);
+  assert.equal(r.separated, null);
 });

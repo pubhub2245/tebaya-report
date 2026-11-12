@@ -50,7 +50,21 @@ export type NotifyFacts = {
    * 今月の送信できる数。分からなければ null。
    * limited=false は「数の上限が無い」という意味（有料の契約など）。
    */
-  quota: { limited: boolean; limit: number | null; used: number | null } | null;
+  quota: {
+    limited: boolean;
+    limit: number | null;
+    /**
+     * 今月すでに使った数（通）。**2回 聞いて多いほう（＝きつい側）**を入れる。
+     * 下の usedReadings に、聞いた数をそのまま並べる。
+     */
+    used: number | null;
+    /**
+     * LINE に聞いた「使った数」を、聞いたとおりに並べたもの（2026-11-12・f2-2）。
+     * 1回しか聞けなかったときは1つだけ。聞けなければ空。
+     * **used はこの中のいちばん大きい数**（残りがいちばん少なくなる側）。
+     */
+    usedReadings?: number[];
+  } | null;
 };
 
 /** 見立て */
@@ -115,23 +129,65 @@ export const NOTIFY_QUOTA_SPLIT_NOTE =
   "**少ないほうの残り（きつい側）で判断してください。** " +
   "多いほうを信じると、使い切っている月に『届きます』と言ってしまいます。";
 
+/**
+ * 「きつい側で読む」を、言葉ではなく**窓口の数そのもの**でやる（2026-11-12・f2-2）。
+ *
+ * ■ なぜ足したか
+ *   2026-11-11 に「少ないほうの残り（きつい側）で判断する」と決めましたが、
+ *   決めたのは**読む人の心がまえ**だけで、窓口は相変わらず
+ *   **その時 LINE が返した1つの数**（たとえば「あと68通」）をそのまま出していました。
+ *   ＝ 外から見ると、**きつい側で読んだのかどうかが分かりません**
+ *   （2026-11-12 09:04 に A がそう書いています）。
+ *
+ * ■ どうしたか
+ *   LINE に「今月すでに使った数」を**2回 聞き**、**多いほう（＝残りが少ないほう）**を
+ *   答えにします。聞いた数は usedReadings にそのまま並べるので、
+ *   **分かれたかどうかも、きつい側を採ったかどうかも、外から1回で分かります。**
+ *
+ * ★聞くだけなので、メッセージは1通も送りません（今月の残りは減りません）。
+ */
+export function strictUsed(readings: number[] | undefined, fallback: number | null): number | null {
+  const nums = (readings ?? []).filter((n) => typeof n === "number" && Number.isFinite(n));
+  if (nums.length === 0) return fallback;
+  return Math.max(...nums);
+}
+
 /** 引き算の前の2つの数（通数だけ。分からなければ null） */
 export type NotifyQuotaParts = {
   /** 今月の上限（通）。上限が無い契約・分からないときは null */
   quotaLimit: number | null;
-  /** 今月すでに使った数（通）。分からないときは null */
+  /** 今月すでに使った数（通）。**2回 聞いたときは多いほう＝きつい側**。分からないときは null */
   quotaUsed: number | null;
+  /** LINE に聞いた「使った数」を聞いたとおりに並べたもの（通）。聞けなければ空 */
+  quotaUsedReadings: number[];
+  /** 2回 聞いて数が分かれたか（分かれたら true・1回しか聞けなければ null） */
+  quotaUsedSplit: boolean | null;
+  /** 窓口がどちら側を答えているか、の1行 */
+  quotaStrictRule: string;
   /** どの窓口の数を f2-2 に使うか */
   quotaWindow: string;
   /** 2つの窓口で数がちがったときの読み方 */
   quotaSplitNote: string;
 };
 
+export const NOTIFY_QUOTA_STRICT_RULE =
+  "この窓口は LINE に『今月すでに使った数』を2回 聞き、**多いほう（＝残りがいちばん少なくなる側）**を " +
+  "quotaUsed にしています。聞いた数は quotaUsedReadings にそのまま並べてあるので、" +
+  "分かれたかどうかも、きつい側を採ったかどうかも、ここだけで分かります。" +
+  "remaining ＝ quotaLimit − quotaUsed です（メッセージは1通も送っていません）。";
+
 /** 引き算の前の2つの数を取り出す（計算だけ） */
 export function notifyQuotaParts(quota: NotifyFacts["quota"]): NotifyQuotaParts {
+  const readings = (quota?.usedReadings ?? []).filter(
+    (n) => typeof n === "number" && Number.isFinite(n),
+  );
+  const split = readings.length >= 2 ? new Set(readings).size > 1 : null;
   return {
     quotaLimit: quota && quota.limited ? (quota.limit ?? null) : null,
-    quotaUsed: quota ? (quota.used ?? null) : null,
+    quotaUsed: quota ? strictUsed(readings, quota.used ?? null) : null,
+    quotaUsedReadings: readings,
+    quotaUsedSplit: split,
+    quotaStrictRule: NOTIFY_QUOTA_STRICT_RULE,
     quotaWindow: NOTIFY_QUOTA_WINDOW,
     quotaSplitNote: NOTIFY_QUOTA_SPLIT_NOTE,
   };
@@ -140,8 +196,11 @@ export function notifyQuotaParts(quota: NotifyFacts["quota"]): NotifyQuotaParts 
 /** 今月あと何通送れるか。分からなければ null */
 export function remainingMessages(quota: NotifyFacts["quota"]): number | null {
   if (!quota || !quota.limited) return null;
-  if (quota.limit === null || quota.used === null) return null;
-  const left = quota.limit - quota.used;
+  // ★きつい側（使った数がいちばん多い読み）で引く。多いほうを信じて
+  //   「まだ余裕がある」と答えると、使い切っている月に「届きます」と言ってしまう
+  const used = strictUsed(quota.usedReadings, quota.used ?? null);
+  if (quota.limit === null || used === null) return null;
+  const left = quota.limit - used;
   return left > 0 ? left : 0;
 }
 
