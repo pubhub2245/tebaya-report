@@ -29,6 +29,11 @@
  * ★ 合言葉・鍵の値そのものは扱いません（設定済み／未設定だけ）。
  */
 
+import {
+  checksMeaning,
+  checksNote,
+  type CheckKey,
+} from "./signupChecksMean";
 import { paymentLinkEnvName, priceLabel } from "./caseNumbers";
 import { isUnreachableMessage } from "./readFailure";
 
@@ -41,6 +46,10 @@ export const STRIPE_MANUAL_SETUP = {
   /** 知らせてもらう出来事 */
   webhookEvent: "checkout.session.completed",
 } as const;
+
+/** お申し込みをどの道で受けるか（カードの支払いリンクがあれば card） */
+export type SignupRoute = "bank" | "card";
+
 
 export type TableCheck = {
   ok: boolean;
@@ -135,13 +144,20 @@ export type SignupReadiness = {
      */
     shop_create: boolean;
   };
+  /**
+   * checks の読み方（2026-11-12・B）。**数字は1つも隠していません。**
+   * いまの道で効かない check には「いまの道（銀行振込）では使いません」と頭に付きます。
+   */
+  checks_mean: Record<CheckKey, string>;
+  /** checks 全体にかぶせる1行（どの道か・どれが効くか） */
+  checks_note: string;
   todo: string[];
 
   /**
    * いま正式なお支払い方法。"bank"＝銀行振込（kp181）／"card"＝カードでその場で払える。
    * 支払いリンクが入った瞬間に "card" に変わります（ここを誰かが直す必要はありません）。
    */
-  route: "bank" | "card";
+  route: SignupRoute;
 
   /**
    * 担当が手で行う手順。**欠けているものではありません**（銀行振込の道の正しいやり方）。
@@ -165,7 +181,7 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
   // ★支払いリンクが入っているかが、そのまま「どちらの道か」になります。
   //   入っていない＝銀行振込の道（いまの本番）。入った＝カードの道。
   //   lib/keiri/caseNumbers.ts の cardPaymentLive() と同じ見方です。
-  const route: "bank" | "card" = hasButton ? "card" : "bank";
+  const route: SignupRoute = hasButton ? "card" : "bank";
   const deliveryOk = input.applicationDeliveryOk !== false;
   // カードの道のための残り（銀行振込の道では ready の判定に入れない）
   const cardSetupTodo: string[] = [];
@@ -354,6 +370,16 @@ export function buildSignupReadiness(input: SignupReadinessInput): SignupReadine
       settings_table: measurable ? settings.ok : null,
       shop_create: canCreateShop,
     },
+    /*
+     * ★2026-11-12（B・f2-2）：checks の3つ（payment_button・signup_notice・shop_create）は
+     *   **カードの道だけに効くもの**で、いまの銀行振込の道では使いません。
+     *   とくに signup_notice は名前が「申し込みの知らせ」に読めるため、外から見た人が
+     *   「お申し込みが入っても じゅんに届かない」と受け取り、合格にしてある f2-2 と
+     *   食い違って見えていました（ほんとうの意味は Stripe の支払い通知の合言葉があるか）。
+     *   **数字は1つも隠さず**（2026-09 の決まりのまま）、読み方だけ添えます。
+     */
+    checks_mean: checksMeaning(route),
+    checks_note: checksNote(route),
     todo: shownTodo,
     manual_steps: manualSteps,
     card: { ready: cardReady, todo: cardTodo },
