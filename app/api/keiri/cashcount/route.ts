@@ -49,6 +49,11 @@ import {
   EMPTY_CASH_OPENING_GAP,
   expensesBeforeOpening,
 } from "@/lib/keiri/cashOpeningGap";
+import {
+  measureCashCountDay,
+  UNKNOWN_CASH_COUNT_DAY,
+  type CashCountDay,
+} from "@/lib/keiri/cashCountDay";
 import { buildCashCountPress } from "@/lib/keiri/cashCountPress";
 import { planCashCountNoteKeep, type NoteKeepPlan } from "@/lib/keiri/cashCountMemo";
 import { buildCashVariants, pickCashVariant } from "@/lib/keiri/cashVariant";
@@ -248,7 +253,8 @@ export async function GET() {
      *
      * ■ 答えは1つも変えていません。読む関数・引数は1文字も変えず、順番だけを変えました。
      */
-    const [booksGapOpen, openingSourceRead, memoProbe, openingGap] = await Promise.all([
+    const [booksGapOpen, openingSourceRead, memoProbe, openingGap, countDay] =
+      await Promise.all([
       // 空いている日は、営業した日か お休みか（件数と日付だけ）
       readBooksGapOpen({
         lastDate: booksGapToday.lastDate,
@@ -264,6 +270,12 @@ export async function GET() {
       readOpeningGap({
         openingDate: data.settingsMissing ? null : (settings.opening_date ?? null),
         ym,
+        reports: data.reports,
+        db,
+      }),
+      // ★数える日そのものに出店があって、まだ日報が入っていないか（2026-11-12・f1-4）
+      readCashCountDay({
+        date: last ? last.happened_on : todayJst,
         reports: data.reports,
         db,
       }),
@@ -380,6 +392,9 @@ export async function GET() {
       ready,
       // どの数え始めと比べているのか（棚の名前と日付だけ・金額は出さない）
       openingSource,
+      // ★数える日そのものに出店があって、まだ日報が入っていないか（2026-11-12・f1-4）。
+      //   合否（ok）の決め方は1文字も変えていません。押す前の一言だけです。
+      countDay,
     });
   } catch (e: any) {
     // ★通信が失敗した日も「合っていません」とは言いません
@@ -399,6 +414,40 @@ export async function GET() {
  *   棚に「どの店か」の欄がまだ無い倉庫では、今までどおり絞りません）。
  * ★読めなかったときは「お休みでした」と言いません（0件を「無い」と取り違えないため）。
  */
+/**
+ * 数える日そのものに出店の予定があって、その日の日報がまだ入っていないかを見る
+ * （2026-11-12・kp245・f1-4）。**読むだけ**（1行も書き込みません）。
+ *
+ * ★返すのは ○× と日付だけです。お店の名前・担当者の名前・金額は1文字も返しません。
+ * ★手羽屋のぶんだけを読みます（lib/shiftScope.ts の既にある決まりをそのまま使う）。
+ * ★読めなかったときは「出店はありません」と言いません。
+ */
+async function readCashCountDay(params: {
+  date: string;
+  reports: { date?: string | null }[];
+  db: ReturnType<typeof serverClient>;
+}): Promise<CashCountDay> {
+  const { date, reports, db } = params;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return UNKNOWN_CASH_COUNT_DAY;
+  const reportIn = (reports ?? []).some((r) => String(r?.date ?? "").slice(0, 10) === date);
+  try {
+    const { data, error } = await scopeShiftsQuery<any>(
+      db
+        .from("shifts")
+        .select("date")
+        .eq("date", date)
+        .eq("status", "published")
+        .limit(50) as any,
+      TEBAYA_SCOPE,
+      await probeShiftsTenantState(db as never),
+    );
+    if (error || !data) return measureCashCountDay({ date, shiftToday: null, reportIn });
+    return measureCashCountDay({ date, shiftToday: (data as unknown[]).length > 0, reportIn });
+  } catch {
+    return measureCashCountDay({ date, shiftToday: null, reportIn });
+  }
+}
+
 async function readBooksGapOpen(params: {
   lastDate: string | null;
   asOf: string;
