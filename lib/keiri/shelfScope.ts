@@ -443,7 +443,13 @@ export async function probeShelfLeak(
   const counts = await Promise.all(
     plans.map(async (plan): Promise<ShelfLeakCount> => {
       const r = await countForeignRows(plan);
-      return { table: plan.table, label: plan.label, rows: r.rows };
+      return {
+        table: plan.table,
+        label: plan.label,
+        rows: r.rows,
+        exists: r.exists,
+        hasColumn: r.hasColumn,
+      };
     }),
   );
   return summarizeShelfLeak(counts);

@@ -48,6 +48,22 @@ test("ぜんぶ数えられて0行なら、そう言い切る", () => {
   assert.ok(!r.line?.includes("聞けませんでした"));
 });
 
+test("棚そのものが無い／印の欄が無い棚は「聞けなかった」に数えない", () => {
+  const r = summarizeShelfLeak([
+    { table: "locations", label: "出店場所", rows: 0, exists: true, hasColumn: true },
+    // 棚そのものが無い（貼り紙で作られる）
+    { table: "keiri_cash_events", label: "金庫の記録", rows: null, exists: false, hasColumn: null },
+    // 印の欄がまだ無い
+    { table: "keiri_payments", label: "払った記録", rows: null, exists: true, hasColumn: false },
+    // 本当に聞けなかった
+    { table: "sale_products", label: "商品と単価", rows: null, exists: null, hasColumn: null },
+  ]);
+  assert.equal(r.measured, 1);
+  assert.equal(r.cannotLeak, 2);
+  assert.equal(r.unknown, 1);
+  assert.ok(r.line?.includes("1 つの棚は聞けませんでした"));
+});
+
 test("聞けなかった棚があるときは「0行」と言い切らない", () => {
   const r = summarizeShelfLeak([
     { table: "locations", label: "出店場所", rows: 0 },

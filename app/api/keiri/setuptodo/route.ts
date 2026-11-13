@@ -95,10 +95,13 @@ export async function GET() {
             tables: leak.tables,
             measured: leak.measured,
             unknown: leak.unknown,
+            cannotLeak: leak.cannotLeak,
             line: leak.line,
             note:
               "公開の鍵（ブラウザに配られている鍵）で『どの店か の印が付いた行』が" +
               "何行 読めるかを、棚ごとに件数だけ数えたものです。行の中身は1文字も読んでいません。" +
+              "cannotLeak は『棚そのものが無い／印の欄が無い』棚の数で、**聞けなかったのではなく " +
+              "漏れる入れ物がありません**（unknown は本当に聞けなかった数です）。" +
               "棚ごとの内わけと、締める工事が済んだかは /api/keiri/copies で読めます",
           }
         : null,
