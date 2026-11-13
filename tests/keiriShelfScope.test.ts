@@ -307,3 +307,14 @@ test("写しを1つも聞けなかった日も、f3-4 の合否を付けない",
   assert.equal(v.copiesClosed, null);
   assert.match(v.line, /写しを1つも聞けませんでした/);
 });
+
+test("漏れの数え方には日報の棚が入っている（お金の行を数え落とさない・2026-11-13）", async () => {
+  const { LEAK_SHELVES, PENDING_SHELVES: PS, REPORTS_SHELF } = await import(
+    "../lib/keiri/shelfScope"
+  );
+  assert.ok(LEAK_SHELVES.some((p) => p.table === "daily_reports"));
+  assert.equal(LEAK_SHELVES.length, PS.length + 1);
+  assert.equal(REPORTS_SHELF.table, "daily_reports");
+  // 締める工事の一覧（PENDING_SHELVES）には日報を足していない
+  assert.ok(!PS.some((p) => p.table === "daily_reports"));
+});
