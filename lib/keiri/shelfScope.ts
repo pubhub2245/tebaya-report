@@ -30,6 +30,11 @@
 import { anonClient } from "@/lib/supabaseServer";
 import { isUnreachableMessage } from "@/lib/keiri/readFailure";
 import { isMissingFunction } from "@/lib/keiri/tenantAccess";
+import {
+  summarizeShelfLeak,
+  type ShelfLeak,
+  type ShelfLeakCount,
+} from "@/lib/keiri/shelfLeak";
 
 /** その棚を締めるのに要るもの（窓口の名前は、足すときに貼り紙と字句をそろえる） */
 export type ShelfPlan = {
@@ -419,4 +424,27 @@ export function summarizeShelfScopes(shelves: ShelfScopeReport[]): ShelvesScopeR
       "「お店ごとに分ける必要が無い」と決めた棚は shared に理由つきで並べてあり、" +
       "合否には入れません（お店の数字が1文字も入らない棚だけです）",
   };
+}
+
+/**
+ * 「いま、よその店の行が公開の鍵で何行 読めているか」だけを数える（f3-4・2026-11-13）。
+ *
+ * ■ probeShelfScopes との違い
+ *   probeShelfScopes は棚ごとに2つ聞きます（①印が付いた行が読めるか ②倉庫の窓口があるか）。
+ *   ここは **①だけ**です。じゅんが見る一覧（/keiri のいちばん上）に出す1行のためで、
+ *   窓口があるかは要らないためです（**公開の鍵で読めた行は、窓口の有無にかかわらず
+ *   いま読めている**）。聞く回数が半分になるので、一覧の表示を待たせません。
+ *
+ * ★1行も書き込みません。行の中身（名前・金額・お店の番号）は1文字も受け取りません。
+ */
+export async function probeShelfLeak(
+  plans: ShelfPlan[] = PENDING_SHELVES,
+): Promise<ShelfLeak> {
+  const counts = await Promise.all(
+    plans.map(async (plan): Promise<ShelfLeakCount> => {
+      const r = await countForeignRows(plan);
+      return { table: plan.table, label: plan.label, rows: r.rows };
+    }),
+  );
+  return summarizeShelfLeak(counts);
 }

@@ -118,6 +118,16 @@ export type SetupTodoInput = {
    * 混ざり、倉庫が眠っている日に『のこり 9 本』と**数えたふり**をしてしまいます。
    */
   shelves: { done: number; total: number; unknown?: number } | null;
+  /**
+   * いま、よその店の行が公開の鍵で何行 読めているか（2026-11-13・f3-4）。
+   *
+   * ■ なぜ要るのか
+   *   貼り紙のお願いは「5つが一度に前に進みます」という **これから** の話だけで、
+   *   **いま漏れている**という今の話がどこにもありませんでした（この事実は
+   *   /api/keiri/copies にしか出ていませんでした）。渡さなければ今までどおり
+   *   1文字も増えません。決まりは lib/keiri/shelfLeak.ts の1か所です。
+   */
+  leak?: { rows: number; line: string | null } | null;
   /** サーバー側の鍵 */
   key: { configured: boolean; usable: boolean } | null;
   /**
@@ -150,7 +160,16 @@ const SQL_SHEET = "/keiri/sql";
 const KEY_SHEET = "/keiri/key";
 const CASH_SHEET = "/keiri";
 
-function shelvesItem(input: SetupTodoInput["shelves"]): SetupTodoItem {
+function shelvesItem(
+  input: SetupTodoInput["shelves"],
+  leak?: SetupTodoInput["leak"],
+): SetupTodoItem {
+  /**
+   * ★漏れている行があるときだけ、今の状態のうしろに足します（2026-11-13・f3-4）。
+   *   「済み」の行には足しません（流れたあとに漏れが残っていたら、それは
+   *   貼り紙の話ではなく別の引っかかりなので、窓口 /api/keiri/copies で見ます）。
+   */
+  const leakTail = leak && leak.rows > 0 && leak.line ? `。${leak.line}` : "";
   const base = {
     id: "shelves" as const,
     // ★2026-10-20：金庫（1分・1押し）を先にした（下の cashItem の覚え書き）。
@@ -175,7 +194,9 @@ function shelvesItem(input: SetupTodoInput["shelves"]): SetupTodoItem {
     return {
       ...base,
       state: "分からない",
-      detail: `${input.total} 本ぜんぶ、いま確かめられませんでした（倉庫から返事が来ていません）`,
+      detail:
+        `${input.total} 本ぜんぶ、いま確かめられませんでした（倉庫から返事が来ていません）` +
+        leakTail,
     };
   }
   const left = Math.max(0, input.total - input.done - unknown);
@@ -185,7 +206,8 @@ function shelvesItem(input: SetupTodoInput["shelves"]): SetupTodoItem {
     detail:
       `${input.done}／${input.total} が流れています（のこり ${left} 本` +
       (unknown > 0 ? `・ほかに ${unknown} 本は確かめられませんでした` : "") +
-      "）",
+      "）" +
+      leakTail,
   };
 }
 
@@ -353,7 +375,7 @@ function sortItems(items: SetupTodoItem[]): SetupTodoItem[] {
 
 export function buildSetupTodo(input: SetupTodoInput): SetupTodo {
   const items = sortItems([
-    shelvesItem(input.shelves),
+    shelvesItem(input.shelves, input.leak),
     cashItem(input.cash),
     keyItem(input.key),
     // ★この欄を渡していない呼び出し（古い試験など）では、この1件を出しません
