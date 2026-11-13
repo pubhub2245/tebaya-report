@@ -22,11 +22,24 @@
  *   ・1行も書き込みません
  */
 
-/** 棚ごとに数えた結果（rows が null＝聞けなかった） */
+/**
+ * 棚ごとに数えた結果。
+ *
+ * rows が null のときは**2通りあります**（2026-11-13 に分けました）：
+ *   ・棚そのものが無い（exists === false）／「どの店か」の欄が無い（hasColumn === false）
+ *     … **漏れようがありません**（聞けなかったのではなく、漏れる入れ物が無い）
+ *   ・それ以外 … **本当に聞けませんでした**
+ * 分けないと、漏れようがない棚まで「聞けませんでした」に数え、
+ * 外から読む人に「4つの棚は測れていない」と読まれます（嘘の未測定）。
+ */
 export type ShelfLeakCount = {
   table: string;
   label: string;
   rows: number | null;
+  /** その棚があるか（分からなければ null） */
+  exists?: boolean | null;
+  /** 「どの店か」の欄があるか（分からなければ null） */
+  hasColumn?: boolean | null;
 };
 
 export type ShelfLeak = {
@@ -36,8 +49,10 @@ export type ShelfLeak = {
   tables: { label: string; rows: number }[];
   /** 数えられた棚の数 */
   measured: number;
-  /** 聞けなかった棚の数 */
+  /** **本当に**聞けなかった棚の数 */
   unknown: number;
+  /** 棚そのものが無い／印の欄が無い＝漏れようがない棚の数 */
+  cannotLeak: number;
   /** じゅんが読む1行。漏れが0行で、聞けなかった棚も無ければ null */
   line: string | null;
 };
@@ -49,7 +64,10 @@ export type ShelfLeak = {
  */
 export function summarizeShelfLeak(counts: ShelfLeakCount[]): ShelfLeak {
   const measured = counts.filter((c) => typeof c.rows === "number");
-  const unknown = counts.length - measured.length;
+  const rest = counts.filter((c) => typeof c.rows !== "number");
+  // ★棚そのものが無い／印の欄が無い＝入れ物が無いので漏れようがない
+  const cannotLeak = rest.filter((c) => c.exists === false || c.hasColumn === false).length;
+  const unknown = rest.length - cannotLeak;
   const leaking = measured
     .filter((c) => (c.rows as number) > 0)
     .map((c) => ({ label: c.label, rows: c.rows as number }));
@@ -70,5 +88,5 @@ export function summarizeShelfLeak(counts: ShelfLeakCount[]): ShelfLeak {
   }
   // ★1本も聞けなかったときは line を作らない（数えたふりをしないため）
 
-  return { rows, tables: leaking, measured: measured.length, unknown, line };
+  return { rows, tables: leaking, measured: measured.length, unknown, cannotLeak, line };
 }
