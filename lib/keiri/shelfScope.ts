@@ -186,6 +186,34 @@ export const PENDING_SHELVES: ShelfPlan[] = [
   },
 ];
 
+/**
+ * 日報の棚（2026-11-13・f3-4）。
+ *
+ * ■ なぜ「漏れの数え方」にだけ足すのか（やさしい説明）
+ *   じゅんの一覧に出る1行（「いま、よその店の行が◯行 読めます」）は、
+ *   きょうまで **PENDING_SHELVES（お金と選択肢の棚）だけ**を数えていました。
+ *   日報の棚はそこに入っていません。
+ *   ＝ 牟田町店が写真日報を1枚 出した日から、**その店の売上と経費の行が
+ *   公開の鍵で読めるのに、一覧の「◯行」には1行も入らない**形でした
+ *   （/api/keiri/copies の live はそれを別に書いていますが、じゅんが見る一覧には出ません）。
+ *   いちばん大事な行（お金の行）を数え落とすので、漏れの数え方にだけ足します。
+ *
+ * ★締まったかの数え方（PENDING_SHELVES）には足していません。
+ *   あちらは貼り紙で締める棚の一覧で、日報は別の貼り紙（⑧）で締めるためです。
+ */
+export const REPORTS_SHELF: ShelfPlan = {
+  table: "daily_reports",
+  label: "日報",
+  window: "keiri_tenant_reports",
+  column: "tenant_id",
+};
+
+/**
+ * 「いま何行 漏れているか」を数えるときの棚の一覧。
+ * ＝ 締める工事の一覧（PENDING_SHELVES）＋ 日報の棚。
+ */
+export const LEAK_SHELVES: ShelfPlan[] = [...PENDING_SHELVES, REPORTS_SHELF];
+
 export type ShelfScopeReport = {
   table: string;
   label: string;
@@ -438,7 +466,7 @@ export function summarizeShelfScopes(shelves: ShelfScopeReport[]): ShelvesScopeR
  * ★1行も書き込みません。行の中身（名前・金額・お店の番号）は1文字も受け取りません。
  */
 export async function probeShelfLeak(
-  plans: ShelfPlan[] = PENDING_SHELVES,
+  plans: ShelfPlan[] = LEAK_SHELVES,
 ): Promise<ShelfLeak> {
   const counts = await Promise.all(
     plans.map(async (plan): Promise<ShelfLeakCount> => {
