@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { summarizeShelves } from "@/lib/keiri/shelves";
+import { probeShelfLeak } from "@/lib/keiri/shelfScope";
 import { readShelfReports, probeCashCount } from "@/lib/keiri/shelvesProbe";
 import { buildSetupTodo } from "@/lib/keiri/setupTodo";
 import { describeServerKey } from "@/lib/keiri/serverHealth";
@@ -35,10 +36,18 @@ export async function GET() {
    *   **置き場を閉める最後の1タップが、じゅんが見る唯一の一覧から消えます**。
    *   読むだけ（鍵が無ければ、鍵をまったく付けずに置き場をたたいて見分けます）。
    */
-  const [reports, cash, photo] = await Promise.all([
+  /**
+   * ★2026-11-13（f3-4）：いま公開の鍵で「よその店の行」が何行 読めているかも
+   *   一緒に数えます。これが じゅんの一覧（/keiri のいちばん上）に出ていないと、
+   *   貼り紙のお願いが **これから** の話だけになり、**いま漏れている**ことが
+   *   どこにも出ません（いまは /api/keiri/copies だけ）。
+   *   聞けなかったときは null にして、今までどおり1文字も増やしません。
+   */
+  const [reports, cash, photo, leak] = await Promise.all([
     readShelfReports(),
     probeCashCount(),
     photoLockStatus().catch(() => null),
+    probeShelfLeak().catch(() => null),
   ]);
   const shelfSummary = summarizeShelves(reports);
 
@@ -65,6 +74,7 @@ export async function GET() {
           countedInMemo: cash.countedInMemo,
         },
     photo: photo ? { bucketPublic: photo.bucketPublic, keyUsable: photo.keyUsable } : null,
+    leak: leak ? { rows: leak.rows, line: leak.line } : null,
   });
 
   return NextResponse.json(
@@ -75,6 +85,23 @@ export async function GET() {
       ...todo,
       sheets: { shelves: "/keiri/sql", cash: "/keiri", key: "/keiri/key", photo: "/keiri/key" },
       shelfDetail: `${shelfSummary.done}／${shelfSummary.total}`,
+      /**
+       * ★外から読む人のために、数字そのものも出します（2026-11-13・f3-4）。
+       *   中身（名前・金額・お店の番号）は1文字も入りません。
+       */
+      leak: leak
+        ? {
+            rows: leak.rows,
+            tables: leak.tables,
+            measured: leak.measured,
+            unknown: leak.unknown,
+            line: leak.line,
+            note:
+              "公開の鍵（ブラウザに配られている鍵）で『どの店か の印が付いた行』が" +
+              "何行 読めるかを、棚ごとに件数だけ数えたものです。行の中身は1文字も読んでいません。" +
+              "棚ごとの内わけと、締める工事が済んだかは /api/keiri/copies で読めます",
+          }
+        : null,
     }),
     { status: 200, headers: CHECK_WINDOW_HEADERS },
   );
