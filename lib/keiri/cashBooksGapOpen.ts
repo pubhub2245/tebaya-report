@@ -42,7 +42,23 @@ export type CashBooksGapOpen = {
   holidaysOnly: boolean;
   /** 人が読む一言（お店の名前・担当者の名前・金額は入れない） */
   note: string;
+  /**
+   * **この日数の数え方**（2026-11-13・B）。
+   * ここの空き日数は「数える日そのもの」を外して数えるので、
+   * すぐ上の行（lib/keiri/cashBooksGap.ts の「そこから◯日 空いています」）より
+   * **1日 少なく出ることがあります**。食い違いではありません。
+   * これを書いていないと、2つの数を見比べた人が「数字が壊れている」と読みます
+   * （11/11 に 15件 と 13件 で1回 起きた形）。
+   */
+  countMeans: string;
 };
+
+/** 空き日数の数え方の説明（1か所だけに書く） */
+export const BOOKS_GAP_OPEN_COUNT_MEANS =
+  "ここの空き日数は、**数える日そのものを外して**数えています" +
+  "（その日の日報は営業が終わってから入るため）。" +
+  "そのため、すぐ上の『そこから◯日 空いています』より **1日 少なく出ることがあります**。" +
+  "**食い違いではありません。**";
 
 export const EMPTY_CASH_BOOKS_GAP_OPEN: CashBooksGapOpen = {
   readable: false,
@@ -52,6 +68,7 @@ export const EMPTY_CASH_BOOKS_GAP_OPEN: CashBooksGapOpen = {
   lastDate: null,
   holidaysOnly: false,
   note: "日報が空いている日はありません（この行は出ません）。",
+  countMeans: BOOKS_GAP_OPEN_COUNT_MEANS,
 };
 
 function monthDay(date: string): string {
@@ -85,6 +102,7 @@ export function measureBooksGapOpen(params: {
       note:
         `日報が ${gapDates.length}日 空いていますが、その日に出店の予定があったかは` +
         "読めませんでした。お休みだったのか、日報がまだなのかは分かりません。",
+      countMeans: BOOKS_GAP_OPEN_COUNT_MEANS,
     };
   }
 
@@ -103,6 +121,7 @@ export function measureBooksGapOpen(params: {
       note:
         `日報が ${gapDates.length}日 空いていますが、その ${gapDates.length}日は` +
         "ぜんぶ出店の予定が無い日（お休み）でした＝この空きで食い違うことはありません。",
+      countMeans: BOOKS_GAP_OPEN_COUNT_MEANS,
     };
   }
 
@@ -120,6 +139,7 @@ export function measureBooksGapOpen(params: {
       `（${monthDay(first)}〜${monthDay(last)}）。` +
       "その日の売上と経費が入っていないので、いま金庫を数えると そのぶん必ず食い違います。" +
       "先にその日報を入れてから数えてください。",
+    countMeans: BOOKS_GAP_OPEN_COUNT_MEANS,
   };
 }
 
