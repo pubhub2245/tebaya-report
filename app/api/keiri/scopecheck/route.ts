@@ -10,6 +10,12 @@ import {
   type RealSeparation,
   type StampedRow,
 } from "@/lib/keiri/realTenantSeparation";
+import {
+  calcMasterShelfSeparation,
+  type MasterShelfRead,
+  type MasterShelfSeparation,
+} from "@/lib/keiri/masterShelfSeparation";
+import { MASTER_SHELF_TABLES } from "@/lib/keiri/shelfScope";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
 import { serverClient } from "@/lib/supabaseServer";
 import { probeWarehouseAlive } from "@/lib/keiri/warehouseAlive";
@@ -100,6 +106,14 @@ export async function GET() {
     // ③ 本物の2軒目で、行が混ざっていないかを数える（2026-11-11・f3-4）
     const realShop = await readRealShopSeparation(db, measurable);
 
+    /**
+     * ④ 選択肢の棚（出店場所・担当者・商品と単価）でも同じ数え方をする（2026-11-13・f3-4）。
+     *   ★日報の棚には よその店の行がまだ1件も無いので、③だけでは
+     *     「手羽屋として読むと よその店の行が出てこないか」を**本物の行で**確かめられません。
+     *     選択肢の棚には もう本物の行が入っているので、きょう確かめられます。
+     */
+    const masters = await readMasterShelfSeparation(db, measurable);
+
     return jsonWindow({
       month: label,
       ym,
@@ -144,14 +158,22 @@ export async function GET() {
       measurable,
       warehouse: { alive: warehouse.alive, state: warehouse.state, reason: warehouse.reason },
       separated,
-      realShop,
+      realShop: { ...realShop, masters },
+      /**
+       * 本物の行で確かめられた向きの数を、**日報いがいの棚もあわせて**数えたもの
+       * （2026-11-13・f3-4）。realShop.provenDirections（日報だけ）は変えていません。
+       */
+      provenDirectionsAnyShelf:
+        (realShop.provenOtherShopHidesTebaya ? 1 : 0) +
+        (realShop.provenTebayaHidesOtherShop || masters.provenTebayaHidesOtherShop ? 1 : 0),
       summary: !measurable
         ? `いまは測れませんでした（${warehouse.reason}）。` +
           "合格にも不合格にもしていません。倉庫が読めるようになってから、もう一度 開いてください"
         : separated
         ? `${label}：手羽屋として読むと日報 ${mine.reports.length}件、居ないお店として読むと 0件。` +
           "立替の棚は手羽屋のときだけ読み、よそのお店には読みません（混ざりません）。" +
-          `【本物の2軒目でも数えました】${realShop.summary}`
+          `【本物の2軒目でも数えました】${realShop.summary}` +
+          `【選択肢の棚でも数えました】${masters.summary}`
         : "分かれていません。よそのお店として読んだのに行が出ています",
       shelves:
         "日報いがいの4つの棚（経理の設定・払った記録・金庫の記録・「数えない」の印）は、" +
@@ -170,6 +192,15 @@ export async function GET() {
         "0 が正しい数は4つ：手羽屋の読みに混ざった印つきの行／よその店の読みに混ざった印が空の行／" +
         "よその店の読みに混ざった別の店の行／両方に出てきた同じ行。" +
         "お店の名前・番号・金額は1文字も返しません",
+      mastersNote:
+        "realShop.masters は、**選択肢の棚**（出店場所・担当者・商品と単価）を同じ数え方で" +
+        "数えたものです（2026-11-13）。日報の棚には よその店の行がまだ1件も無いので、" +
+        "『手羽屋として読むと よその店の行が出てこないか』は日報では確かめられません。" +
+        "選択肢の棚には **よその店の本物の行がもう入っている**ので、そちらで確かめます。" +
+        "provenDirectionsAnyShelf は、その結果もあわせて数えた向きの数（0〜2）です" +
+        "（realShop.provenDirections は日報だけの数え方のままです）。" +
+        "ここで見ているのは**アプリが読むときの絞り**だけで、公開の鍵で直に読む道" +
+        "（/api/keiri/copies・貼り紙⑬）は見ていません",
       remaining:
         "ブラウザから倉庫を直に読む道（いまの経理画面）は、まだ棚の鍵で守られていません。" +
         "そこは棚の決まりを変える必要があり、ここでは見ていません",
@@ -250,6 +281,71 @@ async function readRealShopSeparation(db: any, measurable: boolean): Promise<Rea
   } catch {
     return empty("日報を読むときに通信が途切れたので、数えられませんでした");
   }
+}
+
+/**
+ * 選択肢の棚（出店場所・担当者・商品と単価）を2通りで読み、行が混ざっていないかを数える。
+ *
+ * ★読むのは「行の番号」と「どの店の印か」の2つだけ（名前・金額・連絡先は1文字も読みません）。
+ * ★1行も書き込みません。読めなかった棚は「漏れていない」に寄せず、読めなかったと数えます。
+ */
+async function readMasterShelfSeparation(
+  db: any,
+  measurable: boolean,
+): Promise<MasterShelfSeparation> {
+  const shop = PHOTO_SHOPS[0];
+  const labels: Record<string, string> = {
+    locations: "出店場所",
+    staff_members: "担当者",
+    sale_products: "商品と単価",
+  };
+  const blank = (): MasterShelfRead[] =>
+    MASTER_SHELF_TABLES.map((table) => ({
+      table,
+      label: labels[table] ?? table,
+      readable: false,
+      tebaya: [],
+      otherShop: [],
+    }));
+
+  if (!measurable || !shop) {
+    return calcMasterShelfSeparation({
+      shelves: blank(),
+      otherShopId: shop?.tenantId ?? "",
+    });
+  }
+
+  const read = (table: string, scope: string | null) =>
+    applyTenantScope<any>(
+      db.from(table).select("id, tenant_id").limit(1000) as any,
+      scope,
+    );
+
+  const shelves: MasterShelfRead[] = await Promise.all(
+    MASTER_SHELF_TABLES.map(async (table) => {
+      const label = labels[table] ?? table;
+      try {
+        const [mine, theirs] = await Promise.all([
+          read(table, TEBAYA_SCOPE),
+          read(table, shop.tenantId),
+        ]);
+        if (mine?.error || theirs?.error) {
+          return { table, label, readable: false, tebaya: [], otherShop: [] };
+        }
+        return {
+          table,
+          label,
+          readable: true,
+          tebaya: (mine?.data ?? []) as MasterShelfRead["tebaya"],
+          otherShop: (theirs?.data ?? []) as MasterShelfRead["otherShop"],
+        };
+      } catch {
+        return { table, label, readable: false, tebaya: [], otherShop: [] };
+      }
+    }),
+  );
+
+  return calcMasterShelfSeparation({ shelves, otherShopId: shop.tenantId });
 }
 
 /** 窓口の返事（保存させない・検索結果には載せない。lib/keiri/checkWindow.ts） */
