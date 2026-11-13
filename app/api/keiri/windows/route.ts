@@ -9,6 +9,7 @@ import {
   stampCheckWindow,
 } from "@/lib/keiri/checkWindow";
 import { PUBLIC_SITE_URL } from "@/lib/keiri/siteUrl";
+import { BUILD_STAMP } from "@/lib/buildStamp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -87,6 +88,22 @@ export async function GET() {
         "11/9・11/10・11/11 に実際に起き、そのたびに『本番が古い』という誤報になりました）。" +
         `どの窓口の答えにも verdictValidUntil（答えを作った時刻＋${VERDICT_VALID_MINUTES}分）が入っていて、` +
         "それを過ぎた答えで合否を付けてはいけません",
+      /**
+       * ★**版がちがって見えたときの読み方**（2026-11-13・B）。
+       *   11/9・11/10・11/11・11/13 と4回、「窓口のいくつかだけ古い版の答えを返す」が
+       *   行き止まりとして立ちましたが、**4回とも本番は古くありませんでした**
+       *   （11/13 は素の住所を6本 測って、ぜんぶ その場の時刻・同じ版でした）。
+       *   窓口は全部 同じ1つの本番の上で動くので、**版はどの窓口も必ず同じ**です。
+       */
+      productionBuild: BUILD_STAMP,
+      ifBuildDiffers:
+        "**いま本番に出ている版は productionBuild です。窓口は全部 この同じ本番の上で動くので、" +
+        "どの窓口を開いても build は同じになります。**" +
+        "いくつかの窓口だけ別の版・古い answeredAt に見えるときは、" +
+        "**本番の一部だけが古いのではありません**（そういう形にはなりません）。" +
+        "**それを開いた道具が、前の答えを手元にためている**だけです。" +
+        "直すところはサーバー側にないので、行き止まりとして残さず、" +
+        "上の url（?v= 付き）で開き直してください",
       rule:
         "ここに並ぶ窓口は、どれも ①読むだけ ②お店の名前・連絡先・鍵の値を返さない " +
         "③本物の金額を返さない の3つを満たします（lib/keiri/checkWindow.ts の決まり）",

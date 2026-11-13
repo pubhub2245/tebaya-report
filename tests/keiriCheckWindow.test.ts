@@ -79,6 +79,31 @@ test("窓口の返事には、答えた時刻と版の合言葉が必ず入る",
   assert.match(body.freshness, /answeredAt/);
 });
 
+/**
+ * 「版がちがって見えたら、それは読む道具のため込み」を答えの中に書いておく
+ * （2026-11-13・B）。これが無いと、同じ行き止まりが何度でも立つ
+ * （11/9・11/10・11/11・11/13 の4回。本番はどの回も古くなかった）。
+ */
+test("窓口の返事には『版はどの窓口も同じ』が必ず書いてある", () => {
+  const body = stampCheckWindow({ ok: null });
+  assert.equal(typeof body.sameBuildEverywhere, "string");
+  // 「本番の一部だけが古い」という読み方をはっきり否定していること
+  assert.match(body.sameBuildEverywhere, /必ず同じ/);
+  assert.match(body.sameBuildEverywhere, /ためている/);
+  assert.match(body.sameBuildEverywhere, /\?v=/);
+});
+
+test("窓口の案内所は、いま本番に出ている版と、その読み方を書いている", () => {
+  const { readFileSync } = require("node:fs") as typeof import("node:fs");
+  const { join } = require("node:path") as typeof import("node:path");
+  const src = readFileSync(
+    join(__dirname, "..", "app", "api", "keiri", "windows", "route.ts"),
+    "utf8",
+  );
+  assert.ok(src.includes("productionBuild"), "案内所に いま本番に出ている版が出ていない");
+  assert.ok(src.includes("ifBuildDiffers"), "案内所に『版がちがって見えたとき』の読み方が無い");
+});
+
 test("札は元の中身を1つも消さない・上書きしない", () => {
   const body = stampCheckWindow({ sheetReady: true, problems: [] as string[] });
   assert.equal(body.sheetReady, true);
