@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  BOOKS_GAP_OPEN_COUNT_MEANS,
   booksGapDates,
   measureBooksGapOpen,
 } from "../lib/keiri/cashBooksGapOpen";
@@ -133,4 +134,48 @@ test("お休みだけの空きは、数える前の1行が「いま数えて大�
   });
   assert.equal(unknown.gapIsHolidaysOnly, false);
   assert.match(unknown.line, /それ以降に営業した日があると/);
+});
+
+/**
+ * ⑥ 2つの行の日数が1日ちがって見えても、食い違いではないと**答えの中に書いてある**
+ * （2026-11-13・B）。
+ *
+ * ■ なぜ要るか
+ *   同じ窓口（/api/keiri/cashcount）に、空きの日数が2通り並びます。
+ *   ・booksGap … 日報のいちばん新しい日から **数える日まで**（11/5→11/13 なら 8日）
+ *   ・booksGapOpen … そこから **数える日そのものを外した** 日数（7日）
+ *   わざと違う数ですが、そう書いていなければ、見比べた人は
+ *   「数字が壊れている／本番が古い」と読みます（11/11 に 15件 と 13件 で1回 起きた形）。
+ */
+test("⑥ 空き日数の数え方が、どの答えにも書いてある", () => {
+  const cases = [
+    measureBooksGapOpen({ gapDates: [], shiftDates: null }),
+    measureBooksGapOpen({ gapDates: ["2026-11-06"], shiftDates: null }),
+    measureBooksGapOpen({ gapDates: ["2026-11-06"], shiftDates: [] }),
+    measureBooksGapOpen({ gapDates: ["2026-11-06"], shiftDates: ["2026-11-06"] }),
+  ];
+  for (const r of cases) {
+    assert.equal(r.countMeans, BOOKS_GAP_OPEN_COUNT_MEANS);
+    assert.match(r.countMeans, /数える日そのものを外して/);
+    assert.match(r.countMeans, /1日 少なく出ることがあります/);
+    assert.match(r.countMeans, /食い違いではありません/);
+    // 金額・店名・担当者の名前は1文字も入れない
+    assert.ok(!/円/.test(r.countMeans));
+  }
+});
+
+test("⑥ 実際に1日ちがう形で、2つの行が並ぶ（11月13日に数えた形）", () => {
+  // 日報は 11/5 まで・数える日は 11/13
+  const gap = measureBooksGap({
+    reports: [{ date: "2026-11-05" } as never],
+    asOf: "2026-11-13",
+  });
+  const dates = booksGapDates({ lastDate: "2026-11-05", asOf: "2026-11-13" });
+  const open = measureBooksGapOpen({ gapDates: dates, shiftDates: [] });
+  assert.equal(gap.days, 8); // 数える日まで
+  assert.equal(dates.length, 7); // 数える日そのものは外す
+  assert.equal(open.closedDays, 7);
+  // 1日 ちがうが、その理由が答えの中に書いてある
+  assert.equal(gap.days! - open.closedDays, 1);
+  assert.match(open.countMeans, /食い違いではありません/);
 });
