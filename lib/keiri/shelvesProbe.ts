@@ -23,6 +23,11 @@ import {
 } from "@/lib/keiri/shelves";
 import { peekTestShop } from "@/lib/keiri/tenantTrialServer";
 import { decodeCashCountMemo } from "@/lib/keiri/cashCountMemo";
+import {
+  applyBooksGapAnswer,
+  decodeBooksGapAnswer,
+} from "@/lib/keiri/booksGapAnswer";
+import { booksGapDates } from "@/lib/keiri/cashBooksGapOpen";
 import { probeTenantReadGuard } from "@/lib/keiri/tenantReadGuard";
 import {
   MASTER_SHELF_TABLES,
@@ -330,4 +335,66 @@ function isMissingTable(code?: string | null, message?: string | null): boolean 
   if (c === "42P01" || c === "PGRST205" || c === "42703") return true;
   const m = String(message ?? "");
   return /does not exist|could not find the table|schema cache/i.test(m);
+}
+
+
+/* ------------------------------------------------------------------ *
+ *  「日報が入っていない日は お休みでしたか」が、まだ答えられていないか
+ *  （2026-11-14・f1-4）。**読むだけ**（1行も書き込みません）。
+ * ------------------------------------------------------------------ */
+
+export type BooksGapQuestionProbe = {
+  /** まだ答えていない空きが残っているか（＝金庫を数える前に1回 押してもらう） */
+  open: boolean;
+  /** その日数（答え済み・空き無しなら 0） */
+  days: number;
+  /** 読めなかった（通信の失敗など）。読めなければ「無い」とは言わない */
+  unreadable: boolean;
+};
+
+/**
+ * ★なぜ要るのか：この答えが無いと、じゅんが金庫を1分 数えても合否が出ません
+ *   （差の内わけに「分からない所」が1つ残るため）。
+ *   ＝ じゅんが見る唯一の一覧に「押すのは1回だけ」と書いたままだと、
+ *   1回 押して離れ、答えはまた出ません（2026-11-01 に直したのと同じ食い違い）。
+ * ★返すのは「残っているか・何日ぶんか」だけです（日付も金額も返しません）。
+ */
+export async function probeBooksGapQuestion(): Promise<BooksGapQuestionProbe> {
+  try {
+    const db = serviceClientOrNull({ fresh: true }) ?? serverClient({ fresh: true });
+    const [latest, settings] = await Promise.all([
+      db
+        .from("daily_reports")
+        .select("date")
+        .is("tenant_id", null)
+        .order("date", { ascending: false })
+        .limit(1),
+      db
+        .from("keiri_settings")
+        .select("memo")
+        .eq("business_type_code", "tebaya")
+        .maybeSingle(),
+    ]);
+    if (latest.error || settings.error) {
+      return { open: false, days: 0, unreadable: true };
+    }
+    const lastDate = String((latest.data?.[0] as any)?.date ?? "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(lastDate)) {
+      return { open: false, days: 0, unreadable: true };
+    }
+    const todayJst = new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
+    const gapDates = booksGapDates({ lastDate, asOf: todayJst });
+    if (gapDates.length === 0) return { open: false, days: 0, unreadable: false };
+    const use = applyBooksGapAnswer({
+      gapDates,
+      saved: decodeBooksGapAnswer((settings.data as any)?.memo ?? null),
+    });
+    return {
+      open: !use.covers,
+      days: gapDates.length,
+      unreadable: false,
+    };
+  } catch {
+    return { open: false, days: 0, unreadable: true };
+  }
 }

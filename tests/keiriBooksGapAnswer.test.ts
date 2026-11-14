@@ -32,6 +32,7 @@ import {
   openingExpensesPiece,
 } from "../lib/keiri/cashDiffCoverage";
 import { cashCountOk, buildCashCountReady } from "../lib/keiri/cashCountWindow";
+import { buildSetupTodo } from "../lib/keiri/setupTodo";
 
 const ORIGINAL = "2026/9/10 の金庫 145,000円 から数え始めています。";
 const GAP = ["2026-11-06", "2026-11-07", "2026-11-08"];
@@ -265,4 +266,56 @@ test("押す前の一言も、答えたとおりに変わる（答えが無け�
   });
   assert.match(operated.line, /先にその日報を入れて/);
   assert.equal(operated.gapIsHolidaysOnly, false);
+});
+
+/* ------------------------------------------------------------------ */
+/* じゅんの一覧（/keiri のいちばん上）とも食い違わないこと             */
+/* ------------------------------------------------------------------ */
+
+test("空きの答えがまだなら、じゅんの一覧も「先にこれを押す」と言う", () => {
+  const common = {
+    shelves: { done: 1, total: 13, unknown: 0 },
+    key: { configured: true, usable: false },
+    photo: { bucketPublic: true, keyUsable: false },
+    leak: null,
+  };
+  const before = buildSetupTodo({
+    ...common,
+    cash: { shelfMissing: true, counted: false, countedInMemo: false },
+  });
+  const cashBefore = before.items.find((i) => i.id === "cash");
+  assert.ok(cashBefore);
+  assert.equal(cashBefore.presses?.length, 1);
+  assert.doesNotMatch(cashBefore.detail ?? "", /お休みでした/);
+
+  const after = buildSetupTodo({
+    ...common,
+    cash: {
+      shelfMissing: true,
+      counted: false,
+      countedInMemo: false,
+      gapQuestionOpen: true,
+      gapQuestionDays: 8,
+    },
+  });
+  const cashAfter = after.items.find((i) => i.id === "cash");
+  assert.ok(cashAfter);
+  // 押すのは2つ（空きの答え → 金額を比べる）。1回だけ、とは言わない
+  assert.equal(cashAfter.presses?.length, 2);
+  assert.match(cashAfter.presses?.[0] ?? "", /お休みでした/);
+  assert.match(cashAfter.detail ?? "", /8日/);
+  assert.match(cashAfter.detail ?? "", /いまは言えません/);
+});
+
+test("読めなかった日は、空きの答えを「無い」ことにしない", () => {
+  // 窓口が読めなかったときは gapQuestionOpen を渡さない＝今までどおり1押し
+  const todo = buildSetupTodo({
+    shelves: { done: 1, total: 13, unknown: 0 },
+    key: { configured: true, usable: false },
+    photo: { bucketPublic: true, keyUsable: false },
+    leak: null,
+    cash: { shelfMissing: true, counted: false, countedInMemo: false },
+  });
+  const cash = todo.items.find((i) => i.id === "cash");
+  assert.equal(cash?.presses?.length, 1);
 });

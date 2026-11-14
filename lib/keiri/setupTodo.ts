@@ -135,7 +135,19 @@ export type SetupTodoInput = {
    * shelfMissing＝記録を置く棚（貼り紙①）がまだ無い。
    * counted＝数えた記録が1行でもあるか。
    */
-  cash: { shelfMissing: boolean; counted: boolean; countedInMemo?: boolean } | null;
+  cash: {
+    shelfMissing: boolean;
+    counted: boolean;
+    countedInMemo?: boolean;
+    /**
+     * 「日報が入っていない日は お休みでしたか」が、まだ答えられていないか
+     * （2026-11-14・f1-4）。残っているあいだは、押すボタンが1つ増えます
+     * （答えないと、数えても合否が出ないため）。渡さなければ今までどおり。
+     */
+    gapQuestionOpen?: boolean;
+    /** その日数（言い方に入れるだけ） */
+    gapQuestionDays?: number;
+  } | null;
   /**
    * レシート写真の置き場（2026-10-28・f3-4）。
    *
@@ -236,13 +248,33 @@ function cashItem(input: SetupTodoInput["cash"]): SetupTodoItem {
    */
   const pressesFor = (shelfMissing: boolean): string[] => {
     const where = shelfMissing ? "控えに残ります" : "記録に残ります";
-    return compareAlsoKeeps(shelfMissing)
+    const count = compareAlsoKeeps(shelfMissing)
       ? [`この金額で比べる（これで${where}。押すのはこの1回だけです）`]
       : ["この金額で比べる", "この結果を控えに残す（これで終わりです）"];
+    // ★空きの答えがまだなら、その1押しが先（2026-11-14・f1-4）。
+    //   答えないと、数えても「いまは言えません」で終わります。
+    if (!gapOpen) return count;
+    return [
+      `この${gapDays > 0 ? `${gapDays}日` : "空いている日"}は お休みでした` +
+        "／営業した日があります（どちらか1回）",
+      ...count,
+    ];
   };
   if (!input) {
     return { ...base, state: "分からない", detail: "いま確かめられませんでした" };
   }
+  const gapOpen = input.gapQuestionOpen === true;
+  const gapDays = Math.max(0, Math.round(input.gapQuestionDays ?? 0));
+  /**
+   * 空きの答えがまだのときに足す1文（2026-11-14・f1-4）。
+   * ★これが無いと「押すのは1回だけ」と書いたまま、押しても合否が出ません。
+   */
+  const gapLine = gapOpen
+    ? `先に、日報が入っていない${gapDays > 0 ? ` ${gapDays}日` : "日"}が` +
+      "「お休みでした」か「営業した日があります」かを1回 押してください" +
+      "（出店の予定表は入力をやめているので、アプリの中からは分かりません）。" +
+      "これを押さないと、数えても答えは「いまは言えません」になります。"
+    : "";
   // ★棚がまだ無くても、数えた1回は控えに残ります（2026-10-13・f1-4）。
   //   「入れても残りません」と言い続けると、1分で済む手続きが2分の貼り紙を待ちます。
   if (input.counted) {
@@ -261,6 +293,7 @@ function cashItem(input: SetupTodoInput["cash"]): SetupTodoItem {
       presses: pressesFor(true),
       state: "のこり",
       detail:
+        (gapLine ? `${gapLine}そのうえで、` : "") +
         "棚は準備中ですが、いま入れれば控えに残ります" +
         "（貼り紙を待ちません。押すのは［この金額で比べる］の1回だけで、" +
         "答えがその場に出て、そのまま控えに残ります）",
@@ -271,6 +304,7 @@ function cashItem(input: SetupTodoInput["cash"]): SetupTodoItem {
     presses: pressesFor(false),
     state: "のこり",
     detail:
+      (gapLine ? `${gapLine}そのうえで、` : "") +
       "数えた記録がまだ1件もありません" +
       "（押すのは［この金額で比べる］の1回だけで、答えがその場に出て、" +
       "そのまま記録に残ります。同じ日・同じ金額は足さないので行は増えません）",

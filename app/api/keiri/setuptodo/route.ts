@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 
 import { summarizeShelves } from "@/lib/keiri/shelves";
 import { probeShelfLeak } from "@/lib/keiri/shelfScope";
-import { readShelfReports, probeCashCount } from "@/lib/keiri/shelvesProbe";
+import {
+  readShelfReports,
+  probeCashCount,
+  probeBooksGapQuestion,
+} from "@/lib/keiri/shelvesProbe";
 import { buildSetupTodo } from "@/lib/keiri/setupTodo";
 import { describeServerKey } from "@/lib/keiri/serverHealth";
 import { photoLockStatus } from "@/lib/keiri/photoLockServer";
@@ -43,11 +47,14 @@ export async function GET() {
    *   どこにも出ません（いまは /api/keiri/copies だけ）。
    *   聞けなかったときは null にして、今までどおり1文字も増やしません。
    */
-  const [reports, cash, photo, leak] = await Promise.all([
+  const [reports, cash, photo, leak, gapQ] = await Promise.all([
     readShelfReports(),
     probeCashCount(),
     photoLockStatus().catch(() => null),
     probeShelfLeak().catch(() => null),
+    // ★「日報が入っていない日は お休みでしたか」が まだ答えられていないか
+    //   （2026-11-14・f1-4）。残っていると、金庫を数えても合否が出ません。
+    probeBooksGapQuestion().catch(() => null),
   ]);
   const shelfSummary = summarizeShelves(reports);
 
@@ -72,6 +79,9 @@ export async function GET() {
           shelfMissing: cash.shelfMissing,
           counted: cash.counted,
           countedInMemo: cash.countedInMemo,
+          // 読めなかった日は足さない（0件と取り違えないため）
+          gapQuestionOpen: gapQ && !gapQ.unreadable ? gapQ.open : false,
+          gapQuestionDays: gapQ && !gapQ.unreadable ? gapQ.days : 0,
         },
     photo: photo ? { bucketPublic: photo.bucketPublic, keyUsable: photo.keyUsable } : null,
     leak: leak ? { rows: leak.rows, line: leak.line } : null,
