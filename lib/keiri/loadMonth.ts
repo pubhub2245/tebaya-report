@@ -40,6 +40,10 @@ import { decodeCashCountMemo, mergeCashEvents } from "./cashCountMemo";
 import { decodeExpenseIgnoreMemo, mergeIgnoreRows } from "./expenseIgnoreMemo";
 import { decodeReportDupMemo } from "./reportDupMemo";
 import type { ReportDupRow } from "./reportDups";
+import {
+  decodeBooksGapAnswer,
+  type BooksGapAnswer,
+} from "./booksGapAnswer";
 import { normalizeRegisterCloses, type RegisterCloseRow } from "./registerFloat";
 import {
   normalizeRegisterDiffs,
@@ -101,6 +105,11 @@ export type KeiriMonthData = {
    *   1件も無ければ空＝今までどおり「出すだけ」（数字は1円も変わりません）。
    */
   reportDups: ReportDupRow[];
+  /**
+   * 「日報が入っていない日は お休みだったか」の、じゅんの答え（2026-11-14・f1-4）。
+   * 置き場がまだ無いので、経理の設定のおまけ欄の控えから読む。無ければ null。
+   */
+  booksGapAnswer: BooksGapAnswer | null;
 };
 
 /**
@@ -197,6 +206,8 @@ async function loadViaServerWindow(params: {
     ignoreShelf: (d.ignoreShelf as IgnoreShelfState) ?? "unknown",
     // ★窓口がまだこの欄を返さない版でも落ちないように、無ければ空のまま（＝今までどおり）
     reportDups: (d.reportDups as ReportDupRow[]) ?? [],
+    // ★窓口がまだこの欄を返さない版でも落ちないように、無ければ null（＝答えが無い）
+    booksGapAnswer: (d.booksGapAnswer as BooksGapAnswer | null) ?? null,
   };
 }
 
@@ -528,5 +539,7 @@ export async function loadKeiriMonthDirect(
     ignoreShelf,
     // 「同じ日報が2枚」の決めごと（2026-11-03・kp246）。置き場ができるまでは控えから読む
     reportDups: decodeReportDupMemo((s as any)?.memo),
+    // 「日報が入っていない日は お休みだったか」の答え（2026-11-14・f1-4）
+    booksGapAnswer: decodeBooksGapAnswer((s as any)?.memo),
   };
 }

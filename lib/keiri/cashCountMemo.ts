@@ -26,6 +26,8 @@
  */
 
 import type { CashEvent } from "./cashCheck";
+import { stripBooksGapAnswer } from "./booksGapAnswer";
+import { stripExpenseIgnoreMemo } from "./expenseIgnoreMemo";
 
 /** 控えの始まりの印 */
 export const CASH_MEMO_BEGIN = "［金庫を数えた控え v1 ここから］";
@@ -172,16 +174,28 @@ export type NoteKeepPlan = {
   line: string;
 };
 
+/**
+ * 人が書いた ひとこと だけを取り出す（**控えの印は ぜんぶ外す**）。
+ *
+ * ★おまけ欄には控えが3種類 並びます（金庫の1回／数えない印／日報の空きの答え）。
+ *   金庫のぶんだけ外して数えると、ほかの控えが増えたときに
+ *   「ひとことが 125文字 → 400文字 に増えた」と読めてしまい、
+ *   じゅんの文が無事かを外から見張れなくなります。
+ */
+export function stripAllMemoBlocks(memo: string | null | undefined): string {
+  return stripBooksGapAnswer(stripExpenseIgnoreMemo(stripCashCountMemo(memo)));
+}
+
 export function planCashCountNoteKeep(memo: string | null | undefined): NoteKeepPlan {
   const raw = String(memo ?? "");
-  const before = stripCashCountMemo(raw);
+  const before = stripAllMemoBlocks(raw);
   // 試し書き（倉庫には1行も書きません）。日付と金額は、結果に影響しない当たり障りのない値
   const next = encodeCashCountMemo(raw, {
     happened_on: "2026-01-01",
     amount: 0,
     saved_at: "1970-01-01T00:00:00.000Z",
   });
-  const after = next === null ? "" : stripCashCountMemo(next);
+  const after = next === null ? "" : stripAllMemoBlocks(next);
   const keptExactly = next !== null && after === before && next.includes(before);
   const hasBlock = raw.indexOf(CASH_MEMO_BEGIN) >= 0;
   const tidied = !hasBlock && raw !== before;
