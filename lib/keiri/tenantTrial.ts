@@ -143,7 +143,12 @@ export const TRIAL_CREATE_PATH = "/api/keiri/tenant-trial/run";
 /** 1行のまとめ（窓口の summary） */
 export function trialSummary(params: {
   state: TrialState;
-  separated: boolean;
+  /**
+   * ★null＝**まだ確かめていません**（2026-11-14 夕・f5-4／f3-4）。
+   *   テストの店がまだ無い日に false（＝分かれていません）と答えると、
+   *   「混ざっている」と読まれて、測ってもいないことが不合格になります。
+   */
+  separated: boolean | null;
   elapsedMs: number | null;
   /** いまここで作れるか（省略＝確かめていない） */
   creatable?: TrialCreatable;
@@ -176,8 +181,11 @@ export function trialSummary(params: {
   const setup = state.active
     ? "初回設定（店名・数え始めの日・金庫の起点）まで終わっています"
     : "お店の行はできていますが、初回設定がまだです";
-  const scope = separated
-    ? "このお店として読むと手羽屋の日報は1件も出ず、立替の棚も読みません（混ざりません）"
-    : "分かれているかを確かめられませんでした";
+  const scope =
+    separated === true
+      ? "このお店として読むと手羽屋の日報は1件も出ず、立替の棚も読みません（混ざりません）"
+      : separated === null
+        ? "分かれているかは、まだ確かめていません（合格にも不合格にもしていません）"
+        : "分かれているかを確かめられませんでした";
   return `テストの店（${TEST_SHOP.name}）：${setup}。${time}${scope}`;
 }

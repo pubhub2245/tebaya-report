@@ -157,6 +157,24 @@ test("まとめの1行：初回設定まで終わっていれば、かかった�
   assert.match(s, /混ざりません/);
 });
 
+/**
+ * 測っていないことを、不合格の形で出さない（2026-11-14 夕・f5-4／f3-4）。
+ * テストの店が1軒も無い日は読み比べを1回もしていないので、
+ * separated は **null（まだ確かめていません）**。false（＝分かれていません）だと
+ * 「混ざっている」と読まれ、測ってもいないことが不合格になる。
+ */
+test("まとめの1行：分かれているかを確かめていない日は、言い切らない", () => {
+  const s = trialSummary({
+    state: { exists: true, createdNow: false, active: true, settingsReady: true },
+    separated: null,
+    elapsedMs: 1000,
+  });
+  assert.match(s, /まだ確かめていません/);
+  assert.ok(!/混ざりません/.test(s));
+  // 「分かれていません」と読める言い方も出さない
+  assert.ok(!/確かめられませんでした/.test(s));
+});
+
 test("まとめの1行：30分を超えたら「いいえ」と言う（ごまかさない）", () => {
   const s = trialSummary({
     state: { exists: true, createdNow: false, active: true, settingsReady: true },

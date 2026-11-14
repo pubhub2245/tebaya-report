@@ -48,7 +48,15 @@ export async function describe(params: {
   const { state, tenantId, elapsedMs, ran, via } = params;
   const creatable: TrialCreatable = params.creatable ?? "unknown";
   const read = await readBothWays(tenantId);
-  const separated = state.exists ? separationOk(read) : false;
+  /**
+   * ★テストの店がまだ無い日は **null（まだ確かめていません）**
+   *   （2026-11-14 夕・f5-4／f3-4）。
+   *   ここは きのうまで false を返していました。false は「分かれていません」＝
+   *   **混ざっている**と読めますが、店が1軒も無い日は読み比べを1回もしていません。
+   *   測ってもいないことを不合格の形で出さない、という決まり
+   *   （11/07 に steps の窓口を直したのと同じ考え方）にそろえます。
+   */
+  const separated = state.exists ? separationOk(read) : null;
 
   return jsonWindow({
     shop: TEST_SHOP.name,
@@ -66,6 +74,14 @@ export async function describe(params: {
     tebaya: read.tebaya,
     testShop: read.testShop,
     separated,
+    separatedNote:
+      separated === null
+        ? "テストの店がまだ1軒も無いので、読み比べを1回もしていません。" +
+          "null は「分かれていません」ではなく「まだ確かめていません」です" +
+          "（合格にも不合格にもしないでください）"
+        : separated
+          ? "テストの店として読んで、手羽屋の行が1件も出ないことまで確かめました"
+          : "読み比べはしましたが、分かれていると言える形ではありませんでした",
     ...(ran ? { ran } : {}),
     ...(via
       ? {
