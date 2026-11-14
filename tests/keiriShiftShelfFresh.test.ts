@@ -8,6 +8,9 @@ import {
 } from "../lib/keiri/shiftShelfFresh";
 import { measureBooksGapOpen } from "../lib/keiri/cashBooksGapOpen";
 import { measureCashCountDay } from "../lib/keiri/cashCountDay";
+import { buildCashCountReady } from "../lib/keiri/cashCountWindow";
+import { buildCashVariants } from "../lib/keiri/cashVariant";
+import { measureBooksGap } from "../lib/keiri/cashBooksGap";
 
 /**
  * 「出店予定の表が止まっているなら、予定が無いことを お休みの証しにしない」
@@ -141,4 +144,32 @@ test("⑧ 一言には、お店の名前・担当者の名前・金額を入れ�
   );
   assert.equal(line, "出店予定の表は 10月31日 までで止まっています");
   assert.equal(shiftShelfStaleLine(SHIFT_SHELF_NOT_MEASURED), "");
+});
+
+test("⑨ 表が止まっている日は、『足りない日が 0日 あります』と言わない", () => {
+  const ready = buildCashCountReady({
+    booksGap: measureBooksGap({
+      reports: [{ date: "2026-11-05" }],
+      asOf: "2026-11-14",
+      openingDate: "2026-09-10",
+    }),
+    gapOpen: measureBooksGapOpen({
+      gapDates: ["2026-11-06", "2026-11-07"],
+      shiftDates: [],
+      shelf: measureShiftShelfFresh({
+        lastPublishedDate: "2026-10-18",
+        since: "2026-11-06",
+      }),
+    }),
+    variants: buildCashVariants({
+      screenBalance: 100_000,
+      withRepaidBalance: null,
+      registerFloat: 20_000,
+    }),
+    registerFloatOn: "2026-10-31",
+  });
+  assert.equal(ready.gapIsHolidaysOnly, false);
+  assert.doesNotMatch(ready.line, /0日 あります/);
+  assert.match(ready.line, /10月18日 までで止まっている/);
+  assert.match(ready.line, /お休みかどうかは分かりません/);
 });
