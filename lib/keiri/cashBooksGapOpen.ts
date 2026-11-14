@@ -27,6 +27,12 @@
  *   ③ 読めなかったときに「お休みでした」と言いません（0件を「無い」と取り違えない）。
  */
 
+import {
+  SHIFT_SHELF_NOT_MEASURED,
+  shiftShelfStaleLine,
+  type ShiftShelfFresh,
+} from "./shiftShelfFresh";
+
 /** 空きの正体 */
 export type CashBooksGapOpen = {
   /** 予定が読めたか（読めなければ、ここから下は当てにしない） */
@@ -40,6 +46,13 @@ export type CashBooksGapOpen = {
   lastDate: string | null;
   /** 空きが「お休みだけ」と言い切れるか（読めて、足りない日が0のときだけ true） */
   holidaysOnly: boolean;
+  /**
+   * 出店予定の表が、この空きの期間まで入っているか（2026-11-14・f1-4）。
+   * false＝表がその前で止まっているので「お休みでした」とは言えません。
+   */
+  shelfCoversGap: boolean | null;
+  /** いちばん新しい予定の日（表がどこで止まっているか。無ければ null） */
+  shelfLastDate: string | null;
   /** 人が読む一言（お店の名前・担当者の名前・金額は入れない） */
   note: string;
   /**
@@ -67,6 +80,8 @@ export const EMPTY_CASH_BOOKS_GAP_OPEN: CashBooksGapOpen = {
   firstDate: null,
   lastDate: null,
   holidaysOnly: false,
+  shelfCoversGap: null,
+  shelfLastDate: null,
   note: "日報が空いている日はありません（この行は出ません）。",
   countMeans: BOOKS_GAP_OPEN_COUNT_MEANS,
 };
@@ -86,8 +101,14 @@ function monthDay(date: string): string {
 export function measureBooksGapOpen(params: {
   gapDates: string[];
   shiftDates: string[] | null;
+  /**
+   * 出店予定の表の新しさ（渡さなければ今までどおりの言い方）。
+   * lib/keiri/shiftShelfFresh.ts で決めた値をそのまま渡す。
+   */
+  shelf?: ShiftShelfFresh;
 }): CashBooksGapOpen {
   const { gapDates } = params;
+  const shelf = params.shelf ?? SHIFT_SHELF_NOT_MEASURED;
   if (gapDates.length === 0) return EMPTY_CASH_BOOKS_GAP_OPEN;
 
   // ★読めなかったときは「お休みでした」と言わない（安全側）
@@ -99,6 +120,8 @@ export function measureBooksGapOpen(params: {
       firstDate: null,
       lastDate: null,
       holidaysOnly: false,
+      shelfCoversGap: shelf.coversSince,
+      shelfLastDate: shelf.lastDate,
       note:
         `日報が ${gapDates.length}日 空いていますが、その日に出店の予定があったかは` +
         "読めませんでした。お休みだったのか、日報がまだなのかは分かりません。",
@@ -111,6 +134,28 @@ export function measureBooksGapOpen(params: {
   const closedDays = gapDates.length - open.length;
 
   if (open.length === 0) {
+    // ★表がこの期間より前で止まっているときは「お休みでした」と言わない
+    //   （2026-11-14・f1-4）。入れる人がいなくなった表の 0件 は「無い」の証しに
+    //   なりません。言い切ると、本当は「日報がまだ入っていない日」で説明が付く差が
+    //   「名前の付かない差」になり、f1-4 が誤って不合格になります。
+    if (shelf.coversSince === false) {
+      return {
+        readable: true,
+        openDays: 0,
+        closedDays: 0,
+        firstDate: null,
+        lastDate: null,
+        holidaysOnly: false,
+        shelfCoversGap: false,
+        shelfLastDate: shelf.lastDate,
+        note:
+          `日報が ${gapDates.length}日 空いています。${shiftShelfStaleLine(shelf)}ので、` +
+          "この空きが お休みだったのか、出店したのに日報がまだなのかは分かりません" +
+          "（表に予定が無いことは、お休みだった証しになりません）。" +
+          "出店した日があれば、その日報を入れてから数えると差がはっきりします。",
+        countMeans: BOOKS_GAP_OPEN_COUNT_MEANS,
+      };
+    }
     return {
       readable: true,
       openDays: 0,
@@ -118,6 +163,8 @@ export function measureBooksGapOpen(params: {
       firstDate: null,
       lastDate: null,
       holidaysOnly: true,
+      shelfCoversGap: shelf.coversSince,
+      shelfLastDate: shelf.lastDate,
       note:
         `日報が ${gapDates.length}日 空いていますが、その ${gapDates.length}日は` +
         "ぜんぶ出店の予定が無い日（お休み）でした＝この空きで食い違うことはありません。",
@@ -134,6 +181,8 @@ export function measureBooksGapOpen(params: {
     firstDate: first,
     lastDate: last,
     holidaysOnly: false,
+    shelfCoversGap: shelf.coversSince,
+    shelfLastDate: shelf.lastDate,
     note:
       `出店の予定があったのに日報が入っていない日が ${open.length}日 あります` +
       `（${monthDay(first)}〜${monthDay(last)}）。` +
