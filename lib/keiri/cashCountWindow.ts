@@ -240,10 +240,20 @@ export function buildCashCountReady(params: {
     /** いちばん新しい予定の日（表がどこで止まっているか） */
     shelfLastDate?: string | null;
   } | null;
+  /**
+   * じゅんが答えた「この空きは お休みでしたか」（2026-11-14・f1-4）。
+   * 渡さなければ、今までどおり（答えが無いものとして言う）。
+   */
+  gapAnswer?: {
+    holidaysOnly: boolean;
+    operated: boolean;
+    line: string | null;
+  } | null;
 }): CashCountReady {
   const { variants, registerFloatOn } = params;
   const booksGap = params.booksGap ?? null;
   const gapOpen = params.gapOpen ?? null;
+  const gapAnswer = params.gapAnswer ?? null;
   const wayLabels = variants.map((v) => v.label);
   const safeOnlyIncluded = variants.some(
     (v) => v.key === "nowScreenSafeOnly" || v.key === "withEarlierRepaidSafeOnly",
@@ -253,9 +263,15 @@ export function buildCashCountReady(params: {
   // ★日報が空いているかは、相手がそろっているかとは別の話（2026-11-01・f1-4）。
   //   相手は4通り そろっていても、日報が2週間 入っていなければ必ず食い違います。
   const booksUpToDate = !(booksGap?.wide ?? false);
-  const holidaysOnly = gapOpen?.holidaysOnly ?? false;
+  const holidaysOnly = (gapOpen?.holidaysOnly ?? false) || (gapAnswer?.holidaysOnly ?? false);
   const booksLine = !booksUpToDate && booksGap?.lastDate
-    ? // ★空きの正体が「お休みだけ」と読めた日は、無い探し物をさせない（2026-11-09）
+    ? // ★じゅんが「営業した日があります」と答えた日は、それを先に言う（2026-11-14・f1-4）
+      gapAnswer?.operated && gapAnswer.line
+      ? gapAnswer.line
+      : // ★じゅんが「お休みでした」と答えた日は、その答えをそのまま言う（2026-11-14・f1-4）
+        gapAnswer?.holidaysOnly && gapAnswer.line
+      ? `${gapAnswer.line}いま数えていただいて大丈夫です`
+      : // ★空きの正体が「お休みだけ」と読めた日は、無い探し物をさせない（2026-11-09）
       holidaysOnly
       ? `日報は ${monthDay(booksGap.lastDate)} までですが、` +
         `そこからの ${booksGap.days}日は**ぜんぶ出店の予定が無い日（お休み）**でした` +

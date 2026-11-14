@@ -149,6 +149,14 @@ import {
 } from "@/lib/keiri/cashCheck";
 import { encodeCashCountMemo } from "@/lib/keiri/cashCountMemo";
 import {
+  booksGapQuestion,
+  encodeBooksGapAnswer,
+  applyBooksGapAnswer,
+  type BooksGapAnswer,
+  type BooksGapAnswerKind,
+} from "@/lib/keiri/booksGapAnswer";
+import { booksGapDates } from "@/lib/keiri/cashBooksGapOpen";
+import {
   compareAlsoKeeps,
   compareResultLine,
   keepButtonLabel,
@@ -310,6 +318,8 @@ function KeiriInner() {
   // ★棚（keiri_cash_events）がまだ無い倉庫では空のまま＝この画面は今までどおり。
   const [cashEvents, setCashEvents] = useState<CashEvent[]>([]);
   const [cashShelfMissing, setCashShelfMissing] = useState(false);
+  /** 「日報が入っていない日は お休みだったか」の、じゅんの答え（2026-11-14・f1-4） */
+  const [booksGapAnswer, setBooksGapAnswer] = useState<BooksGapAnswer | null>(null);
   /**
    * 閉店後に**レジに残してあるつり銭**の実測（2026-10-12・f1-4）。
    * ★月の経費・利益・会計ソフト向けCSVには**1円も入れません**。
@@ -405,6 +415,7 @@ function KeiriInner() {
       setAdvancesRepaidEarlier(data.advancesRepaidEarlier ?? []);
       setCashEvents(data.cashEvents);
       setCashShelfMissing(data.cashShelfMissing);
+      setBooksGapAnswer(data.booksGapAnswer ?? null);
       setRegisterCloses(data.registerCloses ?? []);
       setRegisterDiffs(data.registerDiffs ?? null);
       setIgnores(data.ignores);
@@ -1724,6 +1735,7 @@ function KeiriInner() {
         fieldRepayGapAsOf={fieldRepayGapAsOf}
         unpaidPayrollGapAsOf={unpaidPayrollGapAsOf}
         cashShopScopeAsOf={cashShopScopeAsOf}
+        booksGapAnswer={booksGapAnswer}
       />
 
       {/* 毎月お渡しする1枚（2026-10-04・kp231）。
@@ -2401,6 +2413,7 @@ function CashCountCard({
   fieldRepayGapAsOf,
   unpaidPayrollGapAsOf,
   cashShopScopeAsOf,
+  booksGapAnswer,
 }: {
   reconcile: ReturnType<typeof reconcileCash>;
   balanceNow: number;
@@ -2433,13 +2446,18 @@ function CashCountCard({
   unpaidPayrollGapAsOf: (date: string) => UnpaidPayrollGap;
   /** その日に揃えた「どの屋号の日報から数えているか」（2026-11-04・f1-4） */
   cashShopScopeAsOf: (date: string) => CashShopScope;
+  /**
+   * じゅんが答えた「日報が入っていない日は お休みでしたか」（2026-11-14・f1-4）。
+   * まだ答えていなければ null。
+   */
+  booksGapAnswer: BooksGapAnswer | null;
 }) {
   const [countOn, setCountOn] = useState(todayStr());
   const [countYen, setCountYen] = useState("");
   const [countNote, setCountNote] = useState("");
   const [depositOn, setDepositOn] = useState(todayStr());
   const [depositYen, setDepositYen] = useState("");
-  const [saving, setSaving] = useState<null | "count" | "deposit">(null);
+  const [saving, setSaving] = useState<null | "count" | "deposit" | "gap">(null);
   const [msg, setMsg] = useState("");
   /** 入れた金額を、記録に残す前にその場で比べた答え（2026-10-09・kp233） */
   const [preview, setPreview] = useState<CashReconcile | null>(null);
@@ -2795,6 +2813,79 @@ function CashCountCard({
     return true;
   };
 
+  /**
+   * いま日報が入っていない日（きょうを外した並び・2026-11-14・f1-4）。
+   * ★きょうの日報は営業が終わってから入るので、きょうは数えません
+   *   （数えると、金庫を数えた日は いつも「空きがある」になってしまいます）。
+   */
+  const gapDatesToday = (() => {
+    const books = booksGapAsOf(todayStr());
+    if (!books.lastDate) return [] as string[];
+    return booksGapDates({ lastDate: books.lastDate, asOf: todayStr() });
+  })();
+  /** その並びに対する、じゅんの答え（覆っているときだけ効く） */
+  const gapAnswerToday = applyBooksGapAnswer({
+    gapDates: gapDatesToday,
+    saved: booksGapAnswer,
+  });
+
+  /**
+   * 「日報が入っていない日は お休みでしたか」の答えを、1回だけ控える
+   * （2026-11-14・f1-4）。**金額は1円も作りません・1円も直しません。**
+   *
+   * ★なぜ要るのか：出店予定の表は 2026-10-18 で止まっています
+   *   （11/7 から写真の日報に変わり、シフトの入り口そのものが外れたため）。
+   *   ＝ この空きが お休みだったかは、アプリの中のどこを見ても分かりません。
+   *   答えが無いままだと、じゅんが1分 数えても「いまは言えません」で終わります。
+   * ★答えは「いつからいつまで」つきで控え、**その日を覆っているときだけ**効きます。
+   */
+  const saveGapAnswer = async (answer: BooksGapAnswerKind): Promise<void> => {
+    const dates = gapDatesToday;
+    if (dates.length === 0) return;
+    setSaving("gap");
+    setMsg("");
+    // いま書いてあるひとことを消さないよう、先に読んでから足す
+    const { data, error: rErr } = await supabase
+      .from("keiri_settings")
+      .select("memo")
+      .eq("business_type_code", businessCode)
+      .maybeSingle();
+    const pre = decideMemoPreread({
+      isTebaya: businessCode === TEBAYA_BUSINESS_CODE,
+      rowFound: !!data,
+      errorMessage: rErr ? rErr.message : null,
+    });
+    if (!pre.proceed) {
+      setSaving(null);
+      if (pre.message) setMsg(pre.message);
+      return;
+    }
+    const next = encodeBooksGapAnswer((data as any)?.memo ?? null, {
+      from: dates[0],
+      to: dates[dates.length - 1],
+      answer,
+    });
+    if (next === null) {
+      setSaving(null);
+      setMsg("答えを残せませんでした（日付が読めませんでした）");
+      return;
+    }
+    const { data: changed, error } = await supabase
+      .from("keiri_settings")
+      .update({ memo: next })
+      .eq("business_type_code", businessCode)
+      .select("business_type_code");
+    setSaving(null);
+    const verdict = decideSettingsWriteResult({
+      isTebaya: businessCode === TEBAYA_BUSINESS_CODE,
+      errorMessage: error ? error.message : null,
+      changedRows: Array.isArray(changed) ? changed.length : null,
+      target: "日報の空きの答え",
+    });
+    setMsg(verdict.message);
+    if (verdict.ok) onSaved();
+  };
+
   const lines = reconcileLines(reconcile);
   /**
    * 差の内わけ「数え始めの日より前に払った経費」（2026-10-28・kp265・f1-4）。
@@ -2886,6 +2977,14 @@ function CashCountCard({
   ): CashDiffCoverage => {
     if (!countedOn) return EMPTY_CASH_DIFF_COVERAGE;
     const books = booksGapAsOf(countedOn);
+    // ★じゅんが「この空きは お休みでした」と答えた日は、分からない所として数えません
+    //   （2026-11-14・f1-4）。答えは、答えた日を覆っているときだけ効きます。
+    const answered = applyBooksGapAnswer({
+      gapDates: books.lastDate
+        ? booksGapDates({ lastDate: books.lastDate, asOf: countedOn })
+        : [],
+      saved: booksGapAnswer,
+    });
     return measureCashDiffCoverage({
       diff,
       pieces: [
@@ -2894,7 +2993,8 @@ function CashCountCard({
         fieldRepayPiece(fieldRepayGapAsOf(countedOn)),
         unpaidPayrollPiece(unpaidPayrollGapAsOf(countedOn)),
       ],
-      unknown: books.wide ? ["日報がまだ入っていない日"] : [],
+      unknown:
+        books.wide && !answered.holidaysOnly ? ["日報がまだ入っていない日"] : [],
     });
   };
   const coverageSaved = coverageFor(reconcile.diff, reconcile.countedOn);
@@ -3084,6 +3184,48 @@ function CashCountCard({
           {booksGapToday.days}日）。それ以降に営業した日があると、そのぶんだけ差が出ます。
           先に日報を入れてから数えると、差の意味がはっきりします。
         </p>
+      )}
+
+      {/* ★「この空きは お休みでしたか」をじゅんに1回だけ聞く（2026-11-14・f1-4）。
+             2026-11-07 から手羽屋は写真の日報に変わり、出店予定の表の入り口そのものが
+             外れました（CLAUDE.md 3-1）。表は止まっているので「予定が無い＝お休み」とは
+             言えません。＝ この空きの正体を知っているのは人だけです。
+             答えが無いままだと、1分 数えても答えは「いまは言えません」で終わります
+             （分からない所が1つ残るため）。ここで はい／いいえ を1回 押してもらうと、
+             同じ1分で合否が出ます。**金額は1円も変わりません。** */}
+      {booksGapToday.wide && gapDatesToday.length > 0 && (
+        <div className="rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-2">
+          {gapAnswerToday.line ? (
+            <p className="text-xs text-stone-700 leading-relaxed">
+              {gapAnswerToday.line}
+            </p>
+          ) : (
+            <p className="text-xs text-stone-700 leading-relaxed">
+              {booksGapQuestion(gapDatesToday)}
+            </p>
+          )}
+          <p className="text-xs text-stone-500 leading-relaxed">
+            出店の予定表は入力をやめているので、アプリの中からは分かりません。
+            押しても金額は1円も変わりません（変わるのは「差の心当たり」の数え方だけです）。
+            答え直したいときは、もう一度 押してください。
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              className="btn-secondary w-full"
+              onClick={() => void saveGapAnswer("holiday")}
+              disabled={saving !== null}
+            >
+              この{gapDatesToday.length}日は お休みでした
+            </button>
+            <button
+              className="btn-secondary w-full"
+              onClick={() => void saveGapAnswer("operated")}
+              disabled={saving !== null}
+            >
+              営業した日があります（日報はこれから）
+            </button>
+          </div>
+        </div>
       )}
 
       {/* ★数える前の一言「レジの過不足がこれだけ入っています」（2026-11-04・f1-4）。

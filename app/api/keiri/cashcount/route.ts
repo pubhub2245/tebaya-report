@@ -57,6 +57,10 @@ import {
 } from "@/lib/keiri/cashCountDay";
 import { buildCashCountPress } from "@/lib/keiri/cashCountPress";
 import { planCashCountNoteKeep, type NoteKeepPlan } from "@/lib/keiri/cashCountMemo";
+import {
+  applyBooksGapAnswer,
+  type BooksGapAnswerUse,
+} from "@/lib/keiri/booksGapAnswer";
 import { buildCashVariants, pickCashVariant } from "@/lib/keiri/cashVariant";
 import { CASE_BUSINESS_CODE } from "@/lib/keiri/caseStats";
 import { CHECK_WINDOW_HEADERS, stampCheckWindow } from "@/lib/keiri/checkWindow";
@@ -186,6 +190,24 @@ export async function GET() {
     // 数える前の用意にも、同じ答えを渡す（今日に揃えて見る）
     const booksGapToday = measureBooksGap({ reports: data.reports, asOf: todayJst });
 
+    // ★「日報が入っていない日は お休みだったか」の、じゅんの答え（2026-11-14・f1-4）。
+    //   2026-11-07 から手羽屋は写真の日報に変わり、出店予定の表の入り口そのものが
+    //   外れました（CLAUDE.md 3-1）。表は止まっているので、「予定が無い＝お休み」とは
+    //   言えません（lib/keiri/shiftShelfFresh.ts）。＝ この空きの正体を知っているのは
+    //   人だけで、**答えが無いままだと、じゅんが1分 数えても合否が出ません**
+    //   （分からない所が1つ残るので covered が null → ok が null）。
+    //   そこで、経理の画面で答えてもらった1件を読み、**その答えが覆っている日だけ**
+    //   「分からない所」から外します。**金額は1円も変わりません。**
+    const gapAnswer: BooksGapAnswerUse = applyBooksGapAnswer({
+      gapDates: booksGap.lastDate
+        ? booksGapDates({
+            lastDate: booksGap.lastDate,
+            asOf: last ? last.happened_on : todayJst,
+          })
+        : [],
+      saved: data.booksGapAnswer,
+    });
+
     // ★「日報に入っている レジの過不足」（2026-11-04・f1-4）。
     //   この分は「計算上の現金」に入れていないので、必ずそのぶん食い違います。
     //   **金額は1円も返しません**（読めたか・件数・向きだけ）。
@@ -291,6 +313,12 @@ export async function GET() {
     const ready = buildCashCountReady({
       booksGap: booksGapToday,
       gapOpen: booksGapOpen,
+      // じゅんが答えていれば、押す前の一言もその答えで言う（2026-11-14・f1-4）
+      gapAnswer: {
+        holidaysOnly: gapAnswer.holidaysOnly,
+        operated: gapAnswer.operated,
+        line: gapAnswer.line,
+      },
       variants: buildCashVariants({
         screenBalance: data.settingsMissing ? null : balanceAt(todayJst, false),
         withRepaidBalance:
@@ -343,8 +371,12 @@ export async function GET() {
       // ★空きが「お休みだけ」と読めた日は、分からない所として数えません
       //   （数えると、お休みがあるだけで永遠に合否が出ません）。
       //   読めなかった日・足りない日があった日は、今までどおり「分からない所」です。
+      //   じゅんが「この空きは お休みでした」と答えた日も、同じく数えません
+      //   （2026-11-14・f1-4。答えは、答えた日を覆っているときだけ効きます）。
       unknown:
-        booksGap.wide && !booksGapOpen.holidaysOnly ? ["日報がまだ入っていない日"] : [],
+        booksGap.wide && !booksGapOpen.holidaysOnly && !gapAnswer.holidaysOnly
+          ? ["日報がまだ入っていない日"]
+          : [],
     });
 
     // ★合否は1か所で決める（2026-11-09・f1-4）。
@@ -370,6 +402,25 @@ export async function GET() {
       booksGap: buildCashBooksGapWindow({ gap: booksGap, diff: reconcile.diff }),
       // 空いている日の正体（営業した日か お休みか・件数と日付だけ）
       booksGapOpen,
+      // じゅんが答えた「この空きは お休みでしたか」（2026-11-14・f1-4）
+      gapAnswer: {
+        has: gapAnswer.has,
+        covers: gapAnswer.covers,
+        answer: gapAnswer.answer,
+        holidaysOnly: gapAnswer.holidaysOnly,
+        operated: gapAnswer.operated,
+        from: gapAnswer.from,
+        to: gapAnswer.to,
+        line: gapAnswer.line,
+        note:
+          "出店予定の表が止まっているので（2026-11-07 から写真の日報に変わり、" +
+          "シフトの入り口そのものが外れました）、日報が入っていない日が お休みだったかは" +
+          "アプリの中からは分かりません。知っているのは人だけなので、" +
+          "経理の画面で1回だけ答えてもらいます。**答えは、答えた日を覆っているときだけ効きます**" +
+          "（新しく空いた日は、また分からない所に戻ります）。" +
+          "この答えで変わるのは『分からない所があるか』だけで、" +
+          "計算上の現金・月の経費・利益・会計ソフト向けCSV・試算表は1円も変わりません。",
+      },
       // 差の内わけ（日報に入っているレジの過不足・金額は出さない）
       registerDiffGap: buildRegisterDiffGapWindow({
         gap: regDiffGap,
