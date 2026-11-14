@@ -155,6 +155,11 @@ import {
   type BooksGapAnswer,
   type BooksGapAnswerKind,
 } from "@/lib/keiri/booksGapAnswer";
+import {
+  gapPickNeeded,
+  planCashCountGapPick,
+  gapPickFailLine,
+} from "@/lib/keiri/cashCountGapPick";
 import { booksGapDates } from "@/lib/keiri/cashBooksGapOpen";
 import {
   compareAlsoKeeps,
@@ -2459,6 +2464,15 @@ function CashCountCard({
   const [depositYen, setDepositYen] = useState("");
   const [saving, setSaving] = useState<null | "count" | "deposit" | "gap">(null);
   const [msg, setMsg] = useState("");
+  /**
+   * 「日報が入っていない日は お休みでしたか」で えらんだ答え
+   * （2026-11-14 夕・f1-4）。**えらぶだけでは何も残りません。**
+   * ［この金額で比べる］の1押しで、金庫の記録といっしょに控えます
+   * （＝じゅんが押すのは、今までどおり1回だけ）。
+   */
+  const [gapPick, setGapPick] = useState<BooksGapAnswerKind | null>(null);
+  /** その1押しで、空いた日の答えをどうしたか（控えた／控えていない）の1行 */
+  const [gapNote, setGapNote] = useState<string | null>(null);
   /** 入れた金額を、記録に残す前にその場で比べた答え（2026-10-09・kp233） */
   const [preview, setPreview] = useState<CashReconcile | null>(null);
   /** 2通りの数え方のどちらに合ったか（2026-10-12・kp250・f1-4） */
@@ -2577,10 +2591,31 @@ function CashCountCard({
       setPreview(null);
       setVariantPick(null);
       setKeptByCompare(false);
+      // ★えらんだ答えは画面に残したまま（消すと えらび直しになる）。
+      //   ただし「控えました」の1行は消す（この回は何も控えていないため）。
+      setGapNote(null);
       return;
     }
     setMsg("");
     setKeptByCompare(false);
+    /**
+     * ★空いた日の答えを、**この1押しに同乗させる**（2026-11-14 夕・f1-4）。
+     *   お昼までは答えを押すボタンが別にあり、押すのが2つになっていました。
+     *   1つ 押して離れると、また「いまは言えません」で終わります
+     *   （＝1分がまるごと無駄になります）。えらぶだけにして、ここで控えます。
+     * ★えらんでいなければ、こちらで答えを作りません（お休みだったことにしない）。
+     */
+    const gapPlan = planCashCountGapPick({
+      gapDays: gapDatesToday.length,
+      pick: gapPick,
+      current: gapAnswerToday,
+    });
+    let gapLine: string | null = gapPlan.note ?? gapPlan.warn;
+    if (gapPlan.save && gapPlan.answer) {
+      const saved = await saveGapAnswer(gapPlan.answer, { quiet: true });
+      gapLine = saved.ok ? gapPlan.note : gapPickFailLine(saved.message);
+    }
+    setGapNote(gapLine);
     const screenBalance = computedAsOf(countOn);
     setPreview(
       previewCashCount({
@@ -2839,11 +2874,15 @@ function CashCountCard({
    *   答えが無いままだと、じゅんが1分 数えても「いまは言えません」で終わります。
    * ★答えは「いつからいつまで」つきで控え、**その日を覆っているときだけ**効きます。
    */
-  const saveGapAnswer = async (answer: BooksGapAnswerKind): Promise<void> => {
+  const saveGapAnswer = async (
+    answer: BooksGapAnswerKind,
+    opts?: { quiet?: boolean },
+  ): Promise<{ ok: boolean; message: string }> => {
+    const quiet = opts?.quiet === true;
     const dates = gapDatesToday;
-    if (dates.length === 0) return;
+    if (dates.length === 0) return { ok: false, message: "空いている日がありません" };
     setSaving("gap");
-    setMsg("");
+    if (!quiet) setMsg("");
     // いま書いてあるひとことを消さないよう、先に読んでから足す
     const { data, error: rErr } = await supabase
       .from("keiri_settings")
@@ -2857,8 +2896,8 @@ function CashCountCard({
     });
     if (!pre.proceed) {
       setSaving(null);
-      if (pre.message) setMsg(pre.message);
-      return;
+      if (pre.message && !quiet) setMsg(pre.message);
+      return { ok: false, message: pre.message ?? "控えられませんでした" };
     }
     const next = encodeBooksGapAnswer((data as any)?.memo ?? null, {
       from: dates[0],
@@ -2867,8 +2906,9 @@ function CashCountCard({
     });
     if (next === null) {
       setSaving(null);
-      setMsg("答えを残せませんでした（日付が読めませんでした）");
-      return;
+      const m = "答えを残せませんでした（日付が読めませんでした）";
+      if (!quiet) setMsg(m);
+      return { ok: false, message: m };
     }
     const { data: changed, error } = await supabase
       .from("keiri_settings")
@@ -2882,8 +2922,9 @@ function CashCountCard({
       changedRows: Array.isArray(changed) ? changed.length : null,
       target: "日報の空きの答え",
     });
-    setMsg(verdict.message);
+    if (!quiet) setMsg(verdict.message);
     if (verdict.ok) onSaved();
+    return { ok: verdict.ok, message: verdict.message };
   };
 
   const lines = reconcileLines(reconcile);
@@ -3206,24 +3247,49 @@ function CashCountCard({
           )}
           <p className="text-xs text-stone-500 leading-relaxed">
             出店の予定表は入力をやめているので、アプリの中からは分かりません。
-            押しても金額は1円も変わりません（変わるのは「差の心当たり」の数え方だけです）。
-            答え直したいときは、もう一度 押してください。
+            {gapPickNeeded({
+              gapDays: gapDatesToday.length,
+              current: gapAnswerToday,
+            })
+              ? "ここは えらぶだけです（まだ何も残りません）。下の［この金額で比べる］を押したときに、金庫の記録といっしょに控えます＝押すのは1回だけです。"
+              : "答え直したいときは、えらび直して、もう一度［この金額で比べる］を押してください。"}
+            えらんでも金額は1円も変わりません（変わるのは「差の心当たり」の数え方だけです）。
           </p>
+          {/* ★「押す」ではなく「えらぶ」（2026-11-14 夕・f1-4）。
+                 押すボタンが2つあると、1つ 押して離れたときに合否が出ません。 */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <button
-              className="btn-secondary w-full"
-              onClick={() => void saveGapAnswer("holiday")}
-              disabled={saving !== null}
+            <label
+              className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs leading-relaxed cursor-pointer ${
+                gapPick === "holiday"
+                  ? "border-brand-dark bg-stone-50 font-bold"
+                  : "border-stone-300"
+              }`}
             >
-              この{gapDatesToday.length}日は お休みでした
-            </button>
-            <button
-              className="btn-secondary w-full"
-              onClick={() => void saveGapAnswer("operated")}
-              disabled={saving !== null}
+              <input
+                type="radio"
+                name="books-gap-answer"
+                className="mt-0.5"
+                checked={gapPick === "holiday"}
+                onChange={() => setGapPick("holiday")}
+              />
+              <span>この{gapDatesToday.length}日は お休みでした</span>
+            </label>
+            <label
+              className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs leading-relaxed cursor-pointer ${
+                gapPick === "operated"
+                  ? "border-brand-dark bg-stone-50 font-bold"
+                  : "border-stone-300"
+              }`}
             >
-              営業した日があります（日報はこれから）
-            </button>
+              <input
+                type="radio"
+                name="books-gap-answer"
+                className="mt-0.5"
+                checked={gapPick === "operated"}
+                onChange={() => setGapPick("operated")}
+              />
+              <span>営業した日があります（日報はこれから）</span>
+            </label>
           </div>
         </div>
       )}
@@ -3318,7 +3384,14 @@ function CashCountCard({
           disabled={saving !== null}
         >
           この金額で比べる（そのまま記録に残します）
+          {gapPick !== null ? "／空いた日の答えも控えます" : ""}
         </button>
+
+        {/* ★その1押しで、空いた日の答えをどうしたか（2026-11-14 夕・f1-4）。
+               控えられなかったときに「控えました」と言わないための1行でもあります。 */}
+        {gapNote && (
+          <p className="text-xs text-stone-700 leading-relaxed">{gapNote}</p>
+        )}
 
         {preview && (
           <div className="rounded-lg bg-stone-100 px-4 py-3 space-y-1">

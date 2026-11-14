@@ -300,9 +300,13 @@ test("空きの答えがまだなら、じゅんの一覧も「先にこれを�
   });
   const cashAfter = after.items.find((i) => i.id === "cash");
   assert.ok(cashAfter);
-  // 押すのは2つ（空きの答え → 金額を比べる）。1回だけ、とは言わない
+  // 空きの答えは **えらぶだけ**で、押すのは［この金額で比べる］の1回だけ
+  // （2026-11-14 夕・f1-4。押すボタンが2つあると、1つ 押して離れた人に合否が出ない）
   assert.equal(cashAfter.presses?.length, 2);
   assert.match(cashAfter.presses?.[0] ?? "", /お休みでした/);
+  assert.match(cashAfter.presses?.[0] ?? "", /えらぶだけ・押しません/);
+  assert.match(cashAfter.presses?.[1] ?? "", /押すのはこの1回だけです/);
+  assert.match(cashAfter.detail ?? "", /えらぶだけで、押すのは/);
   assert.match(cashAfter.detail ?? "", /8日/);
   assert.match(cashAfter.detail ?? "", /いまは言えません/);
 });
