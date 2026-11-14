@@ -44,6 +44,7 @@ import {
   measureCashShopScope,
 } from "@/lib/keiri/cashShopScope";
 import { buildCashOpeningSource } from "@/lib/keiri/cashOpeningSource";
+import { measureShiftShelfFresh } from "@/lib/keiri/shiftShelfFresh";
 import {
   buildCashOpeningGapWindow,
   EMPTY_CASH_OPENING_GAP,
@@ -253,6 +254,9 @@ export async function GET() {
      *
      * ■ 答えは1つも変えていません。読む関数・引数は1文字も変えず、順番だけを変えました。
      */
+    // ★出店予定の表の新しさは1回だけ読み、下の2つで使い回す（2026-11-14・f1-4）。
+    //   ここで走らせ始めるので、待ち時間は増えません。
+    const shelfLast = readShiftShelfLast(db);
     const [booksGapOpen, openingSourceRead, memoProbe, openingGap, countDay] =
       await Promise.all([
       // 空いている日は、営業した日か お休みか（件数と日付だけ）
@@ -261,6 +265,7 @@ export async function GET() {
         asOf: todayJst,
         wide: booksGapToday.wide,
         db,
+        shelfLast,
       }),
       // 手羽屋が毎日使う現金の画面が読む棚の「数え始めの日」だけ
       readDailyScreenOpening(db),
@@ -278,6 +283,7 @@ export async function GET() {
         date: last ? last.happened_on : todayJst,
         reports: data.reports,
         db,
+        shelfLast,
       }),
     ]);
 
@@ -422,13 +428,52 @@ export async function GET() {
  * ★手羽屋のぶんだけを読みます（lib/shiftScope.ts の既にある決まりをそのまま使う）。
  * ★読めなかったときは「出店はありません」と言いません。
  */
+/**
+ * 出店予定の表の **いちばん新しい公開ずみの予定の日** を1つだけ読む
+ * （2026-11-14・kp245・f1-4）。**読むだけ**（1行も書き込みません）。
+ *
+ * ★返すのは日付1つだけです（お店の名前・担当者の名前・金額は1文字も読みません）。
+ * ★読めなかったときは undefined を返し、「予定が無い」とは言いません。
+ * ★なぜ要るか：2026-11-07 から手羽屋はシフトの入り口を外した（CLAUDE.md 3-1）ので、
+ *   表に予定が無いことは「お休みだった」の証しになりません。
+ */
+async function readShiftShelfLast(
+  db: ReturnType<typeof serverClient>,
+): Promise<string | null | undefined> {
+  try {
+    const { data, error } = await scopeShiftsQuery<any>(
+      db
+        .from("shifts")
+        .select("date")
+        .eq("status", "published")
+        .order("date", { ascending: false })
+        .limit(1) as any,
+      TEBAYA_SCOPE,
+      await probeShiftsTenantState(db as never),
+    );
+    if (error || !data) return undefined;
+    const rows = data as { date?: string | null }[];
+    if (rows.length === 0) return null;
+    const d = String(rows[0]?.date ?? "").slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+  } catch {
+    return undefined;
+  }
+}
+
 async function readCashCountDay(params: {
   date: string;
   reports: { date?: string | null }[];
   db: ReturnType<typeof serverClient>;
+  /** 出店予定の表の新しさ（同時に走らせている読みの答え） */
+  shelfLast: Promise<string | null | undefined>;
 }): Promise<CashCountDay> {
   const { date, reports, db } = params;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return UNKNOWN_CASH_COUNT_DAY;
+  const shelf = measureShiftShelfFresh({
+    lastPublishedDate: await params.shelfLast,
+    since: date,
+  });
   const reportIn = (reports ?? []).some((r) => String(r?.date ?? "").slice(0, 10) === date);
   try {
     const { data, error } = await scopeShiftsQuery<any>(
@@ -441,10 +486,16 @@ async function readCashCountDay(params: {
       TEBAYA_SCOPE,
       await probeShiftsTenantState(db as never),
     );
-    if (error || !data) return measureCashCountDay({ date, shiftToday: null, reportIn });
-    return measureCashCountDay({ date, shiftToday: (data as unknown[]).length > 0, reportIn });
+    if (error || !data)
+      return measureCashCountDay({ date, shiftToday: null, reportIn, shelf });
+    return measureCashCountDay({
+      date,
+      shiftToday: (data as unknown[]).length > 0,
+      reportIn,
+      shelf,
+    });
   } catch {
-    return measureCashCountDay({ date, shiftToday: null, reportIn });
+    return measureCashCountDay({ date, shiftToday: null, reportIn, shelf });
   }
 }
 
@@ -453,6 +504,8 @@ async function readBooksGapOpen(params: {
   asOf: string;
   wide: boolean;
   db: ReturnType<typeof serverClient>;
+  /** 出店予定の表の新しさ（同時に走らせている読みの答え） */
+  shelfLast: Promise<string | null | undefined>;
 }): Promise<CashBooksGapOpen> {
   const { lastDate, asOf, wide, db } = params;
   // 空きが短い日は、今までどおり何も言いません（よけいな問い合わせもしません）
@@ -460,6 +513,12 @@ async function readBooksGapOpen(params: {
 
   const gapDates = booksGapDates({ lastDate, asOf });
   if (gapDates.length === 0) return EMPTY_CASH_BOOKS_GAP_OPEN;
+
+  // ★表がこの空きの前で止まっていないかを先に見る（2026-11-14・f1-4）
+  const shelf = measureShiftShelfFresh({
+    lastPublishedDate: await params.shelfLast,
+    since: gapDates[0],
+  });
 
   try {
     const { data, error } = await scopeShiftsQuery<any>(
@@ -473,13 +532,13 @@ async function readBooksGapOpen(params: {
       TEBAYA_SCOPE,
       await probeShiftsTenantState(db as never),
     );
-    if (error || !data) return measureBooksGapOpen({ gapDates, shiftDates: null });
+    if (error || !data) return measureBooksGapOpen({ gapDates, shiftDates: null, shelf });
     const dates = (data as { date?: string | null }[])
       .map((r) => String(r.date ?? ""))
       .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
-    return measureBooksGapOpen({ gapDates, shiftDates: dates });
+    return measureBooksGapOpen({ gapDates, shiftDates: dates, shelf });
   } catch {
-    return measureBooksGapOpen({ gapDates, shiftDates: null });
+    return measureBooksGapOpen({ gapDates, shiftDates: null, shelf });
   }
 }
 
