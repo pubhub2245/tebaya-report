@@ -307,6 +307,8 @@ test("空きの答えがまだなら、じゅんの一覧も「先にこれを�
   assert.match(cashAfter.presses?.[0] ?? "", /えらぶだけ・押しません/);
   assert.match(cashAfter.presses?.[1] ?? "", /押すのはこの1回だけです/);
   assert.match(cashAfter.detail ?? "", /えらぶだけで、押すのは/);
+  // ★画面はこの文をそのまま出す＝飾りの ** を混ぜない（2026-11-14 夕）
+  assert.doesNotMatch(cashAfter.detail ?? "", /\*\*/);
   assert.match(cashAfter.detail ?? "", /8日/);
   assert.match(cashAfter.detail ?? "", /いまは言えません/);
 });
