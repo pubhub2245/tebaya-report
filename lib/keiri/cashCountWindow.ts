@@ -231,7 +231,15 @@ export function buildCashCountReady(params: {
   /** 日報がどこまで入っているか（渡さなければ、判断しない＝今までどおり） */
   booksGap?: CashBooksGap | null;
   /** 空いている日の正体（渡さなければ、今までどおり「営業した日があれば」と言う） */
-  gapOpen?: { readable: boolean; openDays: number; holidaysOnly: boolean } | null;
+  gapOpen?: {
+    readable: boolean;
+    openDays: number;
+    holidaysOnly: boolean;
+    /** 出店予定の表が、この空きの期間まで入っているか（2026-11-14・f1-4） */
+    shelfCoversGap?: boolean | null;
+    /** いちばん新しい予定の日（表がどこで止まっているか） */
+    shelfLastDate?: string | null;
+  } | null;
 }): CashCountReady {
   const { variants, registerFloatOn } = params;
   const booksGap = params.booksGap ?? null;
@@ -252,13 +260,22 @@ export function buildCashCountReady(params: {
       ? `日報は ${monthDay(booksGap.lastDate)} までですが、` +
         `そこからの ${booksGap.days}日は**ぜんぶ出店の予定が無い日（お休み）**でした` +
         "＝この空きで食い違うことはありません。いま数えていただいて大丈夫です"
-      : gapOpen?.readable
+      : gapOpen?.readable && gapOpen.openDays > 0
         ? `ただし**出店の予定があったのに日報が入っていない日が ${gapOpen.openDays}日 あります**` +
           `（日報は ${monthDay(booksGap.lastDate)} まで）。` +
           "そのぶんは必ず食い違います。**先にその日報を入れてから数えてください**" +
           "（いま数えても、差の理由は画面に名指しで出ます）"
         : `ただし**日報が ${monthDay(booksGap.lastDate)} までしか入っていません**` +
-          `（そこから ${booksGap.days}日）。それ以降に営業した日があると、` +
+          `（そこから ${booksGap.days}日）。` +
+          // ★表が止まっているときは、その理由も1文で言う（2026-11-14・f1-4）。
+          //   「予定が無い＝お休み」と言えないのは、表が古いからだと分かるように。
+          (gapOpen?.shelfCoversGap === false
+            ? (gapOpen.shelfLastDate
+                ? `出店予定の表は ${monthDay(gapOpen.shelfLastDate)} までで止まっているので、`
+                : "出店予定の表には公開ずみの予定が1件も入っていないので、") +
+              "この空きが お休みかどうかは分かりません。"
+            : "") +
+          "それ以降に営業した日があると、" +
           "そのぶんだけ必ず食い違います。先に日報を入れてから数えると、差の意味がはっきりします" +
           "（いま数えても、差の理由は画面に名指しで出ます）"
     : "";
