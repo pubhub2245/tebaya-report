@@ -48,7 +48,7 @@ import { NEAR_ENOUGH_YEN } from "./cashCheck";
 
 /** 差の説明に名前を付けた分、1つ */
 export type CashDiffPiece = {
-  key: "registerDiff" | "openingExpenses" | "fieldRepay" | "unpaidPayroll";
+  key: "registerDiff" | "openingExpenses" | "fieldRepay" | "unpaidPayroll" | "sameReport";
   /** 画面に出す名前 */
   label: string;
   /** その欄を読めたか（**0円と取り違えないため**。読めていなければ幅に足さない） */
@@ -66,6 +66,7 @@ export const PIECE_LABEL: Record<CashDiffPiece["key"], string> = {
   openingExpenses: "数え始めの日より前に払った経費",
   fieldRepay: "現場スタッフの立替をお返しした分",
   unpaidPayroll: "払った記録が無い日当",
+  sameReport: "同じ中身の日報が2枚（まだ決めていない分）",
 };
 
 /** レジの過不足（記録に入っている額なので、幅ではなく1点） */
@@ -131,6 +132,33 @@ export function unpaidPayrollPiece(gap: {
     lo: 0,
     hi: Math.max(0, Math.round(gap.unpaid)),
     rows: Math.max(0, Math.round(gap.rows)),
+  };
+}
+
+/**
+ * 「同じ中身の日報が2枚」のうち、**まだどちらを数えるか決めていない**分（2026-11-15・f1-4）。
+ *
+ * ★ 決めていない組は、いまも両方 数えています。
+ *   ・2枚が同じ支払いの入れ直しなら … 計算上の現金が その分だけ多い（diff はプラス側）
+ *   ・2枚とも本物なら　　　　　　　 … ずれません（0円）
+ *   どちらかは**人しか決められない**ので、**0円 〜 その額**の幅として出します
+ *   （こちらで金額を決めません。CLAUDE.md 4-12・5-4b と同じ考え方）。
+ * ★ 機械が「同じ日の入れ直し」とみて1枚だけ数えた組は、計算上の現金からもう外れているので
+ *   ここには出てきません（lib/keiri/cashDupReports.ts）。
+ */
+export function sameReportPiece(gap: {
+  readable: boolean;
+  pendingGroups: number;
+  pendingNet: number;
+}): CashDiffPiece {
+  const net = Math.round(Number(gap.pendingNet) || 0);
+  return {
+    key: "sameReport",
+    label: PIECE_LABEL.sameReport,
+    readable: !!gap.readable,
+    lo: Math.min(0, net),
+    hi: Math.max(0, net),
+    rows: Math.max(0, Math.round(gap.pendingGroups)),
   };
 }
 
