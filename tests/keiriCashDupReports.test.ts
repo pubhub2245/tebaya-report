@@ -133,3 +133,58 @@ test("窓口は金額を1円も返さない", () => {
   assert.equal(w.shown, true);
   assert.match(w.howto, /0組という意味ではありません/);
 });
+
+/* ------------------------------------------------------------------ *
+ *  店主にお見せする紹介ページ（/keiri/case）も、同じ日報を数える
+ * ------------------------------------------------------------------ */
+
+test("紹介ページの実績も、入れ直しの1枚を数えない（ほかの画面と同じ回数になる）", async () => {
+  const { summarizeCaseMonth } = await import("../lib/keiri/caseStats");
+  const { templateFor } = await import("../lib/keiri/index");
+  const rows = [
+    report({ id: "a", date: "2026-10-11", created_at: "2026-10-13T08:02:00.000Z" }),
+    report({ id: "b", date: "2026-10-11", created_at: "2026-10-13T08:14:00.000Z" }),
+    report({ id: "c", date: "2026-10-12", sales_amount: 30000, created_at: "2026-10-13T08:05:00.000Z" }),
+  ];
+  const settings = {
+    opening_date: "2026-09-01",
+    opening_cash: 0,
+    rent: 0,
+    outsourcing_rate: 0,
+  } as never;
+  const f = summarizeCaseMonth({
+    ym: "2026-10",
+    rows: rows as never,
+    advances: [],
+    settings,
+    template: templateFor("tebaya"),
+  });
+  assert.equal(f.days, 2, "入れ直しの1枚を足した 3回 にしない");
+  assert.equal(f.salesYen, 50000, "売上も 70,000円 にしない");
+});
+
+test("まだ決めていない組が残る月は、紹介ページに利益を出さない", async () => {
+  const { summarizeCaseMonth } = await import("../lib/keiri/caseStats");
+  const { templateFor } = await import("../lib/keiri/index");
+  const rows = [
+    // 入った日が違う＝機械は決めない（人が決めるまで両方 数える）
+    report({ id: "a", date: "2026-10-11", created_at: "2026-10-11T08:02:00.000Z" }),
+    report({ id: "b", date: "2026-10-11", created_at: "2026-10-20T08:02:00.000Z" }),
+  ];
+  const settings = {
+    opening_date: "2026-09-01",
+    opening_cash: 0,
+    rent: 0,
+    outsourcing_rate: 0,
+  } as never;
+  const f = summarizeCaseMonth({
+    ym: "2026-10",
+    rows: rows as never,
+    advances: [],
+    settings,
+    template: templateFor("tebaya"),
+  });
+  assert.equal(f.days, 2, "黙って減らさない");
+  assert.equal(f.profitTrusted, false);
+  assert.match(String(f.untrustedReason), /同じ中身の日報が2枚/);
+});

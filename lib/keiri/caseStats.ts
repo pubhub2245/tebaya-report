@@ -34,6 +34,7 @@
  */
 
 import { CASE_TEBAYA } from "@/lib/keiri/caseNumbers";
+import { measureCashDupReports } from "@/lib/keiri/cashDupReports";
 import { summarizeMonth } from "@/lib/keiri/aggregate";
 import { findDuplicateExpenses } from "@/lib/keiri/duplicates";
 import {
@@ -42,6 +43,7 @@ import {
   type IgnoreMarks,
 } from "@/lib/keiri/expenseIgnores";
 import { loadKeiriMonthServer, shiftDate } from "@/lib/keiri/loadMonthServer";
+import type { ReportDupRow } from "@/lib/keiri/reportDups";
 import { templateFor } from "@/lib/keiri/index";
 import type {
   BusinessTemplate,
@@ -160,10 +162,26 @@ export function summarizeCaseMonth(params: {
    *   渡さなければ印なし＝今までどおり（疑いが1件でもあれば利益は出しません）。
    */
   ignoreMarks?: IgnoreMarks;
+  /**
+   * 「同じ中身の日報が2枚」の印（2026-11-15・f1-4）。
+   * ★経理の画面・1枚の要約・会計ソフト向けCSV・試算表は、同じ日に入れ直された
+   *   余分な1枚を**人が押さなくても数えません**（lib/keiri/reportResave.ts）。
+   *   ここだけ全部 数えていると、**店主にお見せするページの出店回数と売上だけが多く出ます**
+   *   （2026-11-15 本番で実測：10月は このページだけ 15回・ほかは全部 13件）。
+   *   渡さなければ印なし＝「入れ直し」の見分けだけが効きます（金額は作りません）。
+   */
+  reportDups?: readonly ReportDupRow[] | null;
 }): CaseMonthFigures {
   const { ym, advances, settings, template } = params;
   // もも屋の日報は数えない（倉庫から取るときにも絞るが、片方だけ直しても狂わないように）
-  const reports = params.rows.filter(isCaseShopRow) as unknown as KeiriReport[];
+  const rawReports = params.rows.filter(isCaseShopRow) as unknown as KeiriReport[];
+
+  /**
+   * ★経理の画面・1枚の要約とまったく同じ日報を数える（2026-11-15・f1-4）。
+   *   日報は1行も消さず、数えるときだけ 余分な1枚を外します。
+   */
+  const dupAligned = measureCashDupReports({ reports: rawReports, reportDups: params.reportDups });
+  const reports = dupAligned.reports;
 
   const ignoreMarks = params.ignoreMarks;
   const summary = summarizeMonth({ ym, reports, template, settings, advances, ignoreMarks });
@@ -180,6 +198,14 @@ export function summarizeCaseMonth(params: {
   }
   if (params.settingsMissing) {
     reasons.push("経理の設定（家賃・外注費の率）が倉庫から読めなかった");
+  }
+  if (dupAligned.gap.pendingGroups > 0) {
+    // ★まだ誰も「どちらを数えるか」を決めていない組が残っている月は、
+    //   その分いまも両方 数えているので、利益を「正しい数字」とは言いません
+    //   （同じ支払いが2か所にある疑いと同じ扱い）。
+    reasons.push(
+      `同じ中身の日報が2枚 入っている組が${dupAligned.gap.pendingGroups}件（まだどちらを数えるか決めていない）`,
+    );
   }
   if (params.advancesUnreadable) {
     // ★ここが肝。立替が読めないまま数えると経費がまるごと落ちて、
@@ -233,6 +259,7 @@ export async function getCaseStats(today: Date = new Date()): Promise<CaseStats>
       settingsMissing: data.settingsMissing,
       advancesUnreadable: data.advancesUnreadable,
       ignoreMarks: readIgnoreMarks(data.ignores),
+      reportDups: data.reportDups,
     });
 
     if (figures.days === 0 || figures.salesYen <= 0) return fallbackStats();
