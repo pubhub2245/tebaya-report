@@ -37,8 +37,13 @@ import {
   measureCashDiffCoverage,
   openingExpensesPiece,
   registerDiffPiece,
+  sameReportPiece,
   unpaidPayrollPiece,
 } from "@/lib/keiri/cashDiffCoverage";
+import {
+  buildCashDupReportsWindow,
+  measureCashDupReports,
+} from "@/lib/keiri/cashDupReports";
 import {
   buildCashShopScopeWindow,
   measureCashShopScope,
@@ -141,12 +146,38 @@ export async function GET() {
     const settings = data.settingsMissing
       ? defaultSettingsFor(CASE_BUSINESS_CODE)
       : data.settings;
+
+    /**
+     * ★「同じ中身の日報が2枚」を、**経理の画面・1枚の要約と同じように数える**
+     *   （2026-11-15・f1-4）。
+     *
+     *   画面と1枚の要約は 2026-11-03 から、同じ日に入れ直された余分な1枚を
+     *   **人が押さなくても数えません**（lib/keiri/reportResave.ts）。
+     *   ところが この窓口だけが印を読まずに日報を全部 数えていたので、
+     *   同じ倉庫を見ているのに「計算上の現金」が2通りに分かれていました
+     *   （10月ぶんで 34,733円）。じゅんが金庫を1分 数えると、窓口のほうだけ
+     *   そのぶん足りないと出て、しかも**その差には名前が付きません**
+     *   ＝ 帳簿が合っていても f1-4 が不合格に見える形でした。
+     *
+     *   **金額はこちらで作りません。** 数えない1枚を外すのは、画面がすでに使っている
+     *   同じ1か所（excludeDecidedDuplicateReports）で、日報は1行も消しません。
+     *   まだ誰も決めていない組は今までどおり両方 数え、差の内わけに幅として出します。
+     */
+    const dup = measureCashDupReports({
+      reports: data.reports,
+      reportDups: data.reportDups,
+      unreadable: data.reportsUnreadable,
+      openingDate: data.settingsMissing ? null : (settings.opening_date ?? null),
+      asOf: todayJst,
+    });
+    /** ここから下は、画面とまったく同じ日報の並びを数える */
+    const reports = dup.reports;
     const deposits = depositsOf(data.cashEvents);
     const last = latestCount(data.cashEvents);
 
     const balanceAt = (date: string, withRepaid: boolean): number =>
       calcCashPosition({
-        reports: data.reports,
+        reports: reports,
         payments: data.payments,
         settings,
         advances: withRepaid
@@ -184,11 +215,11 @@ export async function GET() {
     //   数えた日に揃えて数え（まだ数えていなければ今日）、**金額は1円も返しません**
     //   （日付・件数・日数と、ひとことだけ）。
     const booksGap = measureBooksGap({
-      reports: data.reports,
+      reports: reports,
       asOf: last ? last.happened_on : todayJst,
     });
     // 数える前の用意にも、同じ答えを渡す（今日に揃えて見る）
-    const booksGapToday = measureBooksGap({ reports: data.reports, asOf: todayJst });
+    const booksGapToday = measureBooksGap({ reports: reports, asOf: todayJst });
 
     // ★「日報が入っていない日は お休みだったか」の、じゅんの答え（2026-11-14・f1-4）。
     //   2026-11-07 から手羽屋は写真の日報に変わり、出店予定の表の入り口そのものが
@@ -238,7 +269,7 @@ export async function GET() {
     //   ずっと大きくなりえます**。差の内わけとして名前を付けて出します。
     //   **金額は1円も返しません**（読めたか・件数・日付・説明がどこまでつくかだけ）。
     const unpaidPayrollGap = measureUnpaidPayrollGap({
-      reports: data.reports,
+      reports: reports,
       payments: data.payments,
       openingDate: data.settingsMissing ? "" : (settings.opening_date ?? ""),
       asOf: last ? last.happened_on : todayJst,
@@ -251,7 +282,7 @@ export async function GET() {
     //   取り違えを、読むだけで確かめられます。
     //   **金額も屋号の名前も返しません**（読めたか・屋号がいくつか・件数だけ）。
     const shopScope = measureCashShopScope({
-      reports: data.reports,
+      reports: reports,
       unreadable: data.reportsUnreadable,
       openingDate: data.settingsMissing ? "" : (settings.opening_date ?? ""),
       asOf: last ? last.happened_on : todayJst,
@@ -297,13 +328,13 @@ export async function GET() {
       readOpeningGap({
         openingDate: data.settingsMissing ? null : (settings.opening_date ?? null),
         ym,
-        reports: data.reports,
+        reports: reports,
         db,
       }),
       // ★数える日そのものに出店があって、まだ日報が入っていないか（2026-11-12・f1-4）
       readCashCountDay({
         date: last ? last.happened_on : todayJst,
-        reports: data.reports,
+        reports: reports,
         db,
         shelfLast,
       }),
@@ -367,6 +398,9 @@ export async function GET() {
         openingExpensesPiece(openingGap, !data.reportsUnreadable),
         fieldRepayPiece(fieldRepayGap),
         unpaidPayrollPiece(unpaidPayrollGap),
+        // ★まだどちらを数えるか決めていない「同じ中身の日報が2枚」（2026-11-15・f1-4）。
+        //   決めていない分は いまも両方 数えているので、0円〜その額 の幅で出します。
+        sameReportPiece(dup.gap),
       ],
       // ★空きが「お休みだけ」と読めた日は、分からない所として数えません
       //   （数えると、お休みがあるだけで永遠に合否が出ません）。
@@ -398,6 +432,8 @@ export async function GET() {
       ...countWindow,
       // 差の内わけ（数え始めの日より前に払った経費・金額は出さない）
       openingGap: buildCashOpeningGapWindow({ gap: openingGap, diff: reconcile.diff }),
+      // 同じ中身の日報が2枚（画面と同じ数え方になっているか。金額は返しません）
+      sameReportGap: buildCashDupReportsWindow(dup.gap),
       // 差の内わけ（日報がどこまで入っているか・金額は出さない）
       booksGap: buildCashBooksGapWindow({ gap: booksGap, diff: reconcile.diff }),
       // 空いている日の正体（営業した日か お休みか・件数と日付だけ）
