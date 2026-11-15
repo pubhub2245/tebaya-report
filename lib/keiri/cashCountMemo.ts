@@ -28,6 +28,7 @@
 import type { CashEvent } from "./cashCheck";
 import { stripBooksGapAnswer } from "./booksGapAnswer";
 import { stripExpenseIgnoreMemo } from "./expenseIgnoreMemo";
+import { stripPayrollPaidAnswer } from "./payrollPaidAnswer";
 
 /** 控えの始まりの印 */
 export const CASH_MEMO_BEGIN = "［金庫を数えた控え v1 ここから］";
@@ -183,7 +184,9 @@ export type NoteKeepPlan = {
  *   じゅんの文が無事かを外から見張れなくなります。
  */
 export function stripAllMemoBlocks(memo: string | null | undefined): string {
-  return stripBooksGapAnswer(stripExpenseIgnoreMemo(stripCashCountMemo(memo)));
+  return stripPayrollPaidAnswer(
+    stripBooksGapAnswer(stripExpenseIgnoreMemo(stripCashCountMemo(memo))),
+  );
 }
 
 export function planCashCountNoteKeep(memo: string | null | undefined): NoteKeepPlan {
