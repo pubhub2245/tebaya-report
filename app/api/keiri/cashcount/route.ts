@@ -32,6 +32,10 @@ import {
   measureUnpaidPayrollGap,
 } from "@/lib/keiri/unpaidPayrollGap";
 import {
+  applyPayrollPaidAnswer,
+  buildPayrollPaidAnswerWindow,
+} from "@/lib/keiri/payrollPaidAnswer";
+import {
   buildCashDiffCoverageWindow,
   fieldRepayPiece,
   measureCashDiffCoverage,
@@ -275,6 +279,17 @@ export async function GET() {
       asOf: last ? last.happened_on : todayJst,
     });
 
+    // ★「その日当を、もう金庫からお渡ししましたか」の答え（2026-11-15・f1-4）。
+    //   払った記録がどこにも無いので、お渡し済みかどうかは**人しか知りません**。
+    //   答えが無いあいだは「0円〜その額」の幅で見ますが、その幅がとても広いので、
+    //   **どんな差でも『説明がつく範囲』に収まってしまい、合否がほとんど意味を持ちません。**
+    //   経理の画面でえらんでもらった1件を読み、**その答えが覆っている日当だけ**
+    //   幅を畳みます。**金額は1円も変わりません。**
+    const payrollPaid = applyPayrollPaidAnswer({
+      span: unpaidPayrollGap,
+      saved: data.payrollPaidAnswer,
+    });
+
     // ★「どの屋号の日報から数えているのか」（2026-11-04・f1-4）。
     //   金庫は1つとして数えるので、手羽屋ともも屋を分けていません
     //   （lib/keiri/cashCheck.ts の決まり①）。＝ 売上も経費も立替も両方の屋号ぶんが入ります。
@@ -397,7 +412,7 @@ export async function GET() {
         registerDiffPiece(regDiffGap),
         openingExpensesPiece(openingGap, !data.reportsUnreadable),
         fieldRepayPiece(fieldRepayGap),
-        unpaidPayrollPiece(unpaidPayrollGap),
+        unpaidPayrollPiece(unpaidPayrollGap, payrollPaid),
         // ★まだどちらを数えるか決めていない「同じ中身の日報が2枚」（2026-11-15・f1-4）。
         //   決めていない分は いまも両方 数えているので、0円〜その額 の幅で出します。
         sameReportPiece(dup.gap),
@@ -471,6 +486,11 @@ export async function GET() {
       unpaidPayrollGap: buildUnpaidPayrollGapWindow({
         gap: unpaidPayrollGap,
         diff: reconcile.diff,
+      }),
+      // 「その日当を、もう金庫からお渡ししましたか」の答え（金額は出さない）
+      payrollPaidAnswer: buildPayrollPaidAnswerWindow({
+        span: unpaidPayrollGap,
+        use: payrollPaid,
       }),
       // 差は ぜんぶ名前が付いたか（収まっているか・名前の数だけ・金額は出さない）
       diffCoverage: buildCashDiffCoverageWindow(diffCoverage),

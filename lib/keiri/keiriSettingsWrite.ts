@@ -41,7 +41,12 @@ export type SettingsWriteTarget =
    * 「日報が入っていない日は お休みだったか」の答えの控え
    * （置き場ができるまでの仮置き・2026-11-14・f1-4）
    */
-  | "日報の空きの答え";
+  | "日報の空きの答え"
+  /**
+   * 「払った記録が無い日当を、もう金庫からお渡ししたか」の答えの控え
+   * （置き場ができるまでの仮置き・2026-11-15・f1-4）
+   */
+  | "日当をお渡ししたかの答え";
 
 export type SettingsWriteVerdict = {
   /** 画面で「できました」と言ってよいか */
@@ -60,6 +65,8 @@ const DONE: Record<SettingsWriteTarget, string> = {
     "✅ 決めた内容を残しました（記録は消していません。置き場ができたら、そのまま記録に移ります）",
   日報の空きの答え:
     "✅ 答えを残しました（金額は1円も変わりません。金庫を数えると、その場で合否が出ます）",
+  日当をお渡ししたかの答え:
+    "✅ 答えを残しました（金額は1円も変わりません。差の心当たりの幅だけが変わります）",
 };
 
 /** 書き込みがエラーで返ったときに今まで出していた言葉（1文字も変えない） */
@@ -67,6 +74,7 @@ function failedBy(target: SettingsWriteTarget, reason: string): string {
   if (target === "設定") return `❌ 保存できませんでした：${reason}`;
   if (target === "数えない印の控え") return `保存できませんでした：${reason}`;
   if (target === "日報の空きの答え") return `答えを残せませんでした：${reason}`;
+  if (target === "日当をお渡ししたかの答え") return `答えを残せませんでした：${reason}`;
   return `控えを残せませんでした：${reason}`;
 }
 
@@ -75,6 +83,7 @@ function whatOf(target: SettingsWriteTarget): string {
   if (target === "設定") return "設定";
   if (target === "数えない印の控え") return "決めた内容";
   if (target === "日報の空きの答え") return "答え";
+  if (target === "日当をお渡ししたかの答え") return "答え";
   return "金庫の控え";
 }
 

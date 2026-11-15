@@ -119,19 +119,45 @@ export function fieldRepayPiece(gap: {
   };
 }
 
-/** 払った記録が無い日当（0円 〜 残り） */
-export function unpaidPayrollPiece(gap: {
-  readable: boolean;
-  rows: number;
-  unpaid: number;
-}): CashDiffPiece {
+/**
+ * 払った記録が無い日当（0円 〜 残り）。
+ *
+ * ★じゅんが「もうお渡ししました／まだです」と答えてくれている日は、**幅を畳みます**
+ *   （2026-11-15・f1-4。答えは lib/keiri/payrollPaidAnswer.ts）。
+ *   ・「もうお渡しした」 … その額ちょうど（lo＝hi）。幅ではなく1点になります
+ *   ・「まだお渡ししていない」 … 差の心当たりから外す（rows を 0 にして数に入れない）
+ *   答えが無い・答えの範囲からはみ出している日は、今までどおり **0円〜その額の幅**です。
+ *   ここを畳まないと、幅が広すぎて **どんな差でも「説明がつく範囲」になってしまいます。**
+ */
+export function unpaidPayrollPiece(
+  gap: {
+    readable: boolean;
+    rows: number;
+    unpaid: number;
+  },
+  answer?: { covers: boolean; handed: boolean; notYet: boolean } | null,
+): CashDiffPiece {
+  const unpaid = Math.max(0, Math.round(gap.unpaid));
+  const rows = Math.max(0, Math.round(gap.rows));
+  const answered = answer && answer.covers ? answer : null;
+  if (answered?.notYet) {
+    // まだお渡ししていない＝この分で食い違うことはない。心当たりの数に入れない
+    return {
+      key: "unpaidPayroll",
+      label: PIECE_LABEL.unpaidPayroll,
+      readable: !!gap.readable,
+      lo: 0,
+      hi: 0,
+      rows: 0,
+    };
+  }
   return {
     key: "unpaidPayroll",
     label: PIECE_LABEL.unpaidPayroll,
     readable: !!gap.readable,
-    lo: 0,
-    hi: Math.max(0, Math.round(gap.unpaid)),
-    rows: Math.max(0, Math.round(gap.rows)),
+    lo: answered?.handed ? unpaid : 0,
+    hi: unpaid,
+    rows,
   };
 }
 

@@ -44,6 +44,10 @@ import {
   decodeBooksGapAnswer,
   type BooksGapAnswer,
 } from "./booksGapAnswer";
+import {
+  decodePayrollPaidAnswer,
+  type PayrollPaidAnswer,
+} from "./payrollPaidAnswer";
 import { normalizeRegisterCloses, type RegisterCloseRow } from "./registerFloat";
 import {
   normalizeRegisterDiffs,
@@ -110,6 +114,11 @@ export type KeiriMonthData = {
    * 置き場がまだ無いので、経理の設定のおまけ欄の控えから読む。無ければ null。
    */
   booksGapAnswer: BooksGapAnswer | null;
+  /**
+   * 「払った記録が無い日当を、もう金庫からお渡ししたか」の、じゅんの答え
+   * （2026-11-15・f1-4）。置き場がまだ無いので、設定のおまけ欄の控えから読む。無ければ null。
+   */
+  payrollPaidAnswer: PayrollPaidAnswer | null;
 };
 
 /**
@@ -208,6 +217,8 @@ async function loadViaServerWindow(params: {
     reportDups: (d.reportDups as ReportDupRow[]) ?? [],
     // ★窓口がまだこの欄を返さない版でも落ちないように、無ければ null（＝答えが無い）
     booksGapAnswer: (d.booksGapAnswer as BooksGapAnswer | null) ?? null,
+    // ★窓口がまだこの欄を返さない版でも落ちないように、無ければ null（＝答えが無い）
+    payrollPaidAnswer: (d.payrollPaidAnswer as PayrollPaidAnswer | null) ?? null,
   };
 }
 
@@ -541,5 +552,7 @@ export async function loadKeiriMonthDirect(
     reportDups: decodeReportDupMemo((s as any)?.memo),
     // 「日報が入っていない日は お休みだったか」の答え（2026-11-14・f1-4）
     booksGapAnswer: decodeBooksGapAnswer((s as any)?.memo),
+    // 「日当をもうお渡ししたか」の答え（2026-11-15・f1-4）
+    payrollPaidAnswer: decodePayrollPaidAnswer((s as any)?.memo),
   };
 }
