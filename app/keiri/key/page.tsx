@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import SetupTodoCard from "@/app/keiri/components/SetupTodoCard";
+import KeyShapeCheck from "./KeyShapeCheck";
 import PhotoLockCard from "./PhotoLockCard";
 
 import {
@@ -13,7 +14,11 @@ import {
 } from "@/lib/keiri/keyFix";
 import { photoLockStatus } from "@/lib/keiri/photoLockServer";
 import { describeServerKey } from "@/lib/keiri/serverHealth";
-import { serviceRoleKeyRepair, serviceRoleKeyStatus } from "@/lib/supabaseServer";
+import {
+  projectRefFromUrl,
+  serviceRoleKeyRepair,
+  serviceRoleKeyStatus,
+} from "@/lib/supabaseServer";
 
 /**
  * サーバー側の鍵を貼り直す1枚（/keiri/key）
@@ -51,6 +56,9 @@ export default async function KeiriKeyPage() {
   // 同じ1枚の中に置く（→ lib/keiri/photoLock.ts）。
   const photoLock = await photoLockStatus();
   const needs = keyFixNeeded(level);
+  // 倉庫の名前（例 vtuy…）は、すでにブラウザに配っている公開の値から取り出すだけ。
+  // 鍵でも合言葉でもないので、ここに出しても秘密は漏れません。
+  const expectedRef = projectRefFromUrl(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "") ?? "";
   const tone =
     level === "ok"
       ? "border-emerald-300 bg-emerald-50 text-emerald-900"
@@ -109,6 +117,8 @@ export default async function KeiriKeyPage() {
           </p>
         </section>
       )}
+
+      {needs && <KeyShapeCheck expectedRef={expectedRef} />}
 
       <section className="rounded-xl border border-stone-200 bg-stone-50 p-4 space-y-2">
         <h2 className="text-base font-bold text-stone-900">ついでに、もう1枚（2分）</h2>
