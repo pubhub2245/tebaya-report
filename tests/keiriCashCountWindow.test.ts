@@ -9,6 +9,7 @@ import {
   cashCountOk,
 } from "../lib/keiri/cashCountWindow";
 import { measureBooksGap } from "../lib/keiri/cashBooksGap";
+import { booksGapDates } from "../lib/keiri/cashBooksGapOpen";
 import { buildCashVariants, pickCashVariant } from "../lib/keiri/cashVariant";
 
 /**
@@ -177,7 +178,9 @@ test("数える前の用意：日報が2週間 空いていると、押す前に
   assert.equal(ready.canCompare, true);
   assert.equal(ready.booksUpToDate, false);
   assert.equal(ready.booksLastDate, "2026-10-18");
-  assert.equal(ready.booksGapDays, 14);
+  // ★2026-11-16（f1-4）：14日前だが、日報が入っていない日は13日（10/19〜10/31）。
+  //   数える日そのもの（11/1）は、まだ終わっていないので空きに数えない。
+  assert.equal(ready.booksGapDays, 13);
   assert.ok(ready.line.includes("10月18日"));
   assert.ok(ready.line.includes("先に日報を入れてから"));
   // 金額は1円も出さない
@@ -292,4 +295,31 @@ test("窓口そのものに matched（合っていたか）の欄がある", () 
 test("まだ数えていない窓口を ok に通すと null になる（決め打ちの true に戻らないこと）", () => {
   const w = windowOf({ counted: null, computed: null });
   assert.equal(cashCountOk({ verdict: w.verdict, covered: null }).ok, null);
+});
+
+/**
+ * ■ 2026-11-16（f1-4）：じゅんが見る2つの画面で、空いた日の数を1つにする
+ *
+ *   じゅんの一覧（/keiri のいちばん上・setuptodo）が聞く「この◯日は お休みでしたか」の
+ *   ◯日は booksGapDates の日数で、数える日そのものを含みません。
+ *   いっぽう用意の一言は days（＝◯日前）を使っていたので、本番で
+ *   「この 10日」と「そこから 11日」の**2つの数字**が同じ流れに出ていました。
+ *   ここで、用意の一言と booksGapDays が **答える対象の日数と必ず同じ**になることを縛ります。
+ */
+test("用意の一言の『空いた日』は、じゅんが答える日数と1つの数字にそろう", () => {
+  const variants = buildCashVariants({
+    screenBalance: 1_004_399,
+    withRepaidBalance: 510_699,
+    registerFloat: 30_000,
+  });
+  const booksGap = measureBooksGap({
+    reports: [{ date: "2026-11-05" } as never],
+    asOf: "2026-11-16",
+  });
+  const asked = booksGapDates({ lastDate: "2026-11-05", asOf: "2026-11-16" }).length;
+  const ready = buildCashCountReady({ variants, registerFloatOn: null, booksGap });
+  assert.equal(asked, 10);
+  assert.equal(ready.booksGapDays, asked);
+  assert.ok(ready.line.includes("そこから 10日"), ready.line);
+  assert.ok(!ready.line.includes("11日"), ready.line);
 });

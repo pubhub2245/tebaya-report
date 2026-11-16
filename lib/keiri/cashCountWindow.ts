@@ -197,7 +197,11 @@ export type CashCountReady = {
   booksUpToDate: boolean;
   /** 日報のいちばん新しい日（金額ではない・無ければ null） */
   booksLastDate: string | null;
-  /** そこから何日 空いているか（無ければ null） */
+  /**
+   * 日報が入っていない日が何日あるか（無ければ null）。
+   * **数える日そのものは入れません**＝じゅんが答える「この◯日は お休みでしたか」の◯日と
+   * 同じ数です（2026-11-16・f1-4）。
+   */
   booksGapDays: number | null;
   /** 比べる相手の数（0なら比べられない） */
   ways: number;
@@ -264,6 +268,10 @@ export function buildCashCountReady(params: {
   //   相手は4通り そろっていても、日報が2週間 入っていなければ必ず食い違います。
   const booksUpToDate = !(booksGap?.wide ?? false);
   const holidaysOnly = (gapOpen?.holidaysOnly ?? false) || (gapAnswer?.holidaysOnly ?? false);
+  // ★「空いた日は何日か」は missingDays を使う（2026-11-16・f1-4）。
+  //   days（＝◯日前）は数える日そのものを1日 数えるので、じゅんが答える
+  //   「この◯日は お休みでしたか」の◯日より1日 多くなり、同じ画面で2つの数字が出ます。
+  const booksMissingDays = booksGap?.missingDays ?? 0;
   const booksLine = !booksUpToDate && booksGap?.lastDate
     ? // ★じゅんが「営業した日があります」と答えた日は、それを先に言う（2026-11-14・f1-4）
       gapAnswer?.operated && gapAnswer.line
@@ -274,7 +282,7 @@ export function buildCashCountReady(params: {
       : // ★空きの正体が「お休みだけ」と読めた日は、無い探し物をさせない（2026-11-09）
       holidaysOnly
       ? `日報は ${monthDay(booksGap.lastDate)} までですが、` +
-        `そこからの ${booksGap.days}日は**ぜんぶ出店の予定が無い日（お休み）**でした` +
+        `そこからの ${booksMissingDays}日は**ぜんぶ出店の予定が無い日（お休み）**でした` +
         "＝この空きで食い違うことはありません。いま数えていただいて大丈夫です"
       : gapOpen?.readable && gapOpen.openDays > 0
         ? `ただし**出店の予定があったのに日報が入っていない日が ${gapOpen.openDays}日 あります**` +
@@ -282,7 +290,7 @@ export function buildCashCountReady(params: {
           "そのぶんは必ず食い違います。**先にその日報を入れてから数えてください**" +
           "（いま数えても、差の理由は画面に名指しで出ます）"
         : `ただし**日報が ${monthDay(booksGap.lastDate)} までしか入っていません**` +
-          `（そこから ${booksGap.days}日）。` +
+          `（そこから ${booksMissingDays}日）。` +
           // ★表が止まっているときは、その理由も1文で言う（2026-11-14・f1-4）。
           //   「予定が無い＝お休み」と言えないのは、表が古いからだと分かるように。
           (gapOpen?.shelfCoversGap === false
@@ -313,7 +321,7 @@ export function buildCashCountReady(params: {
     canCompare,
     booksUpToDate,
     booksLastDate: booksGap?.lastDate ?? null,
-    booksGapDays: booksGap?.days ?? null,
+    booksGapDays: booksGap?.missingDays ?? null,
     ways: variants.length,
     wayLabels,
     safeOnlyIncluded,

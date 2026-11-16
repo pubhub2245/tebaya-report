@@ -37,8 +37,22 @@ export type CashBooksGap = {
   lastDate: string | null;
   /** 読めた日報の件数 */
   count: number;
-  /** いちばん新しい日から、比べる日（数えた日）まで何日 空いているか */
+  /** いちばん新しい日から、比べる日（数えた日）まで何日 空いているか（＝「◯日前」） */
   days: number | null;
+  /**
+   * **日報が入っていない日が何日あるか**（＝ いちばん新しい日の翌日から、
+   * 数える日の**前の日**まで）。数える日そのものは入れません。
+   *
+   * ★なぜ days と別に持つのか（2026-11-16・f1-4）
+   *   days は「いちばん新しい日報は何日前か」で、数える日そのものを1日 数えます。
+   *   ところが **じゅんに答えてもらう「この◯日は お休みでしたか」の◯日**は、
+   *   数える日を含みません（lib/keiri/cashBooksGapOpen.ts の booksGapDates）。
+   *   そのため、じゅんの一覧（/keiri のいちばん上）は「この10日」と書き、
+   *   同じ画面の用意の一言は「そこから 11日」と書く、という**2つの数字**が
+   *   出ていました（2026-11-16 に本番で実測）。同じものを指す数字は1つにします。
+   *   数える日そのものは、別に `countDay`（その日に出店の予定があるか）で見ます。
+   */
+  missingDays: number | null;
   /** 一言を出すほど空いているか（3日以上） */
   wide: boolean;
 };
@@ -47,6 +61,7 @@ export const EMPTY_CASH_BOOKS_GAP: CashBooksGap = {
   lastDate: null,
   count: 0,
   days: null,
+  missingDays: null,
   wide: false,
 };
 
@@ -87,14 +102,16 @@ export function measureBooksGap(params: {
     count += 1;
     if (!lastDate || date > lastDate) lastDate = date;
   }
-  if (!lastDate) return { lastDate: null, count, days: null, wide: false };
+  if (!lastDate) return { lastDate: null, count, days: null, missingDays: null, wide: false };
   if (!isRealDate(asOf)) {
-    return { lastDate, count, days: null, wide: false };
+    return { lastDate, count, days: null, missingDays: null, wide: false };
   }
   const days = daysBetween(lastDate, asOf);
   // 比べる日より後の日報しか無い（＝さかのぼって数えている）ときは空きではない
   const gap = days !== null && days > 0 ? days : 0;
-  return { lastDate, count, days: gap, wide: gap >= BOOKS_GAP_DAYS };
+  // 数える日そのものは「まだ終わっていない日」なので、空いた日には数えない
+  const missingDays = Math.max(0, gap - 1);
+  return { lastDate, count, days: gap, missingDays, wide: gap >= BOOKS_GAP_DAYS };
 }
 
 /** 「◯日前」 */
@@ -133,8 +150,10 @@ export type CashBooksGapWindow = {
   lastDate: string | null;
   /** 読めた日報の件数 */
   count: number;
-  /** いちばん新しい日から、比べる日まで何日 空いているか */
+  /** いちばん新しい日から、比べる日まで何日 空いているか（＝「◯日前」） */
   days: number | null;
+  /** 日報が入っていない日が何日あるか（数える日そのものは入れない） */
+  missingDays: number | null;
   /** 3日以上 空いているか */
   wide: boolean;
   /** 画面に行が出るか（＝差が大きくて、3日以上 空いている） */
@@ -151,14 +170,26 @@ export function buildCashBooksGapWindow(params: {
   const { gap, diff } = params;
   const hasDiff = diff !== null && Number.isFinite(diff) && Math.abs(diff) >= NEAR_ENOUGH_YEN;
   const shown = gap.wide && hasDiff;
+  // ★ここで出す「空いています」の日数は missingDays（数える日そのものは入れない）。
+  //   days（＝◯日前）を使うと、じゅんが答える「この◯日は お休みでしたか」の◯日と
+  //   1日 ずれます（2026-11-16・f1-4）。
+  const missing = gap.missingDays ?? 0;
   const note = !gap.lastDate
     ? "日報が1件も読めていません（この行は出ません）。"
     : !gap.wide
-      ? `日報は ${monthDay(gap.lastDate)} まで入っています（空きは${gap.days ?? 0}日なので、行は出ません）。`
+      ? `日報は ${monthDay(gap.lastDate)} まで入っています（空きは${missing}日なので、行は出ません）。`
       : shown
-        ? `日報は ${monthDay(gap.lastDate)} まで入っていて、そこから ${gap.days}日 空いています。` +
+        ? `日報は ${monthDay(gap.lastDate)} まで入っていて、そこから ${missing}日 空いています。` +
           "差の内わけとして、まずここを見るように画面に出しています。"
-        : `日報は ${monthDay(gap.lastDate)} まで入っていて、そこから ${gap.days}日 空いています` +
+        : `日報は ${monthDay(gap.lastDate)} まで入っていて、そこから ${missing}日 空いています` +
           "（いまは差が出ていないので、行は出ません）。";
-  return { lastDate: gap.lastDate, count: gap.count, days: gap.days, wide: gap.wide, shown, note };
+  return {
+    lastDate: gap.lastDate,
+    count: gap.count,
+    days: gap.days,
+    missingDays: gap.missingDays,
+    wide: gap.wide,
+    shown,
+    note,
+  };
 }
