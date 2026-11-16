@@ -131,6 +131,7 @@ import {
   withResaveMarks,
   resavedKeySet,
 } from "@/lib/keiri/reportResave";
+import OwnerApplicationAlert from "@/app/components/OwnerApplicationAlert";
 import SetupTodoCard from "@/app/keiri/components/SetupTodoCard";
 import type { DuplicateSuspect } from "@/lib/keiri/duplicates";
 import { readAuthedKeiriScope } from "@/lib/keiri/readSource";
@@ -1322,6 +1323,13 @@ function KeiriInner() {
             じゅんがふだん開くこの画面からは1つも見えていなかった。
             手羽屋として開いているときだけ出す（お店には出さない）。
             のこりが0件なら何も出ない＝ふだんの画面は今までどおり。 */}
+      {/* お申し込みの赤い知らせ（2026-11-16・f2-2）。
+          ★こちらへ向かって飛ぶのは LINE の知らせ1本だけで、通数には今月ぶんの上限がある
+            （2026-11-16 実測：あと2通）。尽きた日は「じゅんが画面を開いて気づく」道しか残らない。
+            じゅんが金庫と のこりの手続きのために開くこの画面にも出す。
+            出るのは**じゅんの端末だけ**（requireOwnerDevice は既定の true）で、
+            お店には1文字も出ない。まだ手当てしていない申し込みが0件なら何も出ない。 */}
+      {scope === null && <OwnerApplicationAlert />}
       {scope === null && <SetupTodoCard here="/keiri" />}
 
       {/* 月の切り替え */}

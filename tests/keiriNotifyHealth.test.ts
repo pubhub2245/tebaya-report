@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  applicationIsReachable,
+  shouldAskCopyEmail,
   describeApplicationDelivery,
   describeMailFallback,
   describeNotify,
@@ -196,4 +198,43 @@ test("一度も聞けなかった月は、残りを作らない（null のまま
   const parts = notifyQuotaParts({ limited: true, limit: 200, used: null, usedReadings: [] });
   assert.equal(parts.quotaUsed, null);
   assert.deepEqual(parts.quotaUsedReadings, []);
+});
+
+
+/* ==========================================================================
+ * 控えのメールのお願いを出すか（2026-11-16・f2-1・f2-2）
+ *
+ * こちらへ向かって飛ぶのは LINE の知らせ1本だけで、通数には今月ぶんの上限がある
+ * （2026-11-16 に本番で実測：上限 200 通・使った数 198 通・あと2通）。
+ * 飛ばなかった日は、控えが読み返せても「じゅんが画面を開くまで誰も気づかない」。
+ * ========================================================================== */
+
+test("知らせが飛ばなかったら、控えが読み返せてもお願いを出す（通数切れの日）", () => {
+  // 鍵が直ったあとの形：控えは残って読み返せる＝ reachable は true のまま
+  const reachable = applicationIsReachable({
+    notified: false,
+    saved: true,
+    recordReadable: true,
+  });
+  assert.equal(reachable, true, "控えとして追えるか の意味は変えていない");
+  assert.equal(shouldAskCopyEmail({ notified: false, reachable }), true);
+});
+
+test("知らせが飛んだ日は、お願いを出さない（ふだんの日）", () => {
+  assert.equal(shouldAskCopyEmail({ notified: true, reachable: true }), false);
+});
+
+test("知らせが飛ばず、控えも読み返せない日は、これまでどおりお願いを出す", () => {
+  const reachable = applicationIsReachable({
+    notified: false,
+    saved: true,
+    recordReadable: false,
+  });
+  assert.equal(reachable, false);
+  assert.equal(shouldAskCopyEmail({ notified: false, reachable }), true);
+});
+
+test("飛んだかが分からない（古い受け口）ときは、これまでどおり reachable だけで決める", () => {
+  assert.equal(shouldAskCopyEmail({ reachable: true }), false);
+  assert.equal(shouldAskCopyEmail({ reachable: false }), true);
 });
