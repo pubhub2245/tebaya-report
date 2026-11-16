@@ -175,3 +175,40 @@ test("外から確かめる窓口は、金額を1円も返さない", () => {
   assert.equal(w.notYet, true);
   assert.equal(w.needed, false);
 });
+
+/* 屋号の内わけ（2026-11-16・f1-4）
+   えらぶ前の問いに、どの屋号ぶんが入っているかが出ること。
+   ★文そのものは lib/keiri/unpaidPayrollGap.ts の1か所だけに書いてあり、
+     ここは受け取って足すだけ（同じことを言う文を2つにしない）。 */
+test("日当の問い（f1-4）: 屋号の内わけを渡したら、金額のすぐ横に出る", () => {
+  const span = {
+    readable: true,
+    rows: 21,
+    unpaid: 243000,
+    firstDate: "2026-09-12",
+    lastDate: "2026-10-31",
+  };
+  const plain = payrollPaidQuestion(span);
+  assert.ok(String(plain).includes("243,000円"));
+  assert.ok(!String(plain).includes("内わけ"));
+  const withShare = payrollPaidQuestion(
+    span,
+    "この日当の内わけは 手羽屋 210,000円・もも屋 33,000円 です。",
+  );
+  assert.ok(String(withShare).includes("243,000円"));
+  assert.ok(String(withShare).includes("手羽屋 210,000円・もも屋 33,000円"));
+  // 問いそのもの（お渡ししましたか）は1文字も消えない
+  assert.ok(String(withShare).includes("もう金庫のお金からお渡ししましたか？"));
+});
+
+test("日当の問い（f1-4）: 内わけが空なら、今までどおりの文のまま", () => {
+  const span = {
+    readable: true,
+    rows: 2,
+    unpaid: 24000,
+    firstDate: "2026-09-11",
+    lastDate: "2026-09-12",
+  };
+  assert.equal(payrollPaidQuestion(span, ""), payrollPaidQuestion(span));
+  assert.equal(payrollPaidQuestion(span, null), payrollPaidQuestion(span));
+});
