@@ -8,6 +8,7 @@ import {
   decodeApplyRestore,
 } from "@/lib/keiri/applyRestore";
 import { keiriApplyContactLine } from "@/lib/keiri/offer";
+import { shouldAskCopyEmail } from "@/lib/keiri/notifyHealth";
 
 /**
  * 経理パッケージの申し込みの入力欄。
@@ -116,6 +117,15 @@ export default function ApplyForm({
   //   なので「残ったか」ではなく「**気づけるか**」で出し分ける。
   //   既定は true（余計なお願いをしないため。古い受け口が何も返さないときも出さない）
   const [reachable, setReachable] = useState(true);
+  /**
+   * ★LINE の知らせが実際に飛んだか（2026-11-16・f2-1・f2-2）。
+   *   こちらへ**向かって飛ぶ**のはこの1本だけで、通数には今月ぶんの上限があります
+   *   （2026-11-16 に本番で実測：上限 200 通・使った数 198 通・あと2通）。
+   *   飛ばなかった日は、控えが読み返せても「じゅんが画面を開くまで誰も気づかない」ので、
+   *   控えのメールのお願いを出します（判定は lib/keiri/notifyHealth.ts の1か所）。
+   *   既定は true（分からないときに余計なお願いをしないため）。
+   */
+  const [notified, setNotified] = useState(true);
   // ★打ち直しをお願いしないために、入れてもらった中身は必ず手元に残す
   const [entered, setEntered] = useState<Entered>(EMPTY);
   /** 入れ直しのリンクから開いたか（画面に1行だけ出す） */
@@ -190,6 +200,7 @@ export default function ApplyForm({
         errors?: string[];
         saved?: boolean;
         reachable?: boolean;
+        notified?: boolean;
       };
       if (res.ok && data.ok) {
         // 新しい受け口は reachable を返す。返さない（古い）ときは、
@@ -197,6 +208,8 @@ export default function ApplyForm({
         setReachable(
           data.reachable !== undefined ? data.reachable : data.saved !== false,
         );
+        // ★古い受け口は notified を返さない。そのときは true のまま（お願いを出さない）
+        if (data.notified !== undefined) setNotified(data.notified);
         setState("done");
         return;
       }
@@ -325,7 +338,7 @@ export default function ApplyForm({
           までご連絡ください。
         </p>
 
-        {!reachable && (
+        {shouldAskCopyEmail({ notified, reachable }) && (
           <div className="mt-5 rounded-xl border border-stone-300 bg-white p-4">
             <p className="text-sm font-bold text-stone-900">
               お手すきのときで構いません：控えのメールを1通だけ
