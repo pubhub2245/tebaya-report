@@ -107,3 +107,42 @@ test("まだ数えていないとき（差が null）は、行は出ないが日
   assert.equal(w.lastDate, "2026-10-18");
   assert.ok(w.note.includes("差が出ていないので"));
 });
+
+/**
+ * ■ 2026-11-16（f1-4）：「空いた日は何日か」を1つの数字にそろえる
+ *
+ *   本番で、同じ1つのことに **2つの数字** が出ていました（2026-11-16 実測）：
+ *     ・じゅんの一覧（/keiri のいちばん上）… 「この **10日** は お休みでした」
+ *     ・同じ画面の用意の一言 …………………… 「日報が 11月5日 まで（そこから **11日**）」
+ *   前者は じゅんが答える対象の日（11/6〜11/15）、後者は「何日前か」でした。
+ *   答えるのは前者なので、画面に出す「空いています」は **missingDays** にそろえます。
+ *   数える日そのもの（きょう）は、別に countDay（その日に出店の予定があるか）で見ます。
+ */
+test("空いた日の数は、数える日そのものを入れない（missingDays ＝ days − 1）", () => {
+  const gap = measureBooksGap({ reports: [rep("2026-11-05")], asOf: "2026-11-16" });
+  assert.equal(gap.days, 11); // 11月5日は「11日前」
+  assert.equal(gap.missingDays, 10); // 11/6〜11/15 の10日が、まだ日報の無い日
+});
+
+test("前の日まで日報が入っていれば、空いた日は0日（数える日は空きに数えない）", () => {
+  const gap = measureBooksGap({ reports: [rep("2026-11-15")], asOf: "2026-11-16" });
+  assert.equal(gap.days, 1);
+  assert.equal(gap.missingDays, 0);
+  assert.equal(gap.wide, false);
+});
+
+test("日報が読めない日・日付が壊れている日は、空いた日も null のまま", () => {
+  const none = measureBooksGap({ reports: [], asOf: "2026-11-16" });
+  assert.equal(none.missingDays, null);
+  const broken = measureBooksGap({ reports: [rep("2026-11-05")], asOf: "2026-13-99" });
+  assert.equal(broken.missingDays, null);
+  assert.equal(EMPTY_CASH_BOOKS_GAP.missingDays, null);
+});
+
+test("窓口のひとことも、空いた日の数（missingDays）で言う", () => {
+  const gap = measureBooksGap({ reports: [rep("2026-11-05")], asOf: "2026-11-16" });
+  const w = buildCashBooksGapWindow({ gap, diff: null });
+  assert.equal(w.missingDays, 10);
+  assert.ok(w.note.includes("そこから 10日 空いています"));
+  assert.ok(!w.note.includes("11日"));
+});
