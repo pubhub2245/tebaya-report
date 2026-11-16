@@ -157,7 +157,9 @@ test("⑥ 空き日数の数え方が、どの答えにも書いてある", () =
   for (const r of cases) {
     assert.equal(r.countMeans, BOOKS_GAP_OPEN_COUNT_MEANS);
     assert.match(r.countMeans, /数える日そのものを外して/);
-    assert.match(r.countMeans, /1日 少なく出ることがあります/);
+    // ★2026-11-16：上の行も同じ数え方にそろえたので、「1日 少なく出る」は起きない
+    assert.ok(!/1日 少なく出ることがあります/.test(r.countMeans));
+    assert.match(r.countMeans, /同じ数え方の同じ数字/);
     assert.match(r.countMeans, /食い違いではありません/);
     // 金額・店名・担当者の名前は1文字も入れない
     assert.ok(!/円/.test(r.countMeans));
