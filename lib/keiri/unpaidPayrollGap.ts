@@ -52,7 +52,18 @@
  */
 
 import { NEAR_ENOUGH_YEN, monthDay } from "./cashCheck";
+import { shopOf, UNSET_SHOP } from "./shopScope";
 import type { KeiriPayment, KeiriReport } from "./types";
+
+/** 日当を屋号ごとに分けた1件ぶん（画面の内わけに出すだけ） */
+export type PayrollShopShare = {
+  /** 屋号（空だった日報は「区分なし」。★「手羽屋」と決めつけない） */
+  shop: string;
+  /** その屋号の、日当が入っている日報の件数 */
+  rows: number;
+  /** その屋号の日当の合計 */
+  amount: number;
+};
 
 export type UnpaidPayrollGap = {
   /** 日報と払った記録を読めたか（**0件と取り違えないため**） */
@@ -67,6 +78,15 @@ export type UnpaidPayrollGap = {
   paid: number;
   /** まだ払った記録が無い分（＝金庫からお渡ししていれば、差になる分の**上限**） */
   unpaid: number;
+  /**
+   * 日当を屋号ごとに分けた内わけ（並びは金額の多い順 → 名前順。「区分なし」は必ず最後）。
+   * ★**金額を分けるためではなく、取り違えを防ぐために出します。**
+   *   金庫は1つとして数えるので（lib/keiri/cashCheck.ts の決まり①）、
+   *   この合計は屋号で分けずに足したものです。
+   */
+  shops: PayrollShopShare[];
+  /** 2つ以上の屋号が混ざっているか */
+  multiShop: boolean;
   /** 日当が入っている いちばん古い日（1件も無ければ null） */
   firstDate: string | null;
   /** 日当が入っている いちばん新しい日（1件も無ければ null） */
@@ -80,6 +100,8 @@ export const EMPTY_UNPAID_PAYROLL_GAP: UnpaidPayrollGap = {
   paidRows: 0,
   paid: 0,
   unpaid: 0,
+  shops: [],
+  multiShop: false,
   firstDate: null,
   lastDate: null,
 };
@@ -131,7 +153,9 @@ export function measureUnpaidPayrollGap(params: {
   const asOf = String(params.asOf ?? "").slice(0, 10);
   if (!isYmd(from)) return { ...EMPTY_UNPAID_PAYROLL_GAP };
 
-  const out: UnpaidPayrollGap = { ...EMPTY_UNPAID_PAYROLL_GAP, readable: true };
+  const out: UnpaidPayrollGap = { ...EMPTY_UNPAID_PAYROLL_GAP, readable: true, shops: [] };
+  // 屋号ごとの内わけ（取り違えを防ぐために出すだけ。金額は分けません）
+  const byShop = new Map<string, PayrollShopShare>();
 
   for (const r of params.reports) {
     if (!r) continue;
@@ -143,6 +167,11 @@ export function measureUnpaidPayrollGap(params: {
     if (labor === 0) continue;
     out.rows += 1;
     out.accrued += labor;
+    const shop = shopOf(r);
+    const cur = byShop.get(shop) ?? { shop, rows: 0, amount: 0 };
+    cur.rows += 1;
+    cur.amount += labor;
+    byShop.set(shop, cur);
     if (!out.firstDate || date < out.firstDate) out.firstDate = date;
     if (!out.lastDate || date > out.lastDate) out.lastDate = date;
   }
@@ -158,6 +187,16 @@ export function measureUnpaidPayrollGap(params: {
     out.paidRows += 1;
     out.paid += amount;
   }
+
+  // 並びは金額の多い順 → 名前順。ただし「区分なし」は屋号の名前ではないので必ず最後
+  out.shops = Array.from(byShop.values()).sort((a, b) => {
+    const aUnset = a.shop === UNSET_SHOP ? 1 : 0;
+    const bUnset = b.shop === UNSET_SHOP ? 1 : 0;
+    if (aUnset !== bUnset) return aUnset - bUnset;
+    if (b.amount !== a.amount) return b.amount - a.amount;
+    return a.shop < b.shop ? -1 : a.shop > b.shop ? 1 : 0;
+  });
+  out.multiShop = out.shops.length >= 2;
 
   out.unpaid = Math.max(0, out.accrued - out.paid);
   return out;
@@ -194,6 +233,39 @@ export function unpaidPayrollFit(
   return diff < gap.unpaid ? "within" : "no";
 }
 
+/**
+ * 屋号の内わけの一言（屋号が1つしか入っていなければ空）。
+ *
+ * ■ なぜ要るのか（2026-11-16・f1-4）
+ *   この日当の合計には、**手羽屋ともも屋の両方**が入っています（金庫は1つとして
+ *   数えるので、屋号で分けません＝lib/keiri/cashCheck.ts の決まり①）。
+ *   売上も経費も立替も同じように両方ぶんが入っているので、**食い違いではありません。**
+ *   ところが金額だけが出ていると「これは手羽屋だけの額だ」と読めてしまい、
+ *   そのつもりで答えると、金庫の差にもう一方の屋号ぶんがそのまま残ります。
+ *   実際に 2026-11-16 に、同じ倉庫を読んでいる司令室の係が
+ *   「売上は もも屋を外し、日当は もも屋を入れている食い違いだ」と見立てました
+ *   （10月は もも屋の日報が1枚も無いだけで、数え方は同じです。
+ *    同じ取り違えは 2026-11-04 にもありました＝lib/keiri/cashShopScope.ts）。
+ *   人（と機械）が2回 取り違えた所なので、**金額のすぐ横に内わけを出します。**
+ *
+ * ■ ここでしないこと
+ *   ① **屋号で分けません。** 金額は1円も変えません（出すのは説明の文だけです）。
+ *   ② 払った記録には どの屋号のものかの印がありません。ですから「払ったあとの残り」を
+ *      屋号ごとに分けることはできません。**そのことも必ず同じ文に書きます。**
+ */
+export function payrollShopShareLine(gap: UnpaidPayrollGap): string {
+  if (!gap.readable || !gap.multiShop || gap.shops.length < 2) return "";
+  const inner = gap.shops.map((s) => `${s.shop} ${yen(s.amount)}`).join("・");
+  return (
+    `この日当の内わけは ${inner} です` +
+    "（金庫は1つとして数えるので、屋号で分けずに足しています。" +
+    "売上も経費も立替も同じように両方ぶんが入っているので、食い違いではありません）。" +
+    (gap.paidRows > 0
+      ? "払った記録には どの屋号のものかの印が無いので、引いたあとの屋号ごとの分は出せません。"
+      : "")
+  );
+}
+
 /** この分の説明の1行目（金額と件数の事実だけ） */
 function factLine(gap: UnpaidPayrollGap): string {
   const span = spanOf(gap);
@@ -201,9 +273,11 @@ function factLine(gap: UnpaidPayrollGap): string {
     gap.paidRows > 0
       ? `そのうち「払った」という記録があるのは ${yen(gap.paid)}（${rowsLabel(gap.paidRows)}）だけで、残り ${yen(gap.unpaid)} には払った記録がありません。`
       : `払った記録は1件もありません（${yen(gap.unpaid)} ぜんぶ）。`;
+  const shopPart = payrollShopShareLine(gap);
   return (
     `日報に入っている日当が ${rowsLabel(gap.rows)}（合計 ${yen(gap.accrued)}` +
-    `${span ? `・${span}` : ""}）あります。${paidPart}`
+    `${span ? `・${span}` : ""}）あります。${paidPart}` +
+    (shopPart ? shopPart : "")
   );
 }
 
@@ -293,6 +367,12 @@ export type UnpaidPayrollGapWindow = {
   fit: UnpaidPayrollFit;
   /** 画面に差の内わけの行が出るか（＝差が1,000円以上で、当てはまる行がある） */
   shown: boolean;
+  /** この日当に入っている屋号の数（「区分なし」も1つとして数える。**名前は返しません**） */
+  shops: number;
+  /** 2つ以上の屋号が混ざっているか */
+  multiShop: boolean;
+  /** 屋号の内わけの一言が画面に出るか */
+  shopShareShown: boolean;
   /** ひとこと（金額は入れない） */
   note: string;
 };
@@ -324,6 +404,7 @@ export function buildUnpaidPayrollGapWindow(params: {
                 : hasDiff
                   ? `払った記録が無い日当がありますが、金庫のほうが多い側の差なので、この分の話ではありません（日報 ${gap.rows}件・払った記録 ${gap.paidRows}件）。`
                   : `払った記録が無い日当があります（日報 ${gap.rows}件・払った記録 ${gap.paidRows}件）。いまは差が出ていないので、行は出ません。`;
+  const shopShare = payrollShopShareLine(gap);
   return {
     readable: gap.readable,
     rows: gap.rows,
@@ -333,6 +414,13 @@ export function buildUnpaidPayrollGapWindow(params: {
     lastDate: gap.lastDate,
     fit,
     shown,
-    note,
+    shops: gap.shops.length,
+    multiShop: gap.multiShop,
+    shopShareShown: shopShare !== "",
+    note:
+      note +
+      (shopShare
+        ? `この日当には ${gap.shops.length}つの屋号ぶんが入っています（金庫は1つとして数えるので屋号で分けません。画面には屋号ごとの内わけが出ます。**屋号の名前と金額はこの窓口では返しません**）。`
+        : ""),
   };
 }

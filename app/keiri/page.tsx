@@ -197,6 +197,7 @@ import {
 } from "@/lib/keiri/advanceFieldRepayGap";
 import {
   measureUnpaidPayrollGap,
+  payrollShopShareLine,
   unpaidPayrollGapLines,
   unpaidPayrollGapNotice,
   type UnpaidPayrollGap,
@@ -3452,7 +3453,10 @@ function CashCountCard({
             </p>
           ) : (
             <p className="text-xs text-stone-700 leading-relaxed">
-              {payrollPaidQuestion(payrollSpanToday)}
+              {payrollPaidQuestion(
+                payrollSpanToday,
+                payrollShopShareLine(payrollSpanToday),
+              )}
             </p>
           )}
           <p className="text-xs text-stone-500 leading-relaxed">

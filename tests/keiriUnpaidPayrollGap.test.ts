@@ -20,6 +20,7 @@ import {
   unpaidPayrollFit,
   unpaidPayrollGapLines,
   unpaidPayrollGapNotice,
+  payrollShopShareLine,
 } from "../lib/keiri/unpaidPayrollGap";
 
 const OPENING = "2026-09-10";
@@ -185,3 +186,139 @@ test("日当（f1-4）: ★「計算上の現金」は1円も変わらない（�
     });
     assert.equal(paid.balance, 180000);
   });
+
+/* ───────────────────────────────────────────────────────────────
+   屋号の内わけ（2026-11-16・f1-4）
+
+   金庫は1つとして数えるので、日当の合計には**手羽屋ともも屋の両方**が入ります
+   （売上も経費も立替も同じように両方ぶんが入っているので、食い違いではありません）。
+   ところが金額だけが出ていると「手羽屋だけの額だ」と読めてしまい、そのつもりで
+   答えると、金庫の差にもう一方の屋号ぶんがそのまま残ります（2026-11-16 に実際に
+   取り違えが起きました。2026-11-04 にも同じ形がありました）。
+   ですから **金額のすぐ横に内わけを出す**ことを、ここで固定します。
+   ★内わけは説明の文だけです。金額は1円も分けません・1円も変えません。
+   ─────────────────────────────────────────────────────────────── */
+
+/** 屋号つきの日報を1枚つくる */
+function shopReport(
+  date: string,
+  sales: number,
+  labor: number,
+  shop: string | null,
+): KeiriReport {
+  return { id: `${date}-${shop ?? "none"}`, date, sales_amount: sales, labor, expenses: [], shop } as KeiriReport;
+}
+
+const mixedReports = [
+  shopReport("2026-09-11", 50000, 8000, "手羽屋"),
+  shopReport("2026-09-13", 40000, 8000, "手羽屋"),
+  shopReport("2026-09-12", 40000, 33000, "もも屋"),
+  shopReport("2026-09-14", 10000, 5000, null),
+];
+
+test("日当（f1-4）: 屋号ごとの内わけを数える（金額の多い順・区分なしは最後）", () => {
+  const g = measureUnpaidPayrollGap({
+    reports: mixedReports,
+    payments: [],
+    openingDate: OPENING,
+    asOf: "2026-09-30",
+  });
+  assert.equal(g.accrued, 54000);
+  assert.equal(g.multiShop, true);
+  assert.deepEqual(
+    g.shops.map((s) => [s.shop, s.rows, s.amount]),
+    [
+      ["もも屋", 1, 33000],
+      ["手羽屋", 2, 16000],
+      ["区分なし", 1, 5000],
+    ],
+  );
+});
+
+test("日当（f1-4）: 屋号が1つだけなら内わけは出さない（読む所を増やさない）", () => {
+  const g = measureUnpaidPayrollGap({
+    reports: [shopReport("2026-09-11", 50000, 8000, "手羽屋")],
+    payments: [],
+    openingDate: OPENING,
+    asOf: "2026-09-30",
+  });
+  assert.equal(g.multiShop, false);
+  assert.equal(payrollShopShareLine(g), "");
+  assert.ok(!String(unpaidPayrollGapNotice(g)).includes("内わけ"));
+});
+
+test("日当（f1-4）: 2つ以上の屋号が入っていたら、金額のすぐ横に内わけと「食い違いではない」を出す", () => {
+  const g = measureUnpaidPayrollGap({
+    reports: mixedReports,
+    payments: [],
+    openingDate: OPENING,
+    asOf: "2026-09-30",
+  });
+  const line = payrollShopShareLine(g);
+  assert.ok(line.includes("もも屋 33,000円"));
+  assert.ok(line.includes("手羽屋 16,000円"));
+  assert.ok(line.includes("区分なし 5,000円"));
+  assert.ok(line.includes("屋号で分けずに足しています"));
+  assert.ok(line.includes("食い違いではありません"));
+  // 数える前の一言と、差の内わけの行にも必ず入る（押す前に見える所）
+  assert.ok(String(unpaidPayrollGapNotice(g)).includes("もも屋 33,000円"));
+  assert.ok(String(unpaidPayrollGapLines(g, 54000)[0]).includes("もも屋 33,000円"));
+});
+
+test("日当（f1-4）: 払った記録があるときは「屋号ごとには分けられない」と必ず書く", () => {
+  const g = measureUnpaidPayrollGap({
+    reports: mixedReports,
+    payments: [payment("2026-09-20", 10000)],
+    openingDate: OPENING,
+    asOf: "2026-09-30",
+  });
+  assert.equal(g.paidRows, 1);
+  assert.ok(payrollShopShareLine(g).includes("引いたあとの屋号ごとの分は出せません"));
+});
+
+test("日当（f1-4）: 窓口は屋号の名前も金額も返さない（数と有無だけ）", () => {
+  const g = measureUnpaidPayrollGap({
+    reports: mixedReports,
+    payments: [],
+    openingDate: OPENING,
+    asOf: "2026-09-30",
+  });
+  const w = buildUnpaidPayrollGapWindow({ gap: g, diff: 54000 });
+  const json = JSON.stringify(w);
+  assert.equal(w.shops, 3);
+  assert.equal(w.multiShop, true);
+  assert.equal(w.shopShareShown, true);
+  assert.ok(!json.includes("もも屋"));
+  assert.ok(!json.includes("手羽屋"));
+  assert.ok(!json.includes("33000"));
+  assert.ok(!json.includes("33,000"));
+  assert.ok(!json.includes("54000"));
+});
+
+test("日当（f1-4）: 読めていないときは内わけも出さない（屋号は1つ、と言わない）", () => {
+  const g = measureUnpaidPayrollGap({
+    reports: mixedReports,
+    payments: [],
+    unreadable: true,
+    openingDate: OPENING,
+    asOf: "2026-09-30",
+  });
+  assert.equal(g.readable, false);
+  assert.deepEqual(g.shops, []);
+  assert.equal(g.multiShop, false);
+  assert.equal(payrollShopShareLine(g), "");
+});
+
+test("日当（f1-4）: ★内わけを出しても「計算上の現金」は1円も変わらない", () => {
+  const before = calcCashPosition({
+    reports: mixedReports,
+    payments: [],
+    settings,
+    advances: [],
+    deposits: [],
+    asOf: "2026-09-30",
+  });
+  // 期首100,000 ＋ 売上（50,000＋40,000＋40,000＋10,000）＝ 240,000。日当は引かない
+  assert.equal(before.sales, 140000);
+  assert.equal(before.balance, 240000);
+});

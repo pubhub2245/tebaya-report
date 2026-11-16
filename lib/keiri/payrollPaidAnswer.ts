@@ -286,12 +286,25 @@ export function payrollPickNeeded(params: {
 }
 
 /** 画面に出す問いかけ（えらぶ2つの上に出す1行） */
-export function payrollPaidQuestion(span: PayrollSpan): string | null {
+export function payrollPaidQuestion(
+  span: PayrollSpan,
+  /**
+   * 屋号の内わけの一言（lib/keiri/unpaidPayrollGap.ts の payrollShopShareLine が作るもの）。
+   * ★**文はあちらの1か所だけ**に書いてあります。ここで作り直すと、同じことを言う文が
+   *   2つになって片方だけ直る元になるので、受け取って足すだけにします（2026-11-16・f1-4）。
+   * ★なぜ要るか：この金額には手羽屋ともも屋の両方が入っています（金庫は1つとして
+   *   数えるので屋号で分けません）。「手羽屋だけの額だ」と思って答えると、
+   *   金庫の差にもう一方の屋号ぶんがそのまま残ります。渡さなければ今までどおりです。
+   */
+  shopShareLine?: string | null,
+): string | null {
   if (!span.readable || span.rows <= 0 || span.unpaid <= 0) return null;
   const where = spanOf(span);
+  const share = String(shopShareLine ?? "").trim();
   return (
     `日報に入っている日当 ${yen(span.unpaid)}（${span.rows}件` +
     `${where ? `・${where}` : ""}）には、払ったという記録がありません。` +
+    (share ? share : "") +
     "このお金は、もう金庫のお金からお渡ししましたか？" +
     "（お渡ししていれば そのぶん金庫から出ていますし、" +
     "まだなら金庫にそのまま残っています。正反対になります）"
