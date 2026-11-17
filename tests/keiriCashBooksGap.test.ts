@@ -146,3 +146,65 @@ test("窓口のひとことも、空いた日の数（missingDays）で言う", 
   assert.ok(w.note.includes("そこから 10日 空いています"));
   assert.ok(!w.note.includes("11日"));
 });
+
+/**
+ * 「同じことを指す数字が2つある」と読まれないようにする（2026-11-17・f1-4）。
+ *
+ * ■ なぜ要るか
+ *   差の内わけ（booksGap）は **金庫を数えた日**に合わせて数え、
+ *   数える前の用意の一言（ready.booksGapDays）は **今日**で数えます。
+ *   ＝ 金庫を数えた日の次の日から、2つは1日ずつ ひらきます（どちらも正しい）。
+ *   この理由が書いていないと、並べて読んだ人が「数字が壊れている」と読みます
+ *   （2026-11-11 と 2026-11-16 に、同じ形で2回 立ち止まっています）。
+ */
+test("まだ数えていない日は「今日に合わせた＝用意の一言と同じ数」と書く", () => {
+  const gap = measureBooksGap({ reports: [rep("2026-11-05")], asOf: "2026-11-17" });
+  const w = buildCashBooksGapWindow({
+    gap,
+    diff: null,
+    asOf: "2026-11-17",
+    countedOn: null,
+    today: "2026-11-17",
+  });
+  assert.equal(w.asOf, "2026-11-17");
+  assert.equal(w.countedOn, null);
+  assert.match(w.asOfMeans, /同じ数/);
+  assert.doesNotMatch(w.asOfMeans, /わざと違う数/);
+});
+
+test("数えたあとは「数えた日に合わせた＝用意の一言とは わざと違う」と書く", () => {
+  const gap = measureBooksGap({ reports: [rep("2026-11-05")], asOf: "2026-11-17" });
+  const w = buildCashBooksGapWindow({
+    gap,
+    diff: null,
+    asOf: "2026-11-17",
+    countedOn: "2026-11-17",
+    today: "2026-11-20",
+  });
+  assert.equal(w.countedOn, "2026-11-17");
+  assert.match(w.asOfMeans, /11月17日/);
+  assert.match(w.asOfMeans, /11月20日/);
+  assert.match(w.asOfMeans, /わざと違う数/);
+  assert.match(w.asOfMeans, /食い違いではありません/);
+});
+
+test("days と missingDays は1日ちがい、その理由が必ず書いてある", () => {
+  const gap = measureBooksGap({ reports: [rep("2026-11-05")], asOf: "2026-11-17" });
+  assert.equal(gap.days, 12);
+  assert.equal(gap.missingDays, 11);
+  const w = buildCashBooksGapWindow({ gap, diff: null, asOf: "2026-11-17", today: "2026-11-17" });
+  assert.equal(w.days, 12);
+  assert.equal(w.missingDays, 11);
+  assert.match(w.countMeans, /わざと違う数/);
+  assert.match(w.countMeans, /missingDays/);
+  // 一言そのものは、今までどおり missingDays のほうを使う（1日ずれた数を出さない）
+  assert.match(w.note, /11日 空いています/);
+});
+
+test("今までどおりの呼び方（asOf を渡さない）でも落ちない", () => {
+  const gap = measureBooksGap({ reports: [rep("2026-11-05")], asOf: "2026-11-17" });
+  const w = buildCashBooksGapWindow({ gap, diff: null });
+  assert.equal(w.asOf, null);
+  assert.equal(w.asOfMeans, "");
+  assert.match(w.countMeans, /わざと違う数/);
+});

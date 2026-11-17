@@ -203,6 +203,12 @@ export type CashCountReady = {
    * 同じ数です（2026-11-16・f1-4）。
    */
   booksGapDays: number | null;
+  /**
+   * この日数を、いつに合わせて数えたか（YYYY-MM-DD・2026-11-17・f1-4）。
+   * ここは**いつも今日**です。差の内わけ（booksGap）は「金庫を数えた日」に
+   * 合わせて数えるので、数えた日より後に読むと2つは わざと違う数になります。
+   */
+  booksGapAsOf: string | null;
   /** 比べる相手の数（0なら比べられない） */
   ways: number;
   /** 比べる相手の名前（金額は出さない） */
@@ -253,8 +259,11 @@ export function buildCashCountReady(params: {
     operated: boolean;
     line: string | null;
   } | null;
+  /** 今日（YYYY-MM-DD）。渡さなければ今までどおり null */
+  today?: string | null;
 }): CashCountReady {
   const { variants, registerFloatOn } = params;
+  const today = params.today ?? null;
   const booksGap = params.booksGap ?? null;
   const gapOpen = params.gapOpen ?? null;
   const gapAnswer = params.gapAnswer ?? null;
@@ -322,6 +331,7 @@ export function buildCashCountReady(params: {
     booksUpToDate,
     booksLastDate: booksGap?.lastDate ?? null,
     booksGapDays: booksGap?.missingDays ?? null,
+    booksGapAsOf: today,
     ways: variants.length,
     wayLabels,
     safeOnlyIncluded,
