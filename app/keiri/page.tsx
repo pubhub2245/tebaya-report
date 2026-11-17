@@ -171,6 +171,17 @@ import {
   type PayrollPaidAnswer,
   type PayrollPaidAnswerKind,
 } from "@/lib/keiri/payrollPaidAnswer";
+import {
+  applyCashDepositAnswer,
+  decodeCashDepositAnswer,
+  depositPickFailLine,
+  depositPickNeeded,
+  encodeCashDepositAnswer,
+  measureCashDepositGap,
+  planCashDepositPick,
+  type CashDepositAnswer,
+  type CashDepositAnswerKind,
+} from "@/lib/keiri/cashDepositGap";
 import { booksGapDates } from "@/lib/keiri/cashBooksGapOpen";
 import {
   compareAlsoKeeps,
@@ -341,6 +352,12 @@ function KeiriInner() {
    * 「払った記録が無い日当を、もう金庫からお渡ししたか」の、じゅんの答え
    * （2026-11-15・f1-4）。無ければ null＝今までどおり「0円〜その額」の幅のまま。
    */
+  /**
+   * 「数え始めからあと、金庫の現金を銀行に入れたか」の控え（2026-11-17・f1-4）。
+   * 入れた記録の置き場（keiri_cash_events）がまだ無いので、設定のおまけ欄から読む。
+   */
+  const [cashDepositAnswer, setCashDepositAnswer] =
+    useState<CashDepositAnswer | null>(null);
   const [payrollPaidAnswer, setPayrollPaidAnswer] =
     useState<PayrollPaidAnswer | null>(null);
   /**
@@ -440,6 +457,7 @@ function KeiriInner() {
       setCashShelfMissing(data.cashShelfMissing);
       setBooksGapAnswer(data.booksGapAnswer ?? null);
       setPayrollPaidAnswer(data.payrollPaidAnswer ?? null);
+      setCashDepositAnswer(data.cashDepositAnswer ?? null);
       setRegisterCloses(data.registerCloses ?? []);
       setRegisterDiffs(data.registerDiffs ?? null);
       setIgnores(data.ignores);
@@ -1768,6 +1786,7 @@ function KeiriInner() {
         cashShopScopeAsOf={cashShopScopeAsOf}
         booksGapAnswer={booksGapAnswer}
         payrollPaidAnswer={payrollPaidAnswer}
+        cashDepositAnswer={cashDepositAnswer}
       />
 
       {/* 毎月お渡しする1枚（2026-10-04・kp231）。
@@ -2447,6 +2466,7 @@ function CashCountCard({
   cashShopScopeAsOf,
   booksGapAnswer,
   payrollPaidAnswer,
+  cashDepositAnswer,
 }: {
   reconcile: ReturnType<typeof reconcileCash>;
   balanceNow: number;
@@ -2485,6 +2505,11 @@ function CashCountCard({
    */
   booksGapAnswer: BooksGapAnswer | null;
   payrollPaidAnswer: PayrollPaidAnswer | null;
+  /**
+   * じゅんが答えた「数え始めからあと、金庫の現金を銀行に入れたか」（2026-11-17・f1-4）。
+   * まだ答えていなければ null。
+   */
+  cashDepositAnswer: CashDepositAnswer | null;
 }) {
   const [countOn, setCountOn] = useState(todayStr());
   const [countYen, setCountYen] = useState("");
@@ -2507,6 +2532,14 @@ function CashCountCard({
    * **えらばない道も正しい道です**（一部だけお渡しした・分からない とき）。
    */
   const [payrollPick, setPayrollPick] = useState<PayrollPaidAnswerKind | null>(null);
+  /**
+   * 「金庫の現金を銀行に入れましたか」で えらんだ答え（2026-11-17・f1-4）。
+   * **えらぶだけでは何も残りません。**［この金額で比べる］の1押しで、
+   * 金庫の記録といっしょに控えます（＝じゅんが押すのは、今までどおり1回だけ）。
+   */
+  const [depositPick, setDepositPick] = useState<CashDepositAnswerKind | null>(null);
+  /** その1押しで、銀行の答えをどうしたか（控えた／控えていない）の1行 */
+  const [depositNote, setDepositNote] = useState<string | null>(null);
   /** その1押しで、日当の答えをどうしたか（控えた／控えていない）の1行 */
   const [payrollNote, setPayrollNote] = useState<string | null>(null);
   /** その1押しで、空いた日の答えをどうしたか（控えた／控えていない）の1行 */
@@ -2633,6 +2666,7 @@ function CashCountCard({
       //   ただし「控えました」の1行は消す（この回は何も控えていないため）。
       setGapNote(null);
       setPayrollNote(null);
+      setDepositNote(null);
       return;
     }
     setMsg("");
@@ -2674,6 +2708,24 @@ function CashCountCard({
       payrollLine = saved.ok ? payrollPlan.note : payrollPickFailLine(saved.message);
     }
     setPayrollNote(payrollLine);
+    /**
+     * ★「金庫の現金を銀行に入れましたか」の答えも、**この同じ1押し**に同乗させます
+     *   （2026-11-17・f1-4）。えらんでいなければ何も控えません。
+     */
+    const depositPlan = planCashDepositPick({
+      shelfMissing,
+      pick: depositPick,
+      current: depositAnswerToday,
+    });
+    let depositLine: string | null = depositPlan.note ?? depositPlan.warn;
+    if (depositPlan.save && depositPlan.answer && openingDate) {
+      const saved = await saveDepositAnswer(depositPlan.answer, {
+        from: openingDate,
+        to: countOn,
+      });
+      depositLine = saved.ok ? depositPlan.note : depositPickFailLine(saved.message);
+    }
+    setDepositNote(depositLine);
     const screenBalance = computedAsOf(countOn);
     setPreview(
       previewCashCount({
@@ -2931,6 +2983,80 @@ function CashCountCard({
   });
 
   /**
+   * 「数え始めからあと、金庫の現金を銀行に入れたか」の答えと、その扱い
+   * （2026-11-17・f1-4）。
+   *
+   * ★手羽屋の売上は全額が現金（CLAUDE.md 5-5）なので、計算上の現金は数え始めから
+   *   **増え続ける一方**です。そのお金を銀行に入れれば金庫はそのぶん減りますが、
+   *   **入れたことを記録する置き場（keiri_cash_events）がまだ倉庫にありません**
+   *   （下の「売上を銀行に入れた」の欄は、置き場が無いあいだ出していません）。
+   *   ＝ 入れたお金は、どこにも1行も残っていません。
+   *   このままだと、差のうち説明が付かない分を「ここが本当の探し物です」と言ってしまい、
+   *   **無い探し物をさせます**（レジのつり銭でまったく同じことが起きています）。
+   */
+  const depositAnswerFor = (countedOn: string | null) =>
+    applyCashDepositAnswer({
+      from: openingDate || null,
+      to: countedOn || todayStr(),
+      saved: cashDepositAnswer,
+    });
+  const depositAnswerToday = depositAnswerFor(todayStr());
+  const depositGapToday = measureCashDepositGap({
+    shelfMissing,
+    deposits: depositsTotal > 0 ? 1 : 0,
+    answer: depositAnswerToday,
+  });
+
+  /**
+   * 「金庫の現金を銀行に入れましたか」の答えを、1回だけ控える（2026-11-17・f1-4）。
+   * **金額は1円も作りません・1円も直しません。**
+   */
+  const saveDepositAnswer = async (
+    answer: CashDepositAnswerKind,
+    range: { from: string; to: string },
+  ): Promise<{ ok: boolean; message: string }> => {
+    setSaving("gap");
+    // いま書いてあるひとことを消さないよう、先に読んでから足す
+    const { data, error: rErr } = await supabase
+      .from("keiri_settings")
+      .select("memo")
+      .eq("business_type_code", businessCode)
+      .maybeSingle();
+    const pre = decideMemoPreread({
+      isTebaya: businessCode === TEBAYA_BUSINESS_CODE,
+      rowFound: !!data,
+      errorMessage: rErr ? rErr.message : null,
+    });
+    if (!pre.proceed) {
+      setSaving(null);
+      return { ok: false, message: pre.message ?? "控えられませんでした" };
+    }
+    const next = encodeCashDepositAnswer((data as any)?.memo ?? null, {
+      from: range.from,
+      to: range.to,
+      answer,
+    });
+    if (next === null) {
+      setSaving(null);
+      return { ok: false, message: "答えを残せませんでした（日付が読めませんでした）" };
+    }
+    const { data: changed, error } = await supabase
+      .from("keiri_settings")
+      .update({ memo: next })
+      .eq("business_type_code", businessCode)
+      .select("business_type_code");
+    setSaving(null);
+    const verdict = decideSettingsWriteResult({
+      isTebaya: businessCode === TEBAYA_BUSINESS_CODE,
+      errorMessage: error ? error.message : null,
+      changedRows: Array.isArray(changed) ? changed.length : null,
+      target: "銀行に入れたかの答え",
+    });
+    if (verdict.ok) onSaved();
+    return { ok: verdict.ok, message: verdict.message };
+  };
+
+  /**
    * 「その日当を、もう金庫からお渡ししましたか」の答えを、1回だけ控える
    * （2026-11-15・f1-4）。**金額は1円も作りません・1円も直しません。**
    *
@@ -3162,8 +3288,15 @@ function CashCountCard({
           }),
         ),
       ],
-      unknown:
-        books.wide && !answered.holidaysOnly ? ["日報がまだ入っていない日"] : [],
+      unknown: [
+        ...(books.wide && !answered.holidaysOnly ? ["日報がまだ入っていない日"] : []),
+        // ★銀行に入れた分（置き場が無い＝0円とは言えない・2026-11-17・f1-4）
+        ...measureCashDepositGap({
+          shelfMissing,
+          deposits: depositsTotal > 0 ? 1 : 0,
+          answer: depositAnswerFor(countedOn),
+        }).unknownLabels,
+      ],
     });
   };
   const coverageSaved = coverageFor(reconcile.diff, reconcile.countedOn);
@@ -3518,6 +3651,73 @@ function CashCountCard({
         </div>
       )}
 
+
+      {/* ★「数え始めからあと、金庫の現金を銀行に入れましたか」をじゅんに1回だけ聞く
+             （2026-11-17・f1-4）。
+             手羽屋の売上は全額が現金なので、計算上の現金は数え始めから**増え続ける一方**です。
+             そのお金を銀行に入れれば金庫はそのぶん減りますが、**入れたことを記録する置き場が
+             まだ倉庫にありません**（下の「売上を銀行に入れた」の欄も、置き場が無いあいだは
+             出していません）。＝ どこにも1行も残っていません。
+             答えが無いままだと、差のうち説明が付かない分を「ここが本当の探し物です」と
+             言ってしまい、**無い探し物をさせます**。
+             ここは えらぶだけで、下の［この金額で比べる］の同じ1押しで控えます。
+             **金額は1円も変わりません。** */}
+      {shelfMissing && (
+        <div className="rounded-lg bg-white border border-stone-300 px-3 py-2 space-y-2">
+          <h3 className="text-sm font-bold text-brand-dark">
+            金庫の現金を、銀行に入れましたか
+          </h3>
+          {depositGapToday.line && (
+            <p className="text-xs text-stone-700 leading-relaxed">
+              {depositGapToday.line}
+            </p>
+          )}
+          <p className="text-xs text-stone-500 leading-relaxed">
+            入れたことを記録する欄は、置き場（棚）ができてから出ます。それまでは、
+            {depositPickNeeded({ shelfMissing, current: depositAnswerToday })
+              ? "ここで えらぶだけです（まだ何も残りません）。下の［この金額で比べる］を押したときに、金庫の記録といっしょに控えます＝押すのは1回だけです。"
+              : "答え直したいときは、えらび直して、もう一度［この金額で比べる］を押してください。"}
+            <strong>分からないときは、どちらも えらばないでください</strong>
+            （そのときは「探し物があるか」を言い切りません）。
+            えらんでも金額は1円も変わりません。
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <label
+              className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs leading-relaxed cursor-pointer ${
+                depositPick === "none"
+                  ? "border-brand-dark bg-stone-50 font-bold"
+                  : "border-stone-300"
+              }`}
+            >
+              <input
+                type="radio"
+                name="cash-deposit-answer"
+                className="mt-0.5"
+                checked={depositPick === "none"}
+                onChange={() => setDepositPick("none")}
+              />
+              <span>1円も入れていません（ぜんぶ金庫のままです）</span>
+            </label>
+            <label
+              className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs leading-relaxed cursor-pointer ${
+                depositPick === "some"
+                  ? "border-brand-dark bg-stone-50 font-bold"
+                  : "border-stone-300"
+              }`}
+            >
+              <input
+                type="radio"
+                name="cash-deposit-answer"
+                className="mt-0.5"
+                checked={depositPick === "some"}
+                onChange={() => setDepositPick("some")}
+              />
+              <span>銀行に入れました（金額は、置き場ができてから入れます）</span>
+            </label>
+          </div>
+        </div>
+      )}
+
       {/* ① 金庫を数えた */}
       <div className="pt-3 border-t border-stone-200 space-y-2">
         <h3 className="text-sm font-bold text-brand-dark">金庫を数えた日</h3>
@@ -3587,6 +3787,7 @@ function CashCountCard({
           この金額で比べる（そのまま記録に残します）
           {gapPick !== null ? "／空いた日の答えも控えます" : ""}
           {payrollPick !== null ? "／日当の答えも控えます" : ""}
+          {depositPick !== null ? "／銀行の答えも控えます" : ""}
         </button>
 
         {/* ★その1押しで、空いた日の答えをどうしたか（2026-11-14 夕・f1-4）。
@@ -3596,6 +3797,9 @@ function CashCountCard({
         )}
         {gapNote && (
           <p className="text-xs text-stone-700 leading-relaxed">{gapNote}</p>
+        )}
+        {depositNote && (
+          <p className="text-xs text-stone-700 leading-relaxed">{depositNote}</p>
         )}
 
         {preview && (

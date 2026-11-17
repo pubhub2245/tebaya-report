@@ -63,6 +63,10 @@ import {
   type PayrollPaidAnswer,
 } from "@/lib/keiri/payrollPaidAnswer";
 import {
+  decodeCashDepositAnswer,
+  type CashDepositAnswer,
+} from "@/lib/keiri/cashDepositGap";
+import {
   normalizeRegisterCloses,
   type RegisterCloseRow,
 } from "@/lib/keiri/registerFloat";
@@ -158,6 +162,12 @@ export type KeiriMonthServerData = {
    * （2026-11-15・f1-4）。置き場がまだ無いので、設定のおまけ欄の控えから読む。無ければ null。
    */
   payrollPaidAnswer: PayrollPaidAnswer | null;
+  /**
+   * 「数え始めからあと、金庫の現金を銀行に入れたか」の、じゅんの答え
+   * （2026-11-17・f1-4）。入れた記録の置き場がまだ無いので、設定のおまけ欄の控えから読む。
+   * 無ければ null。
+   */
+  cashDepositAnswer: CashDepositAnswer | null;
   /**
    * 倉庫からの返事を**待つのをやめた**か（2026-10-16・kp255・f4-1・f5-1）。
    * ★true のときは、ここから下の数字はぜんぶ「読めませんでした」の形です。
@@ -916,6 +926,8 @@ async function loadKeiriMonthServerInner(params: {
     booksGapAnswer: decodeBooksGapAnswer((s as any)?.memo),
     // 「日当をもうお渡ししたか」の答え（2026-11-15・f1-4）
     payrollPaidAnswer: decodePayrollPaidAnswer((s as any)?.memo),
+    // 「金庫の現金を銀行に入れたか」の答え（2026-11-17・f1-4）
+    cashDepositAnswer: decodeCashDepositAnswer((s as any)?.memo),
   };
 }
 
@@ -951,6 +963,7 @@ function timedOutData(businessCode: string): KeiriMonthServerData {
     reportDups: [],
     booksGapAnswer: null,
     payrollPaidAnswer: null,
+    cashDepositAnswer: null,
     readTimedOut: true,
   };
 }
