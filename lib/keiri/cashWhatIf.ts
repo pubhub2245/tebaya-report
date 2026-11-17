@@ -54,13 +54,22 @@ import { DEPOSIT_UNKNOWN_LABEL } from "./cashDepositGap";
  */
 export const BOOKS_GAP_UNKNOWN_LABEL = "日報がまだ入っていない日";
 
-/** もしもの答えの出し方 */
+/**
+ * もしもの答えの出し方。
+ *
+ * ★①②は どちらも「ぜんぶ答えた」形です。ちがうのは「日当を もう金庫からお渡ししたか」
+ *   への答えだけで、**この答えで金庫の中身は正反対になります**
+ *   （お渡し済み＝そのぶん金庫から出ている／まだ＝金庫に残っている）。
+ *   じゅんが どちらを えらんでも1分が実ることを確かめたいので、両方 計算します。
+ */
 export type WhatIfAnswerKey =
-  /** ①ぜんぶ答えた（空きは お休み・日当はまだ・銀行には入れていない） */
-  | "ぜんぶ答えた"
-  /** ②銀行に入れたと答えた（置き場が無いので金額は残らない） */
+  /** ①ぜんぶ答えた・日当はまだお渡ししていない（空きは お休み・銀行には入れていない） */
+  | "ぜんぶ答えた（日当はまだ）"
+  /** ②ぜんぶ答えた・日当はもうお渡しした */
+  | "ぜんぶ答えた（日当はお渡しした）"
+  /** ③銀行に入れたと答えた（置き場が無いので金額は残らない） */
   | "銀行に入れたと答えた"
-  /** ③何も答えない（いまのまま数えた） */
+  /** ④何も答えない（いまのまま数えた） */
   | "何も答えない";
 
 /** 差の置きどころ（**言葉だけ**。円では出しません） */
@@ -128,12 +137,14 @@ function piecesFor(
   key: WhatIfAnswerKey,
   src: CashWhatIfSource,
 ): CashDiffPiece[] {
-  // 日当：①③は「まだお渡ししていない」と答えた形で畳む／②も同じ（答えは別の問い）
+  // 日当：えらんだ答えのとおりに畳む。
   //   ★「何も答えない」は、答えが1つも無い形にします（0円〜その額の幅のまま）。
   const payrollAnswer =
     key === "何も答えない"
       ? null
-      : { covers: true, handed: false, notYet: true };
+      : key === "ぜんぶ答えた（日当はお渡しした）"
+        ? { covers: true, handed: true, notYet: false }
+        : { covers: true, handed: false, notYet: true };
   return [
     registerDiffPiece(src.registerDiff),
     openingExpensesPiece(src.openingExpenses, src.openingExpensesReadable),
@@ -153,7 +164,7 @@ function unknownFor(key: WhatIfAnswerKey, src: CashWhatIfSource): string[] {
   }
   // 銀行に入れた分：置き場が有れば そもそも分からない所にならない
   if (!src.depositShelfExists) {
-    if (key === "ぜんぶ答えた") {
+    if (key.startsWith("ぜんぶ答えた")) {
       // 「1円も入れていない」と答えた＝数えない
     } else {
       out.push(DEPOSIT_UNKNOWN_LABEL);
@@ -186,12 +197,17 @@ const HOWTO =
   "ここは「じゅんが金庫を1分 数えたら、ちゃんと はい／いいえ が出るか」を" +
   "数える前に見る所です。**worthThePress が true なら、1分は実ります**" +
   "（どんな差が出ても合否が付きます）。false のときは、分からない所が残る形なので、" +
-  "頼む前に直してください（outcomes[0].unknownLabels に、その名前が出ます）。" +
+  "頼む前に直してください（「ぜんぶ答えた…」の unknownLabels に、その名前が出ます）。" +
   "measurable が false の日は内わけを読めなかった日で、**0件という意味ではありません**。";
 
 /** もしもの答えを15通り 先に出す（純粋な計算） */
 export function measureCashWhatIf(src: CashWhatIfSource): CashWhatIf {
-  const keys: WhatIfAnswerKey[] = ["ぜんぶ答えた", "銀行に入れたと答えた", "何も答えない"];
+  const keys: WhatIfAnswerKey[] = [
+    "ぜんぶ答えた（日当はまだ）",
+    "ぜんぶ答えた（日当はお渡しした）",
+    "銀行に入れたと答えた",
+    "何も答えない",
+  ];
 
   // 内わけを1つも読めていない日は、もしもの答えも出しません（0件と取り違えないため）
   const anyReadable =
@@ -249,11 +265,14 @@ export function measureCashWhatIf(src: CashWhatIfSource): CashWhatIf {
     };
   });
 
-  const all = outcomes.find((o) => o.key === "ぜんぶ答えた");
-  const worthThePress = !!all?.verdictAlways;
+  // ★「ぜんぶ答えた」は2通りあります（日当をお渡ししたか・まだか）。
+  //   **どちらを えらんでも合否が出る**ときだけ「1分は実る」と言います。
+  const answered = outcomes.filter((o) => o.key.startsWith("ぜんぶ答えた"));
+  const worthThePress = answered.length > 0 && answered.every((o) => o.verdictAlways);
   const summary = worthThePress
     ? "いま金庫を1分 数えて、出てくる3つの問いにぜんぶ答えてもらえば、" +
       "**どんな差が出ても はい／いいえ が出ます**（1分は実ります）。" +
+      "日当を［もうお渡しした］［まだです］の どちらで えらんでも答えが出ます。" +
       (outcomes.find((o) => o.key === "銀行に入れたと答えた")?.verdictAlways
         ? ""
         : "ただし［銀行に入れました］をえらぶと、いくら入れたかの置き場が倉庫に無いので、" +
