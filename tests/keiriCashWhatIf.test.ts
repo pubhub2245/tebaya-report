@@ -37,21 +37,25 @@ function outcome(r: ReturnType<typeof measureCashWhatIf>, key: string) {
   return o!;
 }
 
-test("①ぜんぶ答えた形なら、差がどこにあっても 合否が出る", () => {
+test("①ぜんぶ答えた形なら、日当の答えが どちらでも 合否が出る", () => {
   const r = measureCashWhatIf(src());
   assert.equal(r.measurable, true);
-  const all = outcome(r, "ぜんぶ答えた");
-  assert.deepEqual(all.unknownLabels, []);
-  assert.equal(all.verdictAlways, true);
-  assert.equal(
-    all.cases.every((c) => c.ok !== null),
-    true,
-  );
+  for (const key of ["ぜんぶ答えた（日当はまだ）", "ぜんぶ答えた（日当はお渡しした）"]) {
+    const all = outcome(r, key);
+    assert.deepEqual(all.unknownLabels, [], `${key} に分からない所が残っています`);
+    assert.equal(all.verdictAlways, true, `${key} で合否が出ません`);
+    // はみ出した差は「合っていません」とはっきり言う（言えません にしない）
+    const over = all.cases.find((c) => c.where.startsWith("その幅より1万円 多い"))!;
+    assert.equal(over.covered, false);
+    assert.equal(over.ok, false);
+  }
   assert.equal(r.worthThePress, true);
-  // はみ出した差は「合っていません」とはっきり言う（言えません にしない）
-  const over = all.cases.find((c) => c.where.startsWith("その幅より1万円 多い"))!;
-  assert.equal(over.covered, false);
-  assert.equal(over.ok, false);
+  // ★日当の答えで「説明のつく幅」は変わる＝答えが効いていること
+  const notYet = outcome(r, "ぜんぶ答えた（日当はまだ）");
+  const handed = outcome(r, "ぜんぶ答えた（日当はお渡しした）");
+  assert.equal(notYet.named, 1);
+  assert.equal(handed.named, 2);
+  assert.ok(handed.namedLabels.includes("払った記録が無い日当"));
 });
 
 test("②［銀行に入れました］をえらぶと、大きい差では『言えません』になる", () => {
