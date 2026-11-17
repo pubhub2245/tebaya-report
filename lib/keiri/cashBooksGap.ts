@@ -160,14 +160,37 @@ export type CashBooksGapWindow = {
   shown: boolean;
   /** ひとこと（金額は入れない） */
   note: string;
+  /**
+   * この日数を、**いつに合わせて数えたか**（YYYY-MM-DD・2026-11-17・f1-4）。
+   * 金庫を1回でも数えていれば「数えた日」、まだなら「今日」です。
+   */
+  asOf: string | null;
+  /** 金庫を数えた日（まだ数えていなければ null） */
+  countedOn: string | null;
+  /** asOf の読み方（人が読む1行・金額は入れない） */
+  asOfMeans: string;
+  /** days と missingDays が わざと違う数であることの説明（人が読む1行） */
+  countMeans: string;
 };
 
 export function buildCashBooksGapWindow(params: {
   gap: CashBooksGap;
   /** 計算上の残高 − 数えた金額（まだ数えていなければ null） */
   diff: number | null;
+  /**
+   * この日数を合わせた日（YYYY-MM-DD）。渡さなければ今までどおり null。
+   * 金庫を1回でも数えていれば「数えた日」、まだなら「今日」を渡します。
+   */
+  asOf?: string | null;
+  /** 金庫を数えた日（まだ数えていなければ null） */
+  countedOn?: string | null;
+  /** 今日（YYYY-MM-DD）。用意の一言がどの日で数えているかを言うために使う */
+  today?: string | null;
 }): CashBooksGapWindow {
   const { gap, diff } = params;
+  const asOf = params.asOf ?? null;
+  const countedOn = params.countedOn ?? null;
+  const today = params.today ?? null;
   const hasDiff = diff !== null && Number.isFinite(diff) && Math.abs(diff) >= NEAR_ENOUGH_YEN;
   const shown = gap.wide && hasDiff;
   // ★ここで出す「空いています」の日数は missingDays（数える日そのものは入れない）。
@@ -191,5 +214,55 @@ export function buildCashBooksGapWindow(params: {
     wide: gap.wide,
     shown,
     note,
+    asOf,
+    countedOn,
+    asOfMeans: booksGapAsOfMeans({ asOf, countedOn, today }),
+    countMeans: BOOKS_GAP_COUNT_MEANS,
   };
+}
+
+/**
+ * days と missingDays は **わざと違う数**です（2026-11-17・f1-4）。
+ * 並べて読んだ人が「数字が壊れている」と読まないように、理由を1行 添えます
+ * （2026-11-11 と 2026-11-16 に、同じ形で2回 立ち止まっているため）。
+ */
+export const BOOKS_GAP_COUNT_MEANS =
+  "days（◯日前）と missingDays（空いている日数）は、**わざと違う数**です。" +
+  "days は いちばん新しい日報から 比べる日までの日数で、比べる日そのものを1日 数えます。" +
+  "missingDays は その翌日から 比べる日の**前の日**までで、比べる日を数えません" +
+  "（その日の日報は営業が終わってから入るため）。ふつうは1日ちがいます。" +
+  "**食い違いではありません。** 画面と、じゅんに答えていただく「この◯日は お休みでしたか」は、" +
+  "どちらも missingDays のほうを使います。";
+
+/**
+ * この日数を「いつに合わせて数えたか」を1行で言う（2026-11-17・f1-4）。
+ *
+ * ■ なぜ要るか
+ *   差の内わけ（この booksGap）は **金庫を数えた日**に合わせて数えます
+ *   （lib/keiri/cashCheck.ts の決まり③「突き合わせは必ず数えた日に揃えます」）。
+ *   いっぽう、数える前の用意の一言（ready.booksGapDays）は **今日**で数えます。
+ *   ＝ 金庫を数えた日の**次の日から**、この2つは1日ずつ ひらいていきます。
+ *   どちらも正しいのに、並べて読むと「同じことを指す数字が2つある」形になります
+ *   （2026-11-16 に同じ形で1回 止まっています）。先に理由を書いておきます。
+ */
+export function booksGapAsOfMeans(params: {
+  asOf: string | null;
+  countedOn: string | null;
+  today: string | null;
+}): string {
+  const { asOf, countedOn, today } = params;
+  if (!asOf) return "";
+  if (!countedOn) {
+    return (
+      `ここの日数は 今日（${monthDay(asOf)}）に合わせて数えています` +
+      "＝ 数える前の用意の一言（ready.booksGapDays）と**同じ数**です。"
+    );
+  }
+  const todayPart = today ? `今日（${monthDay(today)}）` : "今日";
+  return (
+    `ここの日数は **金庫を数えた日（${monthDay(countedOn)}）**に合わせて数えています` +
+    `（突き合わせは必ず数えた日に揃えるため）。数える前の用意の一言（ready.booksGapDays）は` +
+    `${todayPart}で数えるので、**数えた日より後に読むと、この2つは わざと違う数**になります。` +
+    "**食い違いではありません**（あとから増えた空きで、数えた日の合否を変えないためです）。"
+  );
 }

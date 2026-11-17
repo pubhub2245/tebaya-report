@@ -358,6 +358,8 @@ export async function GET() {
     const floatToday = latestRegisterFloat(data.registerCloses ?? [], todayJst);
     const ready = buildCashCountReady({
       booksGap: booksGapToday,
+      // ★用意の一言は いつも今日で数える（差の内わけは数えた日・2026-11-17・f1-4）
+      today: todayJst,
       gapOpen: booksGapOpen,
       // じゅんが答えていれば、押す前の一言もその答えで言う（2026-11-14・f1-4）
       gapAnswer: {
@@ -450,7 +452,16 @@ export async function GET() {
       // 同じ中身の日報が2枚（画面と同じ数え方になっているか。金額は返しません）
       sameReportGap: buildCashDupReportsWindow(dup.gap),
       // 差の内わけ（日報がどこまで入っているか・金額は出さない）
-      booksGap: buildCashBooksGapWindow({ gap: booksGap, diff: reconcile.diff }),
+      booksGap: buildCashBooksGapWindow({
+        gap: booksGap,
+        diff: reconcile.diff,
+        // ★この日数は「金庫を数えた日」に合わせて数えています（まだなら今日）。
+        //   用意の一言（ready.booksGapDays）は いつも今日で数えるので、
+        //   数えた日より後に読むと2つは わざと違う数になります（2026-11-17・f1-4）。
+        asOf: last ? last.happened_on : todayJst,
+        countedOn: last ? last.happened_on : null,
+        today: todayJst,
+      }),
       // 空いている日の正体（営業した日か お休みか・件数と日付だけ）
       booksGapOpen,
       // じゅんが答えた「この空きは お休みでしたか」（2026-11-14・f1-4）
