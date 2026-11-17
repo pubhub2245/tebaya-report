@@ -29,6 +29,7 @@ import type { CashEvent } from "./cashCheck";
 import { stripBooksGapAnswer } from "./booksGapAnswer";
 import { stripExpenseIgnoreMemo } from "./expenseIgnoreMemo";
 import { stripPayrollPaidAnswer } from "./payrollPaidAnswer";
+import { stripCashDepositAnswer } from "./cashDepositGap";
 
 /** 控えの始まりの印 */
 export const CASH_MEMO_BEGIN = "［金庫を数えた控え v1 ここから］";
@@ -178,14 +179,18 @@ export type NoteKeepPlan = {
 /**
  * 人が書いた ひとこと だけを取り出す（**控えの印は ぜんぶ外す**）。
  *
- * ★おまけ欄には控えが3種類 並びます（金庫の1回／数えない印／日報の空きの答え）。
+ * ★おまけ欄には控えが5種類 並びます（金庫の1回／数えない印／日報の空きの答え／
+ *   日当をお渡ししたかの答え／銀行に入れたかの答え）。
  *   金庫のぶんだけ外して数えると、ほかの控えが増えたときに
  *   「ひとことが 125文字 → 400文字 に増えた」と読めてしまい、
  *   じゅんの文が無事かを外から見張れなくなります。
+ *   **控えを1種類 足したら、必ずここにも足すこと**（2026-11-17 に銀行の答えを足しました）。
  */
 export function stripAllMemoBlocks(memo: string | null | undefined): string {
-  return stripPayrollPaidAnswer(
-    stripBooksGapAnswer(stripExpenseIgnoreMemo(stripCashCountMemo(memo))),
+  return stripCashDepositAnswer(
+    stripPayrollPaidAnswer(
+      stripBooksGapAnswer(stripExpenseIgnoreMemo(stripCashCountMemo(memo))),
+    ),
   );
 }
 

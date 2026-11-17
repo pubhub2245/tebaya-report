@@ -36,6 +36,11 @@ import {
   buildPayrollPaidAnswerWindow,
 } from "@/lib/keiri/payrollPaidAnswer";
 import {
+  applyCashDepositAnswer,
+  buildCashDepositGapWindow,
+  measureCashDepositGap,
+} from "@/lib/keiri/cashDepositGap";
+import {
   buildCashDiffCoverageWindow,
   fieldRepayPiece,
   measureCashDiffCoverage,
@@ -290,6 +295,26 @@ export async function GET() {
       saved: data.payrollPaidAnswer,
     });
 
+    // ★「数え始めからあと、金庫の現金を銀行に入れましたか」の答え（2026-11-17・f1-4）。
+    //   手羽屋の売上は全額が現金（CLAUDE.md 5-5）なので、計算上の現金は数え始めから
+    //   **増え続ける一方**です。そのお金を銀行に入れれば金庫はそのぶん減りますが、
+    //   **入れたことを記録する置き場（keiri_cash_events）がまだ倉庫にありません**
+    //   （記録する欄そのものが画面に出ていません）。＝ どこにも1行も残っていません。
+    //   そのままだと、差のうち説明が付かない分を「ここが本当の探し物です」と言ってしまい、
+    //   **無い探し物をさせます**（レジのつり銭でまったく同じことが起きています）。
+    //   置き場が無いあいだは「分からない所」として数え、じゅんが1回えらんでくれていれば
+    //   そのとおりに畳みます。**金額は1円も変わりません。**
+    const depositAnswer = applyCashDepositAnswer({
+      from: data.settingsMissing ? null : (settings.opening_date ?? null),
+      to: last ? last.happened_on : todayJst,
+      saved: data.cashDepositAnswer,
+    });
+    const depositGap = measureCashDepositGap({
+      shelfMissing: data.cashShelfMissing,
+      deposits: deposits.length,
+      answer: depositAnswer,
+    });
+
     // ★「どの屋号の日報から数えているのか」（2026-11-04・f1-4）。
     //   金庫は1つとして数えるので、手羽屋ともも屋を分けていません
     //   （lib/keiri/cashCheck.ts の決まり①）。＝ 売上も経費も立替も両方の屋号ぶんが入ります。
@@ -424,10 +449,13 @@ export async function GET() {
       //   読めなかった日・足りない日があった日は、今までどおり「分からない所」です。
       //   じゅんが「この空きは お休みでした」と答えた日も、同じく数えません
       //   （2026-11-14・f1-4。答えは、答えた日を覆っているときだけ効きます）。
-      unknown:
-        booksGap.wide && !booksGapOpen.holidaysOnly && !gapAnswer.holidaysOnly
+      unknown: [
+        ...(booksGap.wide && !booksGapOpen.holidaysOnly && !gapAnswer.holidaysOnly
           ? ["日報がまだ入っていない日"]
-          : [],
+          : []),
+        // ★銀行に入れた分（置き場が無い＝0円とは言えない・2026-11-17・f1-4）
+        ...depositGap.unknownLabels,
+      ],
     });
 
     // ★合否は1か所で決める（2026-11-09・f1-4）。
@@ -503,6 +531,8 @@ export async function GET() {
         span: unpaidPayrollGap,
         use: payrollPaid,
       }),
+      // 売上の現金を銀行に入れた分（置き場が有るか・答えたか・金額は出さない）
+      depositGap: buildCashDepositGapWindow(depositGap, depositAnswer),
       // 差は ぜんぶ名前が付いたか（収まっているか・名前の数だけ・金額は出さない）
       diffCoverage: buildCashDiffCoverageWindow(diffCoverage),
       // どの屋号の日報から数えているのか（件数だけ・金額も屋号の名前も出さない）
