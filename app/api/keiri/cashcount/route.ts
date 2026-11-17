@@ -54,6 +54,10 @@ import {
   measureCashDupReports,
 } from "@/lib/keiri/cashDupReports";
 import {
+  BOOKS_GAP_UNKNOWN_LABEL,
+  measureCashWhatIf,
+} from "@/lib/keiri/cashWhatIf";
+import {
   buildCashShopScopeWindow,
   measureCashShopScope,
 } from "@/lib/keiri/cashShopScope";
@@ -451,7 +455,7 @@ export async function GET() {
       //   （2026-11-14・f1-4。答えは、答えた日を覆っているときだけ効きます）。
       unknown: [
         ...(booksGap.wide && !booksGapOpen.holidaysOnly && !gapAnswer.holidaysOnly
-          ? ["日報がまだ入っていない日"]
+          ? [BOOKS_GAP_UNKNOWN_LABEL]
           : []),
         // ★銀行に入れた分（置き場が無い＝0円とは言えない・2026-11-17・f1-4）
         ...depositGap.unknownLabels,
@@ -463,6 +467,22 @@ export async function GET() {
     //   「合格」と読める答え**を返していました（11/8 に直した「止まっている日を
     //   不合格にする」の裏返しです）。数えた結果と、差に名前が付いたか（covered）
     //   だけから決め、分からない日は null にします。**計算だけ**です。
+    // ★「じゅんが1分 数えたら、ほんとうに はい／いいえ が出るのか」を
+    //   **数える前に**、いまの本物の行で先に計算しておく（2026-11-17・f1-4）。
+    //   合否（ok）の決め方は1文字も変えていません。**もしもの計算**を1つ足すだけです。
+    //   金額は1円も返しません（差の置きどころは言葉だけ・説明のつく幅も返しません）。
+    const whatIf = measureCashWhatIf({
+      registerDiff: regDiffGap,
+      openingExpenses: openingGap,
+      openingExpensesReadable: !data.reportsUnreadable,
+      fieldRepay: fieldRepayGap,
+      unpaidPayroll: unpaidPayrollGap,
+      sameReport: dup.gap,
+      booksGapWide: booksGap.wide,
+      booksGapHolidaysOnly: booksGapOpen.holidaysOnly,
+      depositShelfExists: depositGap.shelfExists,
+    });
+
     const countWindow = buildCashCountWindow({ reconcile, pick, place });
     const verdictOk = cashCountOk({
       verdict: countWindow.verdict,
@@ -535,6 +555,8 @@ export async function GET() {
       depositGap: buildCashDepositGapWindow(depositGap, depositAnswer),
       // 差は ぜんぶ名前が付いたか（収まっているか・名前の数だけ・金額は出さない）
       diffCoverage: buildCashDiffCoverageWindow(diffCoverage),
+      // じゅんが1分 数えたら はい／いいえ が出るか（もしもの計算・金額は出さない）
+      whatIf,
       // どの屋号の日報から数えているのか（件数だけ・金額も屋号の名前も出さない）
       shopScope: buildCashShopScopeWindow(shopScope),
       shelfMissing: data.cashShelfMissing,
