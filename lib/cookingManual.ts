@@ -214,6 +214,7 @@ export const COOKING_MANUAL: ManualSection[] = [
         kind: "tips",
         items: [
           "揚げ置きが無いときは、生から一度に5分揚げる。",
+          "一度にたくさん入れると油の温度が下がり、揚がるのが遅くなる。",
           "その日の最初の1本は、試食して火の通りと味を確かめてよい（必ずではない）。",
         ],
       },
@@ -228,7 +229,6 @@ export const COOKING_MANUAL: ManualSection[] = [
         ],
       },
       { kind: "note", text: "昼営業（スーパー出店）の目安です。夜営業は、お店の客足に合わせて決めてください。" },
-      { kind: "warn", text: "一度にたくさん入れると油の温度が下がり、揚がるのが遅くなります。" },
     ],
   },
   {
