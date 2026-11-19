@@ -18,9 +18,14 @@ import { canViewManual } from "@/lib/photoShopRole";
 
 const GROUP_ICON: Record<string, string> = { 仕込み: "🔪", 調理: "🍳", そのほか: "📋" };
 
+/** 作業が変わる小見出し。上に線と余白を置いて、カードの中で区切る（ChatGPTレビュー⑤） */
+function SubTitle({ text }: { text: string }) {
+  return <h3 className="mt-2 pt-3 border-t border-[#D1D5DB] text-lg font-bold text-[#222222]">{text}</h3>;
+}
+
 function Steps({ items, plain }: { items: { b: string; s?: string }[]; plain?: boolean }) {
   return (
-    <ol className="space-y-3">
+    <ol className="space-y-4">
       {items.map((it, i) => (
         <li key={i} className="flex gap-3 items-start">
           <span
@@ -33,8 +38,8 @@ function Steps({ items, plain }: { items: { b: string; s?: string }[]; plain?: b
             {plain ? "" : i + 1}
           </span>
           <div className="pt-1 min-w-0">
-            <p className="font-bold text-[17px] leading-snug">{it.b}</p>
-            {it.s && <p className="text-[15px] text-stone-500 leading-snug mt-0.5">{it.s}</p>}
+            <p className="font-bold text-[18px] leading-snug text-[#222222]">{it.b}</p>
+            {it.s && <p className="text-base font-medium leading-6 text-[#374151] mt-1">{it.s}</p>}
           </div>
         </li>
       ))}
@@ -47,7 +52,7 @@ function Block({ block, sectionId }: { block: ManualBlock; sectionId: string }) 
     case "steps":
       return (
         <div className="space-y-2">
-          {block.title && <h3 className="text-sm font-bold text-stone-500">{block.title}</h3>}
+          {block.title && <SubTitle text={block.title} />}
           <Steps items={block.items} plain={sectionId === "cook-aji"} />
         </div>
       );
@@ -57,7 +62,7 @@ function Block({ block, sectionId }: { block: ManualBlock; sectionId: string }) 
       const right = block.head.length === 2 && !wide;
       return (
         <div className="space-y-1">
-          {block.title && <h3 className="text-sm font-bold text-stone-500">{block.title}</h3>}
+          {block.title && <SubTitle text={block.title} />}
           <table className="w-full text-[15px]">
             <thead>
               <tr>
@@ -95,7 +100,7 @@ function Block({ block, sectionId }: { block: ManualBlock; sectionId: string }) 
     case "tips":
       return (
         <div className="space-y-1">
-          {block.title && <h3 className="text-sm font-bold text-stone-500">{block.title}</h3>}
+          {block.title && <SubTitle text={block.title} />}
           <ul className="list-disc pl-5 space-y-1 text-[15px]">
             {block.items.map((t, i) => (
               <li key={i}>{t}</li>
@@ -127,18 +132,22 @@ function Block({ block, sectionId }: { block: ManualBlock; sectionId: string }) 
         </div>
       );
     case "flow":
+      // ボタンに見えないよう、ひと続きの淡い帯にする。時間の数字だけ色を付ける（ChatGPTレビュー④）
       return (
-        <div className="flex items-stretch gap-1.5 text-[13px] font-bold text-center">
+        <div className="flex items-center justify-between gap-1 rounded-xl bg-[#FFF4E8] px-3 py-2.5 text-[15px] font-semibold text-[#374151] whitespace-nowrap">
           {block.parts.map((p, i) => (
             <div key={i} className="contents">
-              {i > 0 && <span className="self-center text-stone-400">→</span>}
-              <span
-                style={{ flex: p.size }}
-                className={`min-w-0 rounded-xl py-2.5 px-1 grid place-items-center leading-tight whitespace-nowrap ${
-                  p.hot ? "bg-orange-500 text-white" : "bg-orange-100 text-stone-800"
-                }`}
-              >
-                {p.label}
+              {i > 0 && <span className="text-stone-400">→</span>}
+              <span className="min-w-0">
+                {p.label.split(/(\d+分)/).map((t, k) =>
+                  /^\d+分$/.test(t) ? (
+                    <span key={k} className="text-[#9A4100] font-bold">
+                      {t}
+                    </span>
+                  ) : (
+                    <span key={k}>{t}</span>
+                  ),
+                )}
               </span>
             </div>
           ))}
@@ -168,7 +177,7 @@ function Block({ block, sectionId }: { block: ManualBlock; sectionId: string }) 
     case "check":
       return (
         <div className="space-y-2">
-          <h3 className="text-sm font-bold text-stone-500">{block.title}</h3>
+          <SubTitle text={block.title} />
           <ul className="space-y-2 text-[15px]">
             {block.items.map((t, i) => (
               <li key={i} className="flex gap-2.5 items-start">
@@ -228,7 +237,7 @@ export default function ManualPage() {
             <a
               key={g}
               href={`#${groupId(g)}`}
-              className="h-11 rounded-xl bg-white border border-stone-200 font-bold grid place-items-center active:border-orange-500"
+              className="h-[52px] rounded-xl bg-white border border-stone-200 text-base font-bold grid place-items-center active:border-orange-500"
             >
               {GROUP_ICON[g]} {g}
             </a>
@@ -269,8 +278,11 @@ export default function ManualPage() {
                     <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${s.keys.length}, minmax(0, 1fr))` }}>
                       {s.keys.map((k) => (
                         <div key={k.label} className="rounded-xl bg-orange-50 py-2.5 px-1 text-center min-w-0">
-                          <p className={`${k.value.length >= 5 && !/\d/.test(k.value) ? "text-lg" : "text-xl"} font-bold text-orange-700 leading-tight whitespace-nowrap`}>{k.value}</p>
-                          <p className="text-xs text-stone-500 leading-tight mt-1">{k.label}</p>
+                          {/* どちらを選ぶか決める言葉を先に、数字はその下（ChatGPTレビュー①） */}
+                          <p className="text-sm font-semibold text-[#374151] leading-tight">{k.label}</p>
+                          <p className={`${k.value.length >= 5 ? "text-[20px]" : "text-2xl"} font-bold text-[#9A4100] leading-tight whitespace-nowrap mt-1`}>
+                            {k.value}
+                          </p>
                         </div>
                       ))}
                     </div>
