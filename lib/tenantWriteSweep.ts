@@ -38,6 +38,7 @@ export const SCOPED_TABLES: readonly string[] = [
   "locations",
   "staff_members",
   "sale_products",
+  "photo_shop_supplies",
   "shifts",
   "advance_expenses",
   "keiri_advance_expenses",
