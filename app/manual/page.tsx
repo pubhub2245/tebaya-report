@@ -16,6 +16,8 @@ import { currentShopScope } from "@/lib/keiri/readSource";
 import { readOwnerDevice } from "@/lib/keiri/outreach";
 import { canViewManual } from "@/lib/photoShopRole";
 
+const GROUP_ICON: Record<string, string> = { 仕込み: "🔪", 調理: "🍳", そのほか: "📋" };
+
 function Steps({ items, plain }: { items: { b: string; s?: string }[]; plain?: boolean }) {
   return (
     <ol className="space-y-3">
@@ -32,7 +34,7 @@ function Steps({ items, plain }: { items: { b: string; s?: string }[]; plain?: b
           </span>
           <div className="pt-1 min-w-0">
             <p className="font-bold text-[17px] leading-snug">{it.b}</p>
-            {it.s && <p className="text-sm text-stone-500">{it.s}</p>}
+            {it.s && <p className="text-[15px] text-stone-500 leading-snug mt-0.5">{it.s}</p>}
           </div>
         </li>
       ))}
@@ -132,7 +134,7 @@ function Block({ block, sectionId }: { block: ManualBlock; sectionId: string }) 
               {i > 0 && <span className="self-center text-stone-400">→</span>}
               <span
                 style={{ flex: p.size }}
-                className={`min-w-0 rounded-xl py-2.5 px-1 grid place-items-center leading-tight ${
+                className={`min-w-0 rounded-xl py-2.5 px-1 grid place-items-center leading-tight whitespace-nowrap ${
                   p.hot ? "bg-orange-500 text-white" : "bg-orange-100 text-stone-800"
                 }`}
               >
@@ -143,7 +145,7 @@ function Block({ block, sectionId }: { block: ManualBlock; sectionId: string }) 
         </div>
       );
     case "note":
-      return <p className="text-sm text-stone-500">{block.text}</p>;
+      return <p className="text-[15px] text-stone-600">{block.text}</p>;
     case "warn":
       return <p className="text-sm rounded-xl bg-amber-50 text-amber-800 px-3 py-2">{block.text}</p>;
     case "photos":
@@ -158,7 +160,7 @@ function Block({ block, sectionId }: { block: ManualBlock; sectionId: string }) 
                 loading="lazy"
                 className="w-full aspect-[3/4] object-cover rounded-xl bg-stone-100"
               />
-              <figcaption className="text-xs text-stone-500 leading-tight">{p.caption}</figcaption>
+              <figcaption className="text-[13px] text-stone-600 leading-tight">{p.caption}</figcaption>
             </figure>
           ))}
         </div>
@@ -205,53 +207,83 @@ export default function ManualPage() {
     );
   }
 
+  const groupId = (g: string) => `group-${MANUAL_GROUPS.indexOf(g as (typeof MANUAL_GROUPS)[number])}`;
+
   return (
-    <main className="max-w-md mx-auto px-4 py-6 min-h-screen space-y-5">
-      <div className="space-y-3">
+    <main className="max-w-md mx-auto min-h-screen pb-16">
+      <header className="px-4 pt-6 pb-3 space-y-2">
         <Link href="/" className="text-sm text-stone-500 underline">
           ← メニューへ
         </Link>
         <h1 className="text-2xl font-bold">仕込み・調理マニュアル</h1>
-        <nav className="flex flex-wrap gap-2" aria-label="目次">
-          {COOKING_MANUAL.map((s) => (
+      </header>
+
+      {/* 上に貼りつく切り替え。キッチンで片手でも押せる大きさ */}
+      <nav
+        aria-label="まとまり"
+        className="sticky top-0 z-10 bg-stone-50/95 backdrop-blur border-b border-stone-200 px-4 py-2"
+      >
+        <div className="grid grid-cols-3 gap-2">
+          {MANUAL_GROUPS.map((g) => (
             <a
-              key={s.id}
-              href={`#${s.id}`}
-              className="text-sm font-bold rounded-full bg-white border border-stone-200 px-3 py-1.5"
+              key={g}
+              href={`#${groupId(g)}`}
+              className="h-11 rounded-xl bg-white border border-stone-200 font-bold grid place-items-center active:border-orange-500"
             >
-              {s.title}
+              {GROUP_ICON[g]} {g}
             </a>
           ))}
-        </nav>
-      </div>
+        </div>
+      </nav>
 
-      {MANUAL_GROUPS.map((g) => (
-        <section key={g} className="space-y-3">
-          <h2 className="text-xs font-bold tracking-widest text-stone-500">{g}</h2>
-          {COOKING_MANUAL.filter((s) => s.group === g).map((s) => (
-            <article
-              key={s.id}
-              id={s.id}
-              className="scroll-mt-3 rounded-2xl bg-white border border-stone-200 p-4 shadow-sm space-y-4"
-            >
-              <h3 className="text-xl font-bold">{s.title}</h3>
-              {s.keys && (
-                <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${s.keys.length}, minmax(0, 1fr))` }}>
-                  {s.keys.map((k) => (
-                    <div key={k.label} className="rounded-xl bg-orange-50 py-2 px-1 text-center min-w-0">
-                      <p className="text-lg font-bold text-orange-700 leading-tight whitespace-nowrap">{k.value}</p>
-                      <p className="text-[11px] text-stone-500 leading-tight mt-0.5">{k.label}</p>
+      <div className="px-4 space-y-8 pt-5">
+        {MANUAL_GROUPS.map((g) => {
+          const sections = COOKING_MANUAL.filter((s) => s.group === g);
+          return (
+            <section key={g} id={groupId(g)} className="scroll-mt-16 space-y-3">
+              <div className="flex items-center gap-2 border-l-4 border-orange-500 pl-3">
+                <h2 className="text-lg font-bold">
+                  {GROUP_ICON[g]} {g}
+                </h2>
+                <span className="text-xs text-stone-400">{sections.length}こ</span>
+              </div>
+              <div className="flex gap-2 overflow-x-auto -mx-4 px-4 pb-1" aria-label={`${g}の目次`}>
+                {sections.map((s) => (
+                  <a
+                    key={s.id}
+                    href={`#${s.id}`}
+                    className="flex-none text-sm rounded-full bg-orange-50 text-orange-800 px-3 py-1.5"
+                  >
+                    {s.title}
+                  </a>
+                ))}
+              </div>
+              {sections.map((s) => (
+                <article
+                  key={s.id}
+                  id={s.id}
+                  className="scroll-mt-16 rounded-2xl bg-white border border-stone-200 p-4 shadow-sm space-y-4"
+                >
+                  <h3 className="text-xl font-bold">{s.title}</h3>
+                  {s.keys && (
+                    <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${s.keys.length}, minmax(0, 1fr))` }}>
+                      {s.keys.map((k) => (
+                        <div key={k.label} className="rounded-xl bg-orange-50 py-2.5 px-1 text-center min-w-0">
+                          <p className={`${k.value.length >= 5 && !/\d/.test(k.value) ? "text-lg" : "text-xl"} font-bold text-orange-700 leading-tight whitespace-nowrap`}>{k.value}</p>
+                          <p className="text-xs text-stone-500 leading-tight mt-1">{k.label}</p>
+                        </div>
+                      ))}
                     </div>
+                  )}
+                  {s.blocks.map((b, i) => (
+                    <Block key={i} block={b} sectionId={s.id} />
                   ))}
-                </div>
-              )}
-              {s.blocks.map((b, i) => (
-                <Block key={i} block={b} sectionId={s.id} />
+                </article>
               ))}
-            </article>
-          ))}
-        </section>
-      ))}
+            </section>
+          );
+        })}
+      </div>
     </main>
   );
 }

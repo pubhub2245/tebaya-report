@@ -206,7 +206,7 @@ export const COOKING_MANUAL: ManualSection[] = [
         parts: [
           { label: "4分揚げる", size: 4, hot: true },
           { label: "置いておく", size: 3, hot: false },
-          { label: "注文で1分", size: 2, hot: true },
+          { label: "注文で1分", size: 3, hot: true },
         ],
       },
       {
