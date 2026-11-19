@@ -43,7 +43,7 @@ export const COOKING_MANUAL: ManualSection[] = [
     keys: [
       { value: "13〜16時", label: "受け取り時間" },
       { value: "12袋まで", label: "1回の発注（2kg袋）" },
-      { value: "1,080円", label: "1袋" },
+      { value: "1,080円", label: "1袋（2kg）＝1kg 540円" },
     ],
     blocks: [
       {
@@ -398,7 +398,7 @@ export const COOKING_MANUAL: ManualSection[] = [
   {
     id: "torihiki",
     group: "そのほか",
-    title: "取引先（手羽屋で使っている先）",
+    title: "取引先",
     blocks: [
       {
         kind: "table",
@@ -406,7 +406,6 @@ export const COOKING_MANUAL: ManualSection[] = [
         rows: [
           ["仕入れ", "株式会社エビス商事／都城市豊満町980-1／0986-39-4811"],
           ["廃油回収", "谷口油販／都城市庄内町13113-20／0986-37-3415（8〜17時。ホームページのメールからも頼める）"],
-          ["ガス", "東洋興産グループ 石油ガス営業部／都城市乙房町187-2／0986-37-2828"],
         ],
       },
     ],
