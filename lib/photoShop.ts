@@ -66,7 +66,7 @@ export const MUTA_SHOP: PhotoShop = {
   plannedDays: 20,
   breakEvenPerDay: 43,
   primaryProduct: "手羽先",
-  staffPasscodeHash: "26e7ce9766683637386d60d3c33c49bb4ec7adc3f5bbc8dc4fc053eef7f06ea5",
+  staffPasscodeHash: "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
 };
 
 export const PHOTO_SHOPS: PhotoShop[] = [MUTA_SHOP];

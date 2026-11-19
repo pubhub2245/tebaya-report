@@ -63,6 +63,7 @@ export default function JoinPage() {
           onChange={(e) => setPw(e.target.value)}
           autoFocus
           autoComplete="off"
+          inputMode="numeric"
           aria-label="合言葉"
         />
         {error && <p className="text-sm text-red-600">{error}</p>}
