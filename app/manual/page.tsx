@@ -236,7 +236,7 @@ export default function ManualPage() {
             >
               <h3 className="text-xl font-bold">{s.title}</h3>
               {s.keys && (
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${s.keys.length}, minmax(0, 1fr))` }}>
                   {s.keys.map((k) => (
                     <div key={k.label} className="rounded-xl bg-orange-50 py-2 px-1 text-center min-w-0">
                       <p className="text-lg font-bold text-orange-700 leading-tight whitespace-nowrap">{k.value}</p>
