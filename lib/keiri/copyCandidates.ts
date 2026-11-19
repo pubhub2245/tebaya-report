@@ -78,6 +78,7 @@ export const LIVE_TABLES = [
   "location_rank_history",
   "locations",
   "monthly_limited_products",
+  "photo_shop_supplies",
   "prep_carryovers",
   "prep_products",
   "prep_reports",

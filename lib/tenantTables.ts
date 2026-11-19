@@ -40,6 +40,8 @@ export const TENANT_SCOPED_TABLES = [
   "locations",
   "staff_members",
   "sale_products",
+  // 使う備品・材料にお店が足した品物（2026-11-19・photo_shop_supplies.sql）。作った時点から印つき
+  "photo_shop_supplies",
   "keiri_applications",
   "keiri_settings",
   "advance_expenses",

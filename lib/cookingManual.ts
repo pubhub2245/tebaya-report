@@ -41,7 +41,7 @@ export const COOKING_MANUAL: ManualSection[] = [
     group: "仕込み",
     title: "手羽先の骨抜き",
     keys: [
-      { value: "約1時間", label: "100本あたり" },
+      { value: "約1時間", label: "仕込み時間の目安（100本）" },
       { value: "3日以内", label: "仕込んでから" },
       { value: "冷凍しない", label: "保存" },
     ],
@@ -68,10 +68,6 @@ export const COOKING_MANUAL: ManualSection[] = [
     id: "prep-gyoza",
     group: "仕込み",
     title: "手羽餃子の種",
-    keys: [
-      { value: "35〜37本", label: "種1回ぶん" },
-      { value: "4袋", label: "たまったら冷凍を先に" },
-    ],
     blocks: [
       {
         kind: "table",
@@ -173,6 +169,7 @@ export const COOKING_MANUAL: ManualSection[] = [
         kind: "photos",
         items: [
           { id: "ajishio-kosho", caption: "味塩こしょう 荒挽き黒こしょう" },
+          { id: "onion-powder", caption: "オニオンパウダー" },
           { id: "aonori", caption: "青のり" },
           { id: "ajishio", caption: "アジシオ" },
         ],
@@ -188,7 +185,7 @@ export const COOKING_MANUAL: ManualSection[] = [
     keys: [
       { value: "180度", label: "油の温度" },
       { value: "4分＋1分", label: "揚げ置き" },
-      { value: "5分", label: "生から一度に" },
+      { value: "5分", label: "生から揚げてすぐ出すとき" },
     ],
     blocks: [
       {
@@ -196,7 +193,7 @@ export const COOKING_MANUAL: ManualSection[] = [
         items: [
           { b: "片栗粉をつける", s: "片栗粉を入れたおけの中でまぶす" },
           { b: "180度の油で4分揚げる", s: "ここまでやって置いておく（揚げ置き）" },
-          { b: "注文が入ったら、もう1分揚げる" },
+          { b: "注文が入ったら、1分揚げ直す" },
           { b: "油をしっかり切る" },
           { b: "味つけして出す", s: "かけ方は味ごとに違う（下の「味つけ」）" },
         ],
@@ -206,13 +203,13 @@ export const COOKING_MANUAL: ManualSection[] = [
         parts: [
           { label: "4分揚げる", size: 4, hot: true },
           { label: "置いておく", size: 3, hot: false },
-          { label: "注文で1分", size: 3, hot: true },
+          { label: "注文で揚げ直し1分", size: 4, hot: true },
         ],
       },
       {
         kind: "tips",
         items: [
-          "揚げ置きが無いときは、生から一度に5分揚げる。",
+          "揚げ置きが無いときは、生から5分揚げてそのまま出す。",
           "一度にたくさん入れると油の温度が下がり、揚がるのが遅くなる。",
           "その日の最初の1本は、試食して火の通りと味を確かめてよい（必ずではない）。",
         ],
@@ -222,7 +219,7 @@ export const COOKING_MANUAL: ManualSection[] = [
         title: "先に揚げておく本数の目安（昼営業の場合）",
         head: ["時間帯", "手羽先", "餃子"],
         rows: [
-          ["忙しい時間（昼・夕方）", "10〜15本", "10本"],
+          ["忙しい時間（昼・夕方）", "20本前後", "10〜15本"],
           ["暇な時間（15〜17時ごろ）", "10本前後", "5本"],
           ["19時以降", "しない", "しない"],
         ],
@@ -251,14 +248,14 @@ export const COOKING_MANUAL: ManualSection[] = [
     group: "調理",
     title: "手羽餃子",
     keys: [
-      { value: "焼き", label: "おすすめ" },
+      { value: "焼き", label: "時間に余裕があるとき" },
       { value: "5分", label: "揚げる（生から）" },
       { value: "4分＋1分", label: "揚げ置きの場合" },
     ],
     blocks: [
       {
         kind: "steps",
-        title: "焼く（おすすめ）",
+        title: "時間に余裕があるときは、焼いて出す（中火→弱めの中火）",
         items: [
           { b: "フライパンを中火で温める" },
           { b: "弱めの中火で、皮の面から5分焼く", s: "弱火と中火の間くらい。焼き色を見ながら" },
@@ -272,7 +269,7 @@ export const COOKING_MANUAL: ManualSection[] = [
         title: "揚げる場合",
         items: [
           "生から揚げるときは、180度で5分。",
-          "揚げ置きするときは、4分揚げて置いておき、注文が入ったらもう1分。",
+          "揚げ置きするときは、4分揚げて置いておき、注文が入ったら1分揚げ直す。",
         ],
       },
       { kind: "note", text: "味つけは、塩味と同じ粉を片面だけにふります。" },

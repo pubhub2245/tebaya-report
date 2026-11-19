@@ -21,6 +21,10 @@ export type Supply = {
   price?: number;
   /** 税込価格（円） */
   priceTaxIn?: number;
+  /** 写真の住所。無ければ public/supplies/<id>.jpg（はじめからある品物） */
+  photo?: string;
+  /** お店が画面から足した品物なら true（消せるのはこれだけ） */
+  added?: boolean;
 };
 
 export type SupplyGroup = { title: string; items: Supply[] };
@@ -46,6 +50,12 @@ export const SUPPLY_GROUPS: SupplyGroup[] = [
         use: "手羽先の塩味（補充）",
         price: 128,
         priceTaxIn: 138,
+      },
+      {
+        id: "onion-powder",
+        name: "オニオンパウダー",
+        detail: "GS BRAND（銀色の缶）",
+        use: "手羽先の塩味（味塩こしょう8：オニオンパウダー2）",
       },
       {
         id: "ajishio",
@@ -136,4 +146,59 @@ export const SUPPLY_GROUPS: SupplyGroup[] = [
 /** 一覧の件数（テストと画面の見出し用） */
 export function supplyCount(groups: SupplyGroup[] = SUPPLY_GROUPS): number {
   return groups.reduce((s, g) => s + g.items.length, 0);
+}
+
+/** 画面から足すときに選べる「まとまり」 */
+export const ADDED_GROUP = "お店で足したもの";
+export function supplyGroupTitles(groups: SupplyGroup[] = SUPPLY_GROUPS): string[] {
+  return [...groups.map((g) => g.title), ADDED_GROUP];
+}
+
+/** 倉庫の1行（photo_shop_supplies） */
+export type SupplyRow = {
+  id: string;
+  group_title: string | null;
+  name: string | null;
+  detail: string | null;
+  use_for: string | null;
+  price_tax_in: number | null;
+  photo: string | null;
+};
+
+/** 新しく足す品物の入力を確かめる。問題があれば理由を返す（無ければ null） */
+export function checkNewSupply(input: { name: string; detail?: string; use?: string; price?: string }): string | null {
+  const name = input.name.trim();
+  if (!name) return "品物の名前を入れてください。";
+  if (name.length > 60) return "名前は60文字までにしてください。";
+  if ((input.detail ?? "").trim().length > 120) return "メーカー・容量は120文字までにしてください。";
+  if ((input.use ?? "").trim().length > 60) return "使いみちは60文字までにしてください。";
+  const p = (input.price ?? "").trim();
+  if (p && !/^\d{1,7}$/.test(p)) return "値段は半角の数字（円）だけで入れてください。";
+  return null;
+}
+
+/**
+ * はじめからある一覧に、お店が足した品物を混ぜる。
+ * 選んだまとまりの最後に足す。知らないまとまり名なら「お店で足したもの」に入れる。
+ * 名前の無い行は数字を作らず飛ばす。
+ */
+export function mergeSupplies(base: SupplyGroup[], rows: SupplyRow[]): SupplyGroup[] {
+  const groups = base.map((g) => ({ title: g.title, items: [...g.items] }));
+  const extra: SupplyGroup = { title: ADDED_GROUP, items: [] };
+  for (const r of rows) {
+    const name = (r.name ?? "").trim();
+    if (!name) continue;
+    const item: Supply = {
+      id: `added-${r.id}`,
+      name,
+      detail: (r.detail ?? "").trim(),
+      use: (r.use_for ?? "").trim(),
+      priceTaxIn: typeof r.price_tax_in === "number" ? r.price_tax_in : undefined,
+      photo: r.photo ?? undefined,
+      added: true,
+    };
+    const target = groups.find((g) => g.title === r.group_title) ?? extra;
+    target.items.push(item);
+  }
+  return extra.items.length ? [...groups, extra] : groups;
 }
