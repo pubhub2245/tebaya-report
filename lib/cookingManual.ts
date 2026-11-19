@@ -219,7 +219,7 @@ export const COOKING_MANUAL: ManualSection[] = [
       },
       {
         kind: "table",
-        title: "先に揚げておく本数の目安",
+        title: "先に揚げておく本数の目安（昼営業の場合）",
         head: ["時間帯", "手羽先", "餃子"],
         rows: [
           ["忙しい時間（昼・夕方）", "10〜15本", "10本"],
@@ -227,7 +227,7 @@ export const COOKING_MANUAL: ManualSection[] = [
           ["19時以降", "しない", "しない"],
         ],
       },
-      { kind: "note", text: "スーパー出店での目安です。お店の客足に合わせて変えてください。" },
+      { kind: "note", text: "昼営業（スーパー出店）の目安です。夜営業は、お店の客足に合わせて決めてください。" },
       { kind: "warn", text: "一度にたくさん入れると油の温度が下がり、揚がるのが遅くなります。" },
     ],
   },
