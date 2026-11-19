@@ -70,6 +70,10 @@ export const TABLES_NOT_IN_SHOP_SCREENS: Record<string, string> = {
     "公式LINEの友だち追加・ブロックの記録。書くのは /api の受け口だけ",
   line_groups:
     "スタッフ向けLINEの送り先。読み書きはサーバー側（/api・lib/line）だけ",
+  line_group_messages:
+    "スタッフ向けLINEのグループ会話の記録。書くのは /api/line/webhook だけ",
+  line_group_replies:
+    "スタッフ向けLINEのキーワード返信の文面。読むのは /api/line/webhook だけ",
   site_visits: "アクセスの数え（/api/hit）。画面からは触らない",
   table_snapshots:
     "毎日の控え（バックアップ・→ CLAUDE.md 4-6）。サーバー側の鍵でしか触れない",

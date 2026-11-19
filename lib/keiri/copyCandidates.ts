@@ -72,6 +72,8 @@ export const LIVE_TABLES = [
   "keiri_reports",
   "keiri_settings",
   "keiri_tenants",
+  "line_group_messages",
+  "line_group_replies",
   "line_groups",
   "location_rank_history",
   "locations",
