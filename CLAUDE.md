@@ -134,6 +134,10 @@
   `staffPasscodeHash`、確認は `/api/keiri/login`（`as:"staff"` のときだけ。`/keiri` では通らない）。
   店主／スタッフの出し分けは `lib/photoShopRole.ts`（`tests/photoShopRole.test.ts`）。
   手羽屋（ゆうやさんのスーパー出店）の数字は、お店の印で絞る仕組みと `TebayaOnlyGate` で、もともと見えない。
+  **合言葉は画面から変えられる**（2026-11-19）：`/shop/staff-code`（店主の今月の画面の下にリンク）。
+  店主の合言葉が合ったときだけ、倉庫の棚 `keiri_photo_shop_staff_codes` に戻せない形で入る
+  （窓口 `photo_shop_set_staff_code`・`supabase/migrations/photo_shop_staff_codes.sql` 適用済み）。
+  棚に入ったお店は、コードの仮の合言葉（牟田町店は 1111）では入れなくなる。判定は `lib/photoShopStaffCode.ts`。
 - **仕込み・調理マニュアル（`/manual`・2026-11-19）**：中身は `lib/cookingManual.ts` の一覧だけ
   （`tests/cookingManual.test.ts`）。写真は `public/supplies/` を使い回す。見られるのは写真日報のお店の端末と
   じゅんの端末だけ（画面の出し分けで、鍵ではない）。分からないことは書かない（数字を作らない）。

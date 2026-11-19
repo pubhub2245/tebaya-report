@@ -139,6 +139,13 @@ export default function MonthPage() {
           </p>
         </>
       )}
+
+      <Link
+        href="/shop/staff-code"
+        className="block text-center text-sm text-stone-600 underline py-3"
+      >
+        🔑 スタッフの合言葉を変える
+      </Link>
     </main>
   );
 }

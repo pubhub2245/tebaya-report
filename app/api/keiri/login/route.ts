@@ -5,7 +5,8 @@ import { serverClient, serviceClientOrNull } from "@/lib/supabaseServer";
 import { hashSecret } from "@/lib/keiri/tenants";
 import { normalizeTenantScope } from "@/lib/tenantScope";
 import { loginTenantViaRpc, pickSingleTenant } from "@/lib/keiri/tenantAccess";
-import { photoShopByStaffHash } from "@/lib/photoShop";
+import { photoShopByStaffHash, photoShopFor } from "@/lib/photoShop";
+import { decideStaffLogin, staffCodeIsSet, staffLoginViaDb } from "@/lib/photoShopStaffCode";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,8 +80,18 @@ export async function POST(req: NextRequest) {
   // ②' 写真だけの日報のお店の「スタッフ用の合言葉」（2026-11-19）。
   //    スタッフの入口（/join）からだけ受け付ける。経理の画面（/keiri）では受け付けない
   //    （スタッフに店主の数字の画面を開かせないため）。
+  //    画面から合言葉を変えたお店は倉庫に入っている（lib/photoShopStaffCode.ts）。
+  //    倉庫に無ければ、コードに書いた仮の合言葉（変えたお店では使えない）。
   if ((body as { as?: unknown }).as === "staff") {
-    const shop = photoShopByStaffHash(passwordHash);
+    const db = serverClient();
+    const dbTenantId = await staffLoginViaDb(db, passwordHash);
+    const codeShop = dbTenantId ? null : photoShopByStaffHash(passwordHash);
+    const tenantId = decideStaffLogin({
+      dbTenantId,
+      codeTenantId: codeShop?.tenantId ?? null,
+      codeIsSet: codeShop ? await staffCodeIsSet(db, codeShop.tenantId) : false,
+    });
+    const shop = photoShopFor(tenantId);
     if (!shop) return denied();
     return NextResponse.json({
       ok: true,
