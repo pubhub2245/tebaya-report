@@ -1,5 +1,6 @@
 "use client";
 
+import { writePhotoShopRole } from "@/lib/photoShopRole";
 import { useEffect, useState } from "react";
 
 import {
@@ -189,6 +190,7 @@ export default function AdminGate({
       rememberKeiriSecret(await hashSecretInBrowser(pw));
       // この端末に「よそのお店」の印が残っていたら消す（手羽屋の端末に戻す）
       writeTenantScope(TEBAYA_SCOPE);
+      writePhotoShopRole("owner");
       // この端末を「じゅんの端末」として覚える（ホームの帯の出し分けだけに使う）。
       // 申し込んだお店の合言葉（下の②）では付けない。
       markOwnerDevice();
@@ -225,6 +227,8 @@ export default function AdminGate({
           }
           // この端末を「そのお店」として覚える（日報の印と経理画面の絞り込みに使う）
           writeTenantScope(scope);
+          // 店主の合言葉で入ったので、スタッフの印があれば消す（2026-11-19・lib/photoShopRole.ts）
+          writePhotoShopRole("owner");
           // ★お店の名前も一緒に控える（2026-10-18・f3-4／kp253）。
           //   お店の棚は公開の鍵では読めないので、ここで控えないと
           //   そのお店は自分の名前を画面に出せない。

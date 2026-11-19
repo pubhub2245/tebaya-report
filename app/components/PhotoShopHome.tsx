@@ -16,18 +16,21 @@ import { supabase } from "@/lib/supabase";
 import { applyTenantScope } from "@/lib/tenantScope";
 import { currentShopScope } from "@/lib/keiri/readSource";
 import { calcShopMonth, photoShopFor, type PhotoShop, type ShopMonth } from "@/lib/photoShop";
+import { canSeeShopMoney, readPhotoShopRole, type PhotoShopRole } from "@/lib/photoShopRole";
 
 export const yen = (n: number) => `${n < 0 ? "−" : ""}${Math.round(Math.abs(n)).toLocaleString("ja-JP")}円`;
 
 /** いまの端末が「写真だけの日報」のお店かどうか */
-export function usePhotoShop(): { checking: boolean; shop: PhotoShop | null } {
+export function usePhotoShop(): { checking: boolean; shop: PhotoShop | null; role: PhotoShopRole } {
   const [checking, setChecking] = useState(true);
   const [shop, setShop] = useState<PhotoShop | null>(null);
+  const [role, setRole] = useState<PhotoShopRole>("staff");
   useEffect(() => {
     setShop(photoShopFor(currentShopScope()));
+    setRole(readPhotoShopRole());
     setChecking(false);
   }, []);
-  return { checking, shop };
+  return { checking, shop, role };
 }
 
 /** 「写真だけの日報」のお店のときは中身を出さない（経理パッケージ向けのメニューを隠す） */
@@ -82,8 +85,10 @@ export function useShopMonth(shop: PhotoShop | null): ShopMonthState {
 }
 
 export function PhotoShopHome() {
-  const { checking, shop } = usePhotoShop();
-  const state = useShopMonth(shop);
+  const { checking, shop, role } = usePhotoShop();
+  // スタッフの端末では、お金の数字を読みにも行かない（lib/photoShopRole.ts）
+  const showMoney = canSeeShopMoney(role);
+  const state = useShopMonth(showMoney ? shop : null);
   if (checking || !shop) return null;
   const month = state.kind === "ok" ? state.month : null;
 
@@ -98,6 +103,7 @@ export function PhotoShopHome() {
         <span className="text-sm font-normal">伝票とレシートを撮るだけ</span>
       </Link>
 
+      {showMoney && (
       <Link
         href="/month"
         className="block rounded-2xl bg-white border border-stone-200 px-5 py-4 shadow-sm active:border-orange-500"
@@ -123,6 +129,15 @@ export function PhotoShopHome() {
             </p>
           </>
         )}
+      </Link>
+      )}
+
+      <Link
+        href="/manual"
+        className="flex items-center justify-center gap-3 w-full h-16 rounded-3xl bg-white border-2 border-stone-200 active:border-orange-500 text-stone-700 font-bold text-lg shadow-sm transition"
+      >
+        <span className="text-xl">🍗</span>
+        <span>仕込み・調理マニュアル</span>
       </Link>
 
       <Link

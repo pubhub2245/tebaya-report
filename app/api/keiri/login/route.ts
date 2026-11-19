@@ -5,6 +5,7 @@ import { serverClient, serviceClientOrNull } from "@/lib/supabaseServer";
 import { hashSecret } from "@/lib/keiri/tenants";
 import { normalizeTenantScope } from "@/lib/tenantScope";
 import { loginTenantViaRpc, pickSingleTenant } from "@/lib/keiri/tenantAccess";
+import { photoShopByStaffHash } from "@/lib/photoShop";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,13 +68,28 @@ export async function POST(req: NextRequest) {
 
   // ① 手羽屋の合言葉（Vercel に入れてある1つ）
   const tebaya = (process.env.NEXT_PUBLIC_ADMIN_PASSWORD ?? "").trim();
-  if (tebaya && sameSecret(password, tebaya)) {
+  if (tebaya && (body as { as?: unknown }).as !== "staff" && sameSecret(password, tebaya)) {
     // 手羽屋は印を持たないお店。tenantId は返さない
     return NextResponse.json({ ok: true, scope: "tebaya" });
   }
 
   // ② 申し込んだお店の合言葉（戻せない形で倉庫に置いてある）
   const passwordHash = hashSecret(password);
+
+  // ②' 写真だけの日報のお店の「スタッフ用の合言葉」（2026-11-19）。
+  //    スタッフの入口（/join）からだけ受け付ける。経理の画面（/keiri）では受け付けない
+  //    （スタッフに店主の数字の画面を開かせないため）。
+  if ((body as { as?: unknown }).as === "staff") {
+    const shop = photoShopByStaffHash(passwordHash);
+    if (!shop) return denied();
+    return NextResponse.json({
+      ok: true,
+      scope: "tenant",
+      role: "staff",
+      tenantId: shop.tenantId,
+      shopName: shop.shopName,
+    });
+  }
 
   // まず倉庫の窓口に聞く（サーバー側の合鍵が壊れていても通る道）
   const viaRpc = await loginTenantViaRpc(serverClient(), passwordHash);

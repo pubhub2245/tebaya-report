@@ -68,22 +68,6 @@ export const SUPPLY_GROUPS: SupplyGroup[] = [
     title: "タレ・餃子の種",
     items: [
       {
-        id: "mirin",
-        name: "みりんタイプ",
-        detail: "1800ml",
-        use: "タレ",
-        price: 248,
-        priceTaxIn: 267,
-      },
-      {
-        id: "mizuame",
-        name: "水あめ（ボトル）",
-        detail: "カンピー・270g",
-        use: "タレ",
-        price: 218,
-        priceTaxIn: 235,
-      },
-      {
         id: "torigara",
         name: "鶏がらスープの素",
         detail: "徳用・200g",

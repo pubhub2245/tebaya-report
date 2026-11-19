@@ -42,6 +42,12 @@ export type PhotoShop = {
   breakEvenPerDay: number;
   /** 本数を数える主力商品の名前 */
   primaryProduct: string;
+  /**
+   * スタッフ用の合言葉の「戻せない形」（sha256）。2026-11-19 追加。
+   * スタッフの端末は写真日報とマニュアルだけ。お金の数字（今月残っているお金）は出さない。
+   * 店主の合言葉（keiri_tenants）とは別。打った文字そのものはどこにも置かない。
+   */
+  staffPasscodeHash?: string;
 };
 
 /** 牟田町店（雄大さん） */
@@ -60,6 +66,7 @@ export const MUTA_SHOP: PhotoShop = {
   plannedDays: 20,
   breakEvenPerDay: 43,
   primaryProduct: "手羽先",
+  staffPasscodeHash: "26e7ce9766683637386d60d3c33c49bb4ec7adc3f5bbc8dc4fc053eef7f06ea5",
 };
 
 export const PHOTO_SHOPS: PhotoShop[] = [MUTA_SHOP];
@@ -126,4 +133,15 @@ export function calcShopMonth(rows: ShopMonthRow[], shop: PhotoShop): ShopMonth 
     forecast:
       days > 0 ? Math.round((beforeFixed / days) * Math.max(shop.plannedDays, days)) - fixed : null,
   };
+}
+
+/**
+ * スタッフ用の合言葉（の戻せない形）から、お店を探す。当たらなければ null。
+ * 2軒以上に当たったら、どちらにも入れない（取り違えを防ぐ）。
+ */
+export function photoShopByStaffHash(hash: string, shops: PhotoShop[] = PHOTO_SHOPS): PhotoShop | null {
+  const h = String(hash ?? "").trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(h)) return null;
+  const hit = shops.filter((s) => (s.staffPasscodeHash ?? "").toLowerCase() === h);
+  return hit.length === 1 ? hit[0] : null;
 }
