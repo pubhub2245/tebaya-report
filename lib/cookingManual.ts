@@ -43,7 +43,7 @@ export const COOKING_MANUAL: ManualSection[] = [
     keys: [
       { value: "13〜16時", label: "受け取り時間" },
       { value: "12袋まで", label: "1回の発注（2kg袋）" },
-      { value: "1,080円", label: "1袋（2kg）＝1kg 540円" },
+      { value: "1,080円", label: "1袋（2kg）" },
     ],
     blocks: [
       {
