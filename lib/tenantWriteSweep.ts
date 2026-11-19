@@ -235,6 +235,11 @@ export const ALLOWED_UNSCOPED: readonly AllowEntry[] = [
     why: "手羽屋だけの仕組み（スタッフ向けBotのグループ。CLAUDE.md 4-16）",
   },
   {
+    path: "app/api/line/webhook/route.ts",
+    table: "line_group_messages",
+    why: "手羽屋だけの仕組み（スタッフ向けBotのグループ会話の記録。書くのは webhook だけ）",
+  },
+  {
     path: "app/api/line/customer/webhook/route.ts",
     table: "customer_line_messages",
     why: "手羽屋だけの仕組み（お客さん向け公式LINE。CLAUDE.md 4-16）",
