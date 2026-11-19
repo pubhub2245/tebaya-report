@@ -1,0 +1,376 @@
+/**
+ * 仕込み・調理マニュアルの中身（2026-11-19 追加・牟田町店向け）。
+ *
+ * ■ どこから来たか
+ *   LINE グループの履歴（タレのレシピ 2026-02-24 版・揚げ時間・粉の配合など）と、
+ *   じゅんへの聞き取り（2026-11-11〜19）。分からないことは書いていない（数字を作らない）。
+ *
+ * ■ 誰が見るか
+ *   写真だけの日報のお店の端末（店主・スタッフ）と、じゅんの端末だけ（lib/photoShopRole.ts の canViewManual）。
+ *   ※ 画面の出し分けであって鍵ではない。レシピを本当に隠したいときは、サーバーから配る作りに変える。
+ *
+ * ★ 書き換えるときはこの一覧だけを直す。写真は public/supplies/ を使い回す。
+ * ★ tests/cookingManual.test.ts で固定（写真が全部ある・印が重ならない）。
+ */
+
+export type ManualBlock =
+  | { kind: "steps"; title?: string; items: { b: string; s?: string }[] }
+  | { kind: "table"; title?: string; head: string[]; rows: string[][] }
+  | { kind: "tips"; title?: string; items: string[] }
+  | { kind: "mix"; rows: { label: string; parts: { name: string; ratio: number }[] }[] }
+  | { kind: "flow"; parts: { label: string; size: number; hot: boolean }[] }
+  | { kind: "note"; text: string }
+  | { kind: "warn"; text: string }
+  | { kind: "photos"; items: { id: string; caption: string }[] }
+  | { kind: "check"; title: string; items: string[] };
+
+export type ManualSection = {
+  id: string;
+  group: "仕込み" | "調理" | "そのほか";
+  title: string;
+  keys?: { value: string; label: string }[];
+  blocks: ManualBlock[];
+};
+
+export const MANUAL_GROUPS: ManualSection["group"][] = ["仕込み", "調理", "そのほか"];
+
+export const COOKING_MANUAL: ManualSection[] = [
+  // ───────── 仕込み ─────────
+  {
+    id: "prep-tebasaki",
+    group: "仕込み",
+    title: "手羽先の骨抜き",
+    keys: [
+      { value: "約1時間", label: "100本あたり" },
+      { value: "3日以内", label: "仕込んでから" },
+      { value: "冷凍しない", label: "保存" },
+    ],
+    blocks: [
+      {
+        kind: "steps",
+        items: [
+          { b: "関節を折る" },
+          { b: "ハサミで筋を切る" },
+          { b: "骨を引っこ抜く", s: "持ち手（先端）は残す" },
+        ],
+      },
+      {
+        kind: "tips",
+        title: "保存",
+        items: [
+          "基本、冷凍しない。仕込んでから3日以内に使う。",
+          "パックにたまった汁は、数を数えるときに捨てる。",
+        ],
+      },
+    ],
+  },
+  {
+    id: "prep-gyoza",
+    group: "仕込み",
+    title: "手羽餃子の種",
+    keys: [
+      { value: "35〜37本", label: "種1回ぶん" },
+      { value: "パンパン×", label: "詰めすぎない" },
+      { value: "4袋", label: "たまったら冷凍を先に" },
+    ],
+    blocks: [
+      {
+        kind: "table",
+        title: "材料（35〜37本分）",
+        head: ["材料", "量"],
+        rows: [
+          ["豚ひき肉", "200g"],
+          ["キャベツ", "3枚"],
+          ["ニラ", "3分の1束"],
+          ["鶏がらスープの素", "大さじ3"],
+          ["ごま油", "大さじ1"],
+          ["しょうゆ", "小さじ1"],
+          ["酒", "小さじ1"],
+          ["こしょう・にんにく・生姜", "少し"],
+        ],
+      },
+      {
+        kind: "steps",
+        title: "作り方",
+        items: [
+          { b: "キャベツとニラを細かくする", s: "ぶんぶんチョッパーで切る" },
+          { b: "豚ひき肉・調味料と混ぜる" },
+          { b: "ジップロックに入れて角を切る", s: "絞り袋にすると詰めやすい" },
+          { b: "骨を抜いた手羽に絞って詰める", s: "パンパンにしない。はみ出した所は焦げやすい" },
+        ],
+      },
+      {
+        kind: "tips",
+        title: "保存",
+        items: [
+          "余った種はジップロックで冷凍。4袋たまったら冷凍を先に使う。",
+          "冷凍した種は、解凍してから詰める。",
+        ],
+      },
+      {
+        kind: "photos",
+        items: [
+          { id: "torigara", caption: "鶏がらスープの素" },
+          { id: "shoga", caption: "おろし生しょうが（大きいチューブ）" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "prep-tare",
+    group: "仕込み",
+    title: "タレ",
+    blocks: [
+      {
+        kind: "table",
+        head: ["材料", "量"],
+        rows: [
+          ["甘口しょうゆ（あまくち福）", "320cc"],
+          ["酢", "80cc"],
+          ["ザラメ", "200g"],
+          ["砂糖", "130g"],
+          ["とろみ用：片栗粉", "10g"],
+          ["とろみ用：酒", "30cc"],
+        ],
+      },
+      {
+        kind: "steps",
+        items: [
+          { b: "材料を鍋に入れる", s: "片栗粉と酒は入れずに、別に溶いておく" },
+          { b: "沸かす（1回目）", s: "沸いたら火を止める。すぐ沸きがおさまる" },
+          { b: "沸かす（2回目）", s: "おさまったら、また火をつけて沸かす" },
+          { b: "沸かす（3回目）", s: "ここで片栗粉＋酒を入れて、とろみをつける" },
+        ],
+      },
+      { kind: "note", text: "しょうゆは甘口の「あまくち福」を使います。作ったタレは冷蔵庫で保存し、使うときは冷蔵庫から出してそのまま（温めない）。" },
+    ],
+  },
+  {
+    id: "prep-kona",
+    group: "仕込み",
+    title: "味つけの粉",
+    blocks: [
+      {
+        kind: "mix",
+        rows: [
+          {
+            label: "塩味",
+            parts: [
+              { name: "味塩こしょう", ratio: 8 },
+              { name: "オニオンパウダー", ratio: 2 },
+            ],
+          },
+          {
+            label: "のり塩",
+            parts: [
+              { name: "青のり", ratio: 6 },
+              { name: "アジシオ", ratio: 4 },
+            ],
+          },
+        ],
+      },
+      { kind: "note", text: "タッパーにまとめて作り、容器に補充して使います。補充のときも必ず配合どおりに混ぜます。" },
+      {
+        kind: "photos",
+        items: [
+          { id: "ajishio-kosho", caption: "味塩こしょう 荒挽き黒こしょう" },
+          { id: "aonori", caption: "青のり" },
+          { id: "ajishio", caption: "アジシオ" },
+        ],
+      },
+    ],
+  },
+
+  // ───────── 調理 ─────────
+  {
+    id: "cook-tebasaki",
+    group: "調理",
+    title: "手羽先を揚げる",
+    keys: [
+      { value: "180度", label: "油の温度" },
+      { value: "4分＋1分", label: "揚げ置き" },
+      { value: "5分", label: "生から一度に" },
+    ],
+    blocks: [
+      {
+        kind: "steps",
+        items: [
+          { b: "片栗粉をつける", s: "片栗粉を入れたおけの中でまぶす" },
+          { b: "180度の油で4分揚げる", s: "ここまでやって置いておく（揚げ置き）" },
+          { b: "注文が入ったら、もう1分揚げる" },
+          { b: "油をしっかり切る" },
+          { b: "味つけして出す", s: "かけ方は味ごとに違う（下の「味つけ」）" },
+        ],
+      },
+      {
+        kind: "flow",
+        parts: [
+          { label: "4分揚げる", size: 4, hot: true },
+          { label: "置いておく", size: 3, hot: false },
+          { label: "注文で1分", size: 2, hot: true },
+        ],
+      },
+      {
+        kind: "tips",
+        items: [
+          "揚げ置きが無いときは、生から一度に5分揚げる。",
+          "その日の最初の1本は、試食して火の通りと味を確かめてよい（必ずではない）。",
+        ],
+      },
+      {
+        kind: "table",
+        title: "先に揚げておく本数の目安",
+        head: ["時間帯", "手羽先", "餃子"],
+        rows: [
+          ["忙しい時間（昼・夕方）", "10〜15本", "10本"],
+          ["暇な時間（15〜17時ごろ）", "10本前後", "5本"],
+          ["19時以降", "しない", "しない"],
+        ],
+      },
+      { kind: "note", text: "スーパー出店での目安です。お店の客足に合わせて変えてください。" },
+      { kind: "warn", text: "一度にたくさん入れると油の温度が下がり、揚がるのが遅くなります。" },
+    ],
+  },
+  {
+    id: "cook-aji",
+    group: "調理",
+    title: "味つけ",
+    blocks: [
+      {
+        kind: "steps",
+        items: [
+          { b: "塩味：両面にふる" },
+          { b: "のり塩：両面にふる" },
+          { b: "タレ：くぐらせる", s: "そのあと表面だけに、ブラックペッパーとごま油を1プッシュ" },
+          { b: "手羽餃子：片面だけにふる", s: "塩味と同じ粉を使う" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "cook-gyoza",
+    group: "調理",
+    title: "手羽餃子",
+    keys: [
+      { value: "4分＋1分", label: "揚げる（手羽先と同じ）" },
+      { value: "片面", label: "塩味の粉をふる" },
+      { value: "5分＋2分", label: "焼くとき" },
+    ],
+    blocks: [
+      {
+        kind: "steps",
+        title: "暇な時間は焼いてもよい（中火）",
+        items: [
+          { b: "皮の面から5分焼く" },
+          { b: "ひっくり返す" },
+          { b: "水を入れる" },
+          { b: "ふたをして2分" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "cook-potato",
+    group: "調理",
+    title: "ポテト",
+    keys: [
+      { value: "3分", label: "180度で揚げる" },
+      { value: "150g", label: "1人前" },
+      { value: "約6人前", label: "1袋（1kg）" },
+    ],
+    blocks: [
+      {
+        kind: "tips",
+        items: [
+          "冷凍のまま揚げる。",
+          "味は3種類：塩・のり塩・バター醤油。",
+          "バター醤油は、ポテト100gに小さじ1強。",
+          "袋の残りが少ないと細かいくずが多い。早めに新しい袋を出す。",
+        ],
+      },
+      {
+        kind: "photos",
+        items: [
+          { id: "potato", caption: "冷凍ポテト（シューストリング）" },
+          { id: "butter-shoyu", caption: "バター醤油の粉" },
+        ],
+      },
+    ],
+  },
+
+  // ───────── そのほか ─────────
+  {
+    id: "abura",
+    group: "そのほか",
+    title: "油と片付け",
+    blocks: [
+      {
+        kind: "tips",
+        items: [
+          "油は色とにおいを見て替える。黒くなった・においが気になったら新しくする。",
+          "生の鶏を触ったあとは、手を洗ってから次の作業をする。",
+          "揚げ置き場は汚れやすい。営業の終わりに拭き上げる。",
+          "鶏が入ったゴミはにおうので、毎日捨てる。",
+          "廃油は廃油缶に入れる。",
+        ],
+      },
+      { kind: "photos", items: [{ id: "canola", caption: "揚げ油（キャノーラ油）" }] },
+    ],
+  },
+  {
+    id: "check",
+    group: "そのほか",
+    title: "開店・閉店チェック",
+    blocks: [
+      {
+        kind: "check",
+        title: "開店前",
+        items: [
+          "油を180度に温める",
+          "片栗粉をおけに用意する",
+          "味つけの粉とタレを補充する（配合どおり）",
+          "手羽先・手羽餃子の数を数える（パックの汁は捨てる）",
+          "お会計票・容器・袋を用意する",
+        ],
+      },
+      {
+        kind: "check",
+        title: "閉店後",
+        items: [
+          "火とガスを止める",
+          "揚げ置き場を拭き上げる",
+          "フライヤー・トレイ・おけを洗って戻す",
+          "残った手羽先は冷蔵、余った餃子の種は冷凍する",
+          "鶏のゴミを捨てる",
+          "伝票とレシートを撮って、日報を出す",
+        ],
+      },
+    ],
+  },
+  {
+    id: "allergy",
+    group: "そのほか",
+    title: "アレルギーを聞かれたら",
+    blocks: [
+      {
+        kind: "table",
+        head: ["商品", "レシピから分かるもの"],
+        rows: [
+          ["手羽先（タレ）", "鶏肉・小麦・大豆（しょうゆ）・ごま（ごま油）"],
+          ["手羽先（塩・のり塩）", "鶏肉。粉の中身は袋の表示を見る"],
+          ["手羽餃子", "鶏肉・豚肉・小麦・大豆（しょうゆ）・ごま（ごま油）。スープの素は袋の表示を見る"],
+          ["ポテト", "味つけの粉は袋の表示を見る"],
+        ],
+      },
+      {
+        kind: "warn",
+        text: "全部同じ油で揚げています。重いアレルギーの方には「同じ油・同じ場所で作っています」と伝えてください。分からないときは「分からない」と答えます。",
+      },
+    ],
+  },
+];
+
+/** マニュアルで使う写真の印（public/supplies/<id>.jpg） */
+export function manualPhotoIds(sections: ManualSection[] = COOKING_MANUAL): string[] {
+  return sections.flatMap((s) => s.blocks.flatMap((b) => (b.kind === "photos" ? b.items.map((i) => i.id) : [])));
+}

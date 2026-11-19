@@ -6,8 +6,8 @@ import { SUPPLY_GROUPS, supplyCount } from "../lib/supplies";
 
 const items = SUPPLY_GROUPS.flatMap((g) => g.items);
 
-test("備品は14点。同じ印（id）が2つ無い", () => {
-  assert.equal(supplyCount(), 14);
+test("備品は12点。同じ印（id）が2つ無い", () => {
+  assert.equal(supplyCount(), 12);
   assert.equal(new Set(items.map((i) => i.id)).size, items.length);
 });
 

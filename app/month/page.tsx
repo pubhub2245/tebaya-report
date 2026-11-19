@@ -11,10 +11,12 @@
 import Link from "next/link";
 
 import { usePhotoShop, useShopMonth, yen } from "@/app/components/PhotoShopHome";
+import { canSeeShopMoney } from "@/lib/photoShopRole";
 
 export default function MonthPage() {
-  const { checking, shop } = usePhotoShop();
-  const state = useShopMonth(shop);
+  const { checking, shop, role } = usePhotoShop();
+  const allowed = canSeeShopMoney(role);
+  const state = useShopMonth(allowed ? shop : null);
 
   if (checking) {
     return (
@@ -24,11 +26,13 @@ export default function MonthPage() {
     );
   }
 
-  if (!shop) {
+  if (!shop || !allowed) {
     return (
       <main className="max-w-md mx-auto px-4 py-6 space-y-3">
         <h1 className="text-xl font-bold">今月の数字</h1>
-        <p className="text-sm text-stone-600">この画面は、写真で日報を出すお店のものです。</p>
+        <p className="text-sm text-stone-600">
+          {shop ? "この画面は、店主の方だけが見られます。" : "この画面は、写真で日報を出すお店のものです。"}
+        </p>
         <Link href="/" className="text-sm text-stone-500 underline">
           ← メニューへ
         </Link>
