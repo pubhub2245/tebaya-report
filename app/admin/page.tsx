@@ -22,6 +22,7 @@ import SystemHealthPanel from "@/app/components/SystemHealthPanel";
 import EditReportModal from "@/app/components/EditReportModal";
 import KeiriCaseLink from "@/app/components/KeiriCaseLink";
 import ReceiptMigrationPanel from "@/app/components/ReceiptMigrationPanel";
+import LineGroupPostPanel from "@/app/components/LineGroupPostPanel";
 import ReceiptReocrPanel from "@/app/components/ReceiptReocrPanel";
 import AdminGate from "@/app/components/AdminGate";
 import OwnerOutreachNudge from "@/app/components/OwnerOutreachNudge";
@@ -523,6 +524,8 @@ export default function AdminPage() {
       <ReceiptReocrPanel />
 
       <LineDiagnostics />
+
+      <LineGroupPostPanel />
 
       <AchievementRateDashboard />
 
