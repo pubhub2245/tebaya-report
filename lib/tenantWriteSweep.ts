@@ -231,6 +231,11 @@ export const ALLOWED_UNSCOPED: readonly AllowEntry[] = [
     why: "手羽屋だけの仕組み（同上）",
   },
   {
+    path: "app/api/line/shop/webhook/route.ts",
+    table: "line_shop_groups",
+    why: "LINEが署名つきで送ってくる受け口だけが書く。お店の画面からは書かない（お店の中の連絡用Botのグループ控え）",
+  },
+  {
     path: "app/api/line/webhook/route.ts",
     table: "line_groups",
     why: "手羽屋だけの仕組み（スタッフ向けBotのグループ。CLAUDE.md 4-16）",

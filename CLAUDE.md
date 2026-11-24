@@ -451,6 +451,13 @@
   `follow` / `unfollow` は `customer_line_events` に記録だけ（返信・通知なし）。
 - `tests/customerLineWebhook.test.ts` で固定。
 - **既存のスタッフ向けの仕組みは一切変えていない。**
+- **3つ目：お店の中の連絡用「手羽屋 ばあちゃんち」（@719sepmw・2026-11-24）**。牟田町店の引き継ぎグループに
+  お知らせを送るためだけのBot（スタッフ向けBotの通数が尽きたため作った。通数はBotごとに別）。
+  合鍵は `LINE_SHOP_CHANNEL_ACCESS_TOKEN` / `LINE_SHOP_CHANNEL_SECRET`、受け口は `/api/line/shop/webhook`
+  （入っているグループを `line_shop_groups` に控えるだけ。返事・転送・会話の保存はしない）。
+  送るのは管理者ページ「📣 LINEのグループに送る」でBotを選んで手で1通だけ。**今月の残り通数**と
+  「使う通数＝グループの人数」を見せ、足りなければ送らせない。決まりは `lib/line/lineBots.ts`（`tests/lineBots.test.ts`）。
+  **日報の知らせ（`sendLineGroupMessage`）は変えていない。**
 
 ### 4-17. 「本番に出たか」は目で数えず、版の合言葉で確かめる
 

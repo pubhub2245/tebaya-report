@@ -76,6 +76,8 @@ export const TABLES_NOT_IN_SHOP_SCREENS: Record<string, string> = {
     "スタッフ向けLINEのグループ会話の記録。書くのは /api/line/webhook だけ",
   line_group_replies:
     "スタッフ向けLINEのキーワード返信の文面。読むのは /api/line/webhook だけ",
+  line_shop_groups:
+    "お店の中の連絡用LINE（手羽屋 ばあちゃんち）が入っているグループ。書くのは /api/line/shop/webhook、読むのは管理者ページの /api だけ",
   site_visits: "アクセスの数え（/api/hit）。画面からは触らない",
   table_snapshots:
     "毎日の控え（バックアップ・→ CLAUDE.md 4-6）。サーバー側の鍵でしか触れない",

@@ -75,6 +75,7 @@ export const LIVE_TABLES = [
   "line_group_messages",
   "line_group_replies",
   "line_groups",
+  "line_shop_groups",
   "location_rank_history",
   "locations",
   "monthly_limited_products",
