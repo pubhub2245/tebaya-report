@@ -45,6 +45,7 @@ test("いま使っている棚は、1つも写しと呼ばない", () => {
     "customer_line_messages",
     "customer_line_events",
     "line_groups",
+    "line_shop_groups",
     "feedback_box",
     "feedback_replies",
     "agenda_items",
